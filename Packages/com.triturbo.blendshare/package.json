@@ -1,0 +1,19 @@
+{
+  "name": "com.triturbo.blendshare",
+  "displayName": "BlendShare",
+  "version": "0.0.5",
+  "description": "BlendShare is a tool designed for creators who need to share blendshapes without distributing the original FBX files.",
+  "gitDependencies": {},
+  "vpmDependencies": {},
+  "author": {
+    "name": "Triturbo",
+    "email": "Triturbo000@gmail.com",
+    "url": "https://github.com/Tr1turbo"
+  },
+  "legacyFolders": {},
+  "legacyFiles": {},
+  "localPath": "",
+  "dependencies": {
+    "com.autodesk.fbx": "4.2.1"
+  }
+}

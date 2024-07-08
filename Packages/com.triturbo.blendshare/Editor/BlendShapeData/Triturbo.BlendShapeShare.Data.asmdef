@@ -1,0 +1,28 @@
+{
+    "name": "Triturbo.BlendShapeShare.Data.Editor",
+    "references": [
+        "GUID:2b82e46c4ca0a4eb697ab8ccdfb39af1"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.autodesk.fbx",
+            "expression": "4.2.0",
+            "define": "ENABLE_FBX_SDK"
+        },
+        {
+            "name": "Unity",
+            "expression": "2022",
+            "define": "UNITY_2022"
+        }
+    ],
+    "noEngineReferences": false
+}

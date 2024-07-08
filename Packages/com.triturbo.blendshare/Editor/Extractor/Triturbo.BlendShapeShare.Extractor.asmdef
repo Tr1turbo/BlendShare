@@ -1,0 +1,25 @@
+{
+    "name": "Triturbo.BlendShapeShare.Extractor.Editor",
+    "rootNamespace": "",
+    "references": [
+        "GUID:2b82e46c4ca0a4eb697ab8ccdfb39af1",
+        "GUID:36c306fbfd17b8a4a8443f67f3991996"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.autodesk.fbx",
+            "expression": "4.2.0",
+            "define": "ENABLE_FBX_SDK"
+        }
+    ],
+    "noEngineReferences": false
+}

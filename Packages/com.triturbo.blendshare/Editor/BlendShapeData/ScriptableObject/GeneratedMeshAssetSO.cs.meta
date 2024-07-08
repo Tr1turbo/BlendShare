@@ -1,0 +1,12 @@
+fileFormatVersion: 2
+guid: 5b4b78ea4f29c6c4998a64cbc1ac86a1
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - bannerIcon: {fileID: 2800000, guid: d7a4c535e2146dc43beda904cacc9d85, type: 3}
+  executionOrder: 0
+  icon: {fileID: 2800000, guid: 00e7182f0c7892242ab0b107eabfc061, type: 3}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
