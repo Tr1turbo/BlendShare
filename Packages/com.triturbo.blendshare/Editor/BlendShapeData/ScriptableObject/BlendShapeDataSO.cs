@@ -168,7 +168,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             m_ShapeNames = new List<string>();
 
         }
-        public MeshData(Mesh mesh, List<string> blendShapeNames)
+        public MeshData(Mesh mesh, IEnumerable<string> blendShapeNames)
         {
             this.m_MeshName = mesh.name;
             m_OriginMesh = mesh;
@@ -179,7 +179,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
             m_BlendShapes = new List<BlendShapeWrapper>();
 
-            m_ShapeNames = blendShapeNames;
+            m_ShapeNames = blendShapeNames.ToList();
             foreach(string name in blendShapeNames)
             {
                 m_BlendShapes.Add(new BlendShapeWrapper() { m_ShapeName = name });
@@ -281,13 +281,10 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
     [System.Serializable]
     public class UnityBlendShapeData
     {
-        //public List<UnityBlendShapeFrame> frames;
 
         public UnityBlendShapeFrame[] m_Frames;
         public UnityBlendShapeData(int frameCount)
         {
-
-            //frames = new List<UnityBlendShapeFrame>(frameCount);
             m_Frames = new UnityBlendShapeFrame[frameCount];
         }
 
@@ -295,6 +292,31 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         {
             m_Frames[i] = frame;
         }
+
+        public UnityBlendShapeData(Mesh sourceMesh, int index)
+        {
+            int frameCount = sourceMesh.GetBlendShapeFrameCount(index);
+
+
+            m_Frames = new UnityBlendShapeFrame[frameCount];
+
+            for (int i = 0; i < frameCount; i++)
+            {
+                float frameWeight = sourceMesh.GetBlendShapeFrameWeight(index, i);
+                Vector3[] deltaVertices = new Vector3[sourceMesh.vertexCount];
+                Vector3[] deltaNormals = new Vector3[sourceMesh.vertexCount];
+                Vector3[] deltaTangents = new Vector3[sourceMesh.vertexCount];
+
+                sourceMesh.GetBlendShapeFrameVertices(index, i, deltaVertices, deltaNormals, deltaTangents);
+
+
+                m_Frames[i] = new UnityBlendShapeFrame(frameWeight, sourceMesh.vertexCount,
+                    deltaVertices, deltaNormals, deltaTangents);
+            }
+        }
+
+
+
     }
 
 
@@ -324,7 +346,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
   
 
-        public UnityBlendShapeFrame(string name, float weight, int vertexCount,
+        public UnityBlendShapeFrame(float weight, int vertexCount,
             Vector3[] deltaVertices, Vector3[] deltaNormals, Vector3[] deltaTangents)
         {
             this.m_FrameWeight = weight;
@@ -366,6 +388,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             int i = 0;
             foreach (var index in m_VertexIndices)
             {
+                if (index >= vertexCount) continue;
                 delta[index] = m_DeltaVertices[i++];
             }
             return delta;
@@ -377,6 +400,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             int i = 0;
             foreach (var index in m_NormalIndices)
             {
+                if (index >= vertexCount) continue;
                 delta[index] = m_DeltaNormals[i++];
             }
             return delta;
@@ -388,6 +412,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             int i = 0;
             foreach (var index in m_TangentIndices)
             {
+                if (index >= vertexCount) continue;
                 delta[index] = m_DeltaTangents[i++];
             }
             return delta;
