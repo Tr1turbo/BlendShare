@@ -28,7 +28,7 @@ namespace Triturbo.BlendShapeShare.Extractor
         public Vector2 mainScrollPos;
         private List<SkinnedMeshRenderer> skinnedMeshRenderers;
 
-        public Dictionary<SkinnedMeshRenderer, bool[]> blendShapeToggles;
+        public Dictionary<SkinnedMeshRenderer, bool[]> blendShapeToggles =  new Dictionary<SkinnedMeshRenderer, bool[]>();
         public Dictionary<SkinnedMeshRenderer, Vector2> scrollPositions = new Dictionary<SkinnedMeshRenderer, Vector2>();
        
         public SkinnedMeshRenderer currentFocus;
@@ -72,13 +72,14 @@ namespace Triturbo.BlendShapeShare.Extractor
 
 
             GUILayout.BeginHorizontal(GUI.skin.box);
-            GUILayout.Label("BlendShapes Extract Tool by Triturbo", EditorStyles.boldLabel);
+            GUILayout.Label("BlendShapes Extracting Tool by Triturbo", EditorStyles.boldLabel);
             GUILayout.EndHorizontal();
 
             EditorGUILayout.Separator();
 
 
             EditorGUI.BeginChangeCheck();
+
 
             EditorGUI.BeginChangeCheck();
             originFBX = (GameObject)EditorGUILayout.ObjectField("Origin FBX", originFBX, typeof(GameObject), false);
@@ -94,21 +95,23 @@ namespace Triturbo.BlendShapeShare.Extractor
             }
 
 
-            //EditorGUI.BeginDisabledGroup(originFBX == null);
-
-           
-
             sourceFBX = (GameObject)EditorGUILayout.ObjectField("Source FBX", sourceFBX, typeof(GameObject), false);
             
             if (EditorGUI.EndChangeCheck())
             {
                 sourceIsFbx = IsFBXFile(sourceFBX);
-                defaultName = sourceFBX.name;
+
+                if(sourceFBX != null)
+                    defaultName = sourceFBX.name;
+                else
+                    blendShapeToggles.Clear();
 
                 if (sourceFBX != null && originFBX != null)
                 {
                     InitBlendShapesToggles();
                 }
+
+              
             }
 
             if(!sourceIsFbx && sourceFBX != null)
@@ -230,7 +233,6 @@ namespace Triturbo.BlendShapeShare.Extractor
         {
             if (sourceFBX == null) return;
             skinnedMeshRenderers = new List<SkinnedMeshRenderer>(sourceFBX.GetComponentsInChildren<SkinnedMeshRenderer>());
-            blendShapeToggles = new Dictionary<SkinnedMeshRenderer, bool[]>();
 
             foreach (var skinnedMeshRenderer in skinnedMeshRenderers)
             {
@@ -244,33 +246,36 @@ namespace Triturbo.BlendShapeShare.Extractor
                 if (!blendShapeToggles.ContainsKey(skinnedMeshRenderer))
                 {
                     blendShapeToggles[skinnedMeshRenderer] = new bool[blendShapeCount];
-                }
 
-
-
-                if (originFBX == null)
-                {
-                    continue;
-
-                }
-                Mesh originMesh = originFBX.transform.Find(skinnedMeshRenderer.name)?.GetComponent<SkinnedMeshRenderer>()?.sharedMesh;
-
-                if (originMesh == null)
-                {
-                    Debug.LogError($"Can not find {skinnedMeshRenderer.name} in origin: {originFBX.name}");
-                    continue;
-                }
-
-
-
-                for (int i = 0; i < blendShapeCount; i++)
-                {
-                    string shapeName = mesh.GetBlendShapeName(i);
-                    if(originMesh.GetBlendShapeIndex(shapeName) == -1)
+                    if (originFBX == null)
                     {
-                        blendShapeToggles[skinnedMeshRenderer][i] = true;
+                        continue;
+
                     }
+                    Mesh originMesh = originFBX.transform.Find(skinnedMeshRenderer.name)?.GetComponent<SkinnedMeshRenderer>()?.sharedMesh;
+
+                    if (originMesh == null)
+                    {
+                        Debug.LogError($"Can not find {skinnedMeshRenderer.name} in origin: {originFBX.name}");
+                        continue;
+                    }
+
+
+
+                    for (int i = 0; i < blendShapeCount; i++)
+                    {
+                        string shapeName = mesh.GetBlendShapeName(i);
+                        if (originMesh.GetBlendShapeIndex(shapeName) == -1)
+                        {
+                            blendShapeToggles[skinnedMeshRenderer][i] = true;
+                        }
+                    }
+
                 }
+
+
+
+
             }
         }
         public void ShowBlendShapesToggles()
@@ -279,36 +284,33 @@ namespace Triturbo.BlendShapeShare.Extractor
 
             Event e = Event.current;
 
+            float maximumMainHeight = position.height - 220;
 
-
-            float blendshapesMaxHeight = (position.height - 220) * 0.6f;
+            float blendshapesMaxHeight = maximumMainHeight * 0.6f;
             if(blendshapesMaxHeight > 600)
             {
                 blendshapesMaxHeight = 600;
             }
 
-            skinnedMeshRenderers = new List<SkinnedMeshRenderer>(sourceFBX.GetComponentsInChildren<SkinnedMeshRenderer>());
-
-
             float blendshapesHeight = 0;
             if (currentFocus != null && currentFocus.sharedMesh != null)
             {
-                blendshapesHeight = currentFocus.sharedMesh.blendShapeCount * 15f + 60f;
+                blendshapesHeight = currentFocus.sharedMesh.blendShapeCount * 15f ;
             }
-            if(blendshapesHeight > blendshapesMaxHeight)
+            if(blendshapesHeight > blendshapesMaxHeight + 30f)
             {
-                blendshapesHeight = blendshapesMaxHeight;
+                blendshapesHeight = blendshapesMaxHeight + 30f;
             }
-            float mainHeight = blendshapesHeight + skinnedMeshRenderers.Count * 15f + 15f;
+            float mainHeight = blendshapesHeight + skinnedMeshRenderers.Count * 15f;
 
 
-            if (mainHeight > position.height - 220)
+            if (mainHeight > maximumMainHeight)
             {
-                mainHeight = position.height - 220;
+               // mainHeight = position.height - 220;
+
+                mainScrollPos = EditorGUILayout.BeginScrollView(mainScrollPos, GUILayout.Height(maximumMainHeight));
             }
-            mainScrollPos = EditorGUILayout.BeginScrollView(mainScrollPos, GUILayout.Height(mainHeight));
-
-
+           
             foreach (var skinnedMeshRenderer in skinnedMeshRenderers)
             {
                 Mesh mesh = skinnedMeshRenderer.sharedMesh;
@@ -392,7 +394,6 @@ namespace Triturbo.BlendShapeShare.Extractor
 
                         menu.AddItem(new GUIContent("Select from here"), false, () => {
                             firstIndexWithCtrl = index;
-                            blendShapeToggles[skinnedMeshRenderer][index] = true;
                         });
                         if (firstIndexWithCtrl != -1)
                         {
@@ -423,7 +424,11 @@ namespace Triturbo.BlendShapeShare.Extractor
 
             }
 
-            EditorGUILayout.EndScrollView();
+            if (mainHeight > maximumMainHeight)
+            {
+                EditorGUILayout.EndScrollView();
+            }
+                
         }
 
 
