@@ -575,7 +575,7 @@ namespace Triturbo.BlendShapeShare.Extractor
                     Vector3[] deltaTangents = new Vector3[sourceMesh.vertexCount];
 
                     sourceMesh.GetBlendShapeFrameVertices(i, j, deltaVertices, deltaNormals, deltaTangents);
-                    UnityBlendShapeFrame frame = new UnityBlendShapeFrame(shapeName, frameWeight, sourceMesh.vertexCount,
+                    UnityBlendShapeFrame frame = new UnityBlendShapeFrame(frameWeight, sourceMesh.vertexCount,
                         deltaVertices, deltaNormals, deltaTangents);
 
                     unityBlendShapeData.AddFrameAt(j, frame);
