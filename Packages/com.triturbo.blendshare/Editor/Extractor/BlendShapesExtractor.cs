@@ -14,12 +14,9 @@ namespace Triturbo.BlendShapeShare.Extractor
 {
     public static class BlendShapesExtractor
     {
-        public enum CompareMethod
-        {
-            Name,
-            Index
-        }
-        public static BlendShapeDataSO ExtractFbxBlendShapes(GameObject blendShapeSource, GameObject compareTarget, CompareMethod compareMethod)
+
+
+        public static BlendShapeDataSO ExtractFbxBlendShapes(GameObject blendShapeSource, GameObject compareTarget, List<MeshData> meshDataList)
         {
             var data = ScriptableObject.CreateInstance<BlendShapeDataSO>();
 
@@ -27,16 +24,11 @@ namespace Triturbo.BlendShapeShare.Extractor
 
             string defaultName = $"{compareTarget.name}-{blendShapeSource.name}";
 
-            //var meshDataList = Compare(blendShapeSource, compareTarget, out bool isEqualVertices);
-
-            
-            var meshDataList = CompareBlendShape(blendShapeSource, compareTarget, compareMethod == CompareMethod.Name ? true : false);
-
 
 #if ENABLE_FBX_SDK
             if (IsUnityVerticesEqual(blendShapeSource, compareTarget))
             {
-                if(!ExtractFbxBlendshapes(ref meshDataList, blendShapeSource))
+                if (!ExtractFbxBlendshapes(ref meshDataList, blendShapeSource))
                 {
                     return null;
                 }
@@ -50,12 +42,12 @@ namespace Triturbo.BlendShapeShare.Extractor
                 AssetDatabase.CopyAsset(path, tmp);
                 AssetDatabase.Refresh();
 
-                if(!ExtractFbxBlendshapes(ref meshDataList, blendShapeSource, compareTarget, tmp))
+                if (!ExtractFbxBlendshapes(ref meshDataList, blendShapeSource, compareTarget, tmp))
                 {
                     AssetDatabase.DeleteAsset(tmp);
                     return null;
                 }
-                
+
                 var genertated = AssetDatabase.LoadAssetAtPath<GameObject>(tmp);
 
                 ExtractUnityBlendShapes(ref meshDataList, genertated);
@@ -70,19 +62,27 @@ namespace Triturbo.BlendShapeShare.Extractor
 #endif
 
             List<MeshData> finalList = new List<MeshData>();
-            foreach(var meshData in meshDataList)
+            foreach (var meshData in meshDataList)
             {
-                if(meshData.BlendShapes.Count > 0)
+                if (meshData.BlendShapes.Count > 0)
                 {
                     finalList.Add(meshData);
                 }
             }
 
             data.m_MeshDataList = finalList;
-           
+
 
 
             return data;
+        }
+
+
+
+        public static BlendShapeDataSO ExtractFbxBlendShapes(GameObject blendShapeSource, GameObject compareTarget, bool compareByName)
+        {
+            var meshDataList = CompareBlendShape(blendShapeSource, compareTarget, compareByName);
+            return ExtractFbxBlendShapes(blendShapeSource, compareTarget, meshDataList);
         }
 
 
@@ -210,7 +210,6 @@ namespace Triturbo.BlendShapeShare.Extractor
 
             FbxImporter fbxImporter = FbxImporter.Create(fbxManager, "");
             int pFileFormat = fbxManager.GetIOPluginRegistry().FindWriterIDByDescription("FBX binary (*.fbx)");
-            // -> 0
 
 
 
@@ -252,8 +251,6 @@ namespace Triturbo.BlendShapeShare.Extractor
                 originFbxImporter.Import(originScene);
                 originFbxImporter.Destroy();
             }
-
-            //
 
 
 
