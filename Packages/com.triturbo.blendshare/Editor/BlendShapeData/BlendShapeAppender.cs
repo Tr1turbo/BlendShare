@@ -119,35 +119,75 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             {
                 return null;
             }
+
+            // Ensure the vertex count of the blend shape data matches the target mesh
+
             if (meshBlendShapesData.m_VertexCount != target.vertexCount)
             {
                 return null;
             }
 
+            // Verify the vertex hash to ensure the target mesh hasn't been altered
+
             if (meshBlendShapesData.m_VerticesHash != MeshData.GetVerticesHash(target))
             {
                 return null;
             }
-            Mesh targetMesh = Object.Instantiate(target);
 
+            // Create a copy of the target mesh to modify
 
-            // Apply stored blendshapes to target mesh
+            Mesh newMesh = Object.Instantiate(target);
+
+            // Check if any blend shapes already exist in the target mesh
+            bool exist = false;
             foreach (var blendShapeData in meshBlendShapesData.BlendShapes)
             {
-
-                var index = targetMesh.GetBlendShapeIndex(blendShapeData.m_ShapeName);
+                var index = newMesh.GetBlendShapeIndex(blendShapeData.m_ShapeName);
                 if (index != -1)
                 {
-                    Debug.LogWarning($"BlendShape: {blendShapeData.m_ShapeName} already exists in {index}");
-                    continue;
-                }
-                
-                foreach (var frame in blendShapeData.m_UnityBlendShapeData.m_Frames)
-                {
-                    frame.AddBlendShapeFrame(ref targetMesh, blendShapeData.m_ShapeName);
+                    exist = true;
+                    break;
                 }
             }
-            return targetMesh;
+
+            // If blend shapes already exist, remove all existing shapes and add back those not defined in meshBlendShapesData
+            if (exist)
+            {
+                List<(string, UnityBlendShapeData)> blendshapes = new List<(string, UnityBlendShapeData)>();
+
+                // Collect existing blend shapes that are not defined in meshBlendShapesData
+
+                for (int i = 0; i < newMesh.blendShapeCount; i++)
+                {
+                    string name = newMesh.GetBlendShapeName(i);
+                    if (!meshBlendShapesData.ContainsBlendShape(name))
+                    {
+                        blendshapes.Add((name, new UnityBlendShapeData(newMesh, i)));
+                    }
+                }
+
+                // Clear all blend shapes from the target mesh
+                // Add back the collected blend shapes to the target mesh
+
+                newMesh.ClearBlendShapes();
+                foreach (var blendShape in blendshapes)
+                {
+                    foreach (var frame in blendShape.Item2.m_Frames)
+                    {
+                        frame.AddBlendShapeFrame(ref newMesh, blendShape.Item1);
+                    }
+                }
+            }
+
+            // Apply the new blend shapes from meshBlendShapesData to the target mesh
+            foreach (var blendShapeData in meshBlendShapesData.BlendShapes)
+            {
+                foreach (var frame in blendShapeData.m_UnityBlendShapeData.m_Frames)
+                {
+                    frame.AddBlendShapeFrame(ref newMesh, blendShapeData.m_ShapeName);
+                }
+            }
+            return newMesh;
         }
 
 
@@ -271,17 +311,26 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                     continue;
                 }
 
-                var deformer = so.GetDeformer(targetMesh);               
+                so.GetDeformer(targetMesh, false)?.Destroy();
 
-                for (int i = deformer.GetBlendShapeChannelCount() - 1; i >= 0; i--)
+                // remove blend shape define in list
+                for (int i = 0; i < targetMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape); i++)
                 {
-                    var name = deformer.GetBlendShapeChannel(i).GetName();
-                    if(meshData.ContainsBlendShape(name))
+                    var d = targetMesh.GetBlendShapeDeformer(i);
+                    for (int j = d.GetBlendShapeChannelCount() - 1; j >= 0; j--)
                     {
-                        deformer.RemoveBlendShapeChannel(deformer.GetBlendShapeChannel(i));
-                        Debug.LogWarning($"Warning: The blendshape with the name '{name}' already exists in the node '{node.GetName()}'. The existing blendshape was overwritten.");
+                        var name = d.GetBlendShapeChannel(j).GetName();
+                        if (meshData.ContainsBlendShape(name))
+                        {
+                            d.RemoveBlendShapeChannel(d.GetBlendShapeChannel(j));
+                            Debug.LogWarning($"Warning: The blendshape with the name '{name}' already exists in the node '{node.GetName()}'. The existing blendshape was overwritten.");
+
+                        }
                     }
                 }
+
+                var deformer = so.GetDeformer(targetMesh);
+
                 foreach(var blend in meshData.BlendShapes)
                 {
                     deformer.AddBlendShapeChannel(CreateFbxBlendShapeChannel(blend.m_ShapeName, targetMesh, blend.m_FbxBlendShapeData));
