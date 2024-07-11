@@ -7,6 +7,8 @@ These assets can be easily shared and applied to compatible FBX files.
 
 
 # Extractor
+Click Tools -> BlendShare -> BlendShapes Extractor to open Blendshapes extractor
+
 ![Extractor](https://github.com/Tr1turbo/BlendShare/assets/162105654/add3a722-c04f-4773-bce7-6221b9fb994c)
 - Origin FBX
     - The original FBX file.
