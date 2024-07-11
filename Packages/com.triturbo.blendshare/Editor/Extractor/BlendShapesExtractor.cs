@@ -36,7 +36,7 @@ namespace Triturbo.BlendShapeShare.Extractor
             }
             else
             {
-                string path = AssetDatabase.GetAssetPath(blendShapeSource);
+                string path = AssetDatabase.GetAssetPath(compareTarget);
                 string tmp = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path), $"{compareTarget.name}-{blendShapeSource.name}-{System.Guid.NewGuid().ToString()}.fbx");
 
                 AssetDatabase.CopyAsset(path, tmp);
@@ -88,103 +88,11 @@ namespace Triturbo.BlendShapeShare.Extractor
 
 
 #if ENABLE_FBX_SDK
-        public static bool ExtractFbxBlendshapes(GameObject source, ref List<MeshData> meshDataList)
-        {
-            if(meshDataList == null)
-            {
-                meshDataList = new List<MeshData>();
-            }
 
-
-            var fbxManager = FbxManager.Create();
-
-            var ios = FbxIOSettings.Create(fbxManager, Globals.IOSROOT);
-            fbxManager.SetIOSettings(ios);
-
-            var sourceScene = FbxScene.Create(fbxManager, "Source");
-
-
-            if (EditorUtility.DisplayCancelableProgressBar("TransferFbxBlendshapes", "Create FBX scene...", 0))
-            {
-                EditorUtility.ClearProgressBar();
-                return false;
-            }
-
-
-            FbxImporter fbxImporter = FbxImporter.Create(fbxManager, "");
-            int pFileFormat = fbxManager.GetIOPluginRegistry().FindWriterIDByDescription("FBX binary (*.fbx)");
-
-            Debug.Log($"pFileFormat {pFileFormat}");
-
-
-            if (EditorUtility.DisplayCancelableProgressBar("TransferFbxBlendshapes", "Import source FBX...", 0.1f))
-            {
-                EditorUtility.ClearProgressBar();
-                return false;
-            }
-
-            if (!fbxImporter.Initialize(AssetDatabase.GetAssetPath(source), pFileFormat, fbxManager.GetIOSettings()))
-            {
-                return false;
-            }
-            fbxImporter.Import(sourceScene);
-
-            if (EditorUtility.DisplayCancelableProgressBar("TransferFbxBlendshapes", "Destroy Importer...", 0.3f))
-            {
-                EditorUtility.ClearProgressBar();
-                return false;
-            }
-            fbxImporter.Destroy();
-
-            if (EditorUtility.DisplayCancelableProgressBar("TransferFbxBlendshapes", "Getting Root Node...", 0.4f))
-            {
-                EditorUtility.ClearProgressBar();
-                return false;
-            }
-            var sourceRootNode = sourceScene.GetRootNode();
-
-
-
-            foreach (var meshData in meshDataList)
-            {
-                FbxNode node = sourceRootNode.FindChild(meshData.m_MeshName, false);
-                FbxMesh sourceMesh = node?.GetMesh();
-                if (sourceMesh == null)
-                {
-                    continue;
-                }
-
-                if (sourceMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape) < 1)
-                {
-                    continue;
-                }
-
-                var deformer = sourceMesh.GetBlendShapeDeformer(0);
-
-
-
-                for (int i = 0; i < deformer.GetBlendShapeChannelCount(); i++)
-                {
-                    var channel = deformer.GetBlendShapeChannel(i);
-
-                    string name = channel.GetName();
-                    if (meshData.ContainsBlendShape(name))
-                    {
-                        meshData.SetBlendShape(name, GetFbxBlendShapeData(channel, sourceMesh));
-                    }
-                }
-
-            }
-
-
-
-            return true;
-
-        }
-
+        //Extracts blendshapes from a source FBX file and optionally transfers them to an origin FBX file. 
 
         public static bool ExtractFbxBlendshapes(
-            ref List<MeshData> meshDataList, GameObject source, GameObject origin = null, string fbxPath = "")
+            ref List<MeshData> meshDataList, GameObject source, GameObject origin = null, string exportPath = "")
         {
             if (meshDataList == null)
             {
@@ -332,7 +240,7 @@ namespace Triturbo.BlendShapeShare.Extractor
                 }
 
                 var exporter = FbxExporter.Create(originFbxManager, "");
-                if (exporter.Initialize(fbxPath, pFileFormat, originFbxManager.GetIOSettings()) == false)
+                if (exporter.Initialize(exportPath, pFileFormat, originFbxManager.GetIOSettings()) == false)
                 {
                     Debug.LogError("Exporter Initialize failed.");
                     return false;
@@ -349,6 +257,8 @@ namespace Triturbo.BlendShapeShare.Extractor
 
             return true;
         }
+
+       
 
         public static FbxBlendShapeChannel CopyFbxBlendShapeChannel(FbxBlendShapeChannel source, FbxObject container)
         {
