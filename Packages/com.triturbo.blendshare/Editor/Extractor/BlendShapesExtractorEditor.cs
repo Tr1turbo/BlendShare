@@ -214,17 +214,26 @@ namespace Triturbo.BlendShapeShare.Extractor
                 }
 
 
-                List<string> blendShapes = new List<string>();
-                for (int i = 0; i < blendShapeToggles[meshRenderer].Length; i++)
-                {
-                    if (blendShapeToggles[meshRenderer][i])
-                    {
-                        blendShapes.Add(sourceMesh.GetBlendShapeName(i));
-                    }
-                }
-                MeshData meshData = new MeshData(originMesh, blendShapes);
 
-                meshDataList.Add(meshData);
+                if(blendShapeToggles.TryGetValue(meshRenderer, out bool[] blendshapesToggles))
+                {
+
+                    List<string> blendShapes = new List<string>();
+
+
+                    for (int i = 0; i < blendshapesToggles.Length; i++)
+                    {
+                        if (blendshapesToggles[i])
+                        {
+                            blendShapes.Add(sourceMesh.GetBlendShapeName(i));
+                        }
+                    }
+                    MeshData meshData = new MeshData(originMesh, blendShapes);
+
+                    meshDataList.Add(meshData);
+                }
+
+
             }
             return meshDataList;
         }
@@ -246,6 +255,7 @@ namespace Triturbo.BlendShapeShare.Extractor
                 if (!blendShapeToggles.ContainsKey(skinnedMeshRenderer))
                 {
                     blendShapeToggles[skinnedMeshRenderer] = new bool[blendShapeCount];
+                    
 
                     if (originFBX == null)
                     {
