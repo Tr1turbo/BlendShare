@@ -164,6 +164,10 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                     {
                         blendshapes.Add((name, new UnityBlendShapeData(newMesh, i)));
                     }
+                    else
+                    {
+                        blendshapes.Add((name, meshBlendShapesData.GetBlendShape(name).m_UnityBlendShapeData));
+                    }
                 }
 
                 // Clear all blend shapes from the target mesh
@@ -182,6 +186,8 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             // Apply the new blend shapes from meshBlendShapesData to the target mesh
             foreach (var blendShapeData in meshBlendShapesData.BlendShapes)
             {
+                if (newMesh.GetBlendShapeIndex(blendShapeData.m_ShapeName) != -1) continue;
+
                 foreach (var frame in blendShapeData.m_UnityBlendShapeData.m_Frames)
                 {
                     frame.AddBlendShapeFrame(ref newMesh, blendShapeData.m_ShapeName);
@@ -254,7 +260,44 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             }
             return fbxBlendShapeChannel;
         }
+
+
+        //Add TargetShape to FbxBlendShapeChannel from FbxBlendShapeData
+        public static FbxBlendShapeChannel CreateFbxBlendShapeChannel(FbxBlendShapeChannel fbxBlendShapeChannel, FbxMesh mesh, FbxBlendShapeData fbxBlendShapeData)
+        {
+
+            int controlPointCount = mesh.GetControlPointsCount();
+           
+
+            int shapeCount = fbxBlendShapeData.m_Frames.Length;
+            for (int shapeIndex = 0; shapeIndex < shapeCount; shapeIndex++)
+            {
+
+                FbxShape newShape = FbxShape.Create(mesh, fbxBlendShapeChannel.GetName());
+                newShape.InitControlPoints(controlPointCount);
+
+                FbxBlendShapeFrame frame = fbxBlendShapeData.m_Frames[shapeIndex];
+
+
+                for (int pointIndex = 0; pointIndex < controlPointCount; pointIndex++)
+                {
+                    var d = frame.GetDeltaControlPointAt(pointIndex);
+
+                    var controlPoint = mesh.GetControlPointAt(pointIndex) + new FbxVector4(d.m_X, d.m_Y, d.m_Z, d.m_W);
+
+
+
+                    newShape.SetControlPointAt(controlPoint, pointIndex);
+                }
+
+
+                fbxBlendShapeChannel.AddTargetShape(newShape, 100.0 * (shapeIndex + 1) / shapeCount);
+            }
+            return fbxBlendShapeChannel;
+        }
 #endif
+
+
 
         public static bool CreateFbx(this BlendShapeDataSO so, string fbxPath = null)
         {
@@ -313,7 +356,10 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
                 so.GetDeformer(targetMesh, false)?.Destroy();
 
-                // remove blend shape define in list
+
+                HashSet<string> existingBlendshapes = new HashSet<string>();
+                
+                // overwrite blend shape define in list
                 for (int i = 0; i < targetMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape); i++)
                 {
                     var d = targetMesh.GetBlendShapeDeformer(i);
@@ -322,9 +368,21 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                         var name = d.GetBlendShapeChannel(j).GetName();
                         if (meshData.ContainsBlendShape(name))
                         {
-                            d.RemoveBlendShapeChannel(d.GetBlendShapeChannel(j));
                             Debug.LogWarning($"Warning: The blendshape with the name '{name}' already exists in the node '{node.GetName()}'. The existing blendshape was overwritten.");
 
+                            var channel = d.GetBlendShapeChannel(j);
+
+                            int shapeCount = channel.GetTargetShapeCount();
+
+                            //Clear all existing shapes
+                            for (int shape = 0; shape < shapeCount; shape ++)
+                            {
+                                channel.RemoveTargetShape(channel.GetTargetShape(shape));
+                            }
+
+                            CreateFbxBlendShapeChannel(channel, targetMesh, meshData.GetBlendShape(name).m_FbxBlendShapeData);
+
+                            existingBlendshapes.Add(name);
                         }
                     }
                 }
@@ -333,6 +391,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
                 foreach(var blend in meshData.BlendShapes)
                 {
+                    if (existingBlendshapes.Contains(blend.m_ShapeName)) continue;
                     deformer.AddBlendShapeChannel(CreateFbxBlendShapeChannel(blend.m_ShapeName, targetMesh, blend.m_FbxBlendShapeData));
                 }
             }
