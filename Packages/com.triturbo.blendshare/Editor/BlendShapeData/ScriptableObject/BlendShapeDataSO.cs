@@ -106,12 +106,17 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 {
                     blendShape = new BlendShapeWrapper(){ m_ShapeName = name };
                     m_BlendShapes.Add(blendShape);
-
                 }
 
                 return blendShape;
             }
             return null;
+        }
+
+        public void SetBlendShapes(List<BlendShapeWrapper> blendShapes)
+        {
+            m_BlendShapes = blendShapes;
+            m_ShapeNames = blendShapes.Select(b => b.m_ShapeName).ToList();
         }
 
         public bool AddBlendShape(BlendShapeWrapper blendShapeWrapper)

@@ -311,18 +311,42 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 {
 
 #if ENABLE_FBX_SDK
-                    if (EditorUtility.DisplayDialog("Unity mesh vertices not match", "Unable to create mesh since vertices not match. \nCreate FBX file instead?", "Create FBX", "Cancel"))
+
+                    //Cannot generate Unity mesh.
+                    //Use FBX SDK
+
+                    //if (EditorUtility.DisplayDialog("Unity mesh vertices not match", "Unable to create mesh since vertices not match. \nCreate FBX file instead?", "Create FBX", "Cancel"))
+                    //{
+
+
+                    //    path = EditorUtility.SaveFilePanelInProject("Save FBX",
+                    //        dataAsset.DefaultFbxName, "fbx",
+                    //        "Please enter a file name", folderPath);
+                    //    if (path.Length > 0)
+                    //    {
+                    //        dataAsset.CreateFbx(dataAsset.m_Original, path);
+                    //    }
+                    //}
+                    path = EditorUtility.SaveFilePanelInProject("Save Mesh",
+                    dataAsset.DefaultMeshAssetName, "asset",
+                    "Please enter a file name", folderPath);
+
+                    if (path.Length > 0)
                     {
+                        string tmp = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path), $"{dataAsset.DefaultFbxName}-{System.Guid.NewGuid().ToString()}.fbx");
+                        dataAsset.CreateNecessaryFbx(dataAsset.m_Original, tmp);
 
+                        var genertated = AssetDatabase.LoadAssetAtPath<GameObject>(tmp);
 
-                        path = EditorUtility.SaveFilePanelInProject("Save FBX",
-                            dataAsset.DefaultFbxName, "fbx",
-                            "Please enter a file name", folderPath);
-                        if (path.Length > 0)
-                        {
-                            dataAsset.CreateFbx(dataAsset.m_Original, path);
-                        }
+                        dataAsset.CreateMeshAsset(path, genertated);
+                        AssetDatabase.DeleteAsset(tmp);
+
                     }
+
+
+
+
+
 #else
                     if (EditorUtility.DisplayDialog("Unity mesh vertices not match", "Unable to create mesh since vertices not match. Please import FBX SDK and create FBX file", "OK"))
                     {

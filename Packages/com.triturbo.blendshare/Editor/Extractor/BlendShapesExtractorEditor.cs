@@ -24,6 +24,13 @@ namespace Triturbo.BlendShapeShare.Extractor
 
         public CompareMethod compareMethod = CompareMethod.Name;
 
+        public enum BaseMesh
+        {
+            Source,
+            Origin
+        }
+        public BaseMesh baseMesh = BaseMesh.Source;
+
         // blendshapes togles
         public Vector2 mainScrollPos;
         private List<SkinnedMeshRenderer> skinnedMeshRenderers;
@@ -37,6 +44,7 @@ namespace Triturbo.BlendShapeShare.Extractor
 
         public bool sourceIsFbx = false;
         public bool originIsFbx = false;
+
 
 
         [MenuItem("Tools/BlendShare/BlendShapes Extractor")]
@@ -126,6 +134,12 @@ namespace Triturbo.BlendShapeShare.Extractor
             EditorGUILayout.TextField("Deformer ID", "+BlendShare-" + defaultName);
             EditorGUI.EndDisabledGroup();
 
+
+            
+            baseMesh = (BaseMesh)EditorGUILayout.EnumPopup(new GUIContent("Base Mesh", "Base mesh for calculating blendshapes delta vetices"), baseMesh);
+
+
+
             compareMethod = (CompareMethod)EditorGUILayout.EnumPopup("Compare Method", compareMethod);
 
 
@@ -138,8 +152,6 @@ namespace Triturbo.BlendShapeShare.Extractor
 
             EditorGUILayout.Separator();
 
-
-
             bool enable = sourceFBX != null && originFBX != null;
 
 #if ENABLE_FBX_SDK
@@ -149,21 +161,15 @@ namespace Triturbo.BlendShapeShare.Extractor
             EditorGUILayout.HelpBox("Autodesk FBX SDK is missing. FBX manipulate features will be disabled", MessageType.Warning);
 #endif
 
-
             EditorGUI.BeginDisabledGroup(!(enableFbx && enable));
 
             if (GUILayout.Button("Save BlendShapes as .asset"))
             {
-                BlendShapeDataSO so = null;
-                if (compareMethod == CompareMethod.Custom)
-                {
-                    so = BlendShapesExtractor.ExtractFbxBlendShapes(sourceFBX, originFBX, GetMeshDataList(sourceFBX, originFBX, blendShapeToggles));
+                var meshDataList = compareMethod == CompareMethod.Custom ? 
+                    GetMeshDataList(sourceFBX, originFBX, blendShapeToggles) : 
+                    BlendShapesExtractor.CompareBlendShape(sourceFBX, originFBX, compareMethod == CompareMethod.Name);
 
-                }
-                else
-                {
-                    so = BlendShapesExtractor.ExtractFbxBlendShapes(sourceFBX, originFBX, compareMethod == CompareMethod.Name);
-                }
+                BlendShapeDataSO so = BlendShapesExtractor.ExtractBlendShapes(sourceFBX, originFBX, meshDataList, baseMesh == BaseMesh.Source);
 
                 if (so == null)
                 {
@@ -463,8 +469,6 @@ namespace Triturbo.BlendShapeShare.Extractor
             {
                 toggles[i] = value;
             }
-
-           
         }
 
     }

@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
+using System.Linq;
 
 using UnityEditor;
 #if ENABLE_FBX_SDK
@@ -17,7 +18,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
         public static List<Mesh> CreateMeshes(this BlendShapeDataSO so)
         {
-
             List<Mesh> meshesList = new List<Mesh>(so.m_MeshDataList.Count);
 
             foreach (var meshData in so.m_MeshDataList)
@@ -36,35 +36,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         }
         public static GeneratedMeshAssetSO CreateMeshAsset(List<Mesh> meshesList, string path)
         {
-            var asset = ScriptableObject.CreateInstance<GeneratedMeshAssetSO>();
-
-            AssetDatabase.CreateAsset(asset, path);
-            foreach (var mesh in meshesList)
-            {
-                AssetDatabase.AddObjectToAsset(mesh, path);
-            }
-            AssetDatabase.SaveAssets();
-            AssetDatabase.Refresh();
-
-            return asset;
-        }
-
-        public static GeneratedMeshAssetSO CreateMeshAsset(this BlendShapeDataSO so, string path)
-        {
-
-            List<Mesh> meshesList = new List<Mesh>(so.m_MeshDataList.Count);
-
-            foreach (var meshData in so.m_MeshDataList)
-            {
-                var mesh = CreateBlendShapesMesh(meshData, meshData.m_OriginMesh);
-                if (mesh == null)
-                {
-                    return null;
-                }
-                mesh.name = meshData.m_MeshName;
-                meshesList.Add(mesh);
-            }
-
             var asset = ScriptableObject.CreateInstance<GeneratedMeshAssetSO>();
 
             AssetDatabase.CreateAsset(asset, path);
@@ -110,6 +81,50 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
 
+            return asset;
+        }
+
+
+
+        public static GeneratedMeshAssetSO CreateMeshAsset(this BlendShapeDataSO so, string path)
+        {
+
+            List<Mesh> meshesList = new List<Mesh>(so.m_MeshDataList.Count);
+
+            foreach (var meshData in so.m_MeshDataList)
+            {
+                var mesh = CreateBlendShapesMesh(meshData, meshData.m_OriginMesh);
+                if (mesh == null)
+                {
+                    return null;
+                }
+                mesh.name = meshData.m_MeshName;
+                meshesList.Add(mesh);
+            }
+
+            var asset = ScriptableObject.CreateInstance<GeneratedMeshAssetSO>();
+
+            AssetDatabase.CreateAsset(asset, path);
+            foreach (var mesh in meshesList)
+            {
+                AssetDatabase.AddObjectToAsset(mesh, path);
+            }
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            return asset;
+        }
+
+        public static GeneratedMeshAssetSO CreateMeshAssetSafe(this BlendShapeDataSO so, string path)
+        {
+            var asset = so.CreateMeshAsset(path);
+            if (asset == null)
+            {
+                string tmp = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path), $"{so.DefaultFbxName}-{System.Guid.NewGuid().ToString()}.fbx");
+                so.CreateNecessaryFbx(so.m_Original, tmp);
+                var genertated = AssetDatabase.LoadAssetAtPath<GameObject>(tmp);
+                asset = so.CreateMeshAsset(path, genertated);
+            }
             return asset;
         }
 
@@ -195,9 +210,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             }
             return newMesh;
         }
-
-
-
         //Autodesk FBX SDK
 
 #if ENABLE_FBX_SDK
@@ -295,21 +307,89 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             }
             return fbxBlendShapeChannel;
         }
-#endif
 
-
-
-        public static bool CreateFbx(this BlendShapeDataSO so, string fbxPath = null)
+        public static bool AddBlendShapes(BlendShapeDataSO so, MeshData meshData, FbxNode node)
         {
-            return so.CreateFbx(so.m_Original, fbxPath);
+
+            FbxMesh targetMesh = node?.GetMesh();
+            if (targetMesh == null)
+            {
+                Debug.LogError($"Can not find mesh: {meshData.m_MeshName} in FBX file");
+                return false;
+            }
+
+            so.GetDeformer(targetMesh, false)?.Destroy();
+
+            HashSet<string> existingBlendshapes = new HashSet<string>();
+
+            // overwrite blend shape define in list
+            for (int i = 0; i < targetMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape); i++)
+            {
+                var d = targetMesh.GetBlendShapeDeformer(i);
+                for (int j = d.GetBlendShapeChannelCount() - 1; j >= 0; j--)
+                {
+                    var name = d.GetBlendShapeChannel(j).GetName();
+                    if (meshData.ContainsBlendShape(name))
+                    {
+                        Debug.LogWarning($"Warning: The blendshape with the name '{name}' already exists in the node '{node.GetName()}'. The existing blendshape was overwritten.");
+
+                        var channel = d.GetBlendShapeChannel(j);
+
+                        int shapeCount = channel.GetTargetShapeCount();
+
+                        //Clear all existing shapes
+                        for (int shape = 0; shape < shapeCount; shape++)
+                        {
+                            channel.RemoveTargetShape(channel.GetTargetShape(shape));
+                        }
+
+                        CreateFbxBlendShapeChannel(channel, targetMesh, meshData.GetBlendShape(name).m_FbxBlendShapeData);
+
+                        existingBlendshapes.Add(name);
+                    }
+                }
+            }
+
+            var deformer = so.GetDeformer(targetMesh);
+
+            foreach (var blend in meshData.BlendShapes)
+            {
+                if (existingBlendshapes.Contains(blend.m_ShapeName)) continue;
+                deformer.AddBlendShapeChannel(CreateFbxBlendShapeChannel(blend.m_ShapeName, targetMesh, blend.m_FbxBlendShapeData));
+            }
+
+            return true;
         }
-        public static bool CreateFbx(this BlendShapeDataSO so, GameObject target, string fbxPath = null)
+
+
+
+        public static void DeleteFbxNodesWithMesh(FbxNode entry, IEnumerable<FbxNode> exceptions, bool recursive)
+        {
+            for (int i = entry.GetChildCount() - 1; i >= 0; i--)
+            {
+                var node = entry.GetChild(i);
+                if (!exceptions.Contains(node) && node.GetMesh() != null)
+                {
+                    node.Destroy();
+                }
+                else if(recursive)
+                {
+                    DeleteFbxNodesWithMesh(node, exceptions, true);
+                }
+            }
+        }
+#endif
+        public static bool CreateFbx(this BlendShapeDataSO so, string outputPath = null)
+        {
+            return so.CreateFbx(so.m_Original, outputPath);
+        }
+        public static bool CreateFbx(this BlendShapeDataSO so, GameObject source, string outputPath = null)
         {
 #if ENABLE_FBX_SDK
             var fbxManager = FbxManager.Create();
             var ios = FbxIOSettings.Create(fbxManager, Globals.IOSROOT);
             fbxManager.SetIOSettings(ios);
-            var scene = FbxScene.Create(fbxManager, target.name);
+            var scene = FbxScene.Create(fbxManager, source.name);
 
             if (EditorUtility.DisplayCancelableProgressBar("TransferFbxBlendshapes", "Create FBX scene...", 0))
             {
@@ -325,7 +405,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 return false;
             }
 
-            if (!fbxImporter.Initialize(AssetDatabase.GetAssetPath(target), pFileFormat, fbxManager.GetIOSettings()))
+            if (!fbxImporter.Initialize(AssetDatabase.GetAssetPath(source), pFileFormat, fbxManager.GetIOSettings()))
             {
                 return false;
             }
@@ -398,17 +478,17 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
             var exporter = FbxExporter.Create(fbxManager, "");
 
-            if (string.IsNullOrWhiteSpace(fbxPath))
+            if (string.IsNullOrWhiteSpace(outputPath))
             {
-                fbxPath = AssetDatabase.GetAssetPath(target);
+                outputPath = AssetDatabase.GetAssetPath(source);
             }
             else
             {
-                AssetDatabase.CopyAsset(AssetDatabase.GetAssetPath(target), fbxPath);
+                AssetDatabase.CopyAsset(AssetDatabase.GetAssetPath(source), outputPath);
             }
             AssetDatabase.Refresh();
 
-            if (exporter.Initialize(fbxPath, pFileFormat, fbxManager.GetIOSettings()) == false)
+            if (exporter.Initialize(outputPath, pFileFormat, fbxManager.GetIOSettings()) == false)
             {
                 Debug.LogError("Exporter Initialize failed.");
                 return false;
@@ -424,6 +504,80 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 #endif
         }
 
+        public static bool CreateNecessaryFbx(this BlendShapeDataSO so, GameObject source, string outputPath = null)
+        {
+#if ENABLE_FBX_SDK
+            var fbxManager = FbxManager.Create();
+            var ios = FbxIOSettings.Create(fbxManager, Globals.IOSROOT);
+            fbxManager.SetIOSettings(ios);
+            var scene = FbxScene.Create(fbxManager, source.name);
+
+            if (EditorUtility.DisplayCancelableProgressBar("BlendShare", "Create FBX scene...", 0))
+            {
+                EditorUtility.ClearProgressBar();
+                return false;
+            }
+            FbxImporter fbxImporter = FbxImporter.Create(fbxManager, "");
+            int pFileFormat = fbxManager.GetIOPluginRegistry().FindWriterIDByDescription("FBX binary (*.fbx)");
+
+            if (EditorUtility.DisplayCancelableProgressBar("BlendShare", "Import source FBX...", 0.1f))
+            {
+                EditorUtility.ClearProgressBar();
+                return false;
+            }
+
+            if (!fbxImporter.Initialize(AssetDatabase.GetAssetPath(source), pFileFormat, fbxManager.GetIOSettings()))
+            {
+                return false;
+            }
+
+            fbxImporter.Import(scene);
+            fbxImporter.Destroy();
+
+            if (EditorUtility.DisplayCancelableProgressBar("BlendShare", "Adding Blendshapes...", 0.4f))
+            {
+                EditorUtility.ClearProgressBar();
+                return false;
+            }
+            var sourceRootNode = scene.GetRootNode();
+
+            
+            HashSet<FbxNode> nodes = new HashSet<FbxNode>();
+            foreach (var meshData in so.m_MeshDataList)
+            {
+                FbxNode node = sourceRootNode.FindChild(meshData.m_MeshName, false);
+                AddBlendShapes(so, meshData, node);
+                nodes.Add(node);
+            }
+            DeleteFbxNodesWithMesh(sourceRootNode, nodes, false);
+
+            var exporter = FbxExporter.Create(fbxManager, "");
+
+            if (string.IsNullOrWhiteSpace(outputPath))
+            {
+                outputPath = AssetDatabase.GetAssetPath(source);
+            }
+            else
+            {
+                AssetDatabase.CopyAsset(AssetDatabase.GetAssetPath(source), outputPath);
+            }
+            AssetDatabase.Refresh();
+
+            if (exporter.Initialize(outputPath, pFileFormat, fbxManager.GetIOSettings()) == false)
+            {
+                Debug.LogError("Exporter Initialize failed.");
+                return false;
+            }
+            exporter.Export(scene);
+            exporter.Destroy();
+
+            AssetDatabase.Refresh();
+            EditorUtility.ClearProgressBar();
+            return true;
+#else
+            return false;
+#endif
+        }
 
 
 
