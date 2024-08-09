@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEditor;
 using Triturbo.BlendShapeShare.BlendShapeData;
+using UnityEditorInternal;
 
 namespace Triturbo.BlendShapeShare.Extractor
 {
@@ -31,6 +32,9 @@ namespace Triturbo.BlendShapeShare.Extractor
         }
         public BaseMesh baseMesh = BaseMesh.Source;
 
+        public double tolerance = 0.0001;
+        public bool weldVertices = true;
+
         // blendshapes togles
         public Vector2 mainScrollPos;
         private List<SkinnedMeshRenderer> skinnedMeshRenderers;
@@ -41,10 +45,8 @@ namespace Triturbo.BlendShapeShare.Extractor
         public SkinnedMeshRenderer currentFocus;
 
         public int firstIndexWithCtrl = -1;
-
         public bool sourceIsFbx = false;
         public bool originIsFbx = false;
-
 
 
         [MenuItem("Tools/BlendShare/BlendShapes Extractor")]
@@ -59,6 +61,8 @@ namespace Triturbo.BlendShapeShare.Extractor
             string assetPath = AssetDatabase.GetAssetPath(obj);
             return assetPath.ToLower().EndsWith(".fbx");
         }
+
+  
 
         private void OnGUI()
         {
@@ -135,8 +139,14 @@ namespace Triturbo.BlendShapeShare.Extractor
             EditorGUI.EndDisabledGroup();
 
 
-            
-            baseMesh = (BaseMesh)EditorGUILayout.EnumPopup(new GUIContent("Base Mesh", "Base mesh for calculating blendshapes delta vetices"), baseMesh);
+
+            weldVertices = EditorGUILayout.Toggle(new GUIContent("Weld Vertices", "If vertices share the same position, make the blendshape displacement the same for consistency."), weldVertices);
+            if(weldVertices)
+            {
+                tolerance = EditorGUILayout.DoubleField(new GUIContent("Weld Vertices Tolerance", "Weld vertices only if the blendshape displacement is close enough based on this tolerance."), tolerance);
+            }
+
+            baseMesh = (BaseMesh)EditorGUILayout.EnumPopup(new GUIContent("Base Mesh", "Base mesh for calculating blendshapes displacement vetices"), baseMesh);
 
 
 
@@ -169,10 +179,13 @@ namespace Triturbo.BlendShapeShare.Extractor
                     GetMeshDataList(sourceFBX, originFBX, blendShapeToggles) : 
                     BlendShapesExtractor.CompareBlendShape(sourceFBX, originFBX, compareMethod == CompareMethod.Name);
 
-                BlendShapeDataSO so = BlendShapesExtractor.ExtractBlendShapes(sourceFBX, originFBX, meshDataList, baseMesh == BaseMesh.Source);
+                BlendShapeDataSO so = BlendShapesExtractor.ExtractBlendShapes(sourceFBX, originFBX, meshDataList, baseMesh == BaseMesh.Source, 
+                    fixWeldVertices: weldVertices, 
+                    tolerances: new double[] { tolerance });
 
                 if (so == null)
                 {
+                    EditorUtility.DisplayDialog("Fail", "Blendshapes extraction failed.", "OK");
                     return;
                 }
 
@@ -181,19 +194,41 @@ namespace Triturbo.BlendShapeShare.Extractor
                     defaultName = sourceFBX.name;
                 }
 
-                
-                string path = EditorUtility.SaveFilePanelInProject("Save asset", $"{defaultName}_BlendShare", 
-                    "asset", "Please enter a file name to save the FBX");
 
+
+
+                foreach (var meshData in so.m_MeshDataList)
+                {
+                    if (meshData.m_VertexCount == -1 && meshData.m_VerticesHash == -1)
+                    {
+                        EditorUtility.DisplayDialog("Unity vertices cannot match", "Skip Unity blendshapes extraction. Fbx blendshapes still working.", "OK");
+                        break;
+                    }
+                }
+
+                string path = "";
+                while (string.IsNullOrWhiteSpace(path))
+                {
+                    path = EditorUtility.SaveFilePanelInProject("Save asset", $"{defaultName}_BlendShare",
+                        "asset", "Please enter a file name to save the FBX");
+
+                    if (string.IsNullOrWhiteSpace(path))
+                    {
+                        if(EditorUtility.DisplayDialog("Cancel", "Are you sure you want to cancel?", "Yes", "No"))
+                        {
+                            
+                            return;
+                        }
+                        continue;
+                    }
+                    break;
+                }
 
                 so.m_DefaultGeneratedAssetName = defaultName;
                 so.m_DeformerID = "+BlendShare-" + defaultName;
                 
-
                 AssetDatabase.CreateAsset(so, path);
                 AssetDatabase.SaveAssets();
-
-
                 AssetDatabase.Refresh();
             }
             EditorGUI.EndDisabledGroup();

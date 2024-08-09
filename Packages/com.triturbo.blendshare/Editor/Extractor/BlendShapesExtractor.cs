@@ -15,7 +15,7 @@ namespace Triturbo.BlendShapeShare.Extractor
     public static class BlendShapesExtractor
     {
         public static BlendShapeDataSO ExtractBlendShapes(GameObject blendShapeSource, GameObject originObject, List<MeshData> meshDataList, 
-            bool sourceAsBaseMesh = true, bool fixWeldVertices = true)
+            bool sourceAsBaseMesh = true, bool fixWeldVertices = true, double[] tolerances = null)
         {
             var data = ScriptableObject.CreateInstance<BlendShapeDataSO>();
 
@@ -45,7 +45,10 @@ namespace Triturbo.BlendShapeShare.Extractor
 
                 if (fixWeldVertices && !match)
                 {
-                    double[] tolerances = new double[] { 0.000016, 0.000018, 0.00002, 0.00005};
+                    if(tolerances == null)
+                    {
+                        tolerances = new double[] { 0.000018, 0.0001, 0.001};
+                    }
                     foreach (double tolerance in tolerances)
                     {
                         match = ExtractUnityBlendShapesIfVerticesEqual(meshDataList, blendShapeSource, originObject, tmp, tolerance, sourceAsBaseMesh);
@@ -87,6 +90,7 @@ namespace Triturbo.BlendShapeShare.Extractor
             return data;
         }
 
+        
 
 #if ENABLE_FBX_SDK
         public static bool ExtractUnityBlendShapesIfVerticesEqual(List<MeshData> meshDataList, GameObject blendShapeSource, GameObject compareTarget,  string tmp, double tolerence, bool sourceAsBaseMesh)
@@ -228,6 +232,8 @@ namespace Triturbo.BlendShapeShare.Extractor
 
                 FbxBlendShape originDeformer = originMesh != null ? FbxBlendShape.Create(originMesh, "BlendShapeShareTemp") : null;
 
+                var baseMesh = sourceAsBaseMesh ? sourceMesh : originMesh;
+
                 for (int dIndex = 0; dIndex < sourceMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape); dIndex++)
                 {
                     var deformer = sourceMesh.GetBlendShapeDeformer(dIndex);
@@ -244,10 +250,10 @@ namespace Triturbo.BlendShapeShare.Extractor
 
                         if (originDeformer != null)
                         {
-                            originDeformer.AddBlendShapeChannel(CopyFbxBlendShapeChannel(channel, originMesh, tolerance, sourceAsBaseMesh ? sourceMesh : originMesh));
+                            originDeformer.AddBlendShapeChannel(CopyFbxBlendShapeChannel(channel, originMesh, tolerance, baseMesh));
                         }
 
-                        meshData.SetBlendShape(name, GetFbxBlendShapeData(channel, sourceMesh, tolerance, sourceAsBaseMesh ? sourceMesh : originMesh));
+                        meshData.SetBlendShape(name, GetFbxBlendShapeData(channel, sourceMesh, tolerance, baseMesh));
                         
                     }
                 }
@@ -314,7 +320,6 @@ namespace Triturbo.BlendShapeShare.Extractor
                 for (int pointIndex = 0; pointIndex < controlPointCount; pointIndex++)
                 {
                     var cp = baseMesh.GetControlPointAt(pointIndex);
-
                     var delta = GetMergedDeltaVector(deltaDict, source.GetTargetShape(shapeIndex).GetControlPointAt(pointIndex), cp, tolerence);
                     newShape.SetControlPointAt(target.GetControlPointAt(pointIndex) + delta, pointIndex);
                 }
@@ -323,6 +328,39 @@ namespace Triturbo.BlendShapeShare.Extractor
             }
             return fbxBlendShapeChannel;
         }
+
+        //public static bool[] GetAtHardEdge(FbxMesh mesh)
+        //{
+
+        //    int cpCount = mesh.GetControlPointsCount();
+
+        //    FbxVector4[] normals = new FbxVector4[cpCount];
+        //    bool[] AtHardEdge = new bool[cpCount];
+
+        //    for (int i = 0; i < mesh.GetPolygonCount(); i++)
+        //    {
+        //        for (int j = 0; j < mesh.GetPolygonSize(i); j++)
+        //        {
+        //            int cpIndex = mesh.GetPolygonVertex(i, j);
+        //            if (!mesh.GetPolygonVertexNormal(i, j, out FbxVector4 normal) || AtHardEdge[cpIndex])
+        //            {
+        //                continue;
+        //            }
+
+        //            if (normals[cpIndex] == null)
+        //            {
+        //                normals[cpIndex] = normal;
+        //            }
+                    
+
+        //            AtHardEdge[cpIndex] = normals[cpIndex] != normal;
+
+        //        }
+
+        //    }
+
+        //    return AtHardEdge;
+        //}
 
         /// <summary>
         /// Creates FbxBlendShapeData from a given FbxBlendShapeChannel and FbxMesh.
@@ -391,7 +429,7 @@ namespace Triturbo.BlendShapeShare.Extractor
         /// and attempts to merge it with a previously recorded delta vector if the difference is within a specified tolerance.
         /// This method addresses an issue where Unity's Weld Vertices option can lead to different vertex counts and order 
         /// when morph targets (blendshapes) separate vertices that would otherwise be welded.
-        /// By merging the deltas of vertices that would be welded ( sharing the same position), the method ensures consistent vertex count and order.
+        /// By merging the deltas of vertices that would be welded (sharing the same position), the method ensures consistent vertex count and order.
         /// </summary>
         /// <param name="deltaDict">A dictionary storing previously computed delta vectors, with mesh control points as keys.</param>
         /// <param name="shapeControlPoint">The control point of the shape to compare.</param>
@@ -430,7 +468,6 @@ namespace Triturbo.BlendShapeShare.Extractor
             return delta;
         }
 
-        
 
 
 #endif
