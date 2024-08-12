@@ -225,9 +225,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 }
                 if (EditorUtility.DisplayDialog("Apply blendshapes", "It will add blendshapes in this list to Original GameObject. Are you sure?", "Yes", "Cancel"))
                 {
-                    
-
-
                     dataAsset.CreateFbx(dataAsset.m_Original);
                 }
                 appliedProperty.boolValue = true;
@@ -251,9 +248,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 }
                 if (EditorUtility.DisplayDialog("Remove blendshapes", "It will remove blendshapes in this list from Original GameObject. Are you sure?", "Yes", "Cancel"))
                 {
-
                     dataAsset.RemoveBlendShapes(dataAsset.m_Original);
-
                 }
                 appliedProperty.boolValue = false;
 #endif
@@ -287,10 +282,10 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 }
 #endif
             }
-            //
+            
             EditorGUI.EndDisabledGroup();
 
-            //
+            
 
 
             if (GUILayout.Button(new GUIContent("Create Meshes", "Create new mesh assets with blendshapes.")))
@@ -311,22 +306,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 {
 
 #if ENABLE_FBX_SDK
-
-                    //Cannot generate Unity mesh.
-                    //Use FBX SDK
-
-                    //if (EditorUtility.DisplayDialog("Unity mesh vertices not match", "Unable to create mesh since vertices not match. \nCreate FBX file instead?", "Create FBX", "Cancel"))
-                    //{
-
-
-                    //    path = EditorUtility.SaveFilePanelInProject("Save FBX",
-                    //        dataAsset.DefaultFbxName, "fbx",
-                    //        "Please enter a file name", folderPath);
-                    //    if (path.Length > 0)
-                    //    {
-                    //        dataAsset.CreateFbx(dataAsset.m_Original, path);
-                    //    }
-                    //}
                     path = EditorUtility.SaveFilePanelInProject("Save Mesh",
                     dataAsset.DefaultMeshAssetName, "asset",
                     "Please enter a file name", folderPath);
@@ -342,11 +321,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                         AssetDatabase.DeleteAsset(tmp);
 
                     }
-
-
-
-
-
 #else
                     if (EditorUtility.DisplayDialog("Unity mesh vertices not match", "Unable to create mesh since vertices not match. Please import FBX SDK and create FBX file", "OK"))
                     {
@@ -392,6 +366,9 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                     }  
                 }
                 serializedObject.Update();
+
+                EditorUtility.SetDirty(dataAsset);
+                AssetDatabase.SaveAssets();
             }
             EditorGUI.EndDisabledGroup();
 
