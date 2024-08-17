@@ -15,7 +15,7 @@ namespace Triturbo.BlendShapeShare.Extractor
     public static class BlendShapesExtractor
     {
         public static BlendShapeDataSO ExtractBlendShapes(GameObject blendShapeSource, GameObject originObject, List<MeshData> meshDataList, 
-            bool sourceAsBaseMesh = true, bool fixWeldVertices = true, double[] tolerances = null)
+            bool sourceAsBaseMesh = true, bool fixWeldVertices = true)
         {
             var data = ScriptableObject.CreateInstance<BlendShapeDataSO>();
 
@@ -23,11 +23,10 @@ namespace Triturbo.BlendShapeShare.Extractor
 
             string defaultName = $"{originObject.name}-{blendShapeSource.name}";
 
-
 #if ENABLE_FBX_SDK
             if (IsUnityVerticesEqual(blendShapeSource, originObject))
             {
-                if (!ExtractFbxBlendshapes(ref meshDataList, blendShapeSource, sourceAsBaseMesh: sourceAsBaseMesh))
+                if (!ExtractFbxBlendshapes(ref meshDataList, blendShapeSource, weldVertices: false, sourceAsBaseMesh: sourceAsBaseMesh))
                 {
                     return null;
                 }
@@ -41,25 +40,18 @@ namespace Triturbo.BlendShapeShare.Extractor
                 AssetDatabase.CopyAsset(path, tmp);
                 AssetDatabase.Refresh();
 
-                bool match = ExtractUnityBlendShapesIfVerticesEqual(meshDataList, blendShapeSource, originObject, tmp, 0, sourceAsBaseMesh);
-
-                if (fixWeldVertices && !match)
+                if (!ExtractFbxBlendshapes(ref meshDataList, blendShapeSource, originObject, tmp, fixWeldVertices, sourceAsBaseMesh))
                 {
-                    if(tolerances == null)
-                    {
-                        tolerances = new double[] { 0.000018, 0.0001, 0.001};
-                    }
-                    foreach (double tolerance in tolerances)
-                    {
-                        match = ExtractUnityBlendShapesIfVerticesEqual(meshDataList, blendShapeSource, originObject, tmp, tolerance, sourceAsBaseMesh);
-                        if (match)
-                        {
-                            Debug.Log($"Fix Weld Vertices Problems Success @ tolerance {tolerance}");
-                            break;
-                        }
-                    }
+                    AssetDatabase.DeleteAsset(tmp);
+                    return null;
                 }
-                if (!match)
+                var genertated = AssetDatabase.LoadAssetAtPath<GameObject>(tmp);
+
+                if (IsUnityVerticesEqual(genertated, originObject))
+                {
+                    ExtractUnityBlendShapes(ref meshDataList, genertated, null);
+                }
+                else
                 {
                     Debug.LogWarning("Unity vertices can not match.");
                     foreach (var meshData in meshDataList)
@@ -93,29 +85,9 @@ namespace Triturbo.BlendShapeShare.Extractor
         
 
 #if ENABLE_FBX_SDK
-        public static bool ExtractUnityBlendShapesIfVerticesEqual(List<MeshData> meshDataList, GameObject blendShapeSource, GameObject compareTarget,  string tmp, double tolerence, bool sourceAsBaseMesh)
-        {
-            if (!ExtractFbxBlendshapes(ref meshDataList, blendShapeSource, compareTarget, tmp, tolerence, sourceAsBaseMesh))
-            {
-                AssetDatabase.DeleteAsset(tmp);
-                return false;
-            }
-
-            var genertated = AssetDatabase.LoadAssetAtPath<GameObject>(tmp);
-
-            if (IsUnityVerticesEqual(genertated, compareTarget))
-            {
-                ExtractUnityBlendShapes(ref meshDataList, genertated, null);
-                return true;
-            }
-            return false;
-        }
-
-
-        //Extracts blendshapes from a source FBX file and optionally transfers them to an origin FBX file. 
 
         public static bool ExtractFbxBlendshapes(
-            ref List<MeshData> meshDataList, GameObject source, GameObject origin = null, string exportPath = "", double tolerance = 0, bool sourceAsBaseMesh = true)
+            ref List<MeshData> meshDataList, GameObject source, GameObject origin = null, string exportPath = "", bool weldVertices = true, bool sourceAsBaseMesh = true)
         {
             if (meshDataList == null)
             {
@@ -222,7 +194,7 @@ namespace Triturbo.BlendShapeShare.Extractor
                 FbxNode nodeOrigin = originRootNode?.FindChild(meshData.m_MeshName, false);
                 FbxMesh originMesh = nodeOrigin?.GetMesh();
 
-                if(originMesh != null && tolerance == 0)
+                if (originMesh != null && !weldVertices)
                 {
                     for (int dIndex = 0; dIndex < originMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape); dIndex++)
                     {
@@ -233,6 +205,10 @@ namespace Triturbo.BlendShapeShare.Extractor
                 FbxBlendShape originDeformer = originMesh != null ? FbxBlendShape.Create(originMesh, "BlendShapeShareTemp") : null;
 
                 var baseMesh = sourceAsBaseMesh ? sourceMesh : originMesh;
+
+
+
+                var weldingGroups = weldVertices ? GetWeldingGroups(originMesh) : null;
 
                 for (int dIndex = 0; dIndex < sourceMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape); dIndex++)
                 {
@@ -250,11 +226,11 @@ namespace Triturbo.BlendShapeShare.Extractor
 
                         if (originDeformer != null)
                         {
-                            originDeformer.AddBlendShapeChannel(CopyFbxBlendShapeChannel(channel, originMesh, tolerance, baseMesh));
+                            originDeformer.AddBlendShapeChannel(CopyFbxBlendShapeChannel(channel, originMesh, baseMesh, weldingGroups));
                         }
 
-                        meshData.SetBlendShape(name, GetFbxBlendShapeData(channel, sourceMesh, tolerance, baseMesh));
-                        
+                        meshData.SetBlendShape(name, GetFbxBlendShapeData(channel, sourceMesh, weldingGroups, baseMesh));
+
                     }
                 }
 
@@ -286,7 +262,7 @@ namespace Triturbo.BlendShapeShare.Extractor
         }
 
 
-        public static FbxBlendShapeChannel CopyFbxBlendShapeChannel(FbxBlendShapeChannel source, FbxMesh target, double tolerence, FbxMesh baseMesh)
+        public static FbxBlendShapeChannel CopyFbxBlendShapeChannel(FbxBlendShapeChannel source, FbxMesh target, FbxMesh baseMesh, List<List<int>> weldingList)
         {
 
             if (baseMesh == null)
@@ -315,70 +291,162 @@ namespace Triturbo.BlendShapeShare.Extractor
                 FbxShape newShape = FbxShape.Create(target, sourceShape.GetName());
                 newShape.InitControlPoints(controlPointCount);
 
-                Dictionary<FbxVector4, FbxVector4> deltaDict = new Dictionary<FbxVector4, FbxVector4>();
+                FbxVector4[] deltas = new FbxVector4[controlPointCount];
 
                 for (int pointIndex = 0; pointIndex < controlPointCount; pointIndex++)
                 {
-                    var cp = baseMesh.GetControlPointAt(pointIndex);
-                    var delta = GetMergedDeltaVector(deltaDict, source.GetTargetShape(shapeIndex).GetControlPointAt(pointIndex), cp, tolerence);
-                    newShape.SetControlPointAt(target.GetControlPointAt(pointIndex) + delta, pointIndex);
+                    if(weldingList == null)
+                    {
+                        newShape.SetControlPointAt(source.GetTargetShape(shapeIndex).GetControlPointAt(pointIndex), pointIndex);
+
+                    }
+                    else
+                    {
+                        var cp = baseMesh.GetControlPointAt(pointIndex);
+                        deltas[pointIndex] = source.GetTargetShape(shapeIndex).GetControlPointAt(pointIndex) - cp;
+                    }
+                }
+
+                if(weldingList != null)
+                {
+                    foreach (var welding in weldingList)
+                    {
+                        if (welding.Count < 2)
+                        {
+                            continue;
+                        }
+                        FbxVector4 average = new FbxVector4(0, 0, 0, 0);
+                        foreach (int index in welding)
+                        {
+                            average += deltas[index];
+                        }
+                        average /= welding.Count;
+                        foreach (int index in welding)
+                        {
+                            deltas[index] = average;
+                        }
+                    }
+
+                    for (int i = 0; i < deltas.Length; i++)
+                    {
+                        newShape.SetControlPointAt(target.GetControlPointAt(i) + deltas[i], i);
+                    }
                 }
 
                 fbxBlendShapeChannel.AddTargetShape(newShape, 100.0 * (shapeIndex + 1) / shapeCount);
+
+
             }
             return fbxBlendShapeChannel;
         }
 
-        //public static bool[] GetAtHardEdge(FbxMesh mesh)
-        //{
 
-        //    int cpCount = mesh.GetControlPointsCount();
 
-        //    FbxVector4[] normals = new FbxVector4[cpCount];
-        //    bool[] AtHardEdge = new bool[cpCount];
+        public static List<FbxVector4>[] GetNormals(FbxMesh mesh)
+        {
+            int cpCount = mesh.GetControlPointsCount();
+            List<FbxVector4>[] normals = new List<FbxVector4>[cpCount];
 
-        //    for (int i = 0; i < mesh.GetPolygonCount(); i++)
-        //    {
-        //        for (int j = 0; j < mesh.GetPolygonSize(i); j++)
-        //        {
-        //            int cpIndex = mesh.GetPolygonVertex(i, j);
-        //            if (!mesh.GetPolygonVertexNormal(i, j, out FbxVector4 normal) || AtHardEdge[cpIndex])
-        //            {
-        //                continue;
-        //            }
+            for (int i = 0; i < mesh.GetPolygonCount(); i++)
+            {
+                for (int j = 0; j < mesh.GetPolygonSize(i); j++)
+                {
+                    int cpIndex = mesh.GetPolygonVertex(i, j);
+                    if (!mesh.GetPolygonVertexNormal(i, j, out FbxVector4 normal))
+                    {
+                        continue;
+                    }
 
-        //            if (normals[cpIndex] == null)
-        //            {
-        //                normals[cpIndex] = normal;
-        //            }
-                    
+                    if (normals[cpIndex] == null)
+                    {
+                        normals[cpIndex] = new List<FbxVector4>();
+                    }
 
-        //            AtHardEdge[cpIndex] = normals[cpIndex] != normal;
+                    normals[cpIndex].Add(normal);
+                }
+            }
+            return normals;
+        }
 
-        //        }
 
-        //    }
-
-        //    return AtHardEdge;
-        //}
 
         /// <summary>
-        /// Creates FbxBlendShapeData from a given FbxBlendShapeChannel and FbxMesh.
+        /// Gets a list of vertex groups that should be welded together by checking if vertices share the same position
+        /// and ensuring all blendshape vertices maintain the same position relative to each other.
+        /// 
         /// </summary>
-        /// <param name="source">The source FbxBlendShapeChannel to extract blend shape data from.</param>
-        /// <param name="sourceMesh">The source FbxMesh containing the blend shape channel.</param>
-        /// <param name="tolerance">The maximum allowable distance for merging delta vectors. A tolerance of 0 means no merging.</param>
-        /// <param name="baseMesh">
-        /// The base FbxMesh to use as a reference for computing blendshape offsets. If null, sourceMesh is used as the base.
-        /// </param>
-        /// <returns>
-        /// An FbxBlendShapeData object containing the blend shape frames, or null if there's a control point count mismatch.
-        /// </returns>
-        public static FbxBlendShapeData GetFbxBlendShapeData(FbxBlendShapeChannel source, FbxMesh sourceMesh, double tolerance = 0, FbxMesh baseMesh = null)
+        /// <param name="mesh">The FbxMesh object containing the vertices and blendshapes to be analyzed.</param>
+        /// <returns>A list of vertex groups, where each group is a list of indices that should be welded together.</returns>
+        public static List<List<int>> GetWeldingGroups(FbxMesh mesh)
+        {
+            int count = mesh.GetControlPointsCount();
+            Dictionary<FbxVector4, List<int>> controlPointPosition = new Dictionary<FbxVector4, List<int>>();
+
+            for (int i = 0; i < count; i++)
+            {
+                FbxVector4 position = mesh.GetControlPointAt(i);
+                if (!controlPointPosition.TryGetValue(position, out List<int> indices))
+                {
+                    indices = new List<int>();
+                    controlPointPosition[position] = indices;
+                }
+
+                indices.Add(i);
+            }
+            var weldingGroup = controlPointPosition.Where(kv => kv.Value.Count > 1).Select(kv => kv.Value).ToList();
+
+
+            for (int dIndex = 0; dIndex < mesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape); dIndex++)
+            {
+                var deformer = mesh.GetBlendShapeDeformer(dIndex);
+
+                for (int i = 0; i < deformer.GetBlendShapeChannelCount(); i++)
+                {
+                    var channel = deformer.GetBlendShapeChannel(i);
+
+                    for (int j = 0; j < channel.GetTargetShapeCount(); j++)
+                    {
+                        FbxShape targetShape = channel.GetTargetShape(j);
+                        weldingGroup = GroupWithShape(weldingGroup, targetShape);
+                    }
+                }
+            }
+
+            return weldingGroup;
+        }
+
+        private static List<List<int>> GroupWithShape(List<List<int>> groups, FbxShape targetShape)
+        {
+            List<List<int>> newGroups = new List<List<int>>();
+            foreach (var group in groups)
+            {
+                Dictionary<FbxVector4, List<int>> newGroup = new Dictionary<FbxVector4, List<int>>();
+                foreach (int index in group)
+                {
+                    var vertex = targetShape.GetControlPointAt(index);
+
+                    if (!newGroup.TryGetValue(vertex, out List<int> indices))
+                    {
+                        indices = new List<int>();
+                        newGroup[vertex] = indices;
+                    }
+
+                    indices.Add(index);
+                }
+                newGroups.AddRange(newGroup.Where(kv => kv.Value.Count > 1).Select(kv => kv.Value).ToList());
+            }
+
+            return newGroups;
+        }
+
+
+        // Creates FbxBlendShapeData from a given FbxBlendShapeChannel and FbxMesh.
+        // The base FbxMesh to use as a reference for computing blendshape offsets. If null, sourceMesh is used as the base.
+        public static FbxBlendShapeData GetFbxBlendShapeData(FbxBlendShapeChannel source, FbxMesh sourceMesh, List<List<int>> weldingGroup, FbxMesh baseMesh = null)
         {
             int controlPointCount = sourceMesh.GetControlPointsCount();
 
-            if(baseMesh == null)
+            if (baseMesh == null)
             {
                 baseMesh = sourceMesh;
             }
@@ -391,7 +459,7 @@ namespace Triturbo.BlendShapeShare.Extractor
             int shapeCount = source.GetTargetShapeCount();
 
             var frames = new FbxBlendShapeFrame[shapeCount];
-            
+
             // Loop through each target shape in the blend shape channel
             for (int shapeIndex = 0; shapeIndex < shapeCount; shapeIndex++)
             {
@@ -406,69 +474,55 @@ namespace Triturbo.BlendShapeShare.Extractor
                 frames[shapeIndex] = new FbxBlendShapeFrame();
 
 
-                Dictionary<FbxVector4, FbxVector4> deltaDict = new Dictionary<FbxVector4, FbxVector4>();
+                FbxVector4[] deltas = new FbxVector4[controlPointCount];
 
                 for (int pointIndex = 0; pointIndex < controlPointCount; pointIndex++)
                 {
                     var shapeControlPoint = sourceShape.GetControlPointAt(pointIndex);
                     var basicControlPoint = baseMesh.GetControlPointAt(pointIndex);
+                    deltas[pointIndex] = shapeControlPoint - basicControlPoint;
 
-                    var deltaFbxVec = GetMergedDeltaVector(deltaDict, shapeControlPoint, basicControlPoint, tolerance);
-                    var delta = new Vector4d(deltaFbxVec.X, deltaFbxVec.Y, deltaFbxVec.Z, deltaFbxVec.W);
+                    if (weldingGroup == null)
+                    {
+                        var delta = new Vector4d(deltas[pointIndex].X, deltas[pointIndex].Y, deltas[pointIndex].Z, deltas[pointIndex].W);
 
-                    if (!delta.IsZero())
-                        frames[shapeIndex].AddDeltaControlPointAt(delta, pointIndex);
+                        if (!delta.IsZero())
+                            frames[shapeIndex].AddDeltaControlPointAt(delta, pointIndex);
+                    }
+                }
+
+                if(weldingGroup != null)
+                {
+                    foreach (var welding in weldingGroup)
+                    {
+                        if (welding.Count < 2)
+                        {
+                            continue;
+                        }
+                        FbxVector4 average = new FbxVector4(0, 0, 0, 0);
+                        foreach (int index in welding)
+                        {
+                            average += deltas[index];
+                        }
+                        average /= welding.Count;
+                        foreach (int index in welding)
+                        {
+                            deltas[index] = average;
+                        }
+                    }
+
+                    for (int i = 0; i < deltas.Length; i++)
+                    {
+                        var delta = new Vector4d(deltas[i].X, deltas[i].Y, deltas[i].Z, deltas[i].W);
+
+                        if (!delta.IsZero())
+                            frames[shapeIndex].AddDeltaControlPointAt(delta, i);
+                    }
                 }
             }
 
             return new FbxBlendShapeData(frames);
         }
-
-        /// <summary>
-        /// Computes the delta vector between a shape control point and a mesh control point,
-        /// and attempts to merge it with a previously recorded delta vector if the difference is within a specified tolerance.
-        /// This method addresses an issue where Unity's Weld Vertices option can lead to different vertex counts and order 
-        /// when morph targets (blendshapes) separate vertices that would otherwise be welded.
-        /// By merging the deltas of vertices that would be welded (sharing the same position), the method ensures consistent vertex count and order.
-        /// </summary>
-        /// <param name="deltaDict">A dictionary storing previously computed delta vectors, with mesh control points as keys.</param>
-        /// <param name="shapeControlPoint">The control point of the shape to compare.</param>
-        /// <param name="meshControlPoint">The control point of the mesh to compare.</param>
-        /// <param name="tolerance">The maximum allowable distance for merging delta vectors. A tolerance of 0 means no merging.</param>
-        /// <returns>
-        /// The delta vector between the shape control point and the mesh control point, 
-        /// either as a new delta or a merged delta if within the specified tolerance.
-        /// </returns>
-        public static FbxVector4 GetMergedDeltaVector(Dictionary<FbxVector4, FbxVector4> deltaDict, FbxVector4 shapeControlPoint, FbxVector4 meshControlPoint, double tolerance)
-        {
-
-            var delta = shapeControlPoint - meshControlPoint;
-
-            if (tolerance == 0)
-            {
-                return delta;
-            }
-
-            if(deltaDict == null)
-            {
-                deltaDict = new Dictionary<FbxVector4, FbxVector4>();
-            }
-
-            if (!deltaDict.TryGetValue(meshControlPoint, out FbxVector4 record))
-            {
-                deltaDict.Add(meshControlPoint, delta);
-                return delta;
-            }
-
-            if (record.Distance(delta) < tolerance)
-            {
-                return record;
-            }
-
-            return delta;
-        }
-
-
 
 #endif
 
