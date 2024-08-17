@@ -11,7 +11,6 @@ namespace Triturbo.BlendShapeShare.Extractor
     {
         public GameObject originFBX;
         public GameObject sourceFBX;
-        //public GameObject lastSourceFBX = null;
 
         public string defaultName = "";
         public static Texture bannerIcon;
@@ -32,7 +31,6 @@ namespace Triturbo.BlendShapeShare.Extractor
         }
         public BaseMesh baseMesh = BaseMesh.Source;
 
-        public double tolerance = 0.0001;
         public bool weldVertices = true;
 
         // blendshapes togles
@@ -140,13 +138,10 @@ namespace Triturbo.BlendShapeShare.Extractor
 
 
 
-            weldVertices = EditorGUILayout.Toggle(new GUIContent("Weld Vertices", "If vertices share the same position, make the blendshape displacement the same for consistency."), weldVertices);
-            if(weldVertices)
-            {
-                tolerance = EditorGUILayout.DoubleField(new GUIContent("Weld Vertices Tolerance", "Weld vertices only if the blendshape displacement is close enough based on this tolerance."), tolerance);
-            }
+            weldVertices = EditorGUILayout.Toggle(new GUIContent("Weld Blendshape Vertices", "The blendshape offset of vertices that will be combined by the Unity model importer will be set to the same value, ensuring that vertices remains consistent with the original mesh."), weldVertices);
 
-            baseMesh = (BaseMesh)EditorGUILayout.EnumPopup(new GUIContent("Base Mesh", "Base mesh for calculating blendshapes displacement vetices"), baseMesh);
+
+            baseMesh = (BaseMesh)EditorGUILayout.EnumPopup(new GUIContent("Base Mesh", "Base mesh for calculating blendshapes offset vetices"), baseMesh);
 
 
 
@@ -180,8 +175,7 @@ namespace Triturbo.BlendShapeShare.Extractor
                     BlendShapesExtractor.CompareBlendShape(sourceFBX, originFBX, compareMethod == CompareMethod.Name);
 
                 BlendShapeDataSO so = BlendShapesExtractor.ExtractBlendShapes(sourceFBX, originFBX, meshDataList, baseMesh == BaseMesh.Source, 
-                    fixWeldVertices: weldVertices, 
-                    tolerances: new double[] { tolerance });
+                    fixWeldVertices: weldVertices);
 
                 if (so == null)
                 {
@@ -201,6 +195,11 @@ namespace Triturbo.BlendShapeShare.Extractor
                 {
                     if (meshData.m_VertexCount == -1 && meshData.m_VerticesHash == -1)
                     {
+                        string msg = "Skip Unity blendshapes extraction. Fbx blendshapes still working.";
+                        if (!weldVertices)
+                        {
+                            msg += " Enable Weld Blendshape Vertices might fix the issue.";
+                        }
                         EditorUtility.DisplayDialog("Unity vertices cannot match", "Skip Unity blendshapes extraction. Fbx blendshapes still working.", "OK");
                         break;
                     }
