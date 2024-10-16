@@ -6,16 +6,14 @@ using UnityEngine;
 
 namespace Triturbo.BlendShapeShare.BlendShapeData
 {
-    [PreferBinarySerialization]
     public class BlendShapeDataSO : ScriptableObject
     {
         public GameObject m_Original;
-
-        public List<MeshData> m_MeshDataList;
-
         public string m_DefaultGeneratedAssetName;
         public bool m_Applied = false;
         public string m_DeformerID = "+BlendShare";
+
+        public List<MeshData> m_MeshDataList;
 
 
         public string DefaultMeshAssetName

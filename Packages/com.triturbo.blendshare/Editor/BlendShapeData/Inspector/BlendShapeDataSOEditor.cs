@@ -32,7 +32,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 listProperty.DeleteArrayElementAtIndex(index);
                 serializedObject.ApplyModifiedProperties();
             });
-            //menu.AddItem(new GUIContent("Option 2"), false, null);
             menu.ShowAsContext();
         }
         private void OnEnable()
@@ -54,14 +53,10 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             for (int i = 0; i < meshDataListProperty.arraySize; i++)
             {
                 var meshDataProperty = meshDataListProperty.GetArrayElementAtIndex(i);
-
                 var blendShapeNamesProperty = meshDataProperty.FindPropertyRelative(nameof(MeshData.m_ShapeNames));
-
-
 
                 var reorderableList = new ReorderableList(blendShapeNamesProperty.serializedObject,
                     blendShapeNamesProperty, false, false, false, false);
-
 
                 reorderableList.drawElementCallback = (Rect rect, int index, bool isActive, bool isFocused) =>
                 {
@@ -76,16 +71,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                     }
 #endif
                 };
-
-                // Set up the header callback
-                //reorderableList.drawHeaderCallback = (Rect rect) =>
-                //{
-                    
-                //    EditorGUI.LabelField(rect, "Name");
-                //    //EditorGUI.LabelField(new Rect(rect.x + rect.width / 2, rect.y, rect.width / 2, rect.height), "vertex delta count");
-                //};
-
-
                 reorderableList.footerHeight = 0;
                 meshBlendShapes.Add(reorderableList);
             }
@@ -225,9 +210,9 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 }
                 if (EditorUtility.DisplayDialog("Apply blendshapes", "It will add blendshapes in this list to Original GameObject. Are you sure?", "Yes", "Cancel"))
                 {
+                    appliedProperty.boolValue = true;
                     dataAsset.CreateFbx(dataAsset.m_Original);
                 }
-                appliedProperty.boolValue = true;
 #endif
             }
             EditorGUI.EndDisabledGroup();
@@ -248,9 +233,9 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 }
                 if (EditorUtility.DisplayDialog("Remove blendshapes", "It will remove blendshapes in this list from Original GameObject. Are you sure?", "Yes", "Cancel"))
                 {
+                    appliedProperty.boolValue = false;
                     dataAsset.RemoveBlendShapes(dataAsset.m_Original);
                 }
-                appliedProperty.boolValue = false;
 #endif
             }
             EditorGUI.EndDisabledGroup();
@@ -369,6 +354,8 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
                 EditorUtility.SetDirty(dataAsset);
                 AssetDatabase.SaveAssets();
+
+                OnEnable();
             }
             EditorGUI.EndDisabledGroup();
 
@@ -407,19 +394,9 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
 
                 EditorGUI.BeginDisabledGroup(true);
-
                 EditorGUILayout.PropertyField(m_DeformerID, new GUIContent("Deformer ID", ""));
-
                 EditorGUI.EndDisabledGroup();
-
-
                 GUILayout.EndVertical();
-
-
-
-
-
-
             }
 
 
