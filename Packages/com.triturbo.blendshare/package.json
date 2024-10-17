@@ -1,7 +1,7 @@
 {
   "name": "com.triturbo.blendshare",
   "displayName": "BlendShare",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "BlendShare is a tool designed for creators who need to share blendshapes without distributing the original FBX files.",
   "gitDependencies": {},
   "vpmDependencies": {},
