@@ -24,12 +24,14 @@ namespace Triturbo.BlendShapeShare.Extractor
 
         public CompareMethod compareMethod = CompareMethod.Name;
 
-        public enum BaseMesh
-        {
-            Source,
-            Origin
-        }
-        public BaseMesh baseMesh = BaseMesh.Source;
+
+        public bool showApplyTransform = false;
+        public bool applyRotation = false;
+        public bool applyScale = false;
+        public bool applyTranslate = false;
+
+
+        public BlendShapesExtractorOptions.BaseMesh baseMesh = BlendShapesExtractorOptions.BaseMesh.Source;
 
         public bool weldVertices = true;
 
@@ -141,9 +143,20 @@ namespace Triturbo.BlendShapeShare.Extractor
             weldVertices = EditorGUILayout.Toggle(new GUIContent("Weld Blendshape Vertices", "The blendshape offset of vertices that will be combined by the Unity model importer will be set to the same value, ensuring that vertices remains consistent with the original mesh."), weldVertices);
 
 
-            baseMesh = (BaseMesh)EditorGUILayout.EnumPopup(new GUIContent("Base Mesh", "Base mesh for calculating blendshapes offset vetices"), baseMesh);
+            showApplyTransform = EditorGUILayout.Foldout(showApplyTransform, new GUIContent("Apply Transform",
+                "Apply the GameObject's transform to the meshes before calculating the blendshape vertices' offsets. If orientation issues occur with the blendshape, try enabling 'Apply Rotation' to correct them."));
+            
+            if (showApplyTransform)
+            {
+                EditorGUI.indentLevel++;
+                applyTranslate = EditorGUILayout.Toggle(new GUIContent("Apply Translate", ""), applyTranslate);
+                applyRotation = EditorGUILayout.Toggle(new GUIContent("Apply Rotation", ""), applyRotation);
+                applyScale = EditorGUILayout.Toggle(new GUIContent("Apply Scale", ""), applyScale);
+                EditorGUI.indentLevel--;
+            }
 
 
+            baseMesh = (BlendShapesExtractorOptions.BaseMesh)EditorGUILayout.EnumPopup(new GUIContent("Base Mesh", "Base mesh for calculating blendshapes offset vetices"), baseMesh);
 
             compareMethod = (CompareMethod)EditorGUILayout.EnumPopup("Compare Method", compareMethod);
 
@@ -174,8 +187,18 @@ namespace Triturbo.BlendShapeShare.Extractor
                     GetMeshDataList(sourceFBX, originFBX, blendShapeToggles) : 
                     BlendShapesExtractor.CompareBlendShape(sourceFBX, originFBX, compareMethod == CompareMethod.Name);
 
-                BlendShapeDataSO so = BlendShapesExtractor.ExtractBlendShapes(sourceFBX, originFBX, meshDataList, baseMesh == BaseMesh.Source, 
-                    fixWeldVertices: weldVertices);
+
+                BlendShapesExtractorOptions blendShapesExtractorOptions = new BlendShapesExtractorOptions()
+                {
+                    baseMesh = baseMesh,
+                    weldVertices = weldVertices,
+                    applyRotation = applyRotation,
+                    applyScale = applyScale,
+                    applyTranslate = applyTranslate
+                };
+
+                BlendShapeDataSO so = BlendShapesExtractor.ExtractBlendShapes(sourceFBX, originFBX, meshDataList, blendShapesExtractorOptions);
+
 
                 if (so == null)
                 {
@@ -233,52 +256,112 @@ namespace Triturbo.BlendShapeShare.Extractor
             EditorGUI.EndDisabledGroup();
 
         }
-
-        public static List<MeshData> GetMeshDataList(GameObject source, GameObject origin, Dictionary<SkinnedMeshRenderer, bool[]> blendShapeToggles)
+        
+        private static List<MeshData> GetMeshDataList(GameObject source, GameObject origin, Dictionary<SkinnedMeshRenderer, bool[]> blendShapeToggles)
         {
             List<MeshData> meshDataList = new List<MeshData>();
             var skinnedMeshRenderers = source.GetComponentsInChildren<SkinnedMeshRenderer>(true);
-            foreach (Transform tansform in source.transform)
+
+            foreach (var meshRenderer in skinnedMeshRenderers)
             {
-                Mesh sourceMesh = tansform.TryGetComponent(out SkinnedMeshRenderer meshRenderer) ? meshRenderer.sharedMesh : null;
+                Mesh sourceMesh = meshRenderer.sharedMesh;
                 if (sourceMesh == null)
                 {
                     continue;
                 }
-                Mesh originMesh = origin.transform.Find(tansform.name)?.GetComponent<SkinnedMeshRenderer>()?.sharedMesh;
 
-                if (originMesh == null)
+                // Get relative path of the skinned mesh renderer in source
+                string relativePath = GetRelativePath(meshRenderer.transform, source.transform);
+
+                // Find corresponding mesh in origin using the relative path
+                Transform correspondingTransform = origin.transform.Find(relativePath);
+                if (correspondingTransform == null)
                 {
-                    Debug.LogError($"Can not find {tansform.name} in origin: {origin.name}");
+                    Debug.LogError($"Cannot find corresponding GameObject for {meshRenderer.name} in origin: {origin.name}");
                     continue;
                 }
 
-
-
-                if(blendShapeToggles.TryGetValue(meshRenderer, out bool[] blendshapesToggles))
+                SkinnedMeshRenderer originRenderer = correspondingTransform.GetComponent<SkinnedMeshRenderer>();
+                Mesh originMesh = originRenderer?.sharedMesh;
+                if (originMesh == null)
                 {
+                    Debug.LogError($"Cannot find SkinnedMeshRenderer for {meshRenderer.name} in origin: {origin.name}");
+                    continue;
+                }
 
+                // Check if blendShapeToggles has this renderer
+                if (blendShapeToggles.TryGetValue(meshRenderer, out bool[] blendShapesToggles))
+                {
                     List<string> blendShapes = new List<string>();
 
-
-                    for (int i = 0; i < blendshapesToggles.Length; i++)
+                    for (int i = 0; i < blendShapesToggles.Length; i++)
                     {
-                        if (blendshapesToggles[i])
+                        if (blendShapesToggles[i])
                         {
                             blendShapes.Add(sourceMesh.GetBlendShapeName(i));
                         }
                     }
-                    MeshData meshData = new MeshData(originMesh, blendShapes);
 
+                    // Create MeshData and add to the list
+                    MeshData meshData = new MeshData(originMesh, blendShapes);
                     meshDataList.Add(meshData);
                 }
-
-
             }
+
             return meshDataList;
         }
-
-        public void InitBlendShapesToggles()
+         
+        // public void InitBlendShapesToggles()
+        // {
+        //     if (sourceFBX == null) return;
+        //     skinnedMeshRenderers = new List<SkinnedMeshRenderer>(sourceFBX.GetComponentsInChildren<SkinnedMeshRenderer>());
+        //
+        //     foreach (var skinnedMeshRenderer in skinnedMeshRenderers)
+        //     {
+        //         Mesh mesh = skinnedMeshRenderer.sharedMesh;
+        //         if (mesh == null) continue;
+        //
+        //
+        //         int blendShapeCount = mesh.blendShapeCount;
+        //         if (blendShapeCount == 0) continue;
+        //
+        //         if (!blendShapeToggles.ContainsKey(skinnedMeshRenderer))
+        //         {
+        //             blendShapeToggles[skinnedMeshRenderer] = new bool[blendShapeCount];
+        //            
+        //
+        //             if (originFBX == null)
+        //             {
+        //                 continue;
+        //
+        //             }
+        //             Mesh originMesh = originFBX.transform.Find(skinnedMeshRenderer.name)?.GetComponent<SkinnedMeshRenderer>()?.sharedMesh;
+        //
+        //             if (originMesh == null)
+        //             {
+        //                 Debug.LogError($"Can not find {skinnedMeshRenderer.name} in origin: {originFBX.name}");
+        //                 continue;
+        //             }
+        //
+        //
+        //
+        //             for (int i = 0; i < blendShapeCount; i++)
+        //             {
+        //                 string shapeName = mesh.GetBlendShapeName(i);
+        //                 if (originMesh.GetBlendShapeIndex(shapeName) == -1)
+        //                 {
+        //                     blendShapeToggles[skinnedMeshRenderer][i] = true;
+        //                 }
+        //             }
+        //
+        //         }
+        //
+        //
+        //
+        //
+        //     }
+        // }
+        private void InitBlendShapesToggles()
         {
             if (sourceFBX == null) return;
             skinnedMeshRenderers = new List<SkinnedMeshRenderer>(sourceFBX.GetComponentsInChildren<SkinnedMeshRenderer>());
@@ -288,30 +371,30 @@ namespace Triturbo.BlendShapeShare.Extractor
                 Mesh mesh = skinnedMeshRenderer.sharedMesh;
                 if (mesh == null) continue;
 
-
                 int blendShapeCount = mesh.blendShapeCount;
                 if (blendShapeCount == 0) continue;
 
                 if (!blendShapeToggles.ContainsKey(skinnedMeshRenderer))
                 {
                     blendShapeToggles[skinnedMeshRenderer] = new bool[blendShapeCount];
-                    
 
-                    if (originFBX == null)
-                    {
-                        continue;
+                    if (originFBX == null) continue;
 
-                    }
-                    Mesh originMesh = originFBX.transform.Find(skinnedMeshRenderer.name)?.GetComponent<SkinnedMeshRenderer>()?.sharedMesh;
+                    // Get the relative path of skinnedMeshRenderer inside sourceFBX
+                    string relativePath = GetRelativePath(skinnedMeshRenderer.transform, sourceFBX.transform);
+
+                    // Find the corresponding SkinnedMeshRenderer in originFBX
+                    Transform correspondingTransform = originFBX.transform.Find(relativePath);
+                    SkinnedMeshRenderer originRenderer = correspondingTransform?.GetComponent<SkinnedMeshRenderer>();
+                    Mesh originMesh = originRenderer?.sharedMesh;
 
                     if (originMesh == null)
                     {
-                        Debug.LogError($"Can not find {skinnedMeshRenderer.name} in origin: {originFBX.name}");
+                        Debug.LogError($"Cannot find matching SkinnedMeshRenderer for {skinnedMeshRenderer.name} in origin: {originFBX.name}");
                         continue;
                     }
 
-
-
+                    // Compare blendshapes
                     for (int i = 0; i < blendShapeCount; i++)
                     {
                         string shapeName = mesh.GetBlendShapeName(i);
@@ -320,15 +403,18 @@ namespace Triturbo.BlendShapeShare.Extractor
                             blendShapeToggles[skinnedMeshRenderer][i] = true;
                         }
                     }
-
                 }
-
-
-
-
             }
         }
-        public void ShowBlendShapesToggles()
+
+        // Helper function to get the relative path of a transform inside a hierarchy
+        private static string GetRelativePath(Transform target, Transform root)
+        {
+            if (target == root) return "";
+            return GetRelativePath(target.parent, root) + (target.parent == root ? "" : "/") + target.name;
+        }
+
+        private void ShowBlendShapesToggles()
         {
             if (sourceFBX == null) return;
 
@@ -482,7 +568,7 @@ namespace Triturbo.BlendShapeShare.Extractor
         }
 
 
-        void ToggleAll(int index, bool [] toggles, bool value)
+        private void ToggleAll(int index, bool [] toggles, bool value)
         {
             for (int i = index; i < toggles.Length; i ++)
             {
@@ -490,7 +576,7 @@ namespace Triturbo.BlendShapeShare.Extractor
             }
         }
 
-        void ToggleAll(int from, int to, bool[] toggles, bool value)
+        private void ToggleAll(int from, int to, bool[] toggles, bool value)
         {
             if (from == to) return;
             if(from > to)

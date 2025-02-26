@@ -1,7 +1,9 @@
 {
     "name": "Triturbo.BlendShapeShare.Data.Editor",
+    "rootNamespace": "",
     "references": [
-        "GUID:2b82e46c4ca0a4eb697ab8ccdfb39af1"
+        "GUID:2b82e46c4ca0a4eb697ab8ccdfb39af1",
+        "GUID:310e50e946a3d3f47a2b344b62f35a08"
     ],
     "includePlatforms": [
         "Editor"
