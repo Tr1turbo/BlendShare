@@ -13,7 +13,7 @@ namespace Triturbo.BlendShapeShare.Extractor
         public GameObject sourceFBX;
 
         public string defaultName = "";
-        public static Texture bannerIcon;
+        public Texture bannerIcon;
 
         public enum CompareMethod
         {
@@ -53,7 +53,6 @@ namespace Triturbo.BlendShapeShare.Extractor
         public static void ShowWindow()
         {
             GetWindow<BlendShapesExtractorEditor>("BlendShare");
-            bannerIcon = AssetDatabase.LoadAssetAtPath(AssetDatabase.GUIDToAssetPath("6ee731e02404e154694005c2442f2bf4"), typeof(Texture)) as Texture;
         }
         bool IsFBXFile(GameObject obj)
         {
@@ -66,40 +65,26 @@ namespace Triturbo.BlendShapeShare.Extractor
 
         private void OnGUI()
         {
-
-            if (bannerIcon != null)
-            {
-                GUILayout.BeginHorizontal();
-                GUILayout.FlexibleSpace(); // Pushes the label to the center
-                GUILayout.Label(bannerIcon, GUILayout.Height(42), GUILayout.Width(168));
-
-                GUILayout.FlexibleSpace(); // Pushes the label to the center
-                GUILayout.EndHorizontal();
-                GUILayout.Space(8);
-            }
-            else
-            {
-                bannerIcon = AssetDatabase.LoadAssetAtPath(AssetDatabase.GUIDToAssetPath("6ee731e02404e154694005c2442f2bf4"), typeof(Texture)) as Texture;
-            }
-
-
+            GUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace(); // Pushes the label to the center
+            GUILayout.Label(bannerIcon, GUILayout.Height(42), GUILayout.Width(168));
+            GUILayout.FlexibleSpace(); // Pushes the label to the center
+            GUILayout.EndHorizontal();
+            GUILayout.Space(8);
+            
             GUILayout.BeginHorizontal(GUI.skin.box);
             GUILayout.Label("BlendShapes Extracting Tool by Triturbo", EditorStyles.boldLabel);
             GUILayout.EndHorizontal();
 
             EditorGUILayout.Separator();
-
-
+            
             EditorGUI.BeginChangeCheck();
-
-
             EditorGUI.BeginChangeCheck();
             originFBX = (GameObject)EditorGUILayout.ObjectField("Origin FBX", originFBX, typeof(GameObject), false);
             if (EditorGUI.EndChangeCheck() && originFBX != null)
             {
                 originIsFbx = IsFBXFile(originFBX);
             }
-
             if (!originIsFbx && originFBX != null)
             {
                 EditorGUILayout.HelpBox("This is not an fbx file", MessageType.Error);
@@ -277,7 +262,7 @@ namespace Triturbo.BlendShapeShare.Extractor
                 Transform correspondingTransform = origin.transform.Find(relativePath);
                 if (correspondingTransform == null)
                 {
-                    Debug.LogError($"Cannot find corresponding GameObject for {meshRenderer.name} in origin: {origin.name}");
+                    Debug.LogWarning($"Cannot find corresponding GameObject for {meshRenderer.name} in origin: {origin.name}");
                     continue;
                 }
 
@@ -310,57 +295,6 @@ namespace Triturbo.BlendShapeShare.Extractor
 
             return meshDataList;
         }
-         
-        // public void InitBlendShapesToggles()
-        // {
-        //     if (sourceFBX == null) return;
-        //     skinnedMeshRenderers = new List<SkinnedMeshRenderer>(sourceFBX.GetComponentsInChildren<SkinnedMeshRenderer>());
-        //
-        //     foreach (var skinnedMeshRenderer in skinnedMeshRenderers)
-        //     {
-        //         Mesh mesh = skinnedMeshRenderer.sharedMesh;
-        //         if (mesh == null) continue;
-        //
-        //
-        //         int blendShapeCount = mesh.blendShapeCount;
-        //         if (blendShapeCount == 0) continue;
-        //
-        //         if (!blendShapeToggles.ContainsKey(skinnedMeshRenderer))
-        //         {
-        //             blendShapeToggles[skinnedMeshRenderer] = new bool[blendShapeCount];
-        //            
-        //
-        //             if (originFBX == null)
-        //             {
-        //                 continue;
-        //
-        //             }
-        //             Mesh originMesh = originFBX.transform.Find(skinnedMeshRenderer.name)?.GetComponent<SkinnedMeshRenderer>()?.sharedMesh;
-        //
-        //             if (originMesh == null)
-        //             {
-        //                 Debug.LogError($"Can not find {skinnedMeshRenderer.name} in origin: {originFBX.name}");
-        //                 continue;
-        //             }
-        //
-        //
-        //
-        //             for (int i = 0; i < blendShapeCount; i++)
-        //             {
-        //                 string shapeName = mesh.GetBlendShapeName(i);
-        //                 if (originMesh.GetBlendShapeIndex(shapeName) == -1)
-        //                 {
-        //                     blendShapeToggles[skinnedMeshRenderer][i] = true;
-        //                 }
-        //             }
-        //
-        //         }
-        //
-        //
-        //
-        //
-        //     }
-        // }
         private void InitBlendShapesToggles()
         {
             if (sourceFBX == null) return;

@@ -3,7 +3,12 @@ guid: a366639a5917c0c479e5357ea16074a5
 MonoImporter:
   externalObjects: {}
   serializedVersion: 2
-  defaultReferences: []
+  defaultReferences:
+  - m_ViewDataDictionary: {instanceID: 0}
+  - originFBX: {instanceID: 0}
+  - sourceFBX: {instanceID: 0}
+  - bannerIcon: {fileID: 2800000, guid: 6ee731e02404e154694005c2442f2bf4, type: 3}
+  - currentFocus: {instanceID: 0}
   executionOrder: 0
   icon: {instanceID: 0}
   userData: 
