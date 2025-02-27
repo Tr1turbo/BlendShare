@@ -1,10 +1,8 @@
 {
-    "name": "Triturbo.BlendShapeShare.Extractor.Editor",
+    "name": "Triturbo.BlendShapeShare.Extractor.Util",
     "rootNamespace": "",
     "references": [
-        "GUID:2b82e46c4ca0a4eb697ab8ccdfb39af1",
-        "GUID:36c306fbfd17b8a4a8443f67f3991996",
-        "GUID:310e50e946a3d3f47a2b344b62f35a08"
+        "GUID:2b82e46c4ca0a4eb697ab8ccdfb39af1"
     ],
     "includePlatforms": [
         "Editor"

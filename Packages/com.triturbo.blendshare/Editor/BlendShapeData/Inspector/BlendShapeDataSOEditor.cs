@@ -18,7 +18,8 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         private SerializedProperty appliedProperty;
 
         private bool readOnlyMode = true;
-
+        
+        [SerializeField]
         private Texture bannerIcon;
 
         private List<List<SerializedProperty>> meshBlendShapeNames;
@@ -36,20 +37,14 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         }
         private void OnEnable()
         {
-            
             meshDataListProperty = serializedObject.FindProperty(nameof(BlendShapeDataSO.m_MeshDataList));
             originalFbxProperty = serializedObject.FindProperty(nameof(BlendShapeDataSO.m_Original));
             appliedProperty = serializedObject.FindProperty(nameof(BlendShapeDataSO.m_Applied));
-
-            bannerIcon = AssetDatabase.LoadAssetAtPath(AssetDatabase.GUIDToAssetPath("6ee731e02404e154694005c2442f2bf4"), typeof(Texture)) as Texture;
             meshBlendShapeNames = new List<List<SerializedProperty>>();
-            
             // Get the target object
             BlendShapeDataSO dataAsset = (BlendShapeDataSO)target;
 
             meshBlendShapes = new List<ReorderableList>(dataAsset.m_MeshDataList.Count);
-
-
             for (int i = 0; i < meshDataListProperty.arraySize; i++)
             {
                 var meshDataProperty = meshDataListProperty.GetArrayElementAtIndex(i);
@@ -79,28 +74,18 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
         public override void OnInspectorGUI()
         {
-            if (bannerIcon != null)
-            {
-                GUILayout.BeginHorizontal();
-                GUILayout.FlexibleSpace(); // Pushes the label to the center
-                GUILayout.Label(bannerIcon, GUILayout.Height(42), GUILayout.Width(168));
 
-
-                GUILayout.FlexibleSpace(); // Pushes the label to the center
-                GUILayout.EndHorizontal();
-                GUILayout.Space(8);
-            }
-
+            GUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace(); // Pushes the label to the center
+            GUILayout.Label(bannerIcon, GUILayout.Height(42), GUILayout.Width(168));
+            GUILayout.FlexibleSpace(); // Pushes the label to the center
+            GUILayout.EndHorizontal();
+            GUILayout.Space(8);
+ 
             EditorGUI.BeginDisabledGroup(readOnlyMode);
             EditorGUILayout.PropertyField(originalFbxProperty);
-
-
-
             EditorGUI.EndDisabledGroup();
-
-
-
-
+            
             for (int i = 0; i < meshDataListProperty.arraySize; i++)
             {
                 SerializedProperty meshDataProperty =
@@ -112,18 +97,12 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
                 SerializedProperty meshProperty =
                     meshDataProperty.FindPropertyRelative(nameof(MeshData.m_OriginMesh));
-
-
-
+                
                 EditorGUILayout.BeginVertical(GUI.skin.box);
-
                 EditorGUI.BeginDisabledGroup(readOnlyMode);
-
-
+                
                 if (originalFbxProperty.serializedObject.hasModifiedProperties)
                 {
-
-                    
                     var meshName = meshNameProperty.stringValue;
                     var node = (originalFbxProperty.objectReferenceValue as GameObject)?.transform.Find(meshName);
 
@@ -133,7 +112,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                     {
                         meshProperty.objectReferenceValue = meshRenderer.sharedMesh;
                     }
-
                 }
 
                 EditorGUILayout.ObjectField(meshProperty, new GUIContent(meshNameProperty.stringValue));

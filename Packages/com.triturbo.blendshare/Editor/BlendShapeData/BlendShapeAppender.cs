@@ -6,6 +6,7 @@ using System.Linq;
 
 using UnityEditor;
 #if ENABLE_FBX_SDK
+using Triturbo.BlendShapeShare.Util.Fbx;
 using Autodesk.Fbx;
 #endif
 
@@ -277,10 +278,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         //Add TargetShape to FbxBlendShapeChannel from FbxBlendShapeData
         public static FbxBlendShapeChannel CreateFbxBlendShapeChannel(FbxBlendShapeChannel fbxBlendShapeChannel, FbxMesh mesh, FbxBlendShapeData fbxBlendShapeData)
         {
-
             int controlPointCount = mesh.GetControlPointsCount();
-           
-
             int shapeCount = fbxBlendShapeData.m_Frames.Length;
             for (int shapeIndex = 0; shapeIndex < shapeCount; shapeIndex++)
             {
@@ -289,20 +287,14 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 newShape.InitControlPoints(controlPointCount);
 
                 FbxBlendShapeFrame frame = fbxBlendShapeData.m_Frames[shapeIndex];
-
-
+                
                 for (int pointIndex = 0; pointIndex < controlPointCount; pointIndex++)
                 {
                     var d = frame.GetDeltaControlPointAt(pointIndex);
-
                     var controlPoint = mesh.GetControlPointAt(pointIndex) + new FbxVector4(d.m_X, d.m_Y, d.m_Z, d.m_W);
-
-
-
                     newShape.SetControlPointAt(controlPoint, pointIndex);
                 }
-
-
+                
                 fbxBlendShapeChannel.AddTargetShape(newShape, 100.0 * (shapeIndex + 1) / shapeCount);
             }
             return fbxBlendShapeChannel;
@@ -378,6 +370,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 }
             }
         }
+        
 #endif
         public static bool CreateFbx(this BlendShapeDataSO so, string outputPath = null)
         {
@@ -426,7 +419,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
             foreach (var meshData in so.m_MeshDataList)
             {
-                FbxNode node = sourceRootNode.FindChild(meshData.m_MeshName, false);
+                FbxNode node = sourceRootNode.FindMeshChild(meshData.m_MeshName);
                 FbxMesh targetMesh = node?.GetMesh();
                 if (targetMesh == null)
                 {

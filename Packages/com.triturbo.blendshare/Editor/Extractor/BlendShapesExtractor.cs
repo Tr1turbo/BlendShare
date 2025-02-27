@@ -12,13 +12,41 @@ using System.Threading.Tasks;
 
 #if ENABLE_FBX_SDK
 using Autodesk.Fbx;
+using Triturbo.BlendShapeShare.Util.Fbx;
 # endif
+
+
 namespace Triturbo.BlendShapeShare.Extractor
 {
+    public class BlendShapesExtractorOptions
+    {
+        public enum BaseMesh
+        {
+            Source,
+            Original
+        }
+
+        public BaseMesh baseMesh = BaseMesh.Source;
+        public bool weldVertices = true;
+        public bool applyRotation = false;
+        public bool applyScale = false;
+        public bool applyTranslate = false;
+        public double blendShapesScale = 1;
+
+        public bool ApplyTransform
+        {
+            get
+            {
+                
+                return applyRotation || applyScale || applyTranslate;
+            }
+        }
+    }
+
     public static class BlendShapesExtractor
     {
-        public static BlendShapeDataSO ExtractBlendShapes(GameObject blendShapeSource, GameObject originObject, List<MeshData> meshDataList, 
-            bool sourceAsBaseMesh = true, bool fixWeldVertices = true)
+        public static BlendShapeDataSO ExtractBlendShapes(GameObject blendShapeSource, GameObject originObject, List<MeshData> meshDataList,
+           BlendShapesExtractorOptions blendShapesExtractorOptions)
         {
             var data = ScriptableObject.CreateInstance<BlendShapeDataSO>();
 
@@ -26,29 +54,35 @@ namespace Triturbo.BlendShapeShare.Extractor
 
             string defaultName = $"{originObject.name}-{blendShapeSource.name}";
 
-#if ENABLE_FBX_SDK
-            if (IsUnityVerticesEqual(blendShapeSource, originObject))
-            {
+            bool sourceAsBaseMesh = blendShapesExtractorOptions.baseMesh == BlendShapesExtractorOptions.BaseMesh.Source;
 
-                if (!ExtractFbxBlendshapes(ref meshDataList, blendShapeSource, weldVertices: false, sourceAsBaseMesh: sourceAsBaseMesh))
+#if ENABLE_FBX_SDK
+            if (IsUnityVerticesEqual(blendShapeSource, originObject) && !blendShapesExtractorOptions.ApplyTransform)
+            {
+                if (!ExtractFbxBlendshapes(ref meshDataList, blendShapeSource, blendShapesExtractorOptions))
                 {
+                    Debug.Log("ExtractFbxBlendshapes failed");
                     return null;
                 }
                 ExtractUnityBlendShapes(ref meshDataList, blendShapeSource, sourceAsBaseMesh ? blendShapeSource : originObject);
             }
             else
             {
+                Debug.LogWarning("Unity Vertices Not Equal");
+
                 string path = AssetDatabase.GetAssetPath(originObject);
                 string tmp = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path), $"{originObject.name}-{blendShapeSource.name}-{System.Guid.NewGuid().ToString()}.fbx");
 
                 AssetDatabase.CopyAsset(path, tmp);
                 AssetDatabase.Refresh();
 
-                if (!ExtractFbxBlendshapes(ref meshDataList, blendShapeSource, originObject, tmp, fixWeldVertices, sourceAsBaseMesh))
+                
+                if (!ExtractFbxBlendshapes(ref meshDataList, blendShapeSource, blendShapesExtractorOptions, originObject, tmp))
                 {
                     AssetDatabase.DeleteAsset(tmp);
                     return null;
                 }
+
                 var genertated = AssetDatabase.LoadAssetAtPath<GameObject>(tmp);
 
                 if (IsUnityVerticesEqual(genertated, originObject))
@@ -86,39 +120,69 @@ namespace Triturbo.BlendShapeShare.Extractor
             return data;
         }
 
+        #region Path 
 
-
-#if ENABLE_FBX_SDK
+        /// <summary>
+        /// Recursively builds a dictionary mapping mesh names to their relative paths.
+        /// </summary>
+        private static void BuildMeshPathLookup(Dictionary<string, string> lookup, Transform current, string parentPath = null)
+        {
+            string currentPath = string.IsNullOrEmpty(parentPath) ? current.name : $"{parentPath}/{current.name}";
+            if (current.TryGetComponent(out SkinnedMeshRenderer meshRenderer))
+            {
+                if (meshRenderer.sharedMesh == null)
+                {
+                    Debug.LogError($"SharedMesh is null in {meshRenderer.name}");
+                }
+                if (!lookup.ContainsKey(meshRenderer.sharedMesh.name))
+                {
+                    lookup[meshRenderer.sharedMesh.name] = currentPath;
+                    Debug.Log($"LookUP:{meshRenderer.sharedMesh.name} - {currentPath}");
+                }
+            }
+            foreach (Transform child in current)
+            {
+                BuildMeshPathLookup(lookup, child, parentPath == null ? "" : currentPath);
+            }
+        }
         
-        public static bool ExtractFbxBlendshapes(
-            ref List<MeshData> meshDataList, GameObject source, GameObject origin = null, string exportPath = "", bool weldVertices = true, bool sourceAsBaseMesh = true)
+        private static string GetRelativePath(Transform target, Transform root)
+        {
+            if (target == root) return "";
+            return GetRelativePath(target.parent, root) + (target.parent == root ? "" : "/") + target.name;
+        }
+
+        #endregion
+       
+
+        #region FBX SDK
+
+        #if ENABLE_FBX_SDK
+        
+        public static bool ExtractFbxBlendshapes(ref List<MeshData> meshDataList, GameObject source, 
+            BlendShapesExtractorOptions blendShapesExtractorOptions, GameObject origin = null, string exportPath = "")
         {
             if (meshDataList == null)
             {
                 meshDataList = new List<MeshData>();
             }
-
+            
             var fbxManager = FbxManager.Create();
 
             var ios = FbxIOSettings.Create(fbxManager, Globals.IOSROOT);
             fbxManager.SetIOSettings(ios);
 
             var sourceScene = FbxScene.Create(fbxManager, "Source");
-
-
-
+            
             if (EditorUtility.DisplayCancelableProgressBar("Extract blendshapes", "Create FBX scene...", 0))
             {
                 EditorUtility.ClearProgressBar();
                 return false;
             }
-
-
+            
             FbxImporter fbxImporter = FbxImporter.Create(fbxManager, "");
             int pFileFormat = fbxManager.GetIOPluginRegistry().FindWriterIDByDescription("FBX binary (*.fbx)");
-
-
-
+            
             if (EditorUtility.DisplayCancelableProgressBar("Extract blendshapes", "Import source FBX...", 0.1f))
             {
                 EditorUtility.ClearProgressBar();
@@ -131,8 +195,7 @@ namespace Triturbo.BlendShapeShare.Extractor
             }
             fbxImporter.Import(sourceScene);
             fbxImporter.Destroy();
-
-
+            
             FbxScene originScene = null;
             FbxManager originFbxManager = null;
 
@@ -158,8 +221,7 @@ namespace Triturbo.BlendShapeShare.Extractor
                 originFbxImporter.Destroy();
             }
 
-
-
+            
             if (EditorUtility.DisplayCancelableProgressBar("Extract blendshapes", "Get Root Node...", 0.4f))
             {
                 EditorUtility.ClearProgressBar();
@@ -171,34 +233,72 @@ namespace Triturbo.BlendShapeShare.Extractor
             int count = 0;
             foreach (var meshData in meshDataList)
             {
-                FbxNode node = sourceRootNode.FindChild(meshData.m_MeshName, false);
+                FbxNode node = sourceRootNode.FindMeshChild(meshData.m_MeshName);
                 FbxMesh sourceMesh = node?.GetMesh();
-
-
                 if (EditorUtility.DisplayCancelableProgressBar("Extract blendshapes", $"Check node: {meshData.m_MeshName}", 0.4f + 0.4f * count++ / meshDataList.Count))
                 {
                     EditorUtility.ClearProgressBar();
                     return false;
                 }
-
                 if (sourceMesh == null)
                 {
                     Debug.LogError($"Can not find mesh: {meshData.m_MeshName} in FBX file");
                     continue;
                 }
 
-                if (sourceMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape) < 1)
+                int sourceMeshBlendShapeDeformerCount = sourceMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape);
+                
+                if (sourceMeshBlendShapeDeformerCount < 1)
                 {
                     continue;
                 }
-
-
-                FbxNode nodeOrigin = originRootNode?.FindChild(meshData.m_MeshName, false);
+                FbxNode nodeOrigin = originRootNode?.FindMeshChild(meshData.m_MeshName);
                 FbxMesh originMesh = nodeOrigin?.GetMesh();
 
+                if (sourceMesh != null && originMesh != null)
+                {
+                    int sourceVertexCount = sourceMesh.GetControlPointsCount();
+                    int originVertexCount = originMesh.GetControlPointsCount();
+
+                    if (sourceVertexCount != originVertexCount)
+                    {
+                        Debug.LogError($"Vertex count mismatch: Source ({sourceVertexCount}) vs Origin ({originVertexCount})");
+                    }
+                }
+
+                
+                FbxAMatrix relativeTransform;
+                if (blendShapesExtractorOptions.ApplyTransform)
+                {
+                    FbxAMatrix sourceMatrix = node.EvaluateLocalTransform();
+                    FbxAMatrix originalMatrix = nodeOrigin.EvaluateLocalTransform();
+
+                    relativeTransform = sourceMatrix * originalMatrix.Inverse();
+
+                    sourceMatrix.Dispose();
+                    originalMatrix.Dispose();
+
+                    if (!blendShapesExtractorOptions.applyScale)
+                    {
+                        relativeTransform.SetS(new FbxVector4(1, 1, 1, 1));
+                    }
+                    if (!blendShapesExtractorOptions.applyRotation)
+                    {
+                        relativeTransform.SetR(new FbxVector4(0, 0, 0, 0));
+                    }
+                    if (!blendShapesExtractorOptions.applyTranslate)
+                    {
+                        relativeTransform.SetT(new FbxVector4(0, 0, 0, 0));
+                    }
+                }
+                else
+                {
+                    relativeTransform = new FbxAMatrix();
+                    relativeTransform.SetIdentity();
+                }
                 
                 //Remove all blendshapes in original mesh and make it a container as new blendshapes.
-                if (originMesh != null && !weldVertices)
+                if (originMesh != null && !blendShapesExtractorOptions.weldVertices)
                 {
                     for (int dIndex = 0; dIndex < originMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape); dIndex++)
                     {
@@ -206,22 +306,17 @@ namespace Triturbo.BlendShapeShare.Extractor
                     }
                 }
 
-                FbxBlendShape originDeformer = originMesh != null ? FbxBlendShape.Create(originMesh, "BlendShapeShareTemp") : null;
-
+                FbxBlendShape originDeformer = originMesh != null ? FbxBlendShape.Create(originMesh, "BlendShare") : null;
+                bool sourceAsBaseMesh = blendShapesExtractorOptions.baseMesh == BlendShapesExtractorOptions.BaseMesh.Source;
                 var baseMesh = sourceAsBaseMesh ? sourceMesh : originMesh;
+                
+                var weldingGroups = blendShapesExtractorOptions.weldVertices && originMesh != null ? GetWeldingGroups(originMesh) : null;
 
-
-
-                var weldingGroups = weldVertices ? GetWeldingGroups(originMesh) : null;
-
-                for (int dIndex = 0; dIndex < sourceMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape); dIndex++)
+                for (int dIndex = 0; dIndex < sourceMeshBlendShapeDeformerCount; dIndex++)
                 {
                     var deformer = sourceMesh.GetBlendShapeDeformer(dIndex);
-
                     for (int i = 0; i < deformer.GetBlendShapeChannelCount(); i++)
                     {
-
-
                         var channel = deformer.GetBlendShapeChannel(i);
                         string name = channel.GetName();
 
@@ -229,21 +324,16 @@ namespace Triturbo.BlendShapeShare.Extractor
                         {
                             continue;
                         }
-
                         if (originDeformer != null)
                         {
-                            originDeformer.AddBlendShapeChannel(CopyFbxBlendShapeChannel(channel, originMesh, baseMesh, weldingGroups));
+                            originDeformer.AddBlendShapeChannel(CopyFbxBlendShapeChannel(channel, originMesh, baseMesh, weldingGroups, relativeTransform));
                         }
-
-                        meshData.SetBlendShape(name, GetFbxBlendShapeData(channel, sourceMesh, weldingGroups, baseMesh));
-
-
+                        meshData.SetBlendShape(name, GetFbxBlendShapeData(channel, sourceMesh, weldingGroups, relativeTransform, baseMesh));
                     }
                 }
-
+                relativeTransform.Dispose();
             }
-
-
+            
             if (originScene != null && originFbxManager != null)
             {
                 if (EditorUtility.DisplayCancelableProgressBar("Extract blendshapes", $"Export temporary FBX...", 0.9f))
@@ -261,34 +351,30 @@ namespace Triturbo.BlendShapeShare.Extractor
                 exporter.Export(originScene);
                 exporter.Destroy();
             }
-
-
+            
             AssetDatabase.Refresh();
             EditorUtility.ClearProgressBar();
-
-
-
-
-
-
             return true;
         }
-
-
-        public static FbxBlendShapeChannel CopyFbxBlendShapeChannel(FbxBlendShapeChannel source, FbxMesh target, FbxMesh baseMesh, List<List<int>> weldingList)
+        
+        
+        
+        //base mesh: use for calculate vertices diff
+        public static FbxBlendShapeChannel CopyFbxBlendShapeChannel(FbxBlendShapeChannel source, FbxMesh target, FbxMesh baseMesh, 
+            List<List<int>> weldingList, FbxAMatrix transformMatrix)
         {
-            //
+            
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
-            //
-
+            
+            
             if (baseMesh == null)
             {
                 baseMesh = target;
             }
             else if (target.GetControlPointsCount() != baseMesh.GetControlPointsCount())
             {
-                Debug.LogWarning("Base mesh control point count does not match the target mesh control point count. Use target as basis");
+                Debug.LogWarning($"Base mesh vertices count does not match the target mesh vertices count. Using target mesh as basis.");
                 baseMesh = target;
             }
 
@@ -312,51 +398,83 @@ namespace Triturbo.BlendShapeShare.Extractor
 
                 for (int pointIndex = 0; pointIndex < controlPointCount; pointIndex++)
                 {
-                    if(weldingList == null)
+                    var baseControlPoint = baseMesh.GetControlPointAt(pointIndex);
+                    
+                    if (weldingList == null)
                     {
-                        newShape.SetControlPointAt(source.GetTargetShape(shapeIndex).GetControlPointAt(pointIndex), pointIndex);
-
+                        FbxVector4 delta;
+                        
+                        if (baseMesh != target)
+                            delta = transformMatrix.MultT(source.GetTargetShape(shapeIndex).GetControlPointAt(pointIndex) - baseControlPoint);
+                        else
+                            delta = transformMatrix.MultT(source.GetTargetShape(shapeIndex).GetControlPointAt(pointIndex)) - baseControlPoint;
+                        
+                        FbxVector4 transformedPoint = target.GetControlPointAt(pointIndex) + delta;
+                        newShape.SetControlPointAt(transformedPoint, pointIndex);
                     }
                     else
-                    {
-                        var cp = baseMesh.GetControlPointAt(pointIndex);
-                        deltas[pointIndex] = source.GetTargetShape(shapeIndex).GetControlPointAt(pointIndex) - cp;
+                    { 
+                        if (baseMesh != target)
+                            deltas[pointIndex] = transformMatrix.MultT(source.GetTargetShape(shapeIndex).GetControlPointAt(pointIndex) - baseControlPoint);
+                        else
+                            deltas[pointIndex] = transformMatrix.MultT(source.GetTargetShape(shapeIndex).GetControlPointAt(pointIndex)) - baseControlPoint;
                     }
                 }
-
-                if(weldingList != null)
+                
+                if (ApplyWeldingDeltas(deltas, weldingList))
                 {
-                    foreach (var welding in weldingList)
-                    {
-                        if (welding.Count < 2)
-                        {
-                            continue;
-                        }
-                        FbxVector4 average = new FbxVector4(0, 0, 0, 0);
-                        foreach (int index in welding)
-                        {
-                            average += deltas[index];
-                        }
-                        average /= welding.Count;
-                        foreach (int index in welding)
-                        {
-                            deltas[index] = average;
-                        }
-                    }
-
                     for (int i = 0; i < deltas.Length; i++)
                     {
-                        newShape.SetControlPointAt(target.GetControlPointAt(i) + deltas[i], i);
-                    }
+                        FbxVector4 transformedPoint = target.GetControlPointAt(i) + deltas[i];
+                        newShape.SetControlPointAt(transformedPoint, i);
+                    }  
                 }
-
                 fbxBlendShapeChannel.AddTargetShape(newShape, 100.0 * (shapeIndex + 1) / shapeCount);
             }
 
             stopwatch.Stop();
-            Debug.Log("CopyFbxBlendShapeChannel Time taken: " + stopwatch.ElapsedMilliseconds + " ms");
-
+            Debug.Log($"CopyFbxBlendShapeChannel: {source.GetName()} Time taken: " + stopwatch.ElapsedMilliseconds + " ms");
             return fbxBlendShapeChannel;
+        }
+
+        
+        private static bool ApplyWeldingDeltas(FbxVector4[] deltas, List<List<int>> weldingList)
+        {
+            if (weldingList == null || deltas == null)
+            {
+                return false;
+            }
+
+            foreach (var welding in weldingList)
+            {
+                if (welding == null || welding.Count < 2)
+                {
+                    continue;
+                }
+
+                FbxVector4 average = new FbxVector4(0, 0, 0, 0);
+                int mergedCount = 0;
+
+                foreach (int index in welding)
+                {
+                    if (index >= 0 && index < deltas.Length)
+                    {
+                        average += deltas[index];
+                        mergedCount++;
+                    }
+                }
+                
+                average /= mergedCount;
+                foreach (int index in welding)
+                {
+                    if (index >= 0 && index < deltas.Length)
+                    {
+                        deltas[index] = average;
+                    }
+                }
+            }
+
+            return true;
         }
 
 
@@ -401,7 +519,7 @@ namespace Triturbo.BlendShapeShare.Extractor
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
             //
-
+            
             int count = mesh.GetControlPointsCount();
             Dictionary<FbxVector4, List<int>> controlPointPosition = new Dictionary<FbxVector4, List<int>>();
 
@@ -469,7 +587,8 @@ namespace Triturbo.BlendShapeShare.Extractor
 
         // Creates FbxBlendShapeData from a given FbxBlendShapeChannel and FbxMesh.
         // The base FbxMesh to use as a reference for computing blendshape offsets. If null, sourceMesh is used as the base.
-        public static FbxBlendShapeData GetFbxBlendShapeData(FbxBlendShapeChannel source, FbxMesh sourceMesh, List<List<int>> weldingGroup, FbxMesh baseMesh = null)
+        public static FbxBlendShapeData GetFbxBlendShapeData(FbxBlendShapeChannel source, FbxMesh sourceMesh, List<List<int>> weldingGroup,
+           FbxAMatrix transformMatrix, FbxMesh baseMesh = null)
         {
             int controlPointCount = sourceMesh.GetControlPointsCount();
 
@@ -507,7 +626,17 @@ namespace Triturbo.BlendShapeShare.Extractor
                 {
                     var shapeControlPoint = sourceShape.GetControlPointAt(pointIndex);
                     var basicControlPoint = baseMesh.GetControlPointAt(pointIndex);
-                    deltas[pointIndex] = shapeControlPoint - basicControlPoint;
+
+
+                    if (baseMesh == sourceMesh)
+                    {
+                        deltas[pointIndex] = transformMatrix.MultT(shapeControlPoint - basicControlPoint);
+                    }
+                    else
+                    {
+                        deltas[pointIndex] = transformMatrix.MultT(shapeControlPoint) - basicControlPoint;
+                    }
+                    
 
                     if (weldingGroup == null)
                     {
@@ -517,102 +646,96 @@ namespace Triturbo.BlendShapeShare.Extractor
                             frames[shapeIndex].AddDeltaControlPointAt(delta, pointIndex);
                     }
                 }
-
-                if(weldingGroup != null)
+                
+                if (ApplyWeldingDeltas(deltas, weldingGroup))
                 {
-                    foreach (var welding in weldingGroup)
-                    {
-                        if (welding.Count < 2)
-                        {
-                            continue;
-                        }
-                        FbxVector4 average = new FbxVector4(0, 0, 0, 0);
-                        foreach (int index in welding)
-                        {
-                            average += deltas[index];
-                        }
-                        average /= welding.Count;
-                        foreach (int index in welding)
-                        {
-                            deltas[index] = average;
-                        }
-                    }
-
                     for (int i = 0; i < deltas.Length; i++)
                     {
                         var delta = new Vector4d(deltas[i].X, deltas[i].Y, deltas[i].Z, deltas[i].W);
-
                         if (!delta.IsZero())
                             frames[shapeIndex].AddDeltaControlPointAt(delta, i);
                     }
                 }
+                
             }
 
             return new FbxBlendShapeData(frames);
         }
 
+
 #endif
 
-        //Compare GameOjects and find out extra blendshape and store the names in each MeshData
+        #endregion
+
+
         public static List<MeshData> CompareBlendShape(GameObject source, GameObject origin, bool compareByName = true)
         {
             List<MeshData> meshDataList = new List<MeshData>();
-            var skinnedMeshRenderers = source.GetComponentsInChildren<SkinnedMeshRenderer>(true);
-            foreach (Transform tansform in source.transform)
+            Dictionary<string, SkinnedMeshRenderer> originMeshLookup = new Dictionary<string, SkinnedMeshRenderer>();
+
+            // Create a lookup dictionary for origin mesh renderers
+            foreach (var skinnedMesh in origin.GetComponentsInChildren<SkinnedMeshRenderer>(true))
             {
-                Mesh sourceMesh = tansform.TryGetComponent(out SkinnedMeshRenderer meshRenderer) ? meshRenderer.sharedMesh : null;
+                originMeshLookup[skinnedMesh.name] = skinnedMesh;
+            }
+
+            foreach (var meshRenderer in source.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            {
+                Mesh sourceMesh = meshRenderer.sharedMesh;
                 if (sourceMesh == null)
                 {
                     continue;
                 }
-                Mesh originMesh = origin.transform.Find(tansform.name)?.GetComponent<SkinnedMeshRenderer>()?.sharedMesh;
 
-                if (originMesh == null)
+                // Use lookup dictionary for faster search
+                if (!originMeshLookup.TryGetValue(meshRenderer.name, out SkinnedMeshRenderer originRenderer) || originRenderer.sharedMesh == null)
                 {
-                    Debug.LogError($"Can not find {tansform.name} in origin: {origin.name}");
+                    Debug.LogError($"Cannot find matching SkinnedMeshRenderer for {meshRenderer.name} in origin: {origin.name}");
                     continue;
                 }
 
+                Mesh originMesh = originRenderer.sharedMesh;
+                List<string> extraBlendShapes;
+
                 if (compareByName)
                 {
-                    MeshData meshData = new MeshData(originMesh, GetExtraBlendShapeNames(sourceMesh, originMesh));
-                    meshDataList.Add(meshData);
+                    extraBlendShapes = GetExtraBlendShapeNames(sourceMesh, originMesh);
                 }
                 else
                 {
-                    List<string> blendShapes = new List<string>();
+                    extraBlendShapes = new List<string>();
                     for (int i = originMesh.blendShapeCount; i < sourceMesh.blendShapeCount; i++)
                     {
-                        blendShapes.Add(sourceMesh.GetBlendShapeName(i));
-
-                   
+                        extraBlendShapes.Add(sourceMesh.GetBlendShapeName(i));
                     }
-                    MeshData meshData = new MeshData(originMesh, blendShapes);
-
-                    meshDataList.Add(meshData);
                 }
 
-               
+                MeshData meshData = new MeshData(originMesh, extraBlendShapes);
+                meshDataList.Add(meshData);
             }
             return meshDataList;
         }
 
 
-
-
+        
+        #region Unity Mesh
+        
         public static bool IsUnityVerticesEqual(GameObject source, GameObject origin)
         {
-            foreach (Transform tansform in source.transform)
+            foreach (Transform transform in source.transform)
             {
-                Mesh sourceMesh = tansform.TryGetComponent(out SkinnedMeshRenderer meshRenderer) ? meshRenderer.sharedMesh : null;
+                Mesh sourceMesh = transform.TryGetComponent(out SkinnedMeshRenderer meshRenderer) ? meshRenderer.sharedMesh : null;
                 if (sourceMesh == null)
                 {
                     continue;
                 }
-                Mesh originMesh = origin.transform.Find(tansform.name)?.GetComponent<SkinnedMeshRenderer>()?.sharedMesh;
+                
+                string relativePath = GetRelativePath(transform, source.transform);
+
+                Mesh originMesh = origin.transform.Find(relativePath)?.GetComponent<SkinnedMeshRenderer>()?.sharedMesh;
                 if (originMesh == null)
                 {
-                    Debug.LogError($"Can not find {tansform.name} in origin: {origin.name}");
+                    Debug.LogError($"Can not find {transform.name} in origin: {origin.name}");
                     return false;
                 }
 
@@ -630,42 +753,51 @@ namespace Triturbo.BlendShapeShare.Extractor
 
             return true;
         }
-
-        //unity
         public static void ExtractUnityBlendShapes(ref List<MeshData> meshDataList, GameObject source, GameObject baseObject)
         {
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
-            foreach (Transform tansform in source.transform)
+
+            // Convert meshDataList to a dictionary for faster lookup
+            Dictionary<string, MeshData> meshDataDict = meshDataList.ToDictionary(m => m.m_MeshName);
+
+            // Get all skinned mesh renderers in source
+            var skinnedMeshRenderers = source.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+
+            foreach (var meshRenderer in skinnedMeshRenderers)
             {
-                Mesh sourceMesh = tansform.TryGetComponent(out SkinnedMeshRenderer meshRenderer) ? meshRenderer.sharedMesh : null;
+                Mesh sourceMesh = meshRenderer.sharedMesh;
                 if (sourceMesh == null)
                 {
                     continue;
                 }
 
-                MeshData meshData = meshDataList.SingleOrDefault(m => m.m_MeshName == tansform.name);
-               
-                if (meshData == null)
+                // Look up MeshData by name
+                if (!meshDataDict.TryGetValue(sourceMesh.name, out MeshData meshData))
                 {
                     continue;
                 }
 
                 Mesh baseMesh = null;
-                if(source == baseObject)
+                if (source == baseObject)
                 {
                     baseMesh = sourceMesh;
                 }
                 else if (baseObject != null)
                 {
-                    Transform baseMeshTransform = baseObject.transform.Find(tansform.name);
-                    if(baseMeshTransform != null)
+                    // Get relative path and find the corresponding mesh in baseObject
+                    string relativePath = GetRelativePath(meshRenderer.transform, source.transform);
+                    Transform baseMeshTransform = baseObject.transform.Find(relativePath);
+                
+                    if (baseMeshTransform != null && baseMeshTransform.TryGetComponent(out SkinnedMeshRenderer baseMeshRenderer))
                     {
-                        baseMesh = baseMeshTransform.TryGetComponent(out SkinnedMeshRenderer baseMeshRenderer) ? baseMeshRenderer.sharedMesh : null;
+                        baseMesh = baseMeshRenderer.sharedMesh;
                     }
                 }
+
                 meshData.ExtractUnityBlendShapes(sourceMesh, baseMesh);
             }
+
             stopwatch.Stop();
             Debug.Log("Extract Unity BlendShapes Time taken: " + stopwatch.ElapsedMilliseconds + " ms");
         }
@@ -759,6 +891,9 @@ namespace Triturbo.BlendShapeShare.Extractor
             }
 
         }
+
+        #endregion
+        
 
     }
 
