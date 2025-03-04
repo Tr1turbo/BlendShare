@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
 
 using UnityEditor;
@@ -16,7 +17,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         private SerializedProperty meshDataListProperty;
         private SerializedProperty originalFbxProperty;
         private SerializedProperty appliedProperty;
-
+        
         private bool readOnlyMode = true;
         
         [SerializeField]
@@ -40,6 +41,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             meshDataListProperty = serializedObject.FindProperty(nameof(BlendShapeDataSO.m_MeshDataList));
             originalFbxProperty = serializedObject.FindProperty(nameof(BlendShapeDataSO.m_Original));
             appliedProperty = serializedObject.FindProperty(nameof(BlendShapeDataSO.m_Applied));
+            
             meshBlendShapeNames = new List<List<SerializedProperty>>();
             // Get the target object
             BlendShapeDataSO dataAsset = (BlendShapeDataSO)target;
@@ -72,6 +74,22 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         }
 
 
+        private Mesh GetMeshAssetFromName(Object root, string meshName)
+        {
+            string path = AssetDatabase.GetAssetPath(root);
+            if(string.IsNullOrEmpty(path)) return null;
+            
+            Object[] subAssets = AssetDatabase.LoadAllAssetRepresentationsAtPath(path);
+            foreach (var asset in subAssets)
+            {
+                if (asset is Mesh mesh&& asset.name == meshName)
+                {
+                    return mesh;
+                }
+            }
+            return null;
+        }
+
         public override void OnInspectorGUI()
         {
 
@@ -90,13 +108,11 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             {
                 SerializedProperty meshDataProperty =
                     meshDataListProperty.GetArrayElementAtIndex(i);
-
                 SerializedProperty meshNameProperty =
                     meshDataProperty.FindPropertyRelative(nameof(MeshData.m_MeshName));
-
-
                 SerializedProperty meshProperty =
                     meshDataProperty.FindPropertyRelative(nameof(MeshData.m_OriginMesh));
+                
                 
                 EditorGUILayout.BeginVertical(GUI.skin.box);
                 EditorGUI.BeginDisabledGroup(readOnlyMode);
@@ -104,14 +120,21 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 if (originalFbxProperty.serializedObject.hasModifiedProperties)
                 {
                     var meshName = meshNameProperty.stringValue;
-                    var node = (originalFbxProperty.objectReferenceValue as GameObject)?.transform.Find(meshName);
-
-                    appliedProperty.boolValue = false;
-
-                    if (node != null && node.TryGetComponent(out SkinnedMeshRenderer meshRenderer))
+                    // var node = (originalFbxProperty.objectReferenceValue as GameObject)?.transform.FindRecursive(meshName);
+                    //
+                    // appliedProperty.boolValue = false;
+                    //
+                    // if (node != null && node.TryGetComponent(out SkinnedMeshRenderer meshRenderer))
+                    // {
+                    //     meshProperty.objectReferenceValue = meshRenderer.sharedMesh;
+                    // }
+                    
+                    Mesh found = GetMeshAssetFromName(originalFbxProperty.objectReferenceValue, meshName);
+                    if (found != null)
                     {
-                        meshProperty.objectReferenceValue = meshRenderer.sharedMesh;
+                        meshProperty.objectReferenceValue = found;
                     }
+                        
                 }
 
                 EditorGUILayout.ObjectField(meshProperty, new GUIContent(meshNameProperty.stringValue));
@@ -277,17 +300,13 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                     {
                         string tmp = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path), $"{dataAsset.DefaultFbxName}-{System.Guid.NewGuid().ToString()}.fbx");
                         dataAsset.CreateNecessaryFbx(dataAsset.m_Original, tmp);
-
                         var genertated = AssetDatabase.LoadAssetAtPath<GameObject>(tmp);
-
                         dataAsset.CreateMeshAsset(path, genertated);
                         AssetDatabase.DeleteAsset(tmp);
-
                     }
 #else
                     if (EditorUtility.DisplayDialog("Unity mesh vertices not match", "Unable to create mesh since vertices not match. Please import FBX SDK and create FBX file", "OK"))
                     {
-                        
                     }
 #endif
                     return;
@@ -300,7 +319,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
                 if (path.Length > 0)
                     BlendShapeAppender.CreateMeshAsset(meshList, path);
-
             }
 
 
@@ -367,13 +385,12 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 EditorGUILayout.PropertyField(defaultAssetName,  new GUIContent("Default Asset Name", "Default name for generated asset."));
                 EditorGUILayout.PropertyField(appliedProperty, new GUIContent("Applied", "Indicate if user has applied blendshapes to FBX."));
 
-
                 var m_DeformerID = serializedObject.FindProperty("m_DeformerID");
-
 
                 EditorGUI.BeginDisabledGroup(true);
                 EditorGUILayout.PropertyField(m_DeformerID, new GUIContent("Deformer ID", ""));
                 EditorGUI.EndDisabledGroup();
+                
                 GUILayout.EndVertical();
             }
 
