@@ -16,7 +16,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 {
     public static class BlendShapeAppender
     {
-
         public static List<Mesh> CreateMeshes(this BlendShapeDataSO so)
         {
             List<Mesh> meshesList = new List<Mesh>(so.m_MeshDataList.Count);
@@ -35,6 +34,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
             return meshesList;
         }
+        
         public static GeneratedMeshAssetSO CreateMeshAsset(List<Mesh> meshesList, string path)
         {
             var asset = ScriptableObject.CreateInstance<GeneratedMeshAssetSO>();
@@ -49,19 +49,27 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
             return asset;
         }
-
-
+        
+        
         // Copy mesh from GameObject if included in BlendShapeDataSO
         public static GeneratedMeshAssetSO CreateMeshAsset(this BlendShapeDataSO so, string path, GameObject target)
         {
 
             List<Mesh> meshesList = new List<Mesh>(so.m_MeshDataList.Count);
+            
+            string targetPath = AssetDatabase.GetAssetPath(target);
+            if(string.IsNullOrEmpty(targetPath)) return null;
+            
+            
+            Object[] subAssets = AssetDatabase.LoadAllAssetRepresentationsAtPath(targetPath);
 
             foreach (var meshData in so.m_MeshDataList)
             {
-               
-
-                var targetMesh = target.transform.Find(meshData.m_MeshName)?.GetComponent<SkinnedMeshRenderer>()?.sharedMesh;
+                //var targetMesh = target.transform.FindRecursive(meshData.m_MeshName)?.GetComponent<SkinnedMeshRenderer>()?.sharedMesh;
+                Mesh targetMesh = subAssets
+                    .OfType<Mesh>() // Filter to objects of type Mesh
+                    .FirstOrDefault(mesh => mesh.name == meshData.m_MeshName);
+                
                 if (targetMesh == null)
                 {
                     return null;
@@ -538,7 +546,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             HashSet<FbxNode> nodes = new HashSet<FbxNode>();
             foreach (var meshData in so.m_MeshDataList)
             {
-                FbxNode node = sourceRootNode.FindChild(meshData.m_MeshName, false);
+                FbxNode node = sourceRootNode.FindMeshChild(meshData.m_MeshName);
                 AddBlendShapes(so, meshData, node);
                 nodes.Add(node);
             }
@@ -615,7 +623,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
             foreach (var meshData in so.m_MeshDataList)
             {
-                FbxNode node = sourceRootNode.FindChild(meshData.m_MeshName, false);
+                FbxNode node = sourceRootNode.FindMeshChild(meshData.m_MeshName);
                 FbxMesh sourceMesh = node?.GetMesh();
                 if (sourceMesh == null)
                 {
@@ -627,7 +635,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 {
                     continue;
                 }
-
 
                 so.GetDeformer(sourceMesh, false)?.Destroy();
                 if (RemoveInAllDeformer)
@@ -646,11 +653,8 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                         }
                     }
                 }
-
             }
-
             var exporter = FbxExporter.Create(fbxManager, "");
-
             if (exporter.Initialize(AssetDatabase.GetAssetPath(target), pFileFormat, fbxManager.GetIOSettings()) == false)
             {
                 Debug.LogError("Exporter Initialize failed.");
