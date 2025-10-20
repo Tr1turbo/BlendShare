@@ -9,7 +9,6 @@ using UnityEditorInternal;
 
 namespace Triturbo.BlendShapeShare.BlendShapeData
 {
-
     [CustomEditor(typeof(BlendShapeDataSO))]
     public class BlendShapeDataSOEditor : Editor
     {
@@ -17,14 +16,9 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         private SerializedProperty meshDataListProperty;
         private SerializedProperty originalFbxProperty;
         private SerializedProperty appliedProperty;
-        
         private bool readOnlyMode = true;
-        
-        [SerializeField]
-        private Texture bannerIcon;
-
         private List<List<SerializedProperty>> meshBlendShapeNames;
-
+        private BlendShapeMeshGeneratorWindow advancedGeneratorWindow = null;
         private void ShowContextMenu(ReorderableList reorderableList, int index)
         {
             GenericMenu menu = new GenericMenu();
@@ -36,6 +30,8 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             });
             menu.ShowAsContext();
         }
+        
+
         private void OnEnable()
         {
             meshDataListProperty = serializedObject.FindProperty(nameof(BlendShapeDataSO.m_MeshDataList));
@@ -63,8 +59,10 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                     if (!readOnlyMode && Event.current.type == EventType.ContextClick && rect.Contains(Event.current.mousePosition))
                     {
                         if (reorderableList.IsSelected(index))
+                        {
                             ShowContextMenu(reorderableList, index);
                             Event.current.Use();
+                        }
                     }
 #endif
                 };
@@ -74,36 +72,16 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         }
 
 
-        private Mesh GetMeshAssetFromName(Object root, string meshName)
-        {
-            string path = AssetDatabase.GetAssetPath(root);
-            if(string.IsNullOrEmpty(path)) return null;
-            
-            Object[] subAssets = AssetDatabase.LoadAllAssetRepresentationsAtPath(path);
-            foreach (var asset in subAssets)
-            {
-                if (asset is Mesh mesh&& asset.name == meshName)
-                {
-                    return mesh;
-                }
-            }
-            return null;
-        }
-
         public override void OnInspectorGUI()
         {
 
-            GUILayout.BeginHorizontal();
-            GUILayout.FlexibleSpace(); // Pushes the label to the center
-            GUILayout.Label(bannerIcon, GUILayout.Height(42), GUILayout.Width(168));
-            GUILayout.FlexibleSpace(); // Pushes the label to the center
-            GUILayout.EndHorizontal();
-            GUILayout.Space(8);
- 
+            EditorWidgets.ShowBlendShareBanner();
+            Localization.DrawLanguageSelection();
+            EditorGUILayout.Separator();
+
             EditorGUI.BeginDisabledGroup(readOnlyMode);
-            EditorGUILayout.PropertyField(originalFbxProperty);
+            EditorWidgets.FBXGameObjectField(Localization.G("data.original_fbx"), originalFbxProperty);
             EditorGUI.EndDisabledGroup();
-            
             for (int i = 0; i < meshDataListProperty.arraySize; i++)
             {
                 SerializedProperty meshDataProperty =
@@ -112,104 +90,67 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                     meshDataProperty.FindPropertyRelative(nameof(MeshData.m_MeshName));
                 SerializedProperty meshProperty =
                     meshDataProperty.FindPropertyRelative(nameof(MeshData.m_OriginMesh));
-                
-                
                 EditorGUILayout.BeginVertical(GUI.skin.box);
                 EditorGUI.BeginDisabledGroup(readOnlyMode);
                 
                 if (originalFbxProperty.serializedObject.hasModifiedProperties)
                 {
                     var meshName = meshNameProperty.stringValue;
-                    // var node = (originalFbxProperty.objectReferenceValue as GameObject)?.transform.FindRecursive(meshName);
-                    //
-                    // appliedProperty.boolValue = false;
-                    //
-                    // if (node != null && node.TryGetComponent(out SkinnedMeshRenderer meshRenderer))
-                    // {
-                    //     meshProperty.objectReferenceValue = meshRenderer.sharedMesh;
-                    // }
-                    
-                    Mesh found = GetMeshAssetFromName(originalFbxProperty.objectReferenceValue, meshName);
+                    Mesh found = Util.MeshUtil.FindMeshAsset(originalFbxProperty.objectReferenceValue, meshName);
                     if (found != null)
                     {
                         meshProperty.objectReferenceValue = found;
                     }
-                        
                 }
-
                 EditorGUILayout.ObjectField(meshProperty, new GUIContent(meshNameProperty.stringValue));
                 EditorGUI.EndDisabledGroup();
                 EditorGUI.indentLevel++;
-
                 var property = meshBlendShapes[i].serializedProperty;
-                property.isExpanded = EditorGUILayout.Foldout(property.isExpanded, $"Blendshapes: {property.arraySize}");
-
-
+                property.isExpanded = EditorGUILayout.Foldout(property.isExpanded, $"{Localization.S("blendshapes")}: {property.arraySize}");
+                
                 if (property.isExpanded)
                 {
-
-                    //if (readOnlyMode)
-                    //{
-                    //    var names = meshDataProperty.FindPropertyRelative(nameof(BlendShapeDataSO.MeshData.shapeNames))
-                    //    for()
-                    //    foreach (string name in dataAsset.meshDataList[i].shapeNames)
-                    //    {
-                    //        EditorGUILayout.LabelField(name);
-                    //    }
-                    //}
-                    //else
-                    //{
                     meshBlendShapes[i].DoLayoutList();
-
                     meshBlendShapes[i].draggable = !readOnlyMode;
                     meshBlendShapes[i].displayRemove = !readOnlyMode;
-
                     meshBlendShapes[i].footerHeight = readOnlyMode ? 0 : EditorGUIUtility.singleLineHeight;
-
-                    // }
-
-
                 }
-
-
+                
                 EditorGUI.indentLevel--;
 
                 EditorGUILayout.EndVertical();
                 EditorGUILayout.Separator();
-
             }
-
-
-
-
-
-
+            
+      
 
 #if ENABLE_FBX_SDK
             bool useFbxSdk = true;
 #else
             bool useFbxSdk = false;
             EditorGUILayout.HelpBox("Autodesk FBX SDK is missing. FBX manipulate features will be disabled", MessageType.Warning);
-
 #endif
-
             EditorGUI.BeginDisabledGroup(!useFbxSdk || originalFbxProperty.objectReferenceValue == null);
             GUILayout.BeginHorizontal();
             bool applyBlendShapeLocked = readOnlyMode && appliedProperty.boolValue;
             EditorGUI.BeginDisabledGroup(applyBlendShapeLocked);
-            string applyBlendShapeLockedMsg = applyBlendShapeLocked ? "\n(Currently this button is disable since you are already apply blendshapes to Fbx. Click Edit to force enable)" : "";
-
-            if (GUILayout.Button(new GUIContent("Apply blendshapes", "Add blendshapes in the list to Original GameObject." + applyBlendShapeLockedMsg)))
+            
+            var label = Localization.G("data.apply_blendshapes");
+            if (applyBlendShapeLocked)
+            {
+                label.tooltip +=  Localization.S("data.apply_blendshapes.tooltip_locked_message");
+            }
+            if (GUILayout.Button(label))
             {
 #if ENABLE_FBX_SDK
                 var dataAsset = (BlendShapeDataSO)target;
 
                 if (dataAsset.m_Original == null)
                 {
-                    EditorUtility.DisplayDialog("Original FBX is missing", "Original FBX is missing. Please import asset or assign a FBX to 'Origin'.", "OK");
+                    Localization.DisplayDialog("data.dialog.fbx_missing");
                     return;
                 }
-                if (EditorUtility.DisplayDialog("Apply blendshapes", "It will add blendshapes in this list to Original GameObject. Are you sure?", "Yes", "Cancel"))
+                if (Localization.DisplayDialog("data.dialog.apply_blendshapes", Localization.S("data.dialog.ok"), Localization.S("data.dialog.cancel")))
                 {
                     appliedProperty.boolValue = true;
                     dataAsset.CreateFbx(dataAsset.m_Original);
@@ -220,19 +161,23 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
 
             bool removeBlendShapeLocked = readOnlyMode && !appliedProperty.boolValue;
+            var removeBlendShapeLabel = Localization.G("data.remove_blendshapes");
+            if (removeBlendShapeLocked)
+            {
+                removeBlendShapeLabel.tooltip +=  Localization.S("data.remove_blendshapes.tooltip_locked_message");
+            }
             EditorGUI.BeginDisabledGroup(removeBlendShapeLocked);
-            string removeBlendShapeLockedMsg = removeBlendShapeLocked ? "\n(Currently this button is disable since you are not apply blendshapes to Fbx yet. Click Edit to force enable)" : "";
-            if (GUILayout.Button(new GUIContent("Remove blendshapes", "Remove blendshapes in the list from Original GameObject." + removeBlendShapeLockedMsg)))
+            if (GUILayout.Button(removeBlendShapeLabel))
             {
 #if ENABLE_FBX_SDK
                 var dataAsset = (BlendShapeDataSO)target;
 
                 if (dataAsset.m_Original == null)
                 {
-                    EditorUtility.DisplayDialog("Original FBX is missing", "Original FBX is missing. Please import asset or assign a FBX to 'Origin'.", "OK");
+                    Localization.DisplayDialog("data.dialog.fbx_missing");
                     return;
                 }
-                if (EditorUtility.DisplayDialog("Remove blendshapes", "It will remove blendshapes in this list from Original GameObject. Are you sure?", "Yes", "Cancel"))
+                if (Localization.DisplayDialog("data.dialog.remove_blendshapes", Localization.S("data.dialog.ok"), Localization.S("data.dialog.cancel")))
                 {
                     appliedProperty.boolValue = false;
                     dataAsset.RemoveBlendShapes(dataAsset.m_Original);
@@ -242,23 +187,17 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             EditorGUI.EndDisabledGroup();
 
             GUILayout.EndHorizontal();
-
-
-
-            if (GUILayout.Button(new GUIContent("Apply blendshapes as new FBX", "Duplicate Original GameObject and apply blendshapes to the copy.")))
+            
+            if (GUILayout.Button(Localization.G("data.apply_blendshapes_as_new_fbx")))
             {
-
-
 #if ENABLE_FBX_SDK
                 var dataAsset = (BlendShapeDataSO)target;
                 if (dataAsset.m_Original == null)
                 {
-                    EditorUtility.DisplayDialog("Original FBX is missing", "Original FBX is missing. Please import asset or assign a FBX to 'Origin'.", "OK");
+                    Localization.DisplayDialog("data.dialog.fbx_missing");
                     return;
                 }
                 string folderPath = System.IO.Path.GetDirectoryName(AssetDatabase.GetAssetPath(dataAsset));
-
-
                 string path = EditorUtility.SaveFilePanelInProject("Save FBX",
                     dataAsset.DefaultFbxName, "fbx",
                     "Please enter a file name", folderPath);
@@ -270,69 +209,58 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             }
             
             EditorGUI.EndDisabledGroup();
-
             
-
-
-            if (GUILayout.Button(new GUIContent("Create Meshes", "Create new mesh assets with blendshapes.")))
+            if (GUILayout.Button(Localization.G("data.create_meshes")))
             {
                 var dataAsset = (BlendShapeDataSO)target;
 
                 if (dataAsset.m_Original == null)
                 {
-                    EditorUtility.DisplayDialog("Original FBX is missing", "Original FBX is missing. Please import asset or assign a FBX to 'Origin'.", "OK");
+                    Localization.DisplayDialog("data.dialog.fbx_missing");
                     return;
                 }
 
-                var meshList = dataAsset.CreateMeshes();
-                string folderPath = System.IO.Path.GetDirectoryName(AssetDatabase.GetAssetPath(dataAsset));
-
-                string path = "";
-                if (meshList == null)
-                {
-
-#if ENABLE_FBX_SDK
-                    path = EditorUtility.SaveFilePanelInProject("Save Mesh",
+                string folderPath = Path.GetDirectoryName(AssetDatabase.GetAssetPath(dataAsset));
+                var path = EditorUtility.SaveFilePanelInProject("Save Mesh",
                     dataAsset.DefaultMeshAssetName, "asset",
                     "Please enter a file name", folderPath);
 
-                    if (path.Length > 0)
+                if (path.Length > 0)
+                {
+                    var generated = BlendShapeAppender.CreateMeshAsset(dataAsset.m_Original, new[]{dataAsset}, path);
+
+#if !ENABLE_FBX_SDK
+                    if (generated == null)
                     {
-                        string tmp = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path), $"{dataAsset.DefaultFbxName}-{System.Guid.NewGuid().ToString()}.fbx");
-                        dataAsset.CreateNecessaryFbx(dataAsset.m_Original, tmp);
-                        var genertated = AssetDatabase.LoadAssetAtPath<GameObject>(tmp);
-                        dataAsset.CreateMeshAsset(path, genertated);
-                        AssetDatabase.DeleteAsset(tmp);
-                    }
-#else
-                    if (EditorUtility.DisplayDialog("Unity mesh vertices not match", "Unable to create mesh since vertices not match. Please import FBX SDK and create FBX file", "OK"))
-                    {
+                        EditorUtility.DisplayDialog("Unity mesh vertices not match", "Unable to create mesh since vertices not match. Please import FBX SDK and create FBX file", "OK")
                     }
 #endif
-                    return;
                 }
-
-                
-                path = EditorUtility.SaveFilePanelInProject("Save Mesh",
-                dataAsset.DefaultMeshAssetName, "asset",
-                "Please enter a file name", folderPath);
-
-                if (path.Length > 0)
-                    BlendShapeAppender.CreateMeshAsset(meshList, path);
             }
-
-
-
-
-
-
+            
             EditorGUILayout.Separator();
             GUILayout.BeginHorizontal();
             GUILayout.FlexibleSpace();
+            if (GUILayout.Button(Localization.G("data.open_advanced_generator")))
+            {
+                var data = (BlendShapeDataSO)target;
+                if (advancedGeneratorWindow == null)
+                {
+                    advancedGeneratorWindow =  EditorWindow.GetWindow<BlendShapeMeshGeneratorWindow>("BlendShare");
+                    foreach (var obj in targets)
+                    {               
+                        advancedGeneratorWindow.blendShapeList.Add((BlendShapeDataSO)obj);
+                    }
+                    advancedGeneratorWindow.TargetMeshContainer = data.m_Original;
+                }
+                else
+                {
+                    advancedGeneratorWindow.Focus();
+                }
 
-
+            }
             EditorGUI.BeginDisabledGroup(readOnlyMode);
-            if (GUILayout.Button(new GUIContent("Reset blendshapes", "Reset blendshapes list to original")))
+            if (GUILayout.Button(Localization.G("data.reset_blendshapes")))
             {
                 BlendShapeDataSO dataAsset = (BlendShapeDataSO)target;
                 for (int i = 0; i < meshDataListProperty.arraySize; i++)
@@ -354,11 +282,11 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 OnEnable();
             }
             EditorGUI.EndDisabledGroup();
-
-
-
-            string btn = readOnlyMode ? " Edit " : "Lock";
-            if (GUILayout.Button(btn, GUILayout.ExpandWidth(false)))
+            
+            if (GUILayout.Button(readOnlyMode
+                        ? Localization.G("data.edit") :
+                        Localization.G("data.lock")
+                    , GUILayout.ExpandWidth(false)))
             {
                 readOnlyMode = !readOnlyMode;
 
@@ -375,20 +303,18 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 GUILayout.EndHorizontal();
 
                 EditorGUILayout.Separator();
-
-
-
-                EditorGUILayout.LabelField("Hidden Settings", EditorStyles.boldLabel);
+                
+                EditorGUILayout.LabelField(Localization.G( "data.hidden_settings"), EditorStyles.boldLabel);
 
                 GUILayout.BeginVertical(GUI.skin.box);
                 var defaultAssetName = serializedObject.FindProperty(nameof(BlendShapeDataSO.m_DefaultGeneratedAssetName));
-                EditorGUILayout.PropertyField(defaultAssetName,  new GUIContent("Default Asset Name", "Default name for generated asset."));
-                EditorGUILayout.PropertyField(appliedProperty, new GUIContent("Applied", "Indicate if user has applied blendshapes to FBX."));
+                EditorGUILayout.PropertyField(defaultAssetName,  Localization.G( "data.hidden_settings.default_asset_name"));
+                EditorGUILayout.PropertyField(appliedProperty, Localization.G( "data.hidden_settings.applied"));
 
                 var m_DeformerID = serializedObject.FindProperty("m_DeformerID");
 
                 EditorGUI.BeginDisabledGroup(true);
-                EditorGUILayout.PropertyField(m_DeformerID, new GUIContent("Deformer ID", ""));
+                EditorGUILayout.PropertyField(m_DeformerID, Localization.G( "data.hidden_settings.deformer_id"));
                 EditorGUI.EndDisabledGroup();
                 
                 GUILayout.EndVertical();
@@ -396,6 +322,11 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
 
             serializedObject.ApplyModifiedProperties();
+            
+            
+            
+            
+            
         }
 
 

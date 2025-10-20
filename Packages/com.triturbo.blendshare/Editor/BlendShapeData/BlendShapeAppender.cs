@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -5,8 +6,9 @@ using UnityEngine;
 using System.Linq;
 
 using UnityEditor;
+using Object = UnityEngine.Object;
 #if ENABLE_FBX_SDK
-using Triturbo.BlendShapeShare.Util.Fbx;
+using Triturbo.BlendShapeShare.Util;
 using Autodesk.Fbx;
 #endif
 
@@ -16,150 +18,105 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 {
     public static class BlendShapeAppender
     {
-        public static List<Mesh> CreateMeshes(this BlendShapeDataSO so)
+        
+        // targetMeshContainer can be an FBX or GeneratedMeshAssetSO
+        public static GeneratedMeshAssetSO CreateMeshAsset(Object targetMeshContainer, IEnumerable<BlendShapeDataSO> blendShapes, string path)
         {
-            List<Mesh> meshesList = new List<Mesh>(so.m_MeshDataList.Count);
+            blendShapes = blendShapes.ToList();
+            
+            Dictionary<string, Mesh> targetMeshes =  MeshUtil.GetMeshes(targetMeshContainer);
+            Dictionary<string, Mesh> generatedMeshes = new();
 
-            foreach (var meshData in so.m_MeshDataList)
+            List<BlendShapeDataSO> appliedBlendShapes;
+            
+            var targetFbx = targetMeshContainer as GameObject;
+            if (targetMeshContainer is GeneratedMeshAssetSO so)
             {
-                var mesh = CreateBlendShapesMesh(meshData, meshData.m_OriginMesh);
-                if (mesh == null)
+                targetFbx = so.m_OriginalFbxAsset;
+                appliedBlendShapes = so.m_AppliedBlendShapes
+                    .Concat(blendShapes)
+                    .Where(b => b != null)
+                    .Distinct() // Prevent duplicates by reference
+                    .ToList();            }
+            else
+            {
+                appliedBlendShapes = blendShapes.ToList();
+            }
+
+            if (targetFbx != null && !IsAllMeshesValid(blendShapes, targetMeshes.Values))
+            {
+                // If invalid, rebuild the FBX immediately
+                string folder = System.IO.Path.GetDirectoryName(path) ?? Application.dataPath;
+                string tempAssetPath = System.IO.Path.Combine(folder, $"{targetMeshContainer.name}-{System.Guid.NewGuid().ToString()}.fbx");
+                    
+                if (targetMeshContainer is GeneratedMeshAssetSO meshAsset)
                 {
+                    blendShapes = blendShapes.Concat(meshAsset.m_AppliedBlendShapes).ToList();
+                }
+
+                if (!CreateFbx(targetFbx, blendShapes, tempAssetPath, true))
+                {
+                    Debug.LogError("Failed to create blendshapes fbx.");
                     return null;
                 }
-                
-                mesh.name = meshData.m_MeshName;
-                meshesList.Add(mesh);
+                var result = GeneratedMeshAssetSO.SaveMeshesToAsset(targetFbx, appliedBlendShapes, tempAssetPath, path); 
+                AssetDatabase.MoveAssetToTrash(tempAssetPath);
+                return result;
             }
-
-            return meshesList;
-        }
-        
-        public static GeneratedMeshAssetSO CreateMeshAsset(List<Mesh> meshesList, string path)
-        {
-            var asset = ScriptableObject.CreateInstance<GeneratedMeshAssetSO>();
-
-            AssetDatabase.CreateAsset(asset, path);
-            foreach (var mesh in meshesList)
+            
+            foreach (BlendShapeDataSO data in blendShapes)
             {
-                AssetDatabase.AddObjectToAsset(mesh, path);
-            }
-            AssetDatabase.SaveAssets();
-            AssetDatabase.Refresh();
-
-            return asset;
-        }
-        
-        
-        // Copy mesh from GameObject if included in BlendShapeDataSO
-        public static GeneratedMeshAssetSO CreateMeshAsset(this BlendShapeDataSO so, string path, GameObject target)
-        {
-
-            List<Mesh> meshesList = new List<Mesh>(so.m_MeshDataList.Count);
-            
-            string targetPath = AssetDatabase.GetAssetPath(target);
-            if(string.IsNullOrEmpty(targetPath)) return null;
-            
-            
-            Object[] subAssets = AssetDatabase.LoadAllAssetRepresentationsAtPath(targetPath);
-
-            foreach (var meshData in so.m_MeshDataList)
-            {
-                //var targetMesh = target.transform.FindRecursive(meshData.m_MeshName)?.GetComponent<SkinnedMeshRenderer>()?.sharedMesh;
-                Mesh targetMesh = subAssets
-                    .OfType<Mesh>() // Filter to objects of type Mesh
-                    .FirstOrDefault(mesh => mesh.name == meshData.m_MeshName);
-                
-                if (targetMesh == null)
+                foreach (var meshData in data.m_MeshDataList)
                 {
-                    return null;
+                    if (!generatedMeshes.TryGetValue(meshData.m_MeshName, out Mesh targetMesh))
+                    {
+                        targetMesh = targetMeshes.GetValueOrDefault(meshData.m_MeshName) ?? meshData.m_OriginMesh;
+                    }
+                    var mesh = CreateBlendShapesMesh(meshData, targetMesh);
+                    if (mesh == null)
+                    {
+                        Debug.LogError($"Failed to create blendshapes mesh for {meshData.m_MeshName} in {data.name}");
+                        continue;
+                    }
+                
+                    mesh.name = meshData.m_MeshName;
+                    
+                    generatedMeshes[meshData.m_MeshName] = mesh;
                 }
-                Mesh meshCopy = Object.Instantiate(targetMesh);
-
-                meshCopy.name = meshData.m_MeshName;
-                meshesList.Add(meshCopy);
             }
 
-            var asset = ScriptableObject.CreateInstance<GeneratedMeshAssetSO>();
-
-            AssetDatabase.CreateAsset(asset, path);
-            foreach (var mesh in meshesList)
+            if (generatedMeshes.Count == 0)
             {
-                AssetDatabase.AddObjectToAsset(mesh, path);
+                return null;
             }
-            AssetDatabase.SaveAssets();
-            AssetDatabase.Refresh();
-
-            return asset;
+            return GeneratedMeshAssetSO.SaveMeshesToAsset(targetFbx, appliedBlendShapes, generatedMeshes.Values, path);
         }
-
-
-
+        
         public static GeneratedMeshAssetSO CreateMeshAsset(this BlendShapeDataSO so, string path)
         {
-
-            List<Mesh> meshesList = new List<Mesh>(so.m_MeshDataList.Count);
-
-            foreach (var meshData in so.m_MeshDataList)
-            {
-                var mesh = CreateBlendShapesMesh(meshData, meshData.m_OriginMesh);
-                if (mesh == null)
-                {
-                    return null;
-                }
-                mesh.name = meshData.m_MeshName;
-                meshesList.Add(mesh);
-            }
-
-            var asset = ScriptableObject.CreateInstance<GeneratedMeshAssetSO>();
-
-            AssetDatabase.CreateAsset(asset, path);
-            foreach (var mesh in meshesList)
-            {
-                AssetDatabase.AddObjectToAsset(mesh, path);
-            }
-            AssetDatabase.SaveAssets();
-            AssetDatabase.Refresh();
-
-            return asset;
+            return CreateMeshAsset(so.m_Original, new[]{so}, path);
         }
-
-        public static GeneratedMeshAssetSO CreateMeshAssetSafe(this BlendShapeDataSO so, string path)
+        
+        [Obsolete("CreateMeshAsset(List<Mesh>, string) is deprecated. Use GeneratedMeshAssetSO.SaveMeshesToAsset() instead.")]
+        public static GeneratedMeshAssetSO CreateMeshAsset(List<Mesh> meshesList, string path)
         {
-            var asset = so.CreateMeshAsset(path);
-            if (asset == null)
-            {
-                string tmp = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path), $"{so.DefaultFbxName}-{System.Guid.NewGuid().ToString()}.fbx");
-                so.CreateNecessaryFbx(so.m_Original, tmp);
-                var genertated = AssetDatabase.LoadAssetAtPath<GameObject>(tmp);
-                asset = so.CreateMeshAsset(path, genertated);
-            }
-            return asset;
+            return GeneratedMeshAssetSO.SaveMeshesToAsset(null, null, meshesList, path);
         }
-
-        public static Mesh CreateBlendShapesMesh(MeshData meshBlendShapesData, Mesh target)
+        
+        
+        [Obsolete("CreateMeshAsset(this BlendShapeDataSO, string, GameObject) is deprecated. Use GeneratedMeshAssetSO.SaveMeshesToAsset() instead.")]
+        public static GeneratedMeshAssetSO CreateMeshAsset(this BlendShapeDataSO so, string path, GameObject target)
         {
-            if(target == null)
-            {
-                return null;
-            }
-
-            // Ensure the vertex count of the blend shape data matches the target mesh
-
-            if (meshBlendShapesData.m_VertexCount != target.vertexCount)
-            {
-                return null;
-            }
-
-            // Verify the vertex hash to ensure the target mesh hasn't been altered
-
-            if (meshBlendShapesData.m_VerticesHash != MeshData.GetVerticesHash(target))
-            {
-                return null;
-            }
+            return GeneratedMeshAssetSO.SaveMeshesToAsset(null, new[]{so}, target, path);
+        }
+        
+        
+        #region Private Methods
+        private static Mesh CreateBlendShapesMesh(MeshData meshBlendShapesData, Mesh target)
+        {
+            if (!meshBlendShapesData.IsValidTarget(target)) return null;
 
             // Create a copy of the target mesh to modify
-
             Mesh newMesh = Object.Instantiate(target);
 
             // Check if any blend shapes already exist in the target mesh
@@ -219,174 +176,50 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             }
             return newMesh;
         }
-        //Autodesk FBX SDK
-
-#if ENABLE_FBX_SDK
-
-        public static FbxBlendShape GetDeformer(this BlendShapeDataSO so, FbxMesh targetMesh, bool create = true)
+        public static bool IsAllMeshesValid(IEnumerable<BlendShapeDataSO> blendShapes, IEnumerable<Mesh> meshes)
         {
-
-            if(!string.IsNullOrEmpty(so.m_DeformerID))
-            {
-                int deformerCount = targetMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape);
-
-
-                for (int i = deformerCount - 1; i >= 0; i--)
+            List<Mesh> meshList = meshes.ToList();
+            foreach (BlendShapeDataSO data in blendShapes) { 
+                foreach (var meshData in data.m_MeshDataList)
                 {
-                    var deformer = targetMesh.GetBlendShapeDeformer(i);
-                    if (deformer.GetName() == so.m_DeformerID)
-                    {
-                        return deformer;
-                    }
-                }
+                    var targetMesh =  meshList.FirstOrDefault(m => m.name == meshData.m_MeshName) ?? meshData.m_OriginMesh;
+                    if (!meshData.IsValidTarget(targetMesh)) return false;
+                } 
             }
-
-
-            if (create)
-                return FbxBlendShape.Create(targetMesh, so.m_DeformerID);
-
-            return null;
-        }
-
-        public static FbxBlendShapeChannel CreateFbxBlendShapeChannel(string name, FbxMesh mesh, FbxBlendShapeData fbxBlendShapeData)
-        {
-
-            FbxBlendShapeChannel fbxBlendShapeChannel = FbxBlendShapeChannel.Create(mesh, name);
-            int controlPointCount = mesh.GetControlPointsCount();
-
-
-            int shapeCount = fbxBlendShapeData.m_Frames.Length;
-            for (int shapeIndex = 0; shapeIndex < shapeCount; shapeIndex++)
-            {
-
-                FbxShape newShape = FbxShape.Create(mesh, name);
-                newShape.InitControlPoints(controlPointCount);
-
-                FbxBlendShapeFrame frame = fbxBlendShapeData.m_Frames[shapeIndex];
-
-
-                for (int pointIndex = 0; pointIndex < controlPointCount; pointIndex++)
-                {
-                    var d = frame.GetDeltaControlPointAt(pointIndex);
-
-                    var controlPoint = mesh.GetControlPointAt(pointIndex) + new FbxVector4(d.m_X, d.m_Y, d.m_Z, d.m_W);
-
-
-
-                    newShape.SetControlPointAt(controlPoint, pointIndex);
-                }
-
-
-                fbxBlendShapeChannel.AddTargetShape(newShape, 100.0 * (shapeIndex + 1) / shapeCount);
-            }
-            return fbxBlendShapeChannel;
-        }
-
-
-        //Add TargetShape to FbxBlendShapeChannel from FbxBlendShapeData
-        public static FbxBlendShapeChannel CreateFbxBlendShapeChannel(FbxBlendShapeChannel fbxBlendShapeChannel, FbxMesh mesh, FbxBlendShapeData fbxBlendShapeData)
-        {
-            int controlPointCount = mesh.GetControlPointsCount();
-            int shapeCount = fbxBlendShapeData.m_Frames.Length;
-            for (int shapeIndex = 0; shapeIndex < shapeCount; shapeIndex++)
-            {
-
-                FbxShape newShape = FbxShape.Create(mesh, fbxBlendShapeChannel.GetName());
-                newShape.InitControlPoints(controlPointCount);
-
-                FbxBlendShapeFrame frame = fbxBlendShapeData.m_Frames[shapeIndex];
-                
-                for (int pointIndex = 0; pointIndex < controlPointCount; pointIndex++)
-                {
-                    var d = frame.GetDeltaControlPointAt(pointIndex);
-                    var controlPoint = mesh.GetControlPointAt(pointIndex) + new FbxVector4(d.m_X, d.m_Y, d.m_Z, d.m_W);
-                    newShape.SetControlPointAt(controlPoint, pointIndex);
-                }
-                
-                fbxBlendShapeChannel.AddTargetShape(newShape, 100.0 * (shapeIndex + 1) / shapeCount);
-            }
-            return fbxBlendShapeChannel;
-        }
-
-        public static bool AddBlendShapes(BlendShapeDataSO so, MeshData meshData, FbxNode node)
-        {
-
-            FbxMesh targetMesh = node?.GetMesh();
-            if (targetMesh == null)
-            {
-                Debug.LogError($"Can not find mesh: {meshData.m_MeshName} in FBX file");
-                return false;
-            }
-
-            so.GetDeformer(targetMesh, false)?.Destroy();
-
-            HashSet<string> existingBlendshapes = new HashSet<string>();
-
-            // overwrite blend shape define in list
-            for (int i = 0; i < targetMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape); i++)
-            {
-                var d = targetMesh.GetBlendShapeDeformer(i);
-                for (int j = d.GetBlendShapeChannelCount() - 1; j >= 0; j--)
-                {
-                    var name = d.GetBlendShapeChannel(j).GetName();
-                    if (meshData.ContainsBlendShape(name))
-                    {
-                        Debug.LogWarning($"Warning: The blendshape with the name '{name}' already exists in the node '{node.GetName()}'. The existing blendshape was overwritten.");
-
-                        var channel = d.GetBlendShapeChannel(j);
-
-                        int shapeCount = channel.GetTargetShapeCount();
-
-                        //Clear all existing shapes
-                        for (int shape = 0; shape < shapeCount; shape++)
-                        {
-                            channel.RemoveTargetShape(channel.GetTargetShape(shape));
-                        }
-
-                        CreateFbxBlendShapeChannel(channel, targetMesh, meshData.GetBlendShape(name).m_FbxBlendShapeData);
-
-                        existingBlendshapes.Add(name);
-                    }
-                }
-            }
-
-            var deformer = so.GetDeformer(targetMesh);
-
-            foreach (var blend in meshData.BlendShapes)
-            {
-                if (existingBlendshapes.Contains(blend.m_ShapeName)) continue;
-                deformer.AddBlendShapeChannel(CreateFbxBlendShapeChannel(blend.m_ShapeName, targetMesh, blend.m_FbxBlendShapeData));
-            }
-
             return true;
         }
 
-
-
-        public static void DeleteFbxNodesWithMesh(FbxNode entry, IEnumerable<FbxNode> exceptions, bool recursive)
-        {
-            for (int i = entry.GetChildCount() - 1; i >= 0; i--)
-            {
-                var node = entry.GetChild(i);
-                if (!exceptions.Contains(node) && node.GetMesh() != null)
-                {
-                    node.Destroy();
-                }
-                else if(recursive)
-                {
-                    DeleteFbxNodesWithMesh(node, exceptions, true);
-                }
-            }
-        }
+        #endregion
         
+        #region Autodesk FBX SDK
+        
+        /// <summary>
+        /// Creates a new FBX file from the specified source GameObject and applies blend shape data to it.
+        /// </summary>
+        /// <param name="source">The source FBX <see cref="GameObject"/> to extract mesh and FBX data from.</param>
+        /// <param name="blendShapes">A collection of <see cref="BlendShapeDataSO"/> containing blend shape data to be added to the FBX.</param>
+        /// <param name="outputPath">
+        /// Optional. The file path where the generated FBX should be saved.  
+        /// If null or empty, the original asset path of the source GameObject is used.
+        /// </param>
+        /// <param name="onlyNecessary">
+        /// If true, removes unused mesh nodes from the FBX, keeping only the nodes modified by the provided blend shapes.
+        /// </param>
+        /// <returns>
+        /// Returns <c>true</c> if the FBX was successfully created and exported;  
+        /// otherwise, returns <c>false</c>.
+        /// </returns>
+        /// <remarks>
+        /// This method requires the FBX SDK to be enabled (compiled with <c>ENABLE_FBX_SDK</c>).
+        /// It creates an FBX scene, imports the source FBX, applies blend shape data to matching mesh nodes,  
+        /// optionally removes unmodified meshes, and then exports the updated scene to the specified path.
+        /// </remarks>
+        public static bool CreateFbx(GameObject source, IEnumerable<BlendShapeDataSO> blendShapes, string outputPath = null, bool onlyNecessary = false)
+        {
+#if !ENABLE_FBX_SDK
+            return false;
 #endif
-        public static bool CreateFbx(this BlendShapeDataSO so, string outputPath = null)
-        {
-            return so.CreateFbx(so.m_Original, outputPath);
-        }
-        public static bool CreateFbx(this BlendShapeDataSO so, GameObject source, string outputPath = null)
-        {
-#if ENABLE_FBX_SDK
+
             var fbxManager = FbxManager.Create();
             var ios = FbxIOSettings.Create(fbxManager, Globals.IOSROOT);
             fbxManager.SetIOSettings(ios);
@@ -410,9 +243,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             {
                 return false;
             }
-
-
-
             fbxImporter.Import(scene);
             fbxImporter.Destroy();
 
@@ -423,135 +253,22 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             }
             var sourceRootNode = scene.GetRootNode();
 
-
-
-            foreach (var meshData in so.m_MeshDataList)
+            
+            HashSet<FbxNode> modifiedNode = new();
+            foreach (var so in blendShapes)
             {
-                FbxNode node = sourceRootNode.FindMeshChild(meshData.m_MeshName);
-                FbxMesh targetMesh = node?.GetMesh();
-                if (targetMesh == null)
+                foreach (var meshData in so.m_MeshDataList)
                 {
-                    Debug.LogError($"Can not find mesh: {meshData.m_MeshName} in FBX file");
-                    continue;
-                }
-
-                so.GetDeformer(targetMesh, false)?.Destroy();
-
-
-                HashSet<string> existingBlendshapes = new HashSet<string>();
-                
-                // overwrite blend shape define in list
-                for (int i = 0; i < targetMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape); i++)
-                {
-                    var d = targetMesh.GetBlendShapeDeformer(i);
-                    for (int j = d.GetBlendShapeChannelCount() - 1; j >= 0; j--)
-                    {
-                        var name = d.GetBlendShapeChannel(j).GetName();
-                        if (meshData.ContainsBlendShape(name))
-                        {
-                            Debug.LogWarning($"Warning: The blendshape with the name '{name}' already exists in the node '{node.GetName()}'. The existing blendshape was overwritten.");
-
-                            var channel = d.GetBlendShapeChannel(j);
-
-                            int shapeCount = channel.GetTargetShapeCount();
-
-                            //Clear all existing shapes
-                            for (int shape = 0; shape < shapeCount; shape ++)
-                            {
-                                channel.RemoveTargetShape(channel.GetTargetShape(shape));
-                            }
-
-                            CreateFbxBlendShapeChannel(channel, targetMesh, meshData.GetBlendShape(name).m_FbxBlendShapeData);
-
-                            existingBlendshapes.Add(name);
-                        }
-                    }
-                }
-
-                var deformer = so.GetDeformer(targetMesh);
-
-                foreach(var blend in meshData.BlendShapes)
-                {
-                    if (existingBlendshapes.Contains(blend.m_ShapeName)) continue;
-                    deformer.AddBlendShapeChannel(CreateFbxBlendShapeChannel(blend.m_ShapeName, targetMesh, blend.m_FbxBlendShapeData));
+                    FbxNode node = sourceRootNode.FindMeshChild(meshData.m_MeshName);
+                    AddBlendShapes(so, meshData, node);
+                    modifiedNode.Add(node);
                 }
             }
-
-            var exporter = FbxExporter.Create(fbxManager, "");
-
-            if (string.IsNullOrWhiteSpace(outputPath))
-            {
-                outputPath = AssetDatabase.GetAssetPath(source);
-            }
-            else
-            {
-                AssetDatabase.CopyAsset(AssetDatabase.GetAssetPath(source), outputPath);
-            }
-            AssetDatabase.Refresh();
-
-            if (exporter.Initialize(outputPath, pFileFormat, fbxManager.GetIOSettings()) == false)
-            {
-                Debug.LogError("Exporter Initialize failed.");
-                return false;
-            }
-            exporter.Export(scene);
-            exporter.Destroy();
-
-            AssetDatabase.Refresh();
-            EditorUtility.ClearProgressBar();
-            return true;
-#else
-            return false;
-#endif
-        }
-
-        public static bool CreateNecessaryFbx(this BlendShapeDataSO so, GameObject source, string outputPath = null)
-        {
-#if ENABLE_FBX_SDK
-            var fbxManager = FbxManager.Create();
-            var ios = FbxIOSettings.Create(fbxManager, Globals.IOSROOT);
-            fbxManager.SetIOSettings(ios);
-            var scene = FbxScene.Create(fbxManager, source.name);
-
-            if (EditorUtility.DisplayCancelableProgressBar("BlendShare", "Create FBX scene...", 0))
-            {
-                EditorUtility.ClearProgressBar();
-                return false;
-            }
-            FbxImporter fbxImporter = FbxImporter.Create(fbxManager, "");
-            int pFileFormat = fbxManager.GetIOPluginRegistry().FindWriterIDByDescription("FBX binary (*.fbx)");
-
-            if (EditorUtility.DisplayCancelableProgressBar("BlendShare", "Import source FBX...", 0.1f))
-            {
-                EditorUtility.ClearProgressBar();
-                return false;
-            }
-
-            if (!fbxImporter.Initialize(AssetDatabase.GetAssetPath(source), pFileFormat, fbxManager.GetIOSettings()))
-            {
-                return false;
-            }
-
-            fbxImporter.Import(scene);
-            fbxImporter.Destroy();
-
-            if (EditorUtility.DisplayCancelableProgressBar("BlendShare", "Adding Blendshapes...", 0.4f))
-            {
-                EditorUtility.ClearProgressBar();
-                return false;
-            }
-            var sourceRootNode = scene.GetRootNode();
+            
+            if (onlyNecessary)
+                DeleteFbxNodesWithMesh(sourceRootNode, modifiedNode, false);
 
             
-            HashSet<FbxNode> nodes = new HashSet<FbxNode>();
-            foreach (var meshData in so.m_MeshDataList)
-            {
-                FbxNode node = sourceRootNode.FindMeshChild(meshData.m_MeshName);
-                AddBlendShapes(so, meshData, node);
-                nodes.Add(node);
-            }
-            DeleteFbxNodesWithMesh(sourceRootNode, nodes, false);
-
             var exporter = FbxExporter.Create(fbxManager, "");
 
             if (string.IsNullOrWhiteSpace(outputPath))
@@ -575,16 +292,18 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             AssetDatabase.Refresh();
             EditorUtility.ClearProgressBar();
             return true;
-#else
+        }
+        
+        public static bool CreateFbx(this BlendShapeDataSO so, GameObject source, string outputPath = null)
+        {
+            return CreateFbx(source, new[] { so }, outputPath, false);
+        }
+        
+        public static bool RemoveBlendShapes(this BlendShapeDataSO so, GameObject target, bool removeInAllDeformer = true)
+        {
+#if !ENABLE_FBX_SDK
             return false;
 #endif
-        }
-
-
-
-        public static bool RemoveBlendShapes(this BlendShapeDataSO so, GameObject target, bool RemoveInAllDeformer = true)
-        {
-#if ENABLE_FBX_SDK
             var fbxManager = FbxManager.Create();
             var ios = FbxIOSettings.Create(fbxManager, Globals.IOSROOT);
             fbxManager.SetIOSettings(ios);
@@ -637,7 +356,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 }
 
                 so.GetDeformer(sourceMesh, false)?.Destroy();
-                if (RemoveInAllDeformer)
+                if (removeInAllDeformer)
                 {
                     for (int i = 0; i < sourceMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape); i++)
                     {
@@ -666,13 +385,139 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             AssetDatabase.Refresh();
             EditorUtility.ClearProgressBar();
             return true;
-#else
-            return false;
-#endif
         }
 
+        #region Private Methods
+#if ENABLE_FBX_SDK
+        private static FbxBlendShape GetDeformer(this BlendShapeDataSO so, FbxMesh targetMesh, bool create = true)
+        {
+            if(!string.IsNullOrEmpty(so.m_DeformerID))
+            {
+                int deformerCount = targetMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape);
+                for (int i = deformerCount - 1; i >= 0; i--)
+                {
+                    var deformer = targetMesh.GetBlendShapeDeformer(i);
+                    if (deformer.GetName() == so.m_DeformerID) return deformer;
+                }
+            }
+            if (create) return FbxBlendShape.Create(targetMesh, so.m_DeformerID);
+            return null;
+        }
+        
+        private static FbxBlendShapeChannel CreateFbxBlendShapeChannel(string name, FbxMesh mesh, FbxBlendShapeData fbxBlendShapeData)
+        {
+            FbxBlendShapeChannel fbxBlendShapeChannel = FbxBlendShapeChannel.Create(mesh, name);
+            int controlPointCount = mesh.GetControlPointsCount();
+            
+            int shapeCount = fbxBlendShapeData.m_Frames.Length;
+            for (int shapeIndex = 0; shapeIndex < shapeCount; shapeIndex++)
+            {
+                FbxShape newShape = FbxShape.Create(mesh, name);
+                newShape.InitControlPoints(controlPointCount);
 
+                FbxBlendShapeFrame frame = fbxBlendShapeData.m_Frames[shapeIndex];
+                for (int pointIndex = 0; pointIndex < controlPointCount; pointIndex++)
+                {
+                    var d = frame.GetDeltaControlPointAt(pointIndex);
+                    var controlPoint = mesh.GetControlPointAt(pointIndex) + new FbxVector4(d.m_X, d.m_Y, d.m_Z, d.m_W);
+                    newShape.SetControlPointAt(controlPoint, pointIndex);
+                }
+                fbxBlendShapeChannel.AddTargetShape(newShape, 100.0 * (shapeIndex + 1) / shapeCount);
+            }
+            return fbxBlendShapeChannel;
+        }
+        
+        //Add TargetShape to FbxBlendShapeChannel from FbxBlendShapeData
+        private static FbxBlendShapeChannel CreateFbxBlendShapeChannel(FbxBlendShapeChannel fbxBlendShapeChannel, FbxMesh mesh, FbxBlendShapeData fbxBlendShapeData)
+        {
+            int controlPointCount = mesh.GetControlPointsCount();
+            int shapeCount = fbxBlendShapeData.m_Frames.Length;
+            for (int shapeIndex = 0; shapeIndex < shapeCount; shapeIndex++)
+            {
 
+                FbxShape newShape = FbxShape.Create(mesh, fbxBlendShapeChannel.GetName());
+                newShape.InitControlPoints(controlPointCount);
+
+                FbxBlendShapeFrame frame = fbxBlendShapeData.m_Frames[shapeIndex];
+                
+                for (int pointIndex = 0; pointIndex < controlPointCount; pointIndex++)
+                {
+                    var d = frame.GetDeltaControlPointAt(pointIndex);
+                    var controlPoint = mesh.GetControlPointAt(pointIndex) + new FbxVector4(d.m_X, d.m_Y, d.m_Z, d.m_W);
+                    newShape.SetControlPointAt(controlPoint, pointIndex);
+                }
+                
+                fbxBlendShapeChannel.AddTargetShape(newShape, 100.0 * (shapeIndex + 1) / shapeCount);
+            }
+            return fbxBlendShapeChannel;
+        }
+
+        
+        private static bool AddBlendShapes(BlendShapeDataSO so, MeshData meshData, FbxNode node)
+        {
+            FbxMesh targetMesh = node?.GetMesh();
+            if (targetMesh == null)
+            {
+                Debug.LogError($"Can not find mesh: {meshData.m_MeshName} in FBX file");
+                return false;
+            }
+            so.GetDeformer(targetMesh, false)?.Destroy();
+            HashSet<string> existingBlendshapes = new HashSet<string>();
+
+            // overwrite blend shape define in list
+            for (int i = 0; i < targetMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape); i++)
+            {
+                var d = targetMesh.GetBlendShapeDeformer(i);
+                for (int j = d.GetBlendShapeChannelCount() - 1; j >= 0; j--)
+                {
+                    var name = d.GetBlendShapeChannel(j).GetName();
+                    if (meshData.ContainsBlendShape(name))
+                    {
+                        Debug.LogWarning($"Warning: The blendshape with the name '{name}' already exists in the node '{node.GetName()}'. The existing blendshape was overwritten.");
+                        var channel = d.GetBlendShapeChannel(j);
+                        int shapeCount = channel.GetTargetShapeCount();
+
+                        //Clear all existing shapes
+                        for (int shape = 0; shape < shapeCount; shape++)
+                        {
+                            channel.RemoveTargetShape(channel.GetTargetShape(shape));
+                        }
+                        CreateFbxBlendShapeChannel(channel, targetMesh, meshData.GetBlendShape(name).m_FbxBlendShapeData);
+                        existingBlendshapes.Add(name);
+                    }
+                }
+            }
+
+            var deformer = so.GetDeformer(targetMesh);
+            foreach (var blend in meshData.BlendShapes)
+            {
+                if (existingBlendshapes.Contains(blend.m_ShapeName)) continue;
+                deformer.AddBlendShapeChannel(CreateFbxBlendShapeChannel(blend.m_ShapeName, targetMesh, blend.m_FbxBlendShapeData));
+            }
+            return true;
+        }
+        
+        private static void DeleteFbxNodesWithMesh(FbxNode entry, IEnumerable<FbxNode> exceptions, bool recursive)
+        {
+            exceptions = exceptions.ToArray();
+            for (int i = entry.GetChildCount() - 1; i >= 0; i--)
+            {
+                var node = entry.GetChild(i);
+                if (!exceptions.Contains(node) && node.GetMesh() != null)
+                {
+                    node.Destroy();
+                }
+                else if(recursive)
+                {
+                    DeleteFbxNodesWithMesh(node, exceptions, true);
+                }
+            }
+        }
+#endif
+        
+        #endregion
+
+        #endregion
     }
 }
 
