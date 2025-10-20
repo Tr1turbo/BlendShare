@@ -12,7 +12,7 @@ using System.Threading.Tasks;
 
 #if ENABLE_FBX_SDK
 using Autodesk.Fbx;
-using Triturbo.BlendShapeShare.Util.Fbx;
+using Triturbo.BlendShapeShare.Util;
 # endif
 
 
