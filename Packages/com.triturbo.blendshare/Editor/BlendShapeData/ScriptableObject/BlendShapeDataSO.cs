@@ -1,11 +1,14 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using UnityEditor.AssetImporters;
 using UnityEngine;
 
 
 namespace Triturbo.BlendShapeShare.BlendShapeData
 {
+    
     public class BlendShapeDataSO : ScriptableObject
     {
         public GameObject m_Original;
@@ -67,13 +70,9 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
     public class MeshData
     {
         public Mesh m_OriginMesh;
-
         public int m_VertexCount;
         public int m_VerticesHash;
-
         public string m_MeshName;
-
-
         public List<string> m_ShapeNames;
 
         [SerializeField]
@@ -91,6 +90,18 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             }
         }
 
+        public bool IsValidTarget(Mesh targetMesh)
+        {
+            if(targetMesh == null) return false;
+            
+            // Ensure the vertex count of the blend shape data matches the target mesh
+            if (m_VertexCount != targetMesh.vertexCount) return false;
+            
+            // Verify the vertex hash to ensure the target mesh hasn't been altered
+            if (m_VerticesHash != GetVerticesHash(targetMesh)) return false;
+            
+            return true;
+        }
         public bool ContainsBlendShape(string name)
         {
             return m_ShapeNames.Contains(name);
@@ -193,50 +204,62 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         {
             return ((IStructuralEquatable)mesh.vertices).GetHashCode(EqualityComparer<Vector3>.Default);
         }
-    }
-
-    [System.Serializable]
-    public class FbxBlendShapeFrame
-    {
-        public List<int> m_PointsIndices;
-        public List<Vector4d> m_DeltaControlPointsList;
-
-        public Dictionary<int, Vector4d> _deltaControlPointsDict;
-
-
-
-        public FbxBlendShapeFrame()
+        
+        
+        
+        
+#if UNITY_EDITOR
+        /// <summary>
+        /// Combines duplicate <see cref="MeshData"/> entries that share the same
+        /// origin mesh, vertex count, vertex hash, and mesh name.
+        /// The <see cref="MeshData.BlendShapes"/> lists of duplicates are concatenated.
+        /// </summary>
+        /// <param name="meshDataList">The list of mesh data entries to merge.</param>
+        /// <returns>A new list of merged <see cref="MeshData"/> objects.</returns>
+        public static List<MeshData> CombineDuplicateMeshData(List<MeshData> meshDataList)
         {
-            m_PointsIndices = new List<int>();
-            m_DeltaControlPointsList = new List<Vector4d>();
-        }
-
-        public void AddDeltaControlPointAt(Vector4d controlPoint, int index)
-        {
-            m_PointsIndices.Add(index);
-            m_DeltaControlPointsList.Add(controlPoint);
-        }
-
-        public Vector4d GetDeltaControlPointAt(int index)
-        {
-            if(_deltaControlPointsDict == null)
+            if (meshDataList == null || meshDataList.Count == 0)
+                return new List<MeshData>();
+    
+            // Group by unique identity key
+            var grouped = meshDataList.GroupBy(md => new
             {
-                _deltaControlPointsDict = new Dictionary<int, Vector4d>();
-                for (int i = 0; i < m_PointsIndices.Count;i++)
+                md.m_OriginMesh,
+                md.m_VertexCount,
+                md.m_VerticesHash,
+                md.m_MeshName
+            });
+    
+            var combinedList = new List<MeshData>();
+    
+            foreach (var group in grouped)
+            {
+                // Take the first as the base
+                var baseData = new MeshData(group.Key.m_MeshName, group.Key.m_OriginMesh);
+    
+                foreach (var entry in group)
                 {
-                    _deltaControlPointsDict.Add(m_PointsIndices[i], m_DeltaControlPointsList[i]);
+                    if (entry.m_ShapeNames != null)
+                        baseData.m_ShapeNames.AddRange(entry.m_ShapeNames);
+    
+                    if (entry.BlendShapes != null)
+                        baseData.BlendShapes.AddRange(entry.BlendShapes);
                 }
+    
+                // Optional: remove duplicate shape names
+                baseData.m_ShapeNames = baseData.m_ShapeNames
+                    .Distinct()
+                    .ToList();
+    
+                combinedList.Add(baseData);
             }
-
-            if(!_deltaControlPointsDict.TryGetValue(index, out Vector4d point))
-            {
-                point = Vector4d.zero;
-            }
-
-            return point;
+    
+            return combinedList;
         }
-
+#endif
     }
+
+    
     [System.Serializable]
     public class Vector4d
     {
@@ -280,7 +303,50 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             this.m_Frames = frames;
         }
     }
+    [System.Serializable]
+    public class FbxBlendShapeFrame
+    {
+        public List<int> m_PointsIndices;
+        public List<Vector4d> m_DeltaControlPointsList;
 
+        public Dictionary<int, Vector4d> _deltaControlPointsDict;
+
+
+
+        public FbxBlendShapeFrame()
+        {
+            m_PointsIndices = new List<int>();
+            m_DeltaControlPointsList = new List<Vector4d>();
+        }
+
+        public void AddDeltaControlPointAt(Vector4d controlPoint, int index)
+        {
+            m_PointsIndices.Add(index);
+            m_DeltaControlPointsList.Add(controlPoint);
+        }
+
+        public Vector4d GetDeltaControlPointAt(int index)
+        {
+            if(_deltaControlPointsDict == null)
+            {
+                _deltaControlPointsDict = new Dictionary<int, Vector4d>();
+                for (int i = 0; i < m_PointsIndices.Count;i++)
+                {
+                    _deltaControlPointsDict.Add(m_PointsIndices[i], m_DeltaControlPointsList[i]);
+                }
+            }
+
+            if(!_deltaControlPointsDict.TryGetValue(index, out Vector4d point))
+            {
+                point = Vector4d.zero;
+            }
+
+            return point;
+        }
+
+    }
+    
+    
     [System.Serializable]
     public class UnityBlendShapeData
     {
@@ -321,9 +387,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
 
     }
-
-
-
+    
     [System.Serializable]
     public class UnityBlendShapeFrame
     {

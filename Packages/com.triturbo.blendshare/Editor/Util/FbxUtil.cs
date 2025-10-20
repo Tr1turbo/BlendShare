@@ -1,7 +1,7 @@
 #if ENABLE_FBX_SDK
 using Autodesk.Fbx;
 
-namespace Triturbo.BlendShapeShare.Util.Fbx
+namespace Triturbo.BlendShapeShare.Util
 {
     public static class FbxUtil
     {
