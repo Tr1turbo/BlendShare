@@ -38,31 +38,34 @@ namespace Triturbo.BlendShapeShare.Extractor
         // blendshapes togles
         public Vector2 mainScrollPos;
         private List<SkinnedMeshRenderer> skinnedMeshRenderers;
-
         public Dictionary<SkinnedMeshRenderer, bool[]> blendShapeToggles =  new Dictionary<SkinnedMeshRenderer, bool[]>();
         public Dictionary<SkinnedMeshRenderer, Vector2> scrollPositions = new Dictionary<SkinnedMeshRenderer, Vector2>();
-       
         public SkinnedMeshRenderer currentFocus;
-
         public int firstIndexWithCtrl = -1;
-        public bool sourceIsFbx = false;
-        public bool originIsFbx = false;
+        public float originFbxScale = 1f;
+        public float sourceFbxScale = 1f;
+        
+        
+        private ModelImporter originalFbxImporter;
+        private ModelImporter sourceFbxImporter;
 
-
+        
         [MenuItem("Tools/BlendShare/BlendShapes Extractor")]
         public static void ShowWindow()
         {
             GetWindow<BlendShapesExtractorEditor>("BlendShare");
         }
-        bool IsFBXFile(GameObject obj)
+        
+        
+        private string GetUnitsConvertMessage(float value)
         {
-            // Check if the asset path ends with ".fbx"
-            string assetPath = AssetDatabase.GetAssetPath(obj);
-            return assetPath.ToLower().EndsWith(".fbx");
+            if (value == 1f)
+            {
+                return "1m (File) to 1m (Unity)";
+            }
+            
+            return "1cm (File) to 0.01m (Unity)";
         }
-
-  
-
         private void OnGUI()
         {
             GUILayout.BeginHorizontal();
@@ -75,77 +78,78 @@ namespace Triturbo.BlendShapeShare.Extractor
             GUILayout.BeginHorizontal(GUI.skin.box);
             GUILayout.Label("BlendShapes Extracting Tool by Triturbo", EditorStyles.boldLabel);
             GUILayout.EndHorizontal();
-
             EditorGUILayout.Separator();
             
-            EditorGUI.BeginChangeCheck();
-            EditorGUI.BeginChangeCheck();
-            originFBX = (GameObject)EditorGUILayout.ObjectField("Origin FBX", originFBX, typeof(GameObject), false);
-            if (EditorGUI.EndChangeCheck() && originFBX != null)
-            {
-                originIsFbx = IsFBXFile(originFBX);
-            }
-            if (!originIsFbx && originFBX != null)
-            {
-                EditorGUILayout.HelpBox("This is not an fbx file", MessageType.Error);
-                return;
-            }
+            Localization.DrawLanguageSelection();
+            EditorGUILayout.Separator();
 
-
-            sourceFBX = (GameObject)EditorGUILayout.ObjectField("Source FBX", sourceFBX, typeof(GameObject), false);
-            
+            EditorGUI.BeginChangeCheck();
+            originFBX = EditorWidgets.FBXGameObjectField(Localization.G("origin_fbx"), originFBX);
+            sourceFBX = EditorWidgets.FBXGameObjectField(Localization.G("source_fbx"), sourceFBX);
             if (EditorGUI.EndChangeCheck())
             {
-                sourceIsFbx = IsFBXFile(sourceFBX);
-
-                if(sourceFBX != null)
-                    defaultName = sourceFBX.name;
-                else
-                    blendShapeToggles.Clear();
 
                 if (sourceFBX != null && originFBX != null)
                 {
                     InitBlendShapesToggles();
                 }
-
-              
+                
+                if (originFBX != null)
+                {
+                    originalFbxImporter = AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(originFBX)) as ModelImporter;
+                    originFbxScale = originalFbxImporter != null ? originalFbxImporter.fileScale : 1f;
+                }
+                else
+                {
+                    originalFbxImporter = null;
+                }
+                if (sourceFBX != null)
+                {
+                    defaultName = sourceFBX.name;
+                    sourceFbxImporter = AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(sourceFBX)) as ModelImporter;
+                    sourceFbxScale = sourceFbxImporter != null ? sourceFbxImporter.fileScale : 1f;
+                }
+                else
+                {
+                    blendShapeToggles.Clear();
+                    sourceFbxImporter = null;
+                }
             }
 
-            if(!sourceIsFbx && sourceFBX != null)
+            if (originFbxScale != sourceFbxScale &&  originFBX != null && sourceFBX != null)
             {
-                EditorGUILayout.HelpBox("This is not an fbx file", MessageType.Error);
-                return;
+                EditorGUILayout.HelpBox(Localization.SF("extractor.file_unit_warning", 
+                    GetUnitsConvertMessage(originFbxScale), 
+                    GetUnitsConvertMessage(sourceFbxScale)), MessageType.Warning);
+                ;
             }
 
-            defaultName = EditorGUILayout.TextField("Default Asset Name", defaultName);
+            
+            defaultName = EditorGUILayout.TextField(Localization.G("extractor.default_asset_name"), defaultName);
 
             EditorGUI.BeginDisabledGroup(true);
-            EditorGUILayout.TextField("Deformer ID", "+BlendShare-" + defaultName);
+            EditorGUILayout.TextField(Localization.G("extractor.deformer_id"), "+BlendShare-" + defaultName);
             EditorGUI.EndDisabledGroup();
-
-
-
-            weldVertices = EditorGUILayout.Toggle(new GUIContent("Weld Blendshape Vertices", "The blendshape offset of vertices that will be combined by the Unity model importer will be set to the same value, ensuring that vertices remains consistent with the original mesh."), weldVertices);
-
-
-            showApplyTransform = EditorGUILayout.Foldout(showApplyTransform, new GUIContent("Apply Transform",
-                "Apply the GameObject's transform to the meshes before calculating the blendshape vertices' offsets. If orientation issues occur with the blendshape, try enabling 'Apply Rotation' to correct them."));
+            
+            weldVertices = EditorGUILayout.Toggle(Localization.G("extractor.weld_vertices"), weldVertices);
+            showApplyTransform = EditorGUILayout.Foldout(showApplyTransform,  Localization.G("extractor.apply_transform"));
             
             if (showApplyTransform)
             {
                 EditorGUI.indentLevel++;
-                applyTranslate = EditorGUILayout.Toggle(new GUIContent("Apply Translate", ""), applyTranslate);
-                applyRotation = EditorGUILayout.Toggle(new GUIContent("Apply Rotation", ""), applyRotation);
-                applyScale = EditorGUILayout.Toggle(new GUIContent("Apply Scale", ""), applyScale);
+                applyTranslate = EditorGUILayout.Toggle(Localization.G("extractor.apply_translate"), applyTranslate);
+                applyRotation = EditorGUILayout.Toggle(Localization.G("extractor.apply_rotation"), applyRotation);
+                applyScale = EditorGUILayout.Toggle(Localization.G("extractor.apply_scale"), applyScale);
                 EditorGUI.indentLevel--;
             }
 
-
-            baseMesh = (BlendShapesExtractorOptions.BaseMesh)EditorGUILayout.EnumPopup(new GUIContent("Base Mesh", "Base mesh for calculating blendshapes offset vetices"), baseMesh);
-
-            compareMethod = (CompareMethod)EditorGUILayout.EnumPopup("Compare Method", compareMethod);
-
-
+            baseMesh = Localization.LocalizedEnumPopup(Localization.G("extractor.base_mesh"), baseMesh,
+                "extractor.enum.base_mesh");
+            
+            
+            compareMethod = Localization.LocalizedEnumPopup(Localization.G("extractor.compare_method"), compareMethod,
+                "extractor.enum.compare_method");
+            
             if(compareMethod == CompareMethod.Custom)
             {
                 EditorGUI.indentLevel++;
@@ -179,7 +183,7 @@ namespace Triturbo.BlendShapeShare.Extractor
                     weldVertices = weldVertices,
                     applyRotation = applyRotation,
                     applyScale = applyScale,
-                    applyTranslate = applyTranslate
+                    applyTranslate = applyTranslate,
                 };
 
                 BlendShapeDataSO so = BlendShapesExtractor.ExtractBlendShapes(sourceFBX, originFBX, meshDataList, blendShapesExtractorOptions);
@@ -196,9 +200,7 @@ namespace Triturbo.BlendShapeShare.Extractor
                     defaultName = sourceFBX.name;
                 }
 
-
-
-
+                
                 foreach (var meshData in so.m_MeshDataList)
                 {
                     if (meshData.m_VertexCount == -1 && meshData.m_VerticesHash == -1)
