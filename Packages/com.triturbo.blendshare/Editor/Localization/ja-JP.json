@@ -1,0 +1,97 @@
+﻿{
+  "lang": "言語",
+  "origin_fbx": "オリジナルFBX",
+  "origin_fbx.tooltip": "変更されていない元の FBX ファイルです。",
+  "not_an_fbx_error": "これは FBX ファイルではありません",
+  "source_fbx": "ソース FBX",
+  "source_fbx.tooltip": "シェイプキーのソースとして使用される FBX ファイルです。",
+  "blendshapes": "シェイプキー",
+
+
+  "extractor.file_unit_warning": "FBX ファイルの単位が一致していません。問題が発生する可能性があります。\n元の単位: {0}\nソース単位: {1}",
+  "extractor.default_asset_name": "デフォルトアセット名",
+  "extractor.deformer_id": "デフォーマー ID",
+  "extractor.weld_vertices": "BlendShape 頂点を結合",
+  "extractor.weld_vertices.tooltip": "Unity のモデルインポーターによって結合される頂点の BlendShape オフセットを同じ値に設定し、頂点が元のメッシュと一致するようにします。",
+  "extractor.apply_transform": "トランスフォームを適用",
+  "extractor.apply_transform.tooltip": "BlendShape の頂点オフセットを計算する前に、Object のトランスフォームをメッシュに適用します。BlendShape の向きに問題がある場合は、「回転を適用」を有効にして修正してみてください。",
+  "extractor.apply_translate": "移動を適用",
+  "extractor.apply_rotation": "回転を適用",
+  "extractor.apply_scale": "スケールを適用",
+  "extractor.base_mesh": "ベースメッシュ",
+  "extractor.base_mesh.tooltip": "BlendShape の頂点オフセットを計算するためのベースメッシュ",
+  "extractor.enum.base_mesh.source": "ソース",
+  "extractor.enum.base_mesh.original": "オリジナル",
+  "extractor.compare_method": "比較方法",
+  "extractor.enum.compare_method.name": "名前",
+  "extractor.enum.compare_method.name.tooltip": "名前で比較します。ソース FBX に新しい BlendShape がある場合、BlendShare はそれらを抽出します。",
+  "extractor.enum.compare_method.index": "インデックス",
+  "extractor.enum.compare_method.index.tooltip": "インデックスで比較します。オリジナル FBX より BlendShape が多い場合、BlendShare は末尾から抽出します。",
+  "extractor.enum.compare_method.custom": "カスタム",
+  "extractor.enum.compare_method.custom.tooltip": "個別に抽出する BlendShape を手動で切り替えます。",
+
+
+  "data.original_fbx": "オリジナル FBX",
+  "data.original_fbx.tooltip": "メッシュ生成に使用される元の FBX の GameObject アセットです。",
+
+  "data.apply_blendshapes": "シェイプキーを適用",
+  "data.apply_blendshapes.tooltip": "リスト内のシェイプキーを元の FBX に追加します。",
+  "data.apply_blendshapes.tooltip_locked_message": "\n（現在このボタンは無効です。すでにシェイプキーを FBX に適用済みです。「編集」をクリックして強制的に有効化できます）",
+
+  "data.apply_blendshapes_as_new_fbx": "新しい FBX としてシェイプキーを適用",
+  "data.apply_blendshapes_as_new_fbx.tooltip": "元の FBX を複製し、そのコピーにシェイプキーを適用します。",
+  "data.remove_blendshapes": "シェイプキーを削除",
+  "data.remove_blendshapes.tooltip": "リスト内のシェイプキーを元の FBX から削除します。",
+  "data.remove_blendshapes.tooltip_locked_message": "\n（現在このボタンは無効です。まだシェイプキーを FBX に適用していません。「編集」をクリックして強制的に有効化できます）",
+
+  "data.hidden_settings": "隠し設定",
+  "data.hidden_settings.default_asset_name": "デフォルトのアセット名",
+  "data.hidden_settings.default_asset_name.tooltip": "生成されるアセットのデフォルト名です。",
+  "data.hidden_settings.applied": "適用済み",
+  "data.hidden_settings.applied.tooltip": "ユーザーがシェイプキーを FBX に適用したかどうかを示します。",
+  "data.hidden_settings.deformer_id": "デフォーマー ID",
+
+
+  "data.create_meshes": "メッシュを作成",
+  "data.create_meshes.tooltip": "シェイプキーを含む新しいメッシュアセットを作成します。",
+  "data.open_advanced_generator": "アドバンスドシェイプキー生成ツールを開く",
+  "data.open_advanced_generator.tooltip": "複数の BlendShape データアセットからシェイプキーを組み合わせて、新しいメッシュを生成するためのアドバンスドシェイプキージェネレーターを開きます。",
+
+  "data.reset_blendshapes": "シェイプキーをリセット",
+  "data.reset_blendshapes.tooltip": "シェイプキーリストを元の状態にリセットします。",
+  "data.edit": " 編集 ",
+  "data.lock": "ロック",
+
+
+  "data.dialog.ok": "OK",
+  "data.dialog.yes": "はい",
+  "data.dialog.cancel": "キャンセル",
+  "data.dialog.fbx_missing.title": "元の FBX が見つかりません。",
+  "data.dialog.fbx_missing.message": "元の FBX ファイルが見つかりません。アセットをインポートするか、「元の FBX」に FBX を割り当ててください。",
+
+  "data.dialog.apply_blendshapes.title": "シェイプキーの適用",
+  "data.dialog.apply_blendshapes.message": "リストにあるシェイプキーを元の GameObject に追加します。続行しますか？",
+  "data.dialog.remove_blendshapes.title": "シェイプキーの削除",
+  "data.dialog.remove_blendshapes.message": "リストにあるシェイプキーを元の GameObject から削除します。続行しますか？",
+
+
+  "mesh_asset.applied_blendshapes": "適用済み BlendShapes",
+  "mesh_asset.read_only": "これらのフィールドは読み取り専用です。「編集」を押すとメタデータを変更できます。",
+  "mesh_asset.assign_meshes": "メッシュを割り当て",
+  "mesh_asset.assign_meshes.target_go": "対象の GameObject",
+  "mesh_asset.assign_meshes.to_prefab_btn": "メッシュを対象のプレハブに割り当て",
+  "mesh_asset.assign_meshes.to_go_btn": "メッシュを対象の GameObject に割り当て",
+  "mesh_asset.assign_meshes.is_prefab": "選択されたオブジェクトはプレハブです。\nこのオブジェクトを編集すると、プレハブ自体が変更され、シーンインスタンスには影響しません。\nプレハブアセットを直接編集しますか？",
+  "mesh_asset.assign_meshes.dialog.is_fbx.title": "FBX アセットが選択されました",
+  "mesh_asset.assign_meshes.dialog.is_fbx.message": "選択されたオブジェクトは FBX アセットです。\nFBX アセットは読み取り専用のため、直接編集できません。\n変更を行う場合は、FBX をシーンにインスタンス化してください。",
+  "mesh_asset.fbx_edited": "このメッシュが生成された後に FBX アセットが変更されています。\nFBX の変更により、再生成や新しいシェイプキーの適用時に予期しない結果が発生する可能性があります。",
+
+
+  "mesh_generator.target_mesh_container": "ターゲットメッシュコンテナ",
+  "mesh_generator.target_mesh_container.tooltip": "シェイプキーを追加する基準モデルを指定します。アセットは FBX モデル、BlendShare によって生成されたメッシュアセット、または Unity メッシュのいずれかです。",
+  "mesh_generator.mesh_generation_disable": "このアセットは頂点順序が正しくないため、メッシュアセットの生成に使用できません。代わりに FBX ファイルを使用してください。",
+  "mesh_generator.blendshapes_data_list": "シェイプキーデータリスト",
+  "mesh_generator.blendshapes_data_list.tooltip": "リスト内のすべてのシェイプキーが統合され、単一のモデルに適用されます。",
+  "mesh_generator.generate_mesh": "新しいメッシュアセットを生成",
+  "mesh_generator.generate_fbx": "新しい FBX アセットを生成"
+}

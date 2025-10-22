@@ -1,22 +1,48 @@
 {
   "lang": "Language",
-  "origin_fbx": "Origin FBX",
-  "origin_fbx.tooltip": "The unmodified origin FBX file.",
+  "origin_fbx": "Original FBX",
+  "origin_fbx.tooltip": "The unmodified original FBX file.",
 
   "not_an_fbx_error": "This is not an fbx file",
   "source_fbx": "Source FBX",
   "source_fbx.tooltip": "FBX file used as the source for BlendShapes.",
   "blendshapes": "BlendShapes",
 
+  
+  "extractor.file_unit_warning": "FBX file units not same, may cause problem\nOriginal: {0}\nSource: {1}",
+  "extractor.default_asset_name": "Default Asset Name",
+  "extractor.deformer_id":"Deformer ID",
+  "extractor.weld_vertices": "Weld BlendShape Vertices",
+  "extractor.weld_vertices.tooltip": "The BlendShape offset of vertices that will be combined by the Unity model importer will be set to the same value, ensuring that vertices remains consistent with the original mesh.",
+  "extractor.apply_transform": "Apply Transform",
+  "extractor.apply_transform.tooltip": "Apply the Object's transform to the meshes before calculating the BlendShapes vertices' offsets. If orientation issues occur with the BlendShapes, try enabling 'Apply Rotation' to correct them.",
+  "extractor.apply_translate": "Apply Translate",
+  "extractor.apply_rotation": "Apply Rotation",
+  "extractor.apply_scale": "Apply Scale",
+  "extractor.base_mesh": "Base Mesh",
+  "extractor.base_mesh.tooltip": "Base mesh for calculating BlendShapes offset vertices",
+  "extractor.enum.base_mesh.source": "Source",
+  "extractor.enum.base_mesh.original": "Original",
+
+  "extractor.compare_method": "Compare Method",
+  "extractor.enum.compare_method.name": "Name",
+  "extractor.enum.compare_method.name.tooltip": "Compare by name. If there are new blendshapes in the Source FBX, BlendShare will extract them.",
+  "extractor.enum.compare_method.index": "Index",
+  "extractor.enum.compare_method.index.tooltip": "Compare by index. If there are more blendshapes than the Original FBX, BlendShare will extract blendshapes from the tail end.",
+  "extractor.enum.compare_method.custom": "Custom",
+  "extractor.enum.compare_method.custom.tooltip": "Toggle which blendshapes should be extracted individually.",
+
+
+
   "data.original_fbx": "Original FBX",
   "data.original_fbx.tooltip": "Original FBX GameObject asset used to generate meshes.",
 
   "data.apply_blendshapes": "Apply BlendShapes",
-  "data.apply_blendshapes.tooltip": "Add BlendShapes in the list to Origin FBX.",
+  "data.apply_blendshapes.tooltip": "Add BlendShapes in the list to Original FBX.",
   "data.apply_blendshapes.tooltip_locked_message": "\n(Currently this button is disable since you are already apply BlendShapes to Fbx. Click Edit to force enable",
 
   "data.apply_blendshapes_as_new_fbx": "Apply BlendShapes as new FBX",
-  "data.apply_blendshapes_as_new_fbx.tooltip": "Duplicate Original GameObject and apply BlendShapes to the copy.",
+  "data.apply_blendshapes_as_new_fbx.tooltip": "Duplicate Original FBX and apply BlendShapes to the copy.",
   "data.remove_blendshapes": "Remove BlendShapes",
   "data.remove_blendshapes.tooltip": "Remove BlendShapes in the list from Origin FBX.",
   "data.remove_blendshapes.tooltip_locked_message": "\n(Currently this button is disable since you are not apply BlendShapes to Fbx yet. Click Edit to force enable)",
@@ -28,11 +54,13 @@
   "data.hidden_settings.applied.tooltip": "Indicate if user has applied BlendShapes to FBX.",
   "data.hidden_settings.deformer_id": "Deformer ID",
 
-
-
+  
   "data.create_meshes": "Create Meshes",
   "data.create_meshes.tooltip": "Create new mesh assets with BlendShapes.",
   "data.open_advanced_generator": "Open Advanced BlendShape Generator",
+  "data.open_advanced_generator.tooltip": "Open the Advanced BlendShape Generator to create a new mesh that combines BlendShapes from multiple BlendShape data assets.",
+
+
   "data.reset_blendshapes": "Reset BlendShapes",
   "data.reset_blendshapes.tooltip": "Reset BlendShapes list to original",
   "data.edit": " Edit ",
