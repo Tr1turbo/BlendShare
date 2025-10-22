@@ -31,15 +31,43 @@ namespace Triturbo.BlendShapeShare.Extractor
         public bool applyRotation = false;
         public bool applyScale = false;
         public bool applyTranslate = false;
-        public double blendShapesScale = 1;
+        public float blendShapesScale = 1;
 
-        public bool ApplyTransform
+        public bool ApplyTransform => applyRotation || applyScale || applyTranslate;
+
+        public FbxAMatrix GetTransform(FbxAMatrix originalMatrix, FbxAMatrix sourceMatrix)
         {
-            get
+            if (originalMatrix == null)
             {
-                
-                return applyRotation || applyScale || applyTranslate;
+                originalMatrix = new FbxAMatrix();
+                originalMatrix.SetIdentity();
             }
+            FbxAMatrix relativeTransform;
+            if (ApplyTransform)
+            {
+                relativeTransform = sourceMatrix * originalMatrix.Inverse();
+                sourceMatrix.Dispose();
+                originalMatrix.Dispose();
+
+                if (!applyScale)
+                {
+                    relativeTransform.SetS(new FbxVector4(1, 1, 1, 1));
+                }
+                if (!applyRotation)
+                {
+                    relativeTransform.SetR(new FbxVector4(0, 0, 0, 0));
+                }
+                if (!applyTranslate)
+                {
+                    relativeTransform.SetT(new FbxVector4(0, 0, 0, 0));
+                }
+            }
+            else
+            {
+                relativeTransform = new FbxAMatrix();
+                relativeTransform.SetIdentity();
+            }
+            return relativeTransform;
         }
     }
 
@@ -49,11 +77,8 @@ namespace Triturbo.BlendShapeShare.Extractor
            BlendShapesExtractorOptions blendShapesExtractorOptions)
         {
             var data = ScriptableObject.CreateInstance<BlendShapeDataSO>();
-
             data.m_Original = originObject;
-
             string defaultName = $"{originObject.name}-{blendShapeSource.name}";
-
             bool sourceAsBaseMesh = blendShapesExtractorOptions.baseMesh == BlendShapesExtractorOptions.BaseMesh.Source;
 
 #if ENABLE_FBX_SDK
@@ -68,8 +93,7 @@ namespace Triturbo.BlendShapeShare.Extractor
             }
             else
             {
-                Debug.LogWarning("Unity Vertices Not Equal");
-
+                
                 string path = AssetDatabase.GetAssetPath(originObject);
                 string tmp = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(path), $"{originObject.name}-{blendShapeSource.name}-{System.Guid.NewGuid().ToString()}.fbx");
 
@@ -159,7 +183,7 @@ namespace Triturbo.BlendShapeShare.Extractor
 
         #if ENABLE_FBX_SDK
         
-        public static bool ExtractFbxBlendshapes(ref List<MeshData> meshDataList, GameObject source, 
+        internal static bool ExtractFbxBlendshapes(ref List<MeshData> meshDataList, GameObject source, 
             BlendShapesExtractorOptions blendShapesExtractorOptions, GameObject origin = null, string exportPath = "")
         {
             if (meshDataList == null)
@@ -204,10 +228,9 @@ namespace Triturbo.BlendShapeShare.Extractor
                 originFbxManager = FbxManager.Create();
                 originFbxManager.SetIOSettings(FbxIOSettings.Create(originFbxManager, Globals.IOSROOT));
                 FbxImporter originFbxImporter = FbxImporter.Create(originFbxManager, "");
-
-
+                
                 originScene = FbxScene.Create(originFbxManager, "Origin");
-                if (EditorUtility.DisplayCancelableProgressBar("Extract blendshapes", "Import origin FBX...", 0.2f))
+                if (EditorUtility.DisplayCancelableProgressBar("Extract BlendShapes", "Import origin FBX...", 0.2f))
                 {
                     EditorUtility.ClearProgressBar();
                     return false;
@@ -222,7 +245,7 @@ namespace Triturbo.BlendShapeShare.Extractor
             }
 
             
-            if (EditorUtility.DisplayCancelableProgressBar("Extract blendshapes", "Get Root Node...", 0.4f))
+            if (EditorUtility.DisplayCancelableProgressBar("Extract BlendShapes", "Get Root Node...", 0.4f))
             {
                 EditorUtility.ClearProgressBar();
                 return false;
@@ -235,7 +258,7 @@ namespace Triturbo.BlendShapeShare.Extractor
             {
                 FbxNode node = sourceRootNode.FindMeshChild(meshData.m_MeshName);
                 FbxMesh sourceMesh = node?.GetMesh();
-                if (EditorUtility.DisplayCancelableProgressBar("Extract blendshapes", $"Check node: {meshData.m_MeshName}", 0.4f + 0.4f * count++ / meshDataList.Count))
+                if (EditorUtility.DisplayCancelableProgressBar("Extract BlendShapes", $"Check node: {meshData.m_MeshName}", 0.4f + 0.4f * count++ / meshDataList.Count))
                 {
                     EditorUtility.ClearProgressBar();
                     return false;
@@ -255,7 +278,7 @@ namespace Triturbo.BlendShapeShare.Extractor
                 FbxNode nodeOrigin = originRootNode?.FindMeshChild(meshData.m_MeshName);
                 FbxMesh originMesh = nodeOrigin?.GetMesh();
 
-                if (sourceMesh != null && originMesh != null)
+                if (originMesh != null)
                 {
                     int sourceVertexCount = sourceMesh.GetControlPointsCount();
                     int originVertexCount = originMesh.GetControlPointsCount();
@@ -265,37 +288,11 @@ namespace Triturbo.BlendShapeShare.Extractor
                         Debug.LogError($"Vertex count mismatch: Source ({sourceVertexCount}) vs Origin ({originVertexCount})");
                     }
                 }
-
                 
-                FbxAMatrix relativeTransform;
-                if (blendShapesExtractorOptions.ApplyTransform)
-                {
-                    FbxAMatrix sourceMatrix = node.EvaluateLocalTransform();
-                    FbxAMatrix originalMatrix = nodeOrigin.EvaluateLocalTransform();
-
-                    relativeTransform = sourceMatrix * originalMatrix.Inverse();
-
-                    sourceMatrix.Dispose();
-                    originalMatrix.Dispose();
-
-                    if (!blendShapesExtractorOptions.applyScale)
-                    {
-                        relativeTransform.SetS(new FbxVector4(1, 1, 1, 1));
-                    }
-                    if (!blendShapesExtractorOptions.applyRotation)
-                    {
-                        relativeTransform.SetR(new FbxVector4(0, 0, 0, 0));
-                    }
-                    if (!blendShapesExtractorOptions.applyTranslate)
-                    {
-                        relativeTransform.SetT(new FbxVector4(0, 0, 0, 0));
-                    }
-                }
-                else
-                {
-                    relativeTransform = new FbxAMatrix();
-                    relativeTransform.SetIdentity();
-                }
+                //FbxAMatrix relativeTransform;
+                FbxAMatrix relativeTransform = blendShapesExtractorOptions.GetTransform(
+                    nodeOrigin?.EvaluateLocalTransform(), 
+                    node.EvaluateLocalTransform());
                 
                 //Remove all blendshapes in original mesh and make it a container as new blendshapes.
                 if (originMesh != null && !blendShapesExtractorOptions.weldVertices)
@@ -360,14 +357,11 @@ namespace Triturbo.BlendShapeShare.Extractor
         
         
         //base mesh: use for calculate vertices diff
-        public static FbxBlendShapeChannel CopyFbxBlendShapeChannel(FbxBlendShapeChannel source, FbxMesh target, FbxMesh baseMesh, 
+        private static FbxBlendShapeChannel CopyFbxBlendShapeChannel(FbxBlendShapeChannel source, FbxMesh target, FbxMesh baseMesh, 
             List<List<int>> weldingList, FbxAMatrix transformMatrix)
         {
-            
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
-            
-            
             if (baseMesh == null)
             {
                 baseMesh = target;
@@ -384,13 +378,11 @@ namespace Triturbo.BlendShapeShare.Extractor
             // Iterate over each target shape in the source blend shape channel
             int shapeCount = source.GetTargetShapeCount();
 
-            for (int shapeIndex = 0; shapeIndex < source.GetTargetShapeCount(); shapeIndex++)
+            for (int shapeIndex = 0; shapeIndex < shapeCount; shapeIndex++)
             {
                 FbxShape sourceShape = source.GetTargetShape(shapeIndex);
-
                 int controlPointCount = sourceShape.GetControlPointsCount();
-
-
+                
                 FbxShape newShape = FbxShape.Create(target, sourceShape.GetName());
                 newShape.InitControlPoints(controlPointCount);
 
@@ -403,7 +395,6 @@ namespace Triturbo.BlendShapeShare.Extractor
                     if (weldingList == null)
                     {
                         FbxVector4 delta;
-                        
                         if (baseMesh != target)
                             delta = transformMatrix.MultT(source.GetTargetShape(shapeIndex).GetControlPointAt(pointIndex) - baseControlPoint);
                         else
@@ -429,6 +420,7 @@ namespace Triturbo.BlendShapeShare.Extractor
                         newShape.SetControlPointAt(transformedPoint, i);
                     }  
                 }
+                
                 fbxBlendShapeChannel.AddTargetShape(newShape, 100.0 * (shapeIndex + 1) / shapeCount);
             }
 
@@ -436,7 +428,6 @@ namespace Triturbo.BlendShapeShare.Extractor
             Debug.Log($"CopyFbxBlendShapeChannel: {source.GetName()} Time taken: " + stopwatch.ElapsedMilliseconds + " ms");
             return fbxBlendShapeChannel;
         }
-
         
         private static bool ApplyWeldingDeltas(FbxVector4[] deltas, List<List<int>> weldingList)
         {
@@ -478,7 +469,7 @@ namespace Triturbo.BlendShapeShare.Extractor
         }
 
 
-        public static List<FbxVector4>[] GetNormals(FbxMesh mesh)
+        internal static List<FbxVector4>[] GetNormals(FbxMesh mesh)
         {
             int cpCount = mesh.GetControlPointsCount();
             List<FbxVector4>[] normals = new List<FbxVector4>[cpCount];
@@ -513,7 +504,7 @@ namespace Triturbo.BlendShapeShare.Extractor
         /// </summary>
         /// <param name="mesh">The FbxMesh object containing the vertices and blendshapes to be analyzed.</param>
         /// <returns>A list of vertex groups, where each group is a list of indices that should be welded together.</returns>
-        public static List<List<int>> GetWeldingGroups(FbxMesh mesh)
+        internal static List<List<int>> GetWeldingGroups(FbxMesh mesh)
         {
             //
             Stopwatch stopwatch = new Stopwatch();
@@ -587,7 +578,7 @@ namespace Triturbo.BlendShapeShare.Extractor
 
         // Creates FbxBlendShapeData from a given FbxBlendShapeChannel and FbxMesh.
         // The base FbxMesh to use as a reference for computing blendshape offsets. If null, sourceMesh is used as the base.
-        public static FbxBlendShapeData GetFbxBlendShapeData(FbxBlendShapeChannel source, FbxMesh sourceMesh, List<List<int>> weldingGroup,
+        internal static FbxBlendShapeData GetFbxBlendShapeData(FbxBlendShapeChannel source, FbxMesh sourceMesh, List<List<int>> weldingGroup,
            FbxAMatrix transformMatrix, FbxMesh baseMesh = null)
         {
             int controlPointCount = sourceMesh.GetControlPointsCount();
@@ -668,7 +659,7 @@ namespace Triturbo.BlendShapeShare.Extractor
         #endregion
 
 
-        public static List<MeshData> CompareBlendShape(GameObject source, GameObject origin, bool compareByName = true)
+        internal static List<MeshData> CompareBlendShape(GameObject source, GameObject origin, bool compareByName = true)
         {
             List<MeshData> meshDataList = new List<MeshData>();
             Dictionary<string, SkinnedMeshRenderer> originMeshLookup = new Dictionary<string, SkinnedMeshRenderer>();
@@ -720,7 +711,7 @@ namespace Triturbo.BlendShapeShare.Extractor
         
         #region Unity Mesh
         
-        public static bool IsUnityVerticesEqual(GameObject source, GameObject origin)
+        private static bool IsUnityVerticesEqual(GameObject source, GameObject origin)
         {
             foreach (Transform transform in source.transform)
             {
@@ -753,7 +744,7 @@ namespace Triturbo.BlendShapeShare.Extractor
 
             return true;
         }
-        public static void ExtractUnityBlendShapes(ref List<MeshData> meshDataList, GameObject source, GameObject baseObject)
+        private static void ExtractUnityBlendShapes(ref List<MeshData> meshDataList, GameObject source, GameObject baseObject)
         {
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
@@ -802,7 +793,7 @@ namespace Triturbo.BlendShapeShare.Extractor
             Debug.Log("Extract Unity BlendShapes Time taken: " + stopwatch.ElapsedMilliseconds + " ms");
         }
 
-        public static List<string> GetExtraBlendShapeNames(Mesh sourceMesh, Mesh origin)
+        private static List<string> GetExtraBlendShapeNames(Mesh sourceMesh, Mesh origin)
         {
             List<string> blendShapes = new List<string>();
             for (int i = 0; i < sourceMesh.blendShapeCount; i++)
@@ -819,7 +810,7 @@ namespace Triturbo.BlendShapeShare.Extractor
         }
 
 
-        public static void ExtractUnityBlendShapes(this MeshData meshData, Mesh sourceMesh, Mesh baseMesh)
+        private static void ExtractUnityBlendShapes(this MeshData meshData, Mesh sourceMesh, Mesh baseMesh)
         {
             bool calculateDiffs = baseMesh != null && baseMesh != sourceMesh && baseMesh.vertexCount == sourceMesh.vertexCount;
             
@@ -852,15 +843,12 @@ namespace Triturbo.BlendShapeShare.Extractor
 
             for (int i = 0; i < sourceMesh.blendShapeCount; i++)
             {
-        
                 string shapeName = sourceMesh.GetBlendShapeName(i);
                 int frameCount = sourceMesh.GetBlendShapeFrameCount(i);
                 if (!meshData.ContainsBlendShape(shapeName))
                 {
                     continue;
                 }
-
-
                 UnityBlendShapeData unityBlendShapeData = new UnityBlendShapeData(frameCount);
 
                 for (int j = 0; j < frameCount; j++)
@@ -880,7 +868,7 @@ namespace Triturbo.BlendShapeShare.Extractor
                             deltaTangents[k] += tangentDiffs[k];
                         }
                     }
-
+                    
                     UnityBlendShapeFrame frame = new UnityBlendShapeFrame(frameWeight, sourceMesh.vertexCount,
                         deltaVertices, deltaNormals, deltaTangents);
 
