@@ -1,9 +1,11 @@
+using System;
 using UnityEngine;
 using UnityEditor;
 using System.Collections.Generic;
 using System.IO;
 using Newtonsoft.Json;
 using System.Collections.Immutable;
+using System.Linq;
 
 namespace Triturbo.BlendShapeShare
 {
@@ -83,7 +85,51 @@ namespace Triturbo.BlendShapeShare
                 EditorPrefs.SetString(LANG_PREF_KEY, langKey);
             }
         }
+        
+        public static T LocalizedEnumPopup<T>(GUIContent label, T enumValue, string enumKey) where T : Enum
+        {
+            // Localize enum display names
+            string[] names = Enum.GetNames(typeof(T));
+            GUIContent[] displayedOptions = names
+                .Select(name => G($"{enumKey}.{name.Replace(" ", "_").ToLower()}"))
+                .ToArray();
 
+            int currentIndex = Array.IndexOf(names, enumValue.ToString());
+            int newIndex = EditorGUILayout.Popup(label, currentIndex, displayedOptions);
+
+            if (newIndex >= 0 && newIndex < names.Length)
+            {
+                return (T)Enum.Parse(typeof(T), names[newIndex]);
+            }
+
+            return enumValue;
+        }
+        public static void LocalizedEnumPropertyField(Rect rect, SerializedProperty property, GUIContent label, string enumKey)
+        {
+            if (property.propertyType != SerializedPropertyType.Enum)
+            {
+                EditorGUI.LabelField(rect, label.text, "Not an enum");
+                return;
+            }
+            label = EditorGUI.BeginProperty(rect, label, property);
+            
+            
+            GUIContent[] displayedOptions = property.enumDisplayNames
+                .Select(name => G($"{enumKey}.{name.Replace(" ","_").ToLower()}"))
+                .ToArray();
+            EditorGUI.BeginChangeCheck();
+            int newIndex = EditorGUI.Popup(rect, label, property.enumValueIndex, displayedOptions);
+            if (EditorGUI.EndChangeCheck())
+            {
+                if (newIndex != property.enumValueIndex)
+                {
+                    property.enumValueIndex = newIndex;
+                }
+            }
+            EditorGUI.EndProperty();
+        }
+        
+        
         public static bool DisplayDialog(string key, string ok = "OK", string cancel = "")
         {
             var title = S(key + ".title", key);
