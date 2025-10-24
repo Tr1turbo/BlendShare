@@ -18,7 +18,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 {
     public static class BlendShapeAppender
     {
-        
         // targetMeshContainer can be an FBX or GeneratedMeshAssetSO
         public static GeneratedMeshAssetSO CreateMeshAsset(Object targetMeshContainer, IEnumerable<BlendShapeDataSO> blendShapes, string path)
         {
@@ -48,13 +47,8 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 // If invalid, rebuild the FBX immediately
                 string folder = System.IO.Path.GetDirectoryName(path) ?? Application.dataPath;
                 string tempAssetPath = System.IO.Path.Combine(folder, $"{targetMeshContainer.name}-{System.Guid.NewGuid().ToString()}.fbx");
-                    
-                if (targetMeshContainer is GeneratedMeshAssetSO meshAsset)
-                {
-                    blendShapes = blendShapes.Concat(meshAsset.m_AppliedBlendShapes).ToList();
-                }
-
-                if (!CreateFbx(targetFbx, blendShapes, tempAssetPath, true))
+                
+                if (!CreateFbx(targetFbx, appliedBlendShapes, tempAssetPath, true))
                 {
                     Debug.LogError("Failed to create blendshapes fbx.");
                     return null;
