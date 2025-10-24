@@ -1,7 +1,11 @@
-
 # BlendShare Changelog
 
-## [1.0.0] 
+## [1.0.1] - 2025/10/24
+### Fix
+- Corrected the order of blendshape data application when rebuilding an FBX if the target is a **GeneratedMeshAssetSO**.
+- Previously, the blendshapes could be applied in the wrong order, causing unexpected results.
+
+## [1.0.0] - 2025/10/22
 
 ### New Features
 
