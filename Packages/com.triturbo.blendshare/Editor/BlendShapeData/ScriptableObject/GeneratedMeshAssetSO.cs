@@ -22,11 +22,23 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         
         public void ApplyMesh(Transform target)
         {
-            Object[] subAssets = AssetDatabase.LoadAllAssetRepresentationsAtPath(AssetDatabase.GetAssetPath(this));
-            var meshRenderers = target.GetComponentsInChildren<SkinnedMeshRenderer>(true)
-                .Where(renderer => renderer.sharedMesh != null) // Skip null sharedMesh
-                .ToDictionary(renderer => renderer.sharedMesh.name, renderer => renderer);
             
+            string assetPath = AssetDatabase.GetAssetPath(this);
+            if (string.IsNullOrEmpty(assetPath))
+            {
+                Debug.LogError($"ApplyMesh: Invalid asset path for {name}.");
+                return;
+            }
+
+            Object[] subAssets = AssetDatabase.LoadAllAssetRepresentationsAtPath(assetPath);
+
+            // Build dictionary: use sharedMesh.name if available, otherwise GameObject.name
+            var meshRenderers = target.GetComponentsInChildren<SkinnedMeshRenderer>(true)
+                .ToDictionary(
+                    renderer => renderer.sharedMesh != null ? renderer.sharedMesh.name : renderer.gameObject.name,
+                    renderer => renderer
+                );
+
             foreach (var asset in subAssets)
             {
                 if (asset is Mesh mesh)
@@ -42,7 +54,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 }
             }
         }
-        
 
         /// <summary>
         /// Creates and saves a <see cref="GeneratedMeshAssetSO"/> asset by copying meshes from a specified container asset,

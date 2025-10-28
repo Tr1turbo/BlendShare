@@ -2,13 +2,20 @@
 
 
 ## [1.0.2] - 2025/10/29
+
 ### Added
 - New menu accessible from **Tools → BlendShare → Check for Update**, that checks for and imports the latest BlendShare release from GitHub.
+
 ### Fixed
 - GameObject field now shows **“Missing”** instead of **“None”** when the reference is lost.
 - Prevented the field from being automatically set to **null** when the referenced GameObject is missing.
 
+### Changed
+- Use **GameObject name** as a fallback when `sharedMesh` is missing in target GameObject during `GeneratedMeshAssetSO` mesh assignment.
+
+
 ## [1.0.1] - 2025/10/24
+
 ### Fix
 - Corrected the order of blendshape data application when rebuilding an FBX if the target is a **GeneratedMeshAssetSO**.
 - Previously, the blendshapes could be applied in the wrong order, causing unexpected results.
