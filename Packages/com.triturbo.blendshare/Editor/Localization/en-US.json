@@ -97,5 +97,22 @@
   "mesh_generator.blendshapes_data_list": "BlendShapes Data List",
   "mesh_generator.blendshapes_data_list.tooltip": "All listed BlendShapes will be merged and applied to a single model.",
   "mesh_generator.generate_mesh": "Generate new Mesh Asset",
-  "mesh_generator.generate_fbx": "Generate new FBX Asset"
+  "mesh_generator.generate_fbx": "Generate new FBX Asset",
+
+
+
+
+  "updater.update_check_failed": "Failed to check update:\n{0}",
+  "updater.release_parse_failed": "Could not parse GitHub release info.",
+  "updater.latest_version": "You already have the latest version ({0}).",
+  "updater.update_available_title": "BlendShare Update Available",
+  "updater.update_available_body": "A new version is available!\n\nCurrent version: {0}\nLatest version: {1}\n\nDo you want to download and import the update?",
+  "updater.update_no_unitypackage": "No .unitypackage found in the latest release.",
+  "updater.update_error": "An error occurred:\n{0}",
+  "updater.update_title": "BlendShare Update",
+  "updater.dialog_yes_update": "Yes, Update",
+  "updater.dialog_cancel": "Cancel",
+  "updater.dialog_view_release": "View Release"
+
+  
 }
