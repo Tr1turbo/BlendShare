@@ -79,7 +79,18 @@
   "mesh_generator.blendshapes_data_list": "型態鍵資料清單",
   "mesh_generator.blendshapes_data_list.tooltip": "清單中的所有型態鍵將被合併並套用至同一個模型。",
   "mesh_generator.generate_mesh": "生成新的網格資產",
-  "mesh_generator.generate_fbx": "生成新的 FBX 資產"
+  "mesh_generator.generate_fbx": "生成新的 FBX 資產",
 
+  "updater.update_check_failed": "檢查更新失敗：\n{0}",
+  "updater.release_parse_failed": "無法解析 GitHub 發行版本資訊。",
+  "updater.latest_version": "您已經擁有最新版本 ({0})。",
+  "updater.update_available_title": "BlendShare 有可用更新",
+  "updater.update_available_body": "發現新版本可供更新！\n\n目前版本：{0}\n最新版本：{1}\n\n是否要下載並匯入更新？",
+  "updater.update_no_unitypackage": "在最新版本中找不到 .unitypackage。",
+  "updater.update_error": "發生錯誤：\n{0}",
+  "updater.update_title": "BlendShare 更新",
+  "updater.dialog_yes_update": "是的，更新",
+  "updater.dialog_cancel": "取消",
+  "updater.dialog_view_release": "查看發行版本"
 
 }

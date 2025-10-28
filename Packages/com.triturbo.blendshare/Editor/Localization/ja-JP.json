@@ -93,5 +93,20 @@
   "mesh_generator.blendshapes_data_list": "シェイプキーデータリスト",
   "mesh_generator.blendshapes_data_list.tooltip": "リスト内のすべてのシェイプキーが統合され、単一のモデルに適用されます。",
   "mesh_generator.generate_mesh": "新しいメッシュアセットを生成",
-  "mesh_generator.generate_fbx": "新しい FBX アセットを生成"
+  "mesh_generator.generate_fbx": "新しい FBX アセットを生成",
+
+
+  "updater.update_check_failed": "アップデートの確認に失敗しました:\n{0}",
+  "updater.release_parse_failed": "GitHub リリース情報を解析できませんでした。",
+  "updater.latest_version": "すでに最新バージョン ({0}) を使用しています。",
+  "updater.update_available_title": "BlendShare のアップデートがあります",
+  "updater.update_available_body": "新しいバージョンが利用可能です！\n\n現在のバージョン: {0}\n最新のバージョン: {1}\n\nダウンロードしてインポートしますか？",
+  "updater.update_no_unitypackage": "最新リリースに .unitypackage が見つかりません。",
+  "updater.update_error": "エラーが発生しました:\n{0}",
+  "updater.update_title": "BlendShare アップデート",
+  "updater.dialog_yes_update": "はい、アップデートします",
+  "updater.dialog_cancel": "キャンセル",
+  "updater.dialog_view_release": "リリースを見る"
+
+
 }
