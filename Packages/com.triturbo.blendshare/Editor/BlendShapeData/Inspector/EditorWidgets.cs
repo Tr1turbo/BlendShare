@@ -107,13 +107,9 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                     }
                 }
             }
-            var updated = EditorGUI.ObjectField(fieldRect, label, property.objectReferenceValue, typeof(GameObject), false);
             
-            if (updated == null)
-            {
-                property.objectReferenceValue = null;
-                return true;
-            }
+            EditorGUI.PropertyField(fieldRect, property, label);
+            var updated = property.objectReferenceValue as GameObject;
             if (valid)
             {
                 if (firstDragObject == updated || IsFBXGameObject(updated))
@@ -122,7 +118,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                     return true;
                 }
             }
-            
             return false;
         }
 
