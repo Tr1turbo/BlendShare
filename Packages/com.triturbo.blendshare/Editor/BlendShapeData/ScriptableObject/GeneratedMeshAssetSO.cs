@@ -20,39 +20,92 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         public string m_OriginalFbxHash;
         public BlendShapeDataSO[]  m_AppliedBlendShapes;
         
+        
+        
+        /// <summary>
+        /// Applies all meshes stored in this asset to matching <see cref="SkinnedMeshRenderer"/>s 
+        /// under the specified <paramref name="target"/> transform.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This method requires the asset to be a persistent asset (saved in the Project, not a scene object),
+        /// since it loads sub-assets using <see cref="UnityEditor.AssetDatabase"/>.
+        /// </para>
+        /// <para>
+        /// Meshes are matched by their <see cref="Mesh.name"/> (or the GameObject name if the renderer 
+        /// has missing <see cref="SkinnedMeshRenderer.sharedMesh"/>). All renderers with matching names will be updated.
+        /// </para>
+        /// <para>
+        /// If multiple renderers share the same mesh name, the mesh is applied to all of them and an 
+        /// error is logged for visibility.
+        /// </para>
+        /// <para>
+        /// This operation is Undo/Redo compatible — Unity’s <see cref="Undo"/> system records 
+        /// each mesh assignment so that changes can be reverted or redone safely.
+        /// </para>
+        /// </remarks>
+        /// <param name="target">The root transform whose child renderers will receive mesh assignments.</param>
+        /// <exception cref="System.ArgumentNullException">
+        /// Thrown if <paramref name="target"/> is null.
+        /// </exception>
         public void ApplyMesh(Transform target)
         {
-            
             string assetPath = AssetDatabase.GetAssetPath(this);
             if (string.IsNullOrEmpty(assetPath))
             {
-                Debug.LogError($"ApplyMesh: Invalid asset path for {name}.");
+                Debug.LogError($"[BlendShare Apply Mesh]: Invalid asset path for {name}.");
                 return;
             }
 
             Object[] subAssets = AssetDatabase.LoadAllAssetRepresentationsAtPath(assetPath);
 
-            // Build dictionary: use sharedMesh.name if available, otherwise GameObject.name
-            var meshRenderers = target.GetComponentsInChildren<SkinnedMeshRenderer>(true)
-                .ToDictionary(
-                    renderer => renderer.sharedMesh != null ? renderer.sharedMesh.name : renderer.gameObject.name,
-                    renderer => renderer
-                );
+            // Build name → renderer list map
+            var meshRenderers = new Dictionary<string, List<SkinnedMeshRenderer>>();
+            foreach (var renderer in target.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            {
+                string key = renderer.sharedMesh != null ? renderer.sharedMesh.name : renderer.gameObject.name;
+                if (!meshRenderers.TryGetValue(key, out var list))
+                {
+                    list = new List<SkinnedMeshRenderer>();
+                    meshRenderers[key] = list;
+                }
+                list.Add(renderer);
+            }
 
+            int undoGroup = Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName($"[BlendShare] Apply Meshes to {target.name}");
+            // Apply meshes
             foreach (var asset in subAssets)
             {
                 if (asset is Mesh mesh)
                 {
-                    if (meshRenderers.TryGetValue(mesh.name, out var targetMeshRenderer))
+                    if (meshRenderers.TryGetValue(mesh.name, out var renderers))
                     {
-                        targetMeshRenderer.sharedMesh = mesh;
+                        if (renderers.Count > 1)
+                        {
+                            Debug.LogWarning(
+                                $"[BlendShare Apply Mesh] Multiple renderers share the same mesh name '{mesh.name}' under '{target.name}'.",
+                                target
+                            );
+                        }
+
+                        foreach (var targetMeshRenderer in renderers)
+                        {
+                            // Record before modification for undo/redo
+                            Undo.RecordObject(targetMeshRenderer, "Apply Mesh");
+                            targetMeshRenderer.sharedMesh = mesh;
+                            EditorUtility.SetDirty(targetMeshRenderer);
+                        }
                     }
                     else
                     {
-                        Debug.LogWarning($"Mesh '{mesh.name}' not found in target GameObject: {target.name}", target);
+                        Debug.LogError($"[BlendShare Apply Mesh] Mesh '{mesh.name}' not found in target '{target.name}'.", target);
                     }
                 }
             }
+            
+            // Finalize undo group
+            Undo.CollapseUndoOperations(undoGroup);
         }
 
         /// <summary>
