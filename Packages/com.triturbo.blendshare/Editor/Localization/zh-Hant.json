@@ -71,8 +71,11 @@
   "mesh_asset.assign_meshes.is_prefab": "所選物件為預製件。\n編輯此物件將會修改預製件本身，而非場景中的實例。\n是否要直接編輯預製件資產？",
   "mesh_asset.assign_meshes.dialog.is_fbx.title": "已選取 FBX 資產",
   "mesh_asset.assign_meshes.dialog.is_fbx.message": "所選物件為 FBX 資產。\nFBX 資產內網格資產為唯讀狀態，無法直接編輯。\n請在場景中實例化 FBX 遊戲物件以進行修改。",
+  "mesh_asset.fbx_edited": "自從生成這些網格後，FBX 資產已被修改。\n對 FBX 的變更可能在重新生成或套用新的混合形狀時導致意外結果。",
+
 
   
+
   "mesh_generator.target_mesh_container": "目標網格容器",
   "mesh_generator.target_mesh_container.tooltip": "指定要添加型態鍵的基礎模型。資產可以是 FBX 模型、由 BlendShare 生成的網格資產，或 Unity 網格。",
   "mesh_generator.mesh_generation_disable": "由於此資產的頂點順序不正確，無法用來生成網格資產。請改用 FBX 檔案。",

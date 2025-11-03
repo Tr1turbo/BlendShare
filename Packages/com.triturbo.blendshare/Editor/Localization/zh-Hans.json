@@ -68,7 +68,10 @@
   "mesh_asset.assign_meshes.is_prefab": "所选对象为预制件。\n编辑此对象将会修改预制件本身，而非场景中的实例。\n是否直接编辑预制件资产？",
   "mesh_asset.assign_meshes.dialog.is_fbx.title": "已选取 FBX 资产",
   "mesh_asset.assign_meshes.dialog.is_fbx.message": "所选对象为 FBX 资产。\nFBX 资产内网格为只读状态，无法直接编辑。\n请在场景中实例化 FBX 游戏对象以进行修改。",
+  "mesh_asset.fbx_edited": "自从生成这些网格以来，FBX 资源已被修改。\n对 FBX 的更改可能在重新生成或应用新的混合形状时导致意外结果。",
 
+
+  
   "mesh_generator.target_mesh_container": "目标网格容器",
   "mesh_generator.target_mesh_container.tooltip": "指定要添加形态键的基础模型。资产可以是 FBX 模型、由 BlendShare 生成的网格资产，或 Unity 网格。",
   "mesh_generator.mesh_generation_disable": "由于此资产的顶点顺序不正确，无法用于生成网格资产。请改用 FBX 文件。",
