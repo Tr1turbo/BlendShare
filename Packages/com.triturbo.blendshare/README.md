@@ -1,5 +1,16 @@
 # BlendShare Changelog
 
+## [1.0.3] - 2025/11/03
+
+### Fixed
+- `GeneratedMeshAssetSO.ApplyMesh`: Prevent crash when multiple renderers share the same mesh or GameObject name.
+- `GeneratedMeshAssetSO.ApplyMesh`: Make mesh assignments fully undo/redo safe in the Editor.
+- `GeneratedMeshAssetSO.ApplyMesh`: Log an error when multiple renderers share the same name while still applying meshes to all of them.
+- Tooltips: Prevented undefined tooltips from showing. Previously, SF(key + ".tooltip", format) always returned a non-null value, making it impossible to detect missing tooltips.
+
+### Added
+- Translated warning messages in Simplified and Traditional Chinese localization files notifying users about edited FBX assets.
+
 
 ## [1.0.2] - 2025/10/29
 
