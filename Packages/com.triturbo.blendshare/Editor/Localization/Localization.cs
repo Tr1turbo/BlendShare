@@ -161,9 +161,10 @@ namespace Triturbo.BlendShapeShare
         
         public static GUIContent GF(string key, params object[] format)
         {
-            var tooltip = SF(key + ".tooltip", format);
+            var tooltip = S(key + ".tooltip");
             string text = string.Format(S(key), format);
-            return tooltip != null ? new GUIContent(text, tooltip) : new GUIContent(text);
+            
+            return string.IsNullOrEmpty(tooltip) ? new GUIContent(text) : new GUIContent(text, string.Format(tooltip, format));
         }
 
         public static void DrawLanguageSelection()
