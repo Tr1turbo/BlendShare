@@ -32,6 +32,8 @@ namespace Triturbo.BlendShapeShare.Extractor
         public bool applyScale = false;
         public bool applyTranslate = false;
         public float blendShapesScale = 1;
+        public bool includeWeights = true;
+        public bool includeColors = true;
 
         public bool ApplyTransform => applyRotation || applyScale || applyTranslate;
 
@@ -89,7 +91,7 @@ namespace Triturbo.BlendShapeShare.Extractor
                     Debug.Log("ExtractFbxBlendshapes failed");
                     return null;
                 }
-                ExtractUnityBlendShapes(ref meshDataList, blendShapeSource, sourceAsBaseMesh ? blendShapeSource : originObject);
+                ExtractUnityBlendShapes(ref meshDataList, blendShapeSource, sourceAsBaseMesh ? blendShapeSource : originObject, blendShapesExtractorOptions);
             }
             else
             {
@@ -111,7 +113,7 @@ namespace Triturbo.BlendShapeShare.Extractor
 
                 if (IsUnityVerticesEqual(genertated, originObject))
                 {
-                    ExtractUnityBlendShapes(ref meshDataList, genertated, null);
+                    ExtractUnityBlendShapes(ref meshDataList, genertated, null, blendShapesExtractorOptions);
                 }
                 else
                 {
@@ -330,7 +332,7 @@ namespace Triturbo.BlendShapeShare.Extractor
                 }
 
                 // Extract Skinning Data via FBX SDK
-                if (!meshData.HasSkinningData && sourceMesh.GetDeformerCount(FbxDeformer.EDeformerType.eSkin) > 0)
+                if (blendShapesExtractorOptions.includeWeights && !meshData.HasSkinningData && sourceMesh.GetDeformerCount(FbxDeformer.EDeformerType.eSkin) > 0)
                 {
                     meshData.ExtractFbxSkin(sourceMesh, weldingGroups, relativeTransform, baseMesh);
                 }
@@ -843,7 +845,7 @@ namespace Triturbo.BlendShapeShare.Extractor
 
             return true;
         }
-        private static void ExtractUnityBlendShapes(ref List<MeshData> meshDataList, GameObject source, GameObject baseObject)
+        private static void ExtractUnityBlendShapes(ref List<MeshData> meshDataList, GameObject source, GameObject baseObject, BlendShapesExtractorOptions options)
         {
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
@@ -885,10 +887,10 @@ namespace Triturbo.BlendShapeShare.Extractor
                     }
                 }
 
-                meshData.ExtractUnityBlendShapes(sourceMesh, baseMesh);
+                meshData.ExtractUnityBlendShapes(sourceMesh, baseMesh, options);
                 
                 // Extract bone names from SkinnedMeshRenderer
-                if (meshRenderer != null && meshRenderer.bones != null)
+                if (options.includeWeights && meshRenderer != null && meshRenderer.bones != null)
                 {
                     meshData.m_BoneNames = meshRenderer.bones.Select(b => b.name).ToArray();
                 }
@@ -915,7 +917,7 @@ namespace Triturbo.BlendShapeShare.Extractor
         }
 
 
-        private static void ExtractUnityBlendShapes(this MeshData meshData, Mesh sourceMesh, Mesh baseMesh)
+        private static void ExtractUnityBlendShapes(this MeshData meshData, Mesh sourceMesh, Mesh baseMesh, BlendShapesExtractorOptions options)
         {
             bool calculateDiffs = baseMesh != null && baseMesh != sourceMesh && baseMesh.vertexCount == sourceMesh.vertexCount;
             
@@ -984,7 +986,7 @@ namespace Triturbo.BlendShapeShare.Extractor
             }
 
             // Extract skinning data if not already present
-            if (!meshData.HasSkinningData && sourceMesh.bindposes != null && sourceMesh.bindposes.Length > 0)
+            if (options.includeWeights && !meshData.HasSkinningData && sourceMesh.bindposes != null && sourceMesh.bindposes.Length > 0)
             {
                 meshData.m_BoneWeights = sourceMesh.boneWeights;
                 meshData.m_BindPoses = sourceMesh.bindposes;
@@ -994,7 +996,7 @@ namespace Triturbo.BlendShapeShare.Extractor
             }
 
             // Extract vertex colors
-            if (sourceMesh.colors != null && sourceMesh.colors.Length > 0)
+            if (options.includeColors && sourceMesh.colors != null && sourceMesh.colors.Length > 0)
             {
                 meshData.m_Colors = sourceMesh.colors;
             }
