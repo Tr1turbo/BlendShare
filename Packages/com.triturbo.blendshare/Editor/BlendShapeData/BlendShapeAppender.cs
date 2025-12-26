@@ -168,6 +168,30 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                     frame.AddBlendShapeFrame(ref newMesh, blendShapeData.m_ShapeName);
                 }
             }
+
+            // Apply skinning data if available
+            if (meshBlendShapesData.HasSkinningData)
+            {
+                if (newMesh.vertexCount == meshBlendShapesData.m_BoneWeights.Length)
+                {
+                    newMesh.boneWeights = meshBlendShapesData.m_BoneWeights;
+                    newMesh.bindposes = meshBlendShapesData.m_BindPoses;
+                }
+                else
+                {
+                    Debug.LogWarning($"[BlendShare] Skipping weight application for {meshBlendShapesData.m_MeshName} due to vertex count mismatch.");
+                }
+            }
+
+            // Apply vertex colors if available
+            if (meshBlendShapesData.HasVertexColors)
+            {
+                if (newMesh.vertexCount == meshBlendShapesData.m_Colors.Length)
+                {
+                    newMesh.colors = meshBlendShapesData.m_Colors;
+                }
+            }
+            
             return newMesh;
         }
         public static bool IsAllMeshesValid(IEnumerable<BlendShapeDataSO> blendShapes, IEnumerable<Mesh> meshes)

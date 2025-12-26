@@ -75,6 +75,14 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         public string m_MeshName;
         public List<string> m_ShapeNames;
 
+        public BoneWeight[] m_BoneWeights;
+        public Matrix4x4[] m_BindPoses;
+        public string[] m_BoneNames;
+        public Color[] m_Colors;
+
+        public bool HasSkinningData => m_BoneWeights != null && m_BoneWeights.Length > 0;
+        public bool HasVertexColors => m_Colors != null && m_Colors.Length > 0;
+
         [SerializeField]
         private List<BlendShapeWrapper> m_BlendShapes;
         public List<BlendShapeWrapper> BlendShapes

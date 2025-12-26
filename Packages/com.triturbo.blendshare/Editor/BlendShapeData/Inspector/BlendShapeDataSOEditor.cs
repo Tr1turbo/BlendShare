@@ -232,7 +232,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 #if !ENABLE_FBX_SDK
                     if (generated == null)
                     {
-                        EditorUtility.DisplayDialog("Unity mesh vertices not match", "Unable to create mesh since vertices not match. Please import FBX SDK and create FBX file", "OK")
+                        EditorUtility.DisplayDialog("Unity mesh vertices not match", "Unable to create mesh since vertices not match. Please import FBX SDK and create FBX file", "OK");
                     }
 #endif
                 }

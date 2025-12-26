@@ -35,6 +35,9 @@ namespace Triturbo.BlendShapeShare.Extractor
 
         public bool weldVertices = true;
 
+        public bool includeWeights = true;
+        public bool includeColors = true;
+
         // blendshapes togles
         public Vector2 mainScrollPos;
         private List<SkinnedMeshRenderer> skinnedMeshRenderers;
@@ -143,6 +146,9 @@ namespace Triturbo.BlendShapeShare.Extractor
                 EditorGUI.indentLevel--;
             }
 
+            includeWeights = EditorGUILayout.Toggle(Localization.G("extractor.include_weights"), includeWeights);
+            includeColors = EditorGUILayout.Toggle(Localization.G("extractor.include_colors"), includeColors);
+
             baseMesh = Localization.LocalizedEnumPopup(Localization.G("extractor.base_mesh"), baseMesh,
                 "extractor.enum.base_mesh");
             
@@ -184,6 +190,8 @@ namespace Triturbo.BlendShapeShare.Extractor
                     applyRotation = applyRotation,
                     applyScale = applyScale,
                     applyTranslate = applyTranslate,
+                    includeWeights = includeWeights,
+                    includeColors = includeColors,
                 };
 
                 BlendShapeDataSO so = BlendShapesExtractor.ExtractBlendShapes(sourceFBX, originFBX, meshDataList, blendShapesExtractorOptions);
