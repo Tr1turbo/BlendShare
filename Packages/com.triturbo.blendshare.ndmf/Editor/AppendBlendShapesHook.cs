@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -14,41 +15,49 @@ namespace Triturbo.BlendShapeShare.Ndmf.Editor
     internal class AppendBlendShapesHook
     {
         private const string BasePath = "Packages/com.triturbo.blendshare.ndmf/Cache";
+        private readonly List<string> _generatedAssets = new();
         
         internal void Process(BuildContext context)
         {
-            var stopWatch = new System.Diagnostics.Stopwatch();
-            stopWatch.Start();
             var components = context.AvatarRootObject.transform.GetComponentsInChildren<Runtime.AppendBlendShapes>(true);
             foreach (var c in components)
             {
-                var validBlendShapes = GetValidBlendShapes(c.blendShapeData);
-
-                var cachedMesh = AssetDatabase.LoadAssetAtPath<GeneratedMeshAssetSO>($"{BasePath}/{GetHash(validBlendShapes)}.asset");
-                if (cachedMesh != null)
+                if (c.target == null)
                 {
-                    var fbxRoot = FindFbxRoot(context.AvatarRootObject.transform, cachedMesh?.m_OriginalFbxAsset);
-                    cachedMesh.ApplyMesh(fbxRoot?.transform ?? c.transform);
-                    Debug.Log($"Using cached mesh for {c.gameObject.name}");
+                    Debug.LogWarning($"[BlendShare] AppendBlendShapes on {c.gameObject.name} has no target assigned; skipping.");
                     continue;
                 }
                 
-                //CleanCache();
+                var validBlendShapes = GetValidBlendShapes(c.blendShapeData);
+                var cacheHash = GetHash(validBlendShapes);
+                var assetPath = $"{GetCacheAssetPath(cacheHash)}";
+
+                var cachedMesh = AssetDatabase.LoadAssetAtPath<GeneratedMeshAssetSO>(assetPath);
+                if (cachedMesh != null)
+                {
+                    cachedMesh.ApplyMesh(c.target.transform);
+                    Debug.Log($"[BlendShare] Using cached mesh for {c.target.name}");
+                    _generatedAssets.Add(cacheHash);
+                    continue;
+                }
 
                 var meshRenderer = c.GetComponent<SkinnedMeshRenderer>()?.sharedMesh;
                 if (meshRenderer == null)
                     continue;
                 
-                var newFileName = $"{GetCacheFilePath(GetHash(validBlendShapes))}";
-                var newMesh = BlendShapeAppender.CreateMeshAsset(meshRenderer, validBlendShapes, newFileName);
+                var newMesh = BlendShapeAppender.CreateMeshAsset(meshRenderer, validBlendShapes, assetPath);
 
-                if (newMesh != null)
+                if (newMesh == null)
                 {
-                    newMesh.ApplyMesh(c.transform);
+                    Debug.LogWarning($"[BlendShare] Failed to create mesh for {c.target.name}");
+                    continue;
                 }
+                
+                newMesh.ApplyMesh(c.target.transform);
+                _generatedAssets.Add(cacheHash);
             }
-            stopWatch.Stop();
-            Debug.Log($"AppendBlendShapesHook processed in {stopWatch.ElapsedMilliseconds} ms");
+            
+            CleanCache();
         }
         
         private BlendShapeDataSO[] GetValidBlendShapes(BlendShapeDataSO[] blendShapeList)
@@ -71,21 +80,28 @@ namespace Triturbo.BlendShapeShare.Ndmf.Editor
             return cachePath;
         }
 
-        private static string GetCacheFilePath(string hash)
+        private static string GetCacheAssetPath(string hash)
         {
-            return Path.Combine(GetCachePath(), $"{hash}.asset").Replace("\\", "/");
+            return Path.Combine(BasePath, $"{hash}.asset").Replace("\\", "/");
         }
-        
-        public static void CleanCache()
+
+        private void CleanCache()
         {
             foreach (var file in Directory.GetFiles(GetCachePath()))
             {
+                var fileName = Path.GetFileNameWithoutExtension(file);
+                if (_generatedAssets.Contains(fileName))
+                    continue;
+                
+                if (file.EndsWith(".meta"))
+                    continue;
+                
                 if (File.Exists(file))
-                    File.Delete(file);
+                    AssetDatabase.MoveAssetToTrash(GetCacheAssetPath(fileName));
 
-                var metaFile = file + ".meta";
+                var metaFile = GetCacheAssetPath(fileName) + ".meta";
                 if (File.Exists(metaFile))
-                    File.Delete(metaFile);
+                    AssetDatabase.MoveAssetToTrash(metaFile);
             }
 
             AssetDatabase.Refresh();
@@ -118,20 +134,6 @@ namespace Triturbo.BlendShapeShare.Ndmf.Editor
                 .Replace("=", "");
 
             return shortHash[..10];
-        }
-
-        [CanBeNull]
-        private static GameObject FindFbxRoot(Transform parent, GameObject originalFbx)
-        {
-            if (parent == null || originalFbx == null) return null;
-
-            var source = PrefabUtility.GetCorrespondingObjectFromSource(parent.gameObject);
-            if (source == originalFbx)
-                return parent.gameObject;
-
-            return (from Transform child in parent
-                select FindFbxRoot(child, originalFbx))
-                .FirstOrDefault(result => result != null);
         }
     }
 }

@@ -11,12 +11,13 @@ namespace Triturbo.BlendShapeShare.Ndmf.Editor.Inspector
     [CustomEditor(typeof(AppendBlendShapes))]
     public class AppendBlendShapesEditor : UnityEditor.Editor
     {
-        private SerializedProperty _propertyBlendShapeData, _propertyBlendShapeWeights;
+        private SerializedProperty _propertyBlendShapeData, _propertyBlendShapeWeights, _propertyTarget;
 
         private void OnEnable()
         {
             _propertyBlendShapeData = serializedObject.FindProperty("blendShapeData");
             _propertyBlendShapeWeights = serializedObject.FindProperty("blendShapeWeights");
+            _propertyTarget = serializedObject.FindProperty("target");
         }
 
         public override void OnInspectorGUI()
@@ -31,6 +32,7 @@ namespace Triturbo.BlendShapeShare.Ndmf.Editor.Inspector
             EditorGUILayout.Space();
 
             EditorGUILayout.BeginVertical();
+            EditorGUILayout.PropertyField(_propertyTarget);
             EditorGUILayout.PropertyField(_propertyBlendShapeData);
             EditorGUILayout.EndVertical();
 

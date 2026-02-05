@@ -17,5 +17,11 @@ namespace Triturbo.BlendShapeShare.Ndmf.Runtime
     {
         public BlendShapeDataSO[] blendShapeData;
         public float[] blendShapeWeights;
+        public GameObject target;
+        
+        private void Reset()
+        {
+            target = gameObject;
+        }
     }
 }
