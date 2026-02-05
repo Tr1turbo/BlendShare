@@ -25,6 +25,7 @@ namespace Triturbo.BlendShapeShare.Ndmf.Editor
                 if (c.target == null)
                 {
                     Debug.LogWarning($"[BlendShare] AppendBlendShapes on {c.gameObject.name} has no target assigned; skipping.");
+                    Logger.Log(ErrorSeverity.NonFatal, "error.no_target", c.gameObject);
                     continue;
                 }
                 
@@ -50,6 +51,7 @@ namespace Triturbo.BlendShapeShare.Ndmf.Editor
                 if (newMesh == null)
                 {
                     Debug.LogWarning($"[BlendShare] Failed to create mesh for {c.target.name}");
+                    Logger.Log(ErrorSeverity.NonFatal, "error.mesh_creation_failed", c.gameObject);
                     continue;
                 }
                 
