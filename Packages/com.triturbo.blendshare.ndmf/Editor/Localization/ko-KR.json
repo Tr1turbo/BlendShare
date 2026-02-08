@@ -1,6 +1,8 @@
 {
-  "error.no_target": "대상이 지정되지 않았습니다.",
-  "error.mesh_creation_failed": "메시 생성에 실패했습니다.",
+  "error.no_target": "[BlendShare] 대상이 지정되지 않았습니다.",
+  "error.mesh_creation_failed": "[BlendShare] 메시 생성에 실패했습니다.",
+  "error.mesh_not_found": "[BlendShare] 대상 '{1}'에서 메시 '{0}'을(를) 찾을 수 없습니다.",
+  "error.shape_not_found": "[BlendShare] 메시 '{1}'에서 블렌드쉐이프 '{0}'을(를) 찾을 수 없습니다.",
   
   "append.description": "블렌드쉐이프 추가",
   "append.target": "대상",

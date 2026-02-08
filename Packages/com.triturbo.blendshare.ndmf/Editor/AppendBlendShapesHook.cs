@@ -71,16 +71,39 @@ namespace Triturbo.BlendShapeShare.Ndmf.Editor
 
         private static void TryApplyBlendShapeWeights(AppendBlendShapes component)
         {
-            var smr = component.GetComponent<SkinnedMeshRenderer>();
-            if (smr == null)
+            if (component.target == null)
                 return;
-
-            var allWeights = component.GetAllWeights();
-            foreach (var shapeWeight in allWeights)
+            var renderers = component.target.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            
+            var renderersByMeshName = new Dictionary<string, SkinnedMeshRenderer>();
+            foreach (var smr in renderers)
             {
-                var mesh = smr.sharedMesh;
-                var key = mesh.GetBlendShapeIndex(shapeWeight.Key);
-                smr.SetBlendShapeWeight(key, shapeWeight.Value);
+                if (smr.sharedMesh == null) continue;
+                var meshName = smr.sharedMesh.name;
+                renderersByMeshName.TryAdd(meshName, smr);
+            }
+
+            foreach (var meshGroup in component.blendShapeDataEntries.SelectMany(entry => entry.meshWeightGroups.Where(meshGroup => !string.IsNullOrEmpty(meshGroup.meshName))))
+            {
+                if (!renderersByMeshName.TryGetValue(meshGroup.meshName, out var targetSmr))
+                {
+                    Debug.LogWarning($"[BlendShare] Could not find mesh '{meshGroup.meshName}' on target '{component.target.name}'");
+                    Logger.Log(ErrorSeverity.NonFatal, "error.mesh_not_found", meshGroup.meshName, component.target, component.gameObject);
+                    continue;
+                }
+
+                var mesh = targetSmr.sharedMesh;
+                foreach (var weightEntry in meshGroup.weights)
+                {
+                    var shapeIndex = mesh.GetBlendShapeIndex(weightEntry.shapeName);
+                    if (shapeIndex < 0)
+                    {
+                        Debug.LogWarning($"[BlendShare] BlendShape '{weightEntry.shapeName}' not found on mesh '{meshGroup.meshName}'");
+                        Logger.Log(ErrorSeverity.NonFatal, "error.shape_not_found", weightEntry.shapeName, meshGroup.meshName, component.gameObject);
+                        continue;
+                    }
+                    targetSmr.SetBlendShapeWeight(shapeIndex, weightEntry.weight);
+                }
             }
         }
 
@@ -131,7 +154,7 @@ namespace Triturbo.BlendShapeShare.Ndmf.Editor
             AssetDatabase.Refresh();
         }
 
-        private string GetHash(BlendShapeDataSO[] blendShapeData)
+        private static string GetHash(BlendShapeDataSO[] blendShapeData)
         {
             if (blendShapeData == null || blendShapeData.Length == 0)
                 return string.Empty;

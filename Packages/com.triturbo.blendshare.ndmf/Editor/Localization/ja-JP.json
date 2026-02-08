@@ -1,6 +1,8 @@
 {
-  "error.no_target": "ターゲットが指定されていません。",
-  "error.mesh_creation_failed": "メッシュの作成に失敗しました。",
+  "error.no_target": "[BlendShare] ターゲットが指定されていません。",
+  "error.mesh_creation_failed": "[BlendShare] メッシュの作成に失敗しました。",
+  "error.mesh_not_found": "[BlendShare] ターゲット '{1}' でメッシュ '{0}' が見つかりませんでした。",
+  "error.shape_not_found": "[BlendShare] メッシュ '{1}' でシェイプキー '{0}' が見つかりませんでした。",
   
   "append.description": "シェイプキーを追加",
   "append.target": "ターゲット",

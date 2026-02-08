@@ -1,6 +1,8 @@
 {
-  "error.no_target": "未指定目標。",
-  "error.mesh_creation_failed": "網格建立失敗。",
+  "error.no_target": "[BlendShare] 未指定目標。",
+  "error.mesh_creation_failed": "[BlendShare] 網格建立失敗。",
+  "error.mesh_not_found": "[BlendShare] 在目標 '{1}' 上找不到網格 '{0}'。",
+  "error.shape_not_found": "[BlendShare] 在網格 '{1}' 上找不到形態鍵 '{0}'。",
   
   "append.description": "新增形態鍵",
   "append.target": "目標",

@@ -3,7 +3,7 @@ using nadena.dev.ndmf;
 
 namespace Triturbo.BlendShapeShare.Ndmf.Editor
 {
-    public class Logger
+    public static class Logger
     {
         internal static void Log(ErrorSeverity severity, string key, params object[] objects)
         {

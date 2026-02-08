@@ -1,6 +1,8 @@
 ﻿{
-  "error.no_target": "No target specified.",
-  "error.mesh_creation_failed": "Mesh creation failed.",
+  "error.no_target": "[BlendShare] No target specified.",
+  "error.mesh_creation_failed": "[BlendShare] Mesh creation failed.",
+  "error.mesh_not_found": "[BlendShare] Could not find mesh '{0}' on target '{1}'.",
+  "error.shape_not_found": "[BlendShare] BlendShape '{0}' not found on mesh '{1}'.",
   
   "append.description": "Appends blend shapes",
   "append.target": "Target",
