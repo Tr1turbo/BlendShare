@@ -1,0 +1,14 @@
+{
+  "error.no_target": "ターゲットが指定されていません。",
+  "error.mesh_creation_failed": "メッシュの作成に失敗しました。",
+  
+  "append.description": "シェイプキーを追加",
+  "append.target": "ターゲット",
+  "append.target.tooltip": "シェイプキーを適用するターゲット GameObject。",
+  "append.blendshape_data_entries": "シェイプキーデータ一覧",
+  "append.blendshape_data": "シェイプキーデータ",
+  "append.blendshape_data.tooltip": "シェイプキーの定義を含むデータアセット。",
+  "append.weights": "ウェイト ({0})",
+  "append.weights.tooltip": "各シェイプキーのウェイトを調整します (0-100)。",
+  "append.shape_default": "シェイプ {0}"
+}

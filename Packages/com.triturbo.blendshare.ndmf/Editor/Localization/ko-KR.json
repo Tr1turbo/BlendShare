@@ -1,0 +1,14 @@
+{
+  "error.no_target": "대상이 지정되지 않았습니다.",
+  "error.mesh_creation_failed": "메시 생성에 실패했습니다.",
+  
+  "append.description": "블렌드쉐이프 추가",
+  "append.target": "대상",
+  "append.target.tooltip": "블렌드쉐이프를 적용할 대상 GameObject.",
+  "append.blendshape_data_entries": "블렌드쉐이프 데이터 목록",
+  "append.blendshape_data": "블렌드쉐이프 데이터",
+  "append.blendshape_data.tooltip": "블렌드쉐이프 정의를 포함하는 데이터 에셋.",
+  "append.weights": "가중치 ({0})",
+  "append.weights.tooltip": "각 블렌드쉐이프의 가중치를 조정합니다 (0-100).",
+  "append.shape_default": "쉐이프 {0}"
+}

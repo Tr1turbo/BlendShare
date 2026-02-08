@@ -4,9 +4,9 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
-using JetBrains.Annotations;
 using nadena.dev.ndmf;
 using Triturbo.BlendShapeShare.BlendShapeData;
+using Triturbo.BlendShapeShare.Ndmf.Runtime;
 using UnityEditor;
 using UnityEngine;
 
@@ -19,49 +19,71 @@ namespace Triturbo.BlendShapeShare.Ndmf.Editor
         
         internal void Process(BuildContext context)
         {
-            var components = context.AvatarRootObject.transform.GetComponentsInChildren<Runtime.AppendBlendShapes>(true);
+            var components = context.AvatarRootObject.transform.GetComponentsInChildren<AppendBlendShapes>(true);
             foreach (var c in components)
             {
-                if (c.target == null)
-                {
-                    Debug.LogWarning($"[BlendShare] AppendBlendShapes on {c.gameObject.name} has no target assigned; skipping.");
-                    Logger.Log(ErrorSeverity.NonFatal, "error.no_target", c.gameObject);
-                    continue;
-                }
-                
-                var validBlendShapes = GetValidBlendShapes(c.blendShapeData);
-                var cacheHash = GetHash(validBlendShapes);
-                var assetPath = $"{GetCacheAssetPath(cacheHash)}";
-
-                var cachedMesh = AssetDatabase.LoadAssetAtPath<GeneratedMeshAssetSO>(assetPath);
-                if (cachedMesh != null)
-                {
-                    cachedMesh.ApplyMesh(c.target.transform);
-                    Debug.Log($"[BlendShare] Using cached mesh for {c.target.name}");
-                    _generatedAssets.Add(cacheHash);
-                    continue;
-                }
-
-                var meshRenderer = c.GetComponent<SkinnedMeshRenderer>()?.sharedMesh;
-                if (meshRenderer == null)
-                    continue;
-                
-                var newMesh = BlendShapeAppender.CreateMeshAsset(meshRenderer, validBlendShapes, assetPath);
-
-                if (newMesh == null)
-                {
-                    Debug.LogWarning($"[BlendShare] Failed to create mesh for {c.target.name}");
-                    Logger.Log(ErrorSeverity.NonFatal, "error.mesh_creation_failed", c.gameObject);
-                    continue;
-                }
-                
-                newMesh.ApplyMesh(c.target.transform);
-                _generatedAssets.Add(cacheHash);
+                ApplyMesh(c);
+                TryApplyBlendShapeWeights(c);
             }
             
             CleanCache();
         }
-        
+
+        private void ApplyMesh(AppendBlendShapes component)
+        {
+            if (component.target == null)
+            {
+                Debug.LogWarning($"[BlendShare] AppendBlendShapes on {component.gameObject.name} has no target assigned; skipping.");
+                Logger.Log(ErrorSeverity.NonFatal, "error.no_target", component.gameObject);
+                return;
+            }
+            
+            var blendShapeDataList = component.GetAllBlendShapeData().ToArray();
+            var validBlendShapes = GetValidBlendShapes(blendShapeDataList);
+            var cacheHash = GetHash(validBlendShapes);
+            var assetPath = $"{GetCacheAssetPath(cacheHash)}";
+
+            var cachedMesh = AssetDatabase.LoadAssetAtPath<GeneratedMeshAssetSO>(assetPath);
+            if (cachedMesh != null)
+            {
+                cachedMesh.ApplyMesh(component.target.transform);
+                Debug.Log($"[BlendShare] Using cached mesh for {component.target.name}");
+                _generatedAssets.Add(cacheHash);
+                return;
+            }
+
+            var meshRenderer = component.GetComponent<SkinnedMeshRenderer>()?.sharedMesh;
+            if (meshRenderer == null)
+                return;
+                
+            var newMesh = BlendShapeAppender.CreateMeshAsset(meshRenderer, validBlendShapes, assetPath);
+
+            if (newMesh == null)
+            {
+                Debug.LogWarning($"[BlendShare] Failed to create mesh for {component.target.name}");
+                Logger.Log(ErrorSeverity.NonFatal, "error.mesh_creation_failed", component.gameObject);
+                return;
+            }
+                
+            newMesh.ApplyMesh(component.target.transform);
+            _generatedAssets.Add(cacheHash);
+        }
+
+        private static void TryApplyBlendShapeWeights(AppendBlendShapes component)
+        {
+            var smr = component.GetComponent<SkinnedMeshRenderer>();
+            if (smr == null)
+                return;
+
+            var allWeights = component.GetAllWeights();
+            foreach (var shapeWeight in allWeights)
+            {
+                var mesh = smr.sharedMesh;
+                var key = mesh.GetBlendShapeIndex(shapeWeight.Key);
+                smr.SetBlendShapeWeight(key, shapeWeight.Value);
+            }
+        }
+
         private BlendShapeDataSO[] GetValidBlendShapes(BlendShapeDataSO[] blendShapeList)
         {
             return blendShapeList

@@ -1,0 +1,14 @@
+{
+  "error.no_target": "未指定目标。",
+  "error.mesh_creation_failed": "网格创建失败。",
+  
+  "append.description": "添加形态键",
+  "append.target": "目标",
+  "append.target.tooltip": "要应用形态键的目标 GameObject。",
+  "append.blendshape_data_entries": "形态键数据列表",
+  "append.blendshape_data": "形态键数据",
+  "append.blendshape_data.tooltip": "包含形态键定义的数据资产。",
+  "append.weights": "权重 ({0})",
+  "append.weights.tooltip": "调整每个形态键的权重 (0-100)。",
+  "append.shape_default": "形态键 {0}"
+}

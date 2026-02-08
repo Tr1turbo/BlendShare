@@ -1,4 +1,14 @@
 ﻿{
   "error.no_target": "No target specified.",
   "error.mesh_creation_failed": "Mesh creation failed.",
+  
+  "append.description": "Appends blend shapes",
+  "append.target": "Target",
+  "append.target.tooltip": "The target GameObject to apply blend shapes to.",
+  "append.blendshape_data_entries": "BlendShape Data Entries",
+  "append.blendshape_data": "BlendShape Data",
+  "append.blendshape_data.tooltip": "The BlendShape data asset containing blend shape definitions.",
+  "append.weights": "Weights ({0})",
+  "append.weights.tooltip": "Adjust the weight for each blend shape (0-100).",
+  "append.shape_default": "Shape {0}"
 }

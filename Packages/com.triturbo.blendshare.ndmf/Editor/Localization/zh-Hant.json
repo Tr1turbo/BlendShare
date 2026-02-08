@@ -1,0 +1,14 @@
+{
+  "error.no_target": "未指定目標。",
+  "error.mesh_creation_failed": "網格建立失敗。",
+  
+  "append.description": "新增形態鍵",
+  "append.target": "目標",
+  "append.target.tooltip": "要套用形態鍵的目標 GameObject。",
+  "append.blendshape_data_entries": "形態鍵資料列表",
+  "append.blendshape_data": "形態鍵資料",
+  "append.blendshape_data.tooltip": "包含形態鍵定義的資料資產。",
+  "append.weights": "權重 ({0})",
+  "append.weights.tooltip": "調整每個形態鍵的權重 (0-100)。",
+  "append.shape_default": "形態鍵 {0}"
+}

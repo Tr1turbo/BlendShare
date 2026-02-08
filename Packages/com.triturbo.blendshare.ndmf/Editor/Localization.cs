@@ -14,17 +14,21 @@ namespace Triturbo.BlendShapeShare.Ndmf.Editor
     internal static class Localization
     {
         public static event Action OnLangChange;
-        private const string FallbackLanguage = "en";
+        private const string FallbackLanguage = "en-US";
 
         private const string LocalizationPathGuid = "5c1396f6b1c94907a6e32bccada2929a";
         private static readonly string LocalizationPathRoot = AssetDatabase.GUIDToAssetPath(LocalizationPathGuid);
 
         private static readonly ImmutableDictionary<string, string> SupportedLanguageDisplayNames
             = ImmutableDictionary<string, string>.Empty
-                .Add("en-US", "English");
+                .Add("en-US", "English")
+                .Add("ja-JP", "日本語")
+                .Add("zh-Hans", "简体中文")
+                .Add("zh-Hant", "繁體中文")
+                .Add("ko-KR", "한국어");
 
         private static readonly ImmutableList<string>
-            SupportedLanguages = new[] {"en-US"}.ToImmutableList();
+            SupportedLanguages = new[] {"en-US", "ja-JP", "zh-Hans", "zh-Hant", "ko-KR"}.ToImmutableList();
 
         private static string[] _displayNames = SupportedLanguages.Select(l => 
             CollectionExtensions.GetValueOrDefault(SupportedLanguageDisplayNames, l, l))
