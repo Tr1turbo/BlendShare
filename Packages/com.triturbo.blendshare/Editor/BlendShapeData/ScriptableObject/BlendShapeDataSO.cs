@@ -106,6 +106,10 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         {
             return m_ShapeNames.Contains(name);
         }
+        public List<string> GetAllBlendShapeNames()
+        {
+            return m_BlendShapes.Select(b => b.m_ShapeName).ToList();
+        }
         public BlendShapeWrapper GetBlendShape(string name)
         {
             if(m_ShapeNames.Contains(name))
@@ -489,4 +493,3 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
     }
 }
-
