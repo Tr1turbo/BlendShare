@@ -31,6 +31,10 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         private Dictionary<string, List<MeshBlendShapeSelectionSO>> meshSelectionsByMeshName;
         private Dictionary<string, MeshBlendShapeSelectionSO> workingSelectionSourcesByMeshName;
         private string editModePrefKey;
+        private bool bulkToggleDragActive;
+        private bool bulkToggleDragValue;
+        private int bulkToggleDragMeshIndex = -1;
+        private Vector2 bulkToggleDragStartPosition;
 
         private void ShowContextMenu(ReorderableList reorderableList, int index)
         {
@@ -431,33 +435,20 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             if (selectedSelection != null)
             {
                 SetWorkingSelectionSource(meshName, selectedSelection);
-            }
-            else if (currentPopupIndex == 0)
-            {
-                SetWorkingSelectionSource(meshName, null);
-            }
-
-            if (currentPopupIndex == 0)
-            {
-                EditorGUILayout.HelpBox("Using all blendshapes for this mesh.", MessageType.None);
-            }
-            else if (selectedSelection == null)
-            {
-                EditorGUILayout.HelpBox("Using the current working set for this mesh.", MessageType.None);
-            }
-            else
-            {
-                EditorGUILayout.LabelField(
-                    "Selection BlendShapes",
-                    selectedSelection.m_BlendShapeNames.Count.ToString());
 
                 if (HasSelectionIssues(dataAsset, meshData, selectedSelection))
                 {
                     EditorGUILayout.HelpBox(
                         "The selected mesh selection contains missing or duplicate blendshape names. Invalid names will be skipped when used.",
                         MessageType.Warning);
-                }
+                } 
             }
+            else if (currentPopupIndex == 0)
+            {
+                SetWorkingSelectionSource(meshName, null);
+            }
+
+
 
             EditorGUI.BeginDisabledGroup(readOnlyMode);
             if (!readOnlyMode)
@@ -612,6 +603,115 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             RewriteShapeNames(shapeNamesProperty, allShapeNames.Where(enabledShapeNames.Contains));
         }
 
+        private void ResetBulkToggleDrag()
+        {
+            bulkToggleDragActive = false;
+            bulkToggleDragMeshIndex = -1;
+        }
+
+        private void HandleBulkToggleDragLifecycle()
+        {
+            var currentEvent = Event.current;
+            if (!bulkToggleDragActive)
+            {
+                return;
+            }
+
+            if (currentEvent.type == EventType.MouseUp && currentEvent.button == 0)
+            {
+                ResetBulkToggleDrag();
+                currentEvent.Use();
+                Repaint();
+                return;
+            }
+
+            if (currentEvent.type == EventType.MouseLeaveWindow ||
+                currentEvent.type == EventType.Ignore)
+            {
+                ResetBulkToggleDrag();
+            }
+        }
+
+        private bool IsToggleInsideBulkDragRange(int meshIndex, Rect toggleRect, Vector2 currentMousePosition)
+        {
+            if (!bulkToggleDragActive || bulkToggleDragMeshIndex != meshIndex)
+            {
+                return false;
+            }
+
+            float minY = Mathf.Min(bulkToggleDragStartPosition.y, currentMousePosition.y);
+            float maxY = Mathf.Max(bulkToggleDragStartPosition.y, currentMousePosition.y);
+            return toggleRect.yMax >= minY && toggleRect.yMin <= maxY;
+        }
+
+        private void DrawBlendShapeToggle(
+            int meshIndex,
+            string shapeName,
+            bool isEnabled,
+            SerializedProperty shapeNamesProperty,
+            SerializedProperty blendShapesProperty,
+            out bool changed)
+        {
+            changed = false;
+
+            Rect toggleRect = EditorGUILayout.GetControlRect();
+            Event currentEvent = Event.current;
+
+            if (currentEvent.type == EventType.MouseDown &&
+                currentEvent.button == 0 &&
+                toggleRect.Contains(currentEvent.mousePosition))
+            {
+                bulkToggleDragActive = true;
+                bulkToggleDragValue = !isEnabled;
+                bulkToggleDragMeshIndex = meshIndex;
+                bulkToggleDragStartPosition = currentEvent.mousePosition;
+
+                SetBlendShapeEnabledPreserveSourceOrder(
+                    shapeNamesProperty,
+                    blendShapesProperty,
+                    shapeName,
+                    bulkToggleDragValue);
+
+                changed = true;
+                currentEvent.Use();
+                GUI.changed = true;
+                EditorGUI.ToggleLeft(toggleRect, shapeName, bulkToggleDragValue);
+                return;
+            }
+
+            if (currentEvent.type == EventType.MouseDrag &&
+                currentEvent.button == 0 &&
+                IsToggleInsideBulkDragRange(meshIndex, toggleRect, currentEvent.mousePosition))
+            {
+                if (isEnabled != bulkToggleDragValue)
+                {
+                    SetBlendShapeEnabledPreserveSourceOrder(
+                        shapeNamesProperty,
+                        blendShapesProperty,
+                        shapeName,
+                        bulkToggleDragValue);
+
+                    changed = true;
+                    GUI.changed = true;
+                }
+
+                EditorGUI.ToggleLeft(toggleRect, shapeName, bulkToggleDragValue);
+                return;
+            }
+
+            bool updated = EditorGUI.ToggleLeft(toggleRect, shapeName, isEnabled);
+            if (updated != isEnabled)
+            {
+                SetBlendShapeEnabledPreserveSourceOrder(
+                    shapeNamesProperty,
+                    blendShapesProperty,
+                    shapeName,
+                    updated);
+
+                changed = true;
+            }
+        }
+
         private void DrawEditableBlendShapeList(int meshIndex, SerializedProperty meshDataProperty, SerializedProperty shapeNamesProperty)
         {
             var blendShapesProperty = meshDataProperty.FindPropertyRelative(BlendShapesPropertyName);
@@ -655,9 +755,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             }
             GUILayout.EndHorizontal();
 
-            EditorGUILayout.Space(2);
-            EditorGUILayout.HelpBox(Localization.S("data.bulk_toggle_mode_hint"), MessageType.None);
-
             if (visibleShapeNames.Length == 0)
             {
                 EditorGUILayout.HelpBox(Localization.S("data.blendshape_filter_no_results"), MessageType.Info);
@@ -667,10 +764,15 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 foreach (var shapeName in visibleShapeNames)
                 {
                     bool isEnabled = enabledNames.Contains(shapeName);
-                    bool updated = EditorGUILayout.ToggleLeft(shapeName, isEnabled);
-                    if (updated != isEnabled)
+                    DrawBlendShapeToggle(
+                        meshIndex,
+                        shapeName,
+                        isEnabled,
+                        shapeNamesProperty,
+                        blendShapesProperty,
+                        out bool changed);
+                    if (changed)
                     {
-                        SetBlendShapeEnabledPreserveSourceOrder(shapeNamesProperty, blendShapesProperty, shapeName, updated);
                         enabledNames = GetEnabledBlendShapeNames(shapeNamesProperty);
                     }
                 }
@@ -682,7 +784,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         private void DrawReorderList(int meshIndex)
         {
             EditorGUILayout.BeginVertical(GUI.skin.box);
-            EditorGUILayout.HelpBox(Localization.S("data.order_adjust_mode_hint"), MessageType.None);
+            //EditorGUILayout.HelpBox(Localization.S("data.order_adjust_mode_hint"), MessageType.None);
 
             meshBlendShapes[meshIndex].draggable = true;
             meshBlendShapes[meshIndex].displayRemove = true;
@@ -696,6 +798,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         public override void OnInspectorGUI()
         {
             serializedObject.Update();
+            HandleBulkToggleDragLifecycle();
             var dataAsset = (BlendShapeDataSO)target;
 
             EditorWidgets.ShowBlendShareBanner();
