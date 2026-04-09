@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using UnityEngine;
 
 using UnityEditor;
@@ -12,25 +13,34 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
     [CustomEditor(typeof(BlendShapeDataSO))]
     public class BlendShapeDataSOEditor : Editor
     {
+        private enum BlendShapeEditMode
+        {
+            OrderAdjust = 0,
+            BulkToggle = 1
+        }
+
+        private const string BlendShapesPropertyName = "m_BlendShapes";
         private List<ReorderableList> meshBlendShapes;
         private SerializedProperty meshDataListProperty;
         private SerializedProperty originalFbxProperty;
         private SerializedProperty appliedProperty;
         private bool readOnlyMode = true;
-        private List<List<SerializedProperty>> meshBlendShapeNames;
+        private BlendShapeEditMode editMode = BlendShapeEditMode.OrderAdjust;
+        private List<string> meshBlendShapeSearchTerms;
         private BlendShapeMeshGeneratorWindow advancedGeneratorWindow = null;
+
         private void ShowContextMenu(ReorderableList reorderableList, int index)
         {
             GenericMenu menu = new GenericMenu();
-            
-            menu.AddItem(new GUIContent("Mute"), false, () => {
+
+            menu.AddItem(new GUIContent("Mute"), false, () =>
+            {
                 SerializedProperty listProperty = reorderableList.serializedProperty;
                 listProperty.DeleteArrayElementAtIndex(index);
                 serializedObject.ApplyModifiedProperties();
             });
             menu.ShowAsContext();
         }
-        
 
         private void OnEnable()
         {
@@ -38,7 +48,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             originalFbxProperty = serializedObject.FindProperty(nameof(BlendShapeDataSO.m_Original));
             appliedProperty = serializedObject.FindProperty(nameof(BlendShapeDataSO.m_Applied));
             
-            meshBlendShapeNames = new List<List<SerializedProperty>>();
+            meshBlendShapeSearchTerms = new List<string>(meshDataListProperty.arraySize);
             // Get the target object
             BlendShapeDataSO dataAsset = (BlendShapeDataSO)target;
 
@@ -56,7 +66,8 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                     var blendShapeProperty = blendShapeNamesProperty.GetArrayElementAtIndex(index);
                     EditorGUI.LabelField(rect, blendShapeProperty.stringValue);
 #if UNITY_2022
-                    if (!readOnlyMode && Event.current.type == EventType.ContextClick && rect.Contains(Event.current.mousePosition))
+                    if (!readOnlyMode && editMode == BlendShapeEditMode.OrderAdjust &&
+                        Event.current.type == EventType.ContextClick && rect.Contains(Event.current.mousePosition))
                     {
                         if (reorderableList.IsSelected(index))
                         {
@@ -68,12 +79,204 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 };
                 reorderableList.footerHeight = 0;
                 meshBlendShapes.Add(reorderableList);
+                meshBlendShapeSearchTerms.Add(string.Empty);
             }
+        }
+
+        private static string GetBlendShapeName(SerializedProperty blendShapeWrapperProperty)
+        {
+            return blendShapeWrapperProperty.FindPropertyRelative(nameof(BlendShapeWrapper.m_ShapeName)).stringValue;
+        }
+
+        private static string[] GetAllBlendShapeNames(SerializedProperty blendShapesProperty)
+        {
+            var names = new string[blendShapesProperty.arraySize];
+            for (int i = 0; i < blendShapesProperty.arraySize; i++)
+            {
+                names[i] = GetBlendShapeName(blendShapesProperty.GetArrayElementAtIndex(i));
+            }
+
+            return names;
+        }
+
+        private static HashSet<string> GetEnabledBlendShapeNames(SerializedProperty shapeNamesProperty)
+        {
+            var enabledNames = new HashSet<string>();
+            for (int i = 0; i < shapeNamesProperty.arraySize; i++)
+            {
+                enabledNames.Add(shapeNamesProperty.GetArrayElementAtIndex(i).stringValue);
+            }
+
+            return enabledNames;
+        }
+
+        private static List<string> GetShapeNamesInOrder(SerializedProperty shapeNamesProperty)
+        {
+            var shapeNames = new List<string>(shapeNamesProperty.arraySize);
+            for (int i = 0; i < shapeNamesProperty.arraySize; i++)
+            {
+                shapeNames.Add(shapeNamesProperty.GetArrayElementAtIndex(i).stringValue);
+            }
+
+            return shapeNames;
+        }
+
+        private static void RewriteShapeNames(SerializedProperty shapeNamesProperty, IEnumerable<string> orderedShapeNames)
+        {
+            shapeNamesProperty.ClearArray();
+
+            int index = 0;
+            foreach (var shapeName in orderedShapeNames)
+            {
+                shapeNamesProperty.InsertArrayElementAtIndex(index);
+                shapeNamesProperty.GetArrayElementAtIndex(index).stringValue = shapeName;
+                index++;
+            }
+        }
+
+        private static bool MatchesSearch(string searchTerm, string shapeName)
+        {
+            if (string.IsNullOrWhiteSpace(searchTerm))
+            {
+                return true;
+            }
+
+            return shapeName.IndexOf(searchTerm, System.StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static void SetBlendShapeEnabledPreserveSourceOrder(
+            SerializedProperty shapeNamesProperty,
+            SerializedProperty blendShapesProperty,
+            string shapeName,
+            bool enabled)
+        {
+            var allShapeNames = GetAllBlendShapeNames(blendShapesProperty);
+            var enabledShapeNames = GetEnabledBlendShapeNames(shapeNamesProperty);
+            if (enabled)
+            {
+                enabledShapeNames.Add(shapeName);
+            }
+            else
+            {
+                enabledShapeNames.Remove(shapeName);
+            }
+
+            RewriteShapeNames(shapeNamesProperty, allShapeNames.Where(enabledShapeNames.Contains));
+        }
+
+        private static void SetFilteredBlendShapesEnabled(
+            SerializedProperty shapeNamesProperty,
+            SerializedProperty blendShapesProperty,
+            string searchTerm,
+            bool enabled)
+        {
+            var allShapeNames = GetAllBlendShapeNames(blendShapesProperty);
+            var enabledShapeNames = GetEnabledBlendShapeNames(shapeNamesProperty);
+
+            foreach (var shapeName in allShapeNames)
+            {
+                if (!MatchesSearch(searchTerm, shapeName))
+                {
+                    continue;
+                }
+
+                if (enabled)
+                {
+                    enabledShapeNames.Add(shapeName);
+                }
+                else
+                {
+                    enabledShapeNames.Remove(shapeName);
+                }
+            }
+
+            RewriteShapeNames(shapeNamesProperty, allShapeNames.Where(enabledShapeNames.Contains));
+        }
+
+        private void DrawEditableBlendShapeList(int meshIndex, SerializedProperty meshDataProperty, SerializedProperty shapeNamesProperty)
+        {
+            var blendShapesProperty = meshDataProperty.FindPropertyRelative(BlendShapesPropertyName);
+            var allShapeNames = GetAllBlendShapeNames(blendShapesProperty);
+            var enabledNames = GetEnabledBlendShapeNames(shapeNamesProperty);
+            var visibleShapeNames = allShapeNames
+                .Where(shapeName => MatchesSearch(meshBlendShapeSearchTerms[meshIndex], shapeName))
+                .ToArray();
+
+            EditorGUILayout.BeginVertical(GUI.skin.box);
+
+            meshBlendShapeSearchTerms[meshIndex] = EditorGUILayout.TextField(
+                Localization.G("data.blendshape_filter"),
+                meshBlendShapeSearchTerms[meshIndex]);
+
+            EditorGUILayout.LabelField(
+                Localization.SF("data.blendshape_status", shapeNamesProperty.arraySize, allShapeNames.Length, visibleShapeNames.Length),
+                EditorStyles.miniLabel);
+
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button(Localization.G("data.enable_visible_blendshapes")))
+            {
+                SetFilteredBlendShapesEnabled(shapeNamesProperty, blendShapesProperty, meshBlendShapeSearchTerms[meshIndex], true);
+            }
+
+            if (GUILayout.Button(Localization.G("data.mute_visible_blendshapes")))
+            {
+                SetFilteredBlendShapesEnabled(shapeNamesProperty, blendShapesProperty, meshBlendShapeSearchTerms[meshIndex], false);
+            }
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button(Localization.G("data.enable_all_blendshapes")))
+            {
+                SetFilteredBlendShapesEnabled(shapeNamesProperty, blendShapesProperty, string.Empty, true);
+            }
+
+            if (GUILayout.Button(Localization.G("data.mute_all_blendshapes")))
+            {
+                SetFilteredBlendShapesEnabled(shapeNamesProperty, blendShapesProperty, string.Empty, false);
+            }
+            GUILayout.EndHorizontal();
+
+            EditorGUILayout.Space(2);
+            EditorGUILayout.HelpBox(Localization.S("data.bulk_toggle_mode_hint"), MessageType.None);
+
+            if (visibleShapeNames.Length == 0)
+            {
+                EditorGUILayout.HelpBox(Localization.S("data.blendshape_filter_no_results"), MessageType.Info);
+            }
+            else
+            {
+                foreach (var shapeName in visibleShapeNames)
+                {
+                    bool isEnabled = enabledNames.Contains(shapeName);
+                    bool updated = EditorGUILayout.ToggleLeft(shapeName, isEnabled);
+                    if (updated != isEnabled)
+                    {
+                        SetBlendShapeEnabledPreserveSourceOrder(shapeNamesProperty, blendShapesProperty, shapeName, updated);
+                        enabledNames = GetEnabledBlendShapeNames(shapeNamesProperty);
+                    }
+                }
+            }
+
+            EditorGUILayout.EndVertical();
+        }
+
+        private void DrawOrderAdjustList(int meshIndex)
+        {
+            EditorGUILayout.BeginVertical(GUI.skin.box);
+            EditorGUILayout.HelpBox(Localization.S("data.order_adjust_mode_hint"), MessageType.None);
+
+            meshBlendShapes[meshIndex].draggable = true;
+            meshBlendShapes[meshIndex].displayRemove = true;
+            meshBlendShapes[meshIndex].footerHeight = EditorGUIUtility.singleLineHeight;
+            meshBlendShapes[meshIndex].DoLayoutList();
+
+            EditorGUILayout.EndVertical();
         }
 
 
         public override void OnInspectorGUI()
         {
+            serializedObject.Update();
 
             EditorWidgets.ShowBlendShareBanner();
             Localization.DrawLanguageSelection();
@@ -82,6 +285,20 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             EditorGUI.BeginDisabledGroup(readOnlyMode);
             EditorWidgets.FBXGameObjectField(Localization.G("data.original_fbx"), originalFbxProperty);
             EditorGUI.EndDisabledGroup();
+            if (!readOnlyMode)
+            {
+                EditorGUILayout.BeginVertical(GUI.skin.box);
+                EditorGUILayout.LabelField(Localization.G("data.edit_mode"), EditorStyles.boldLabel);
+                editMode = (BlendShapeEditMode)GUILayout.Toolbar(
+                    (int)editMode,
+                    new[]
+                    {
+                        Localization.S("data.edit_mode.order_adjust"),
+                        Localization.S("data.edit_mode.bulk_toggle")
+                    });
+                EditorGUILayout.EndVertical();
+                EditorGUILayout.Space(4);
+            }
             for (int i = 0; i < meshDataListProperty.arraySize; i++)
             {
                 SerializedProperty meshDataProperty =
@@ -105,15 +322,33 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 EditorGUILayout.ObjectField(meshProperty, new GUIContent(meshNameProperty.stringValue));
                 EditorGUI.EndDisabledGroup();
                 EditorGUI.indentLevel++;
-                var property = meshBlendShapes[i].serializedProperty;
-                property.isExpanded = EditorGUILayout.Foldout(property.isExpanded, $"{Localization.S("blendshapes")}: {property.arraySize}");
+                var shapeNamesProperty = meshBlendShapes[i].serializedProperty;
+                var blendShapesProperty = meshDataProperty.FindPropertyRelative(BlendShapesPropertyName);
+                var activeBlendShapeCount = shapeNamesProperty.arraySize;
+                var totalBlendShapeCount = blendShapesProperty.arraySize;
+                shapeNamesProperty.isExpanded = EditorGUILayout.Foldout(
+                    shapeNamesProperty.isExpanded,
+                    readOnlyMode
+                        ? $"{Localization.S("blendshapes")}: {activeBlendShapeCount}"
+                        : Localization.SF("data.blendshape_count_summary", activeBlendShapeCount, totalBlendShapeCount));
                 
-                if (property.isExpanded)
+                if (shapeNamesProperty.isExpanded)
                 {
-                    meshBlendShapes[i].DoLayoutList();
-                    meshBlendShapes[i].draggable = !readOnlyMode;
-                    meshBlendShapes[i].displayRemove = !readOnlyMode;
-                    meshBlendShapes[i].footerHeight = readOnlyMode ? 0 : EditorGUIUtility.singleLineHeight;
+                    if (readOnlyMode)
+                    {
+                        meshBlendShapes[i].DoLayoutList();
+                        meshBlendShapes[i].draggable = false;
+                        meshBlendShapes[i].displayRemove = false;
+                        meshBlendShapes[i].footerHeight = 0;
+                    }
+                    else if (editMode == BlendShapeEditMode.OrderAdjust)
+                    {
+                        DrawOrderAdjustList(i);
+                    }
+                    else
+                    {
+                        DrawEditableBlendShapeList(i, meshDataProperty, shapeNamesProperty);
+                    }
                 }
                 
                 EditorGUI.indentLevel--;
@@ -232,7 +467,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 #if !ENABLE_FBX_SDK
                     if (generated == null)
                     {
-                        EditorUtility.DisplayDialog("Unity mesh vertices not match", "Unable to create mesh since vertices not match. Please import FBX SDK and create FBX file", "OK")
+                        EditorUtility.DisplayDialog("Unity mesh vertices not match", "Unable to create mesh since vertices not match. Please import FBX SDK and create FBX file", "OK");
                     }
 #endif
                 }
@@ -333,5 +568,3 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
     }
 
 }
-
-
