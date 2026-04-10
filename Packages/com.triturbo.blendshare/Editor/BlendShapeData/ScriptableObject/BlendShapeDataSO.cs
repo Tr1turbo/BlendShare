@@ -18,6 +18,19 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
         public List<MeshData> m_MeshDataList;
 
+        private void OnValidate()
+        {
+            if (m_MeshDataList == null)
+            {
+                return;
+            }
+
+            foreach (var meshData in m_MeshDataList)
+            {
+                meshData?.SanitizeShapeNames();
+            }
+        }
+
 
         public string DefaultMeshAssetName
         {
@@ -130,6 +143,38 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         {
             m_BlendShapes = blendShapes;
             m_ShapeNames = blendShapes.Select(b => b.m_ShapeName).ToList();
+        }
+
+        internal bool SanitizeShapeNames()
+        {
+            m_BlendShapes ??= new List<BlendShapeWrapper>();
+            m_ShapeNames ??= new List<string>();
+
+            var validShapeNames = new HashSet<string>(
+                m_BlendShapes
+                    .Where(blendShape => blendShape != null && !string.IsNullOrWhiteSpace(blendShape.m_ShapeName))
+                    .Select(blendShape => blendShape.m_ShapeName));
+
+            var sanitizedShapeNames = new List<string>(m_ShapeNames.Count);
+            var seenShapeNames = new HashSet<string>();
+
+            foreach (var shapeName in m_ShapeNames)
+            {
+                if (string.IsNullOrWhiteSpace(shapeName) || !validShapeNames.Contains(shapeName) || !seenShapeNames.Add(shapeName))
+                {
+                    continue;
+                }
+
+                sanitizedShapeNames.Add(shapeName);
+            }
+
+            if (sanitizedShapeNames.Count == m_ShapeNames.Count)
+            {
+                return false;
+            }
+
+            m_ShapeNames = sanitizedShapeNames;
+            return true;
         }
 
         public bool AddBlendShape(BlendShapeWrapper blendShapeWrapper)
