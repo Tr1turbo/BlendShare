@@ -19,6 +19,9 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         {
             serializedObject.Update();
             var selection = (MeshBlendShapeSelectionSO)target;
+            
+            EditorGUILayout.LabelField("BlendShape Selection", EditorStyles.boldLabel);
+            EditorGUILayout.Space(4f);
 
             EditorGUI.BeginChangeCheck();
             string updatedName = EditorGUILayout.TextField(new GUIContent("Name"), selection.name);
@@ -36,8 +39,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             }
 
 
-            EditorGUILayout.LabelField("BlendShape Selection", EditorStyles.boldLabel);
-            EditorGUILayout.Space(4f);
+  
 
             EditorGUI.BeginDisabledGroup(true);
             EditorGUILayout.PropertyField(meshNameProperty, new GUIContent("Mesh Name"));

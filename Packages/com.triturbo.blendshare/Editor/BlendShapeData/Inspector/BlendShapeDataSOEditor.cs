@@ -6,6 +6,7 @@ using UnityEngine;
 
 using UnityEditor;
 using UnityEditorInternal;
+using System.Drawing;
 
 
 namespace Triturbo.BlendShapeShare.BlendShapeData
@@ -849,12 +850,16 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 var blendShapesProperty = meshDataProperty.FindPropertyRelative(BlendShapesPropertyName);
                 var activeBlendShapeCount = shapeNamesProperty.arraySize;
                 var totalBlendShapeCount = blendShapesProperty.arraySize;
-                shapeNamesProperty.isExpanded = EditorGUILayout.Foldout(
-                    shapeNamesProperty.isExpanded,
-                    readOnlyMode
-                        ? $"{Localization.S("blendshapes")}: {activeBlendShapeCount}"
-                        : Localization.SF("data.blendshape_count_summary", activeBlendShapeCount, totalBlendShapeCount));
-                
+
+
+                Rect rect = EditorGUILayout.GetControlRect();
+                var foldoutLabel = readOnlyMode
+                    ? new GUIContent($"{Localization.S("blendshapes")}: {activeBlendShapeCount}")
+                    : new GUIContent(Localization.SF("data.blendshape_count_summary", activeBlendShapeCount, totalBlendShapeCount));
+
+                if(!readOnlyMode) foldoutLabel = EditorGUI.BeginProperty(rect, foldoutLabel, shapeNamesProperty);
+                shapeNamesProperty.isExpanded = EditorGUI.Foldout(rect, shapeNamesProperty.isExpanded, foldoutLabel, true);
+                if(!readOnlyMode) EditorGUI.EndProperty();
                 if (shapeNamesProperty.isExpanded)
                 {
                     if (readOnlyMode)
