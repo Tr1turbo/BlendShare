@@ -3,28 +3,30 @@ using UnityEngine;
 
 namespace Triturbo.BlendShapeShare.BlendShapeData
 {
-    [CustomEditor(typeof(MeshBlendShapeSelectionSO))]
-    public class MeshBlendShapeSelectionSOEditor : Editor
+    [CustomEditor(typeof(BlendShapeSelectionSO))]
+    public class BlendShapeSelectionSOEditor : Editor
     {
         private SerializedProperty meshNameProperty;
         private SerializedProperty blendShapeNamesProperty;
 
         private void OnEnable()
         {
-            meshNameProperty = serializedObject.FindProperty(nameof(MeshBlendShapeSelectionSO.m_MeshName));
-            blendShapeNamesProperty = serializedObject.FindProperty(nameof(MeshBlendShapeSelectionSO.m_BlendShapeNames));
+            meshNameProperty = serializedObject.FindProperty(nameof(BlendShapeSelectionSO.m_MeshName));
+            blendShapeNamesProperty = serializedObject.FindProperty(nameof(BlendShapeSelectionSO.m_BlendShapeNames));
         }
 
         public override void OnInspectorGUI()
         {
             serializedObject.Update();
-            var selection = (MeshBlendShapeSelectionSO)target;
+            var selection = (BlendShapeSelectionSO)target;
             
-            EditorGUILayout.LabelField("BlendShape Selection", EditorStyles.boldLabel);
+            Localization.DrawLanguageSelection();
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField(Localization.G("blendshape_selection.title"), EditorStyles.boldLabel);
             EditorGUILayout.Space(4f);
 
             EditorGUI.BeginChangeCheck();
-            string updatedName = EditorGUILayout.TextField(new GUIContent("Name"), selection.name);
+            string updatedName = EditorGUILayout.TextField(Localization.G("blendshape_selection.name"), selection.name);
             if (EditorGUI.EndChangeCheck())
             {
                 updatedName = updatedName?.Trim();
@@ -37,15 +39,11 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                     GUIUtility.ExitGUI();
                 }
             }
-
-
-  
-
             EditorGUI.BeginDisabledGroup(true);
-            EditorGUILayout.PropertyField(meshNameProperty, new GUIContent("Mesh Name"));
+            EditorGUILayout.PropertyField(meshNameProperty, Localization.G("blendshape_selection.mesh_name"));
             EditorGUI.EndDisabledGroup();
 
-            EditorGUILayout.PropertyField(blendShapeNamesProperty, new GUIContent("BlendShape Names"), true);
+            EditorGUILayout.PropertyField(blendShapeNamesProperty, Localization.G("blendshape_selection.blendshape_names"), true);
 
             bool changed = serializedObject.ApplyModifiedProperties();
 

@@ -8,7 +8,7 @@ using UnityEditor;
 using UnityEditorInternal;
 using System.Drawing;
 
-
+//
 namespace Triturbo.BlendShapeShare.BlendShapeData
 {
     [CustomEditor(typeof(BlendShapeDataSO))]
@@ -29,19 +29,99 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         private BlendShapeEditMode editMode = BlendShapeEditMode.Reorder;
         private List<string> meshBlendShapeSearchTerms;
         private BlendShapeMeshGeneratorWindow advancedGeneratorWindow = null;
-        private Dictionary<string, List<MeshBlendShapeSelectionSO>> meshSelectionsByMeshName;
-        private Dictionary<string, MeshBlendShapeSelectionSO> workingSelectionSourcesByMeshName;
-        private string editModePrefKey;
+        private Dictionary<string, List<BlendShapeSelectionSO>> meshSelectionsByMeshName;
+        private Dictionary<string, BlendShapeSelectionSO> workingSelectionSourcesByMeshName;
+        private Dictionary<string, string[]> cachedAllBlendShapeNamesByMeshName;
         private bool bulkToggleDragActive;
         private bool bulkToggleDragValue;
         private int bulkToggleDragMeshIndex = -1;
         private Vector2 bulkToggleDragStartPosition;
 
+        private static class EditorStatePrefs
+        {
+            private const bool DefaultEditingEnabled = false;
+            private const BlendShapeEditMode DefaultBlendShapeEditMode = BlendShapeEditMode.Reorder;
+            private const string KeyPrefix = "Triturbo.BlendShapeShare.BlendShapeDataSO.";
+            private const string EditingEnabledKeyPrefix = KeyPrefix + "EditingEnabled.";
+            private const string BlendShapeEditModeKeyPrefix = KeyPrefix + "BlendShapeEditMode.";
+
+            public static bool GetEditingEnabled(UnityEngine.Object editorTarget)
+            {
+                return EditorPrefs.GetBool(GetEditingEnabledKey(editorTarget), DefaultEditingEnabled);
+            }
+
+            public static void SetEditingEnabled(UnityEngine.Object editorTarget, bool editingEnabled)
+            {
+                var key = GetEditingEnabledKey(editorTarget);
+                if (editingEnabled == DefaultEditingEnabled)
+                {
+                    EditorPrefs.DeleteKey(key);
+                    return;
+                }
+
+                EditorPrefs.SetBool(key, editingEnabled);
+            }
+
+            public static BlendShapeEditMode GetBlendShapeEditMode(UnityEngine.Object editorTarget)
+            {
+                var key = GetBlendShapeEditModeKey(editorTarget);
+                int savedValue = EditorPrefs.GetInt(key, (int)DefaultBlendShapeEditMode);
+                return System.Enum.IsDefined(typeof(BlendShapeEditMode), savedValue)
+                    ? (BlendShapeEditMode)savedValue
+                    : DefaultBlendShapeEditMode;
+            }
+
+            public static void SetBlendShapeEditMode(UnityEngine.Object editorTarget, BlendShapeEditMode editMode)
+            {
+                var key = GetBlendShapeEditModeKey(editorTarget);
+                if (editMode == DefaultBlendShapeEditMode)
+                {
+                    EditorPrefs.DeleteKey(key);
+                    return;
+                }
+
+                EditorPrefs.SetInt(key, (int)editMode);
+            }
+
+            private static string GetEditingEnabledKey(UnityEngine.Object editorTarget)
+            {
+                return EditingEnabledKeyPrefix + GetAssetKey(editorTarget);
+            }
+
+            private static string GetBlendShapeEditModeKey(UnityEngine.Object editorTarget)
+            {
+                return BlendShapeEditModeKeyPrefix + GetAssetKey(editorTarget);
+            }
+
+            private static string GetAssetKey(UnityEngine.Object editorTarget)
+            {
+                if (editorTarget == null)
+                {
+                    return "None";
+                }
+
+                if (AssetDatabase.TryGetGUIDAndLocalFileIdentifier(editorTarget, out string guid, out long localId) &&
+                    !string.IsNullOrEmpty(guid))
+                {
+                    return $"{guid}_{localId}";
+                }
+
+                var path = AssetDatabase.GetAssetPath(editorTarget);
+                if (!string.IsNullOrEmpty(path))
+                {
+                    var pathGuid = AssetDatabase.AssetPathToGUID(path);
+                    return string.IsNullOrEmpty(pathGuid) ? path : pathGuid;
+                }
+
+                return editorTarget.GetInstanceID().ToString();
+            }
+        }
+
         private void ShowContextMenu(ReorderableList reorderableList, int index)
         {
             GenericMenu menu = new GenericMenu();
 
-            menu.AddItem(new GUIContent("Mute"), false, () =>
+            menu.AddItem(Localization.G("data.mute_blendshape"), false, () =>
             {
                 SerializedProperty listProperty = reorderableList.serializedProperty;
                 listProperty.DeleteArrayElementAtIndex(index);
@@ -55,16 +135,15 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             meshDataListProperty = serializedObject.FindProperty(nameof(BlendShapeDataSO.m_MeshDataList));
             originalFbxProperty = serializedObject.FindProperty(nameof(BlendShapeDataSO.m_Original));
             appliedProperty = serializedObject.FindProperty(nameof(BlendShapeDataSO.m_Applied));
-            meshSelectionsByMeshName = new Dictionary<string, List<MeshBlendShapeSelectionSO>>();
-            workingSelectionSourcesByMeshName = new Dictionary<string, MeshBlendShapeSelectionSO>();
+            meshSelectionsByMeshName = new Dictionary<string, List<BlendShapeSelectionSO>>();
+            workingSelectionSourcesByMeshName = new Dictionary<string, BlendShapeSelectionSO>();
             
             meshBlendShapeSearchTerms = new List<string>(meshDataListProperty.arraySize);
             // Get the target object
             BlendShapeDataSO dataAsset = (BlendShapeDataSO)target;
-            var path = AssetDatabase.GetAssetPath(target);
-            if (string.IsNullOrEmpty(path)) path = "BlendShapeDataSO_" + target.GetInstanceID();
-            editModePrefKey = $"BlendShapeDataSO_EditMode_{path}";
-            readOnlyMode = !EditorPrefs.GetBool(editModePrefKey, false);
+            RefreshAllBlendShapeNameCache();
+            readOnlyMode = !EditorStatePrefs.GetEditingEnabled(target);
+            editMode = EditorStatePrefs.GetBlendShapeEditMode(target);
             RefreshMeshSelections(dataAsset);
 
             meshBlendShapes = new List<ReorderableList>(dataAsset.m_MeshDataList.Count);
@@ -98,16 +177,90 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             }
         }
 
+        private void RefreshAllBlendShapeNameCache()
+        {
+            cachedAllBlendShapeNamesByMeshName = new Dictionary<string, string[]>();
+
+            if (meshDataListProperty == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < meshDataListProperty.arraySize; i++)
+            {
+                CacheAllBlendShapeNames(meshDataListProperty.GetArrayElementAtIndex(i));
+            }
+        }
+
+        private static string GetBlendShapeCacheKey(string meshName)
+        {
+            return meshName ?? string.Empty;
+        }
+
+        private string[] CacheAllBlendShapeNames(SerializedProperty meshDataProperty)
+        {
+            if (meshDataProperty == null)
+            {
+                return System.Array.Empty<string>();
+            }
+
+            var meshName = meshDataProperty.FindPropertyRelative(nameof(MeshData.m_MeshName)).stringValue;
+            var blendShapesProperty = meshDataProperty.FindPropertyRelative(BlendShapesPropertyName);
+            var allBlendShapeNames = new string[blendShapesProperty.arraySize];
+
+            for (int i = 0; i < blendShapesProperty.arraySize; i++)
+            {
+                allBlendShapeNames[i] = GetBlendShapeName(blendShapesProperty.GetArrayElementAtIndex(i));
+            }
+
+            cachedAllBlendShapeNamesByMeshName[GetBlendShapeCacheKey(meshName)] = allBlendShapeNames;
+            return allBlendShapeNames;
+        }
+
+        private string[] GetCachedAllBlendShapeNames(string meshName)
+        {
+            cachedAllBlendShapeNamesByMeshName ??= new Dictionary<string, string[]>();
+            return cachedAllBlendShapeNamesByMeshName.TryGetValue(GetBlendShapeCacheKey(meshName), out var allBlendShapeNames)
+                ? allBlendShapeNames
+                : System.Array.Empty<string>();
+        }
+
+        private string[] GetCachedAllBlendShapeNames(MeshData meshData)
+        {
+            return GetCachedAllBlendShapeNames(meshData?.m_MeshName);
+        }
+
+        private List<string> ResolveSelectionShapeNamesUsingCache(MeshData meshData, BlendShapeSelectionSO selection)
+        {
+            if (selection == null)
+            {
+                return meshData?.m_ShapeNames != null
+                    ? new List<string>(meshData.m_ShapeNames)
+                    : new List<string>();
+            }
+
+            if (!string.Equals(selection.m_MeshName, meshData.m_MeshName))
+            {
+                return new List<string>(meshData.m_ShapeNames);
+            }
+
+            var allBlendShapeNames = GetCachedAllBlendShapeNames(meshData);
+            return (selection.m_BlendShapeNames ?? new List<string>())
+                .Where(shapeName => allBlendShapeNames.Contains(shapeName))
+                .Distinct()
+                .ToList();
+        }
+
         private void RefreshMeshSelections(BlendShapeDataSO dataAsset)
         {
-            meshSelectionsByMeshName = MeshBlendShapeSelectionUtility.GroupSelectionsByMesh(dataAsset);
+            meshSelectionsByMeshName = BlendShapeSelectionUtility.GroupSelectionsByMesh(dataAsset);
 
             if (workingSelectionSourcesByMeshName == null)
             {
-                workingSelectionSourcesByMeshName = new Dictionary<string, MeshBlendShapeSelectionSO>();
+                workingSelectionSourcesByMeshName = new Dictionary<string, BlendShapeSelectionSO>();
             }
 
-            var validSelections = new HashSet<MeshBlendShapeSelectionSO>(meshSelectionsByMeshName.Values.SelectMany(list => list));
+            var validSelections = new HashSet<BlendShapeSelectionSO>(meshSelectionsByMeshName.Values.SelectMany(list => list));
             var invalidKeys = workingSelectionSourcesByMeshName
                 .Where(entry => entry.Value == null || !validSelections.Contains(entry.Value))
                 .Select(entry => entry.Key)
@@ -119,12 +272,12 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             }
         }
 
-        private List<MeshBlendShapeSelectionSO> GetMeshSelections(string meshName)
+        private List<BlendShapeSelectionSO> GetMeshSelections(string meshName)
         {
             return meshSelectionsByMeshName != null &&
                    meshSelectionsByMeshName.TryGetValue(meshName ?? string.Empty, out var selections)
                 ? selections
-                : new List<MeshBlendShapeSelectionSO>();
+                : new List<BlendShapeSelectionSO>();
         }
 
         private static bool HasSameShapeNames(IReadOnlyList<string> currentShapeNames, IReadOnlyList<string> selectionShapeNames)
@@ -148,20 +301,16 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         private int GetCurrentPopupIndex(
             BlendShapeDataSO dataAsset,
             MeshData meshData,
-            IReadOnlyList<MeshBlendShapeSelectionSO> selections)
+            IReadOnlyList<BlendShapeSelectionSO> selections)
         {
-            if (HasSameShapeNames(meshData.m_ShapeNames, meshData.GetAllBlendShapeNames()))
+            if (HasSameShapeNames(meshData.m_ShapeNames, GetCachedAllBlendShapeNames(meshData)))
             {
                 return 0;
             }
 
             for (int i = 0; i < selections.Count; i++)
             {
-                var resolvedNames = MeshBlendShapeSelectionUtility.ResolveSelectionShapeNames(
-                    dataAsset,
-                    meshData,
-                    selections[i],
-                    false);
+                var resolvedNames = ResolveSelectionShapeNamesUsingCache(meshData, selections[i]);
 
                 if (HasSameShapeNames(meshData.m_ShapeNames, resolvedNames))
                 {
@@ -172,10 +321,10 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             return selections.Count + 1;
         }
 
-        private MeshBlendShapeSelectionSO SaveMeshSelection(
+        private BlendShapeSelectionSO SaveMeshSelection(
             BlendShapeDataSO dataAsset,
             MeshData meshData,
-            MeshBlendShapeSelectionSO existingSelection = null,
+            BlendShapeSelectionSO existingSelection = null,
             string selectionNameOverride = null)
         {
             var selections = GetMeshSelections(meshData.m_MeshName);
@@ -185,20 +334,20 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
             if (string.IsNullOrWhiteSpace(selectionName))
             {
-                selectionName = MeshBlendShapeSelectionUtility.GetNextSelectionName(selections, meshData.m_MeshName);
+                selectionName = BlendShapeSelectionUtility.GetNextSelectionName(selections, meshData.m_MeshName);
             }
 
             selectionName = selectionName.Trim();
-            var sanitizedNames = MeshBlendShapeSelectionUtility.SanitizeSelectionShapeNames(
+            var sanitizedNames = BlendShapeSelectionUtility.SanitizeSelectionShapeNames(
                 meshData,
                 meshData.m_ShapeNames,
                 dataAsset,
                 selectionName);
 
-            MeshBlendShapeSelectionSO selection = existingSelection;
+            BlendShapeSelectionSO selection = existingSelection;
             if (selection == null)
             {
-                selection = CreateInstance<MeshBlendShapeSelectionSO>();
+                selection = CreateInstance<BlendShapeSelectionSO>();
                 selection.name = selectionName;
                 AssetDatabase.AddObjectToAsset(selection, dataAsset);
             }
@@ -229,7 +378,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             Repaint();
         }
 
-        private MeshBlendShapeSelectionSO GetWorkingSelectionSource(string meshName)
+        private BlendShapeSelectionSO GetWorkingSelectionSource(string meshName)
         {
             if (workingSelectionSourcesByMeshName != null &&
                 workingSelectionSourcesByMeshName.TryGetValue(meshName, out var selection))
@@ -240,11 +389,11 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             return null;
         }
 
-        private void SetWorkingSelectionSource(string meshName, MeshBlendShapeSelectionSO selection)
+        private void SetWorkingSelectionSource(string meshName, BlendShapeSelectionSO selection)
         {
             if (workingSelectionSourcesByMeshName == null)
             {
-                workingSelectionSourcesByMeshName = new Dictionary<string, MeshBlendShapeSelectionSO>();
+                workingSelectionSourcesByMeshName = new Dictionary<string, BlendShapeSelectionSO>();
             }
 
             if (selection == null)
@@ -259,26 +408,41 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         private void LoadMeshSelectionIntoWorkingSet(
             BlendShapeDataSO dataAsset,
             MeshData meshData,
-            MeshBlendShapeSelectionSO selection)
+            BlendShapeSelectionSO selection)
         {
             if (selection == null)
             {
                 return;
             }
 
-            var resolvedNames = MeshBlendShapeSelectionUtility.ResolveSelectionShapeNames(dataAsset, meshData, selection, true);
+            var resolvedNames = BlendShapeSelectionUtility.ResolveSelectionShapeNames(dataAsset, meshData, selection, true);
             LoadShapeNamesIntoWorkingSet(dataAsset, meshData, resolvedNames);
             SetWorkingSelectionSource(meshData.m_MeshName, selection);
         }
 
+        private void RevertWorkingSelection(
+            BlendShapeDataSO dataAsset,
+            MeshData meshData,
+            BlendShapeSelectionSO selection)
+        {
+            if (selection != null)
+            {
+                LoadMeshSelectionIntoWorkingSet(dataAsset, meshData, selection);
+                return;
+            }
+
+            LoadShapeNamesIntoWorkingSet(dataAsset, meshData, GetCachedAllBlendShapeNames(meshData));
+            SetWorkingSelectionSource(meshData.m_MeshName, null);
+        }
+
         private void PromptSaveMeshSelection(BlendShapeDataSO dataAsset, MeshData meshData, System.Action onSaved = null)
         {
-            string defaultName = MeshBlendShapeSelectionUtility.GetNextSelectionName(
+            string defaultName = BlendShapeSelectionUtility.GetNextSelectionName(
                 GetMeshSelections(meshData.m_MeshName),
                 meshData.m_MeshName);
 
-            MeshBlendShapeSelectionNamePrompt.Show(
-                "Save BlendShape Selection",
+            BlendShapeSelectionNamePrompt.Show(
+                Localization.S("data.blendshape_selection.save_title"),
                 defaultName,
                 selectionName =>
                 {
@@ -289,33 +453,15 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 });
         }
 
-        private void DeleteMeshSelection(BlendShapeDataSO dataAsset, MeshData meshData, MeshBlendShapeSelectionSO selection)
-        {
-            if (selection == null || meshData == null)
-            {
-                return;
-            }
-
-            LoadShapeNamesIntoWorkingSet(dataAsset, meshData, meshData.GetAllBlendShapeNames());
-            SetWorkingSelectionSource(selection.m_MeshName, null);
-
-            Undo.DestroyObjectImmediate(selection);
-            EditorUtility.SetDirty(dataAsset);
-            AssetDatabase.SaveAssets();
-            RefreshMeshSelections(dataAsset);
-            serializedObject.Update();
-            Repaint();
-        }
-
         private void LoadPopupSelectionChoice(
             BlendShapeDataSO dataAsset,
             MeshData meshData,
-            IReadOnlyList<MeshBlendShapeSelectionSO> selections,
+            IReadOnlyList<BlendShapeSelectionSO> selections,
             int popupIndex)
         {
             if (popupIndex == 0)
             {
-                LoadShapeNamesIntoWorkingSet(dataAsset, meshData, meshData.GetAllBlendShapeNames());
+                LoadShapeNamesIntoWorkingSet(dataAsset, meshData, GetCachedAllBlendShapeNames(meshData));
                 SetWorkingSelectionSource(meshData.m_MeshName, null);
                 return;
             }
@@ -327,7 +473,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             }
         }
 
-        private bool HasSelectionIssues(BlendShapeDataSO dataAsset, MeshData meshData, MeshBlendShapeSelectionSO selection)
+        private bool HasSelectionIssues(BlendShapeDataSO dataAsset, MeshData meshData, BlendShapeSelectionSO selection)
         {
             if (selection == null)
             {
@@ -339,7 +485,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 return true;
             }
 
-            var allShapeNames = new HashSet<string>(meshData.GetAllBlendShapeNames());
+            var allShapeNames = GetCachedAllBlendShapeNames(meshData);
             return selection.m_BlendShapeNames
                 .GroupBy(shapeName => shapeName)
                 .Any(group => group.Count() > 1 || !allShapeNames.Contains(group.Key));
@@ -367,21 +513,27 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                     ? workingSelectionSourceIndex
                     : currentPopupIndex;
 
-            var optionNames = new[] { "All BlendShapes" }
+            var optionNames = new[] { Localization.S("data.blendshape_selection.all") }
                 .Concat(selections.Select(selection =>
                     showCurrentWorkingSet && selection == workingSelectionSource
                         ? $"{selection.DisplayName}*"
                         : selection.DisplayName))
                 .Concat(showCurrentWorkingSet && workingSelectionSourceIndex <= 0
-                    ? new[] { "Current Working Set" }
+                    ? new[] { Localization.S("data.blendshape_selection.unsaved_working_set") }
                     : System.Array.Empty<string>())
                 .ToArray();
 
             EditorGUILayout.BeginVertical(GUI.skin.box);
-            EditorGUILayout.LabelField("BlendShape Selections", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(Localization.G("data.blendshape_selection.title"), EditorStyles.boldLabel);
 
-            int updatedSelectionIndex = EditorGUILayout.Popup(
-                "Active Selection",
+            Rect selectionRowRect = EditorGUILayout.GetControlRect();
+            Rect popupRect = EditorGUI.PrefixLabel(
+                selectionRowRect,
+                GUIUtility.GetControlID(FocusType.Passive),
+                Localization.G("data.blendshape_selection.active"));
+
+            int updatedSelectionIndex = EditorGUI.Popup(
+                popupRect,
                 Mathf.Clamp(displayedPopupIndex, 0, Mathf.Max(0, optionNames.Length - 1)),
                 optionNames);
 
@@ -393,11 +545,11 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 if (isUnsavedWorkingState)
                 {
                     int choice = EditorUtility.DisplayDialogComplex(
-                        "Unsaved BlendShape Selection",
-                        $"The current working state for mesh '{meshName}' has unsaved changes. Save it before loading another selection?",
-                        "Save",
-                        "Cancel",
-                        "Discard");
+                        Localization.S("data.blendshape_selection.unsaved_working_set"),
+                        Localization.SF("data.blendshape_selection.unsaved_working_set.message", meshName),
+                        Localization.S("data.dialog.save"),
+                        Localization.S("data.dialog.cancel"),
+                        Localization.S("data.dialog.discard"));
 
                     if (choice == 0)
                     {
@@ -428,7 +580,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 GUIUtility.ExitGUI();
             }
 
-            MeshBlendShapeSelectionSO selectedSelection =
+            BlendShapeSelectionSO selectedSelection =
                 displayedPopupIndex > 0 && displayedPopupIndex <= selections.Count
                     ? selections[displayedPopupIndex - 1]
                     : null;
@@ -440,7 +592,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 if (HasSelectionIssues(dataAsset, meshData, selectedSelection))
                 {
                     EditorGUILayout.HelpBox(
-                        "The selected mesh selection contains missing or duplicate blendshape names. Invalid names will be skipped when used.",
+                        Localization.S("data.blendshape_selection.issue_warning"),
                         MessageType.Warning);
                 } 
             }
@@ -457,36 +609,24 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 if (showCurrentWorkingSet)
                 {
                     GUILayout.BeginHorizontal();
-                    if (workingSelectionSource != null && GUILayout.Button("Save"))
+                    if (workingSelectionSource != null && GUILayout.Button(Localization.G("data.blendshape_selection.revert_changes")))
+                    {
+                        RevertWorkingSelection(dataAsset, meshData, workingSelectionSource);
+                        GUIUtility.ExitGUI();
+                    }
+
+                    if (workingSelectionSource != null && GUILayout.Button(Localization.G("data.blendshape_selection.save_changes")))
                     {
                         SaveMeshSelection(dataAsset, meshData, workingSelectionSource);
                         GUIUtility.ExitGUI();
                     }
 
-                    if (GUILayout.Button("Create New Selection"))
+                    if (GUILayout.Button(Localization.G("data.blendshape_selection.save_as_new")))
                     {
                         PromptSaveMeshSelection(dataAsset, meshData);
                         GUIUtility.ExitGUI();
                     }
                     GUILayout.EndHorizontal();
-                }
-
-                if (selectedSelection != null)
-                {
-                    if (GUILayout.Button("Delete"))
-                    {
-                        bool confirmed = EditorUtility.DisplayDialog(
-                            "Delete BlendShape Selection",
-                            $"Delete mesh selection '{selectedSelection.DisplayName}' for mesh '{meshName}'?",
-                            "Delete",
-                            "Cancel");
-
-                        if (confirmed)
-                        {
-                            DeleteMeshSelection(dataAsset, meshData, selectedSelection);
-                            GUIUtility.ExitGUI();
-                        }
-                    }
                 }
             }
             EditorGUI.EndDisabledGroup();
@@ -497,17 +637,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         private static string GetBlendShapeName(SerializedProperty blendShapeWrapperProperty)
         {
             return blendShapeWrapperProperty.FindPropertyRelative(nameof(BlendShapeWrapper.m_ShapeName)).stringValue;
-        }
-
-        private static string[] GetAllBlendShapeNames(SerializedProperty blendShapesProperty)
-        {
-            var names = new string[blendShapesProperty.arraySize];
-            for (int i = 0; i < blendShapesProperty.arraySize; i++)
-            {
-                names[i] = GetBlendShapeName(blendShapesProperty.GetArrayElementAtIndex(i));
-            }
-
-            return names;
         }
 
         private static HashSet<string> GetEnabledBlendShapeNames(SerializedProperty shapeNamesProperty)
@@ -557,11 +686,10 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
         private static void SetBlendShapeEnabledPreserveSourceOrder(
             SerializedProperty shapeNamesProperty,
-            SerializedProperty blendShapesProperty,
+            IReadOnlyList<string> allShapeNames,
             string shapeName,
             bool enabled)
         {
-            var allShapeNames = GetAllBlendShapeNames(blendShapesProperty);
             var enabledShapeNames = GetEnabledBlendShapeNames(shapeNamesProperty);
             if (enabled)
             {
@@ -577,11 +705,10 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
         private static void SetFilteredBlendShapesEnabled(
             SerializedProperty shapeNamesProperty,
-            SerializedProperty blendShapesProperty,
+            IReadOnlyList<string> allShapeNames,
             string searchTerm,
             bool enabled)
         {
-            var allShapeNames = GetAllBlendShapeNames(blendShapesProperty);
             var enabledShapeNames = GetEnabledBlendShapeNames(shapeNamesProperty);
 
             foreach (var shapeName in allShapeNames)
@@ -650,7 +777,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             string shapeName,
             bool isEnabled,
             SerializedProperty shapeNamesProperty,
-            SerializedProperty blendShapesProperty,
+            IReadOnlyList<string> allShapeNames,
             out bool changed)
         {
             changed = false;
@@ -669,7 +796,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
                 SetBlendShapeEnabledPreserveSourceOrder(
                     shapeNamesProperty,
-                    blendShapesProperty,
+                    allShapeNames,
                     shapeName,
                     bulkToggleDragValue);
 
@@ -688,7 +815,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 {
                     SetBlendShapeEnabledPreserveSourceOrder(
                         shapeNamesProperty,
-                        blendShapesProperty,
+                        allShapeNames,
                         shapeName,
                         bulkToggleDragValue);
 
@@ -705,7 +832,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             {
                 SetBlendShapeEnabledPreserveSourceOrder(
                     shapeNamesProperty,
-                    blendShapesProperty,
+                    allShapeNames,
                     shapeName,
                     updated);
 
@@ -715,44 +842,48 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
         private void DrawEditableBlendShapeList(int meshIndex, SerializedProperty meshDataProperty, SerializedProperty shapeNamesProperty)
         {
-            var blendShapesProperty = meshDataProperty.FindPropertyRelative(BlendShapesPropertyName);
-            var allShapeNames = GetAllBlendShapeNames(blendShapesProperty);
+            var meshName = meshDataProperty.FindPropertyRelative(nameof(MeshData.m_MeshName)).stringValue;
+            var allShapeNames = GetCachedAllBlendShapeNames(meshName);
             var enabledNames = GetEnabledBlendShapeNames(shapeNamesProperty);
             var visibleShapeNames = allShapeNames
                 .Where(shapeName => MatchesSearch(meshBlendShapeSearchTerms[meshIndex], shapeName))
                 .ToArray();
 
-            EditorGUILayout.BeginVertical(GUI.skin.box);
-
-            meshBlendShapeSearchTerms[meshIndex] = EditorGUILayout.TextField(
-                Localization.G("data.blendshape_filter"),
-                meshBlendShapeSearchTerms[meshIndex]);
+            var style = new GUIStyle(GUI.skin.window);
+            style.padding.top = (int)EditorGUIUtility.standardVerticalSpacing;
+            EditorGUILayout.BeginVertical(style);
 
             EditorGUILayout.LabelField(
                 Localization.SF("data.blendshape_status", shapeNamesProperty.arraySize, allShapeNames.Length, visibleShapeNames.Length),
                 EditorStyles.miniLabel);
 
+            meshBlendShapeSearchTerms[meshIndex] = EditorGUILayout.TextField(
+                Localization.G("data.blendshape_filter"),
+                meshBlendShapeSearchTerms[meshIndex]);
+
+
+
             GUILayout.BeginHorizontal();
             if (GUILayout.Button(Localization.G("data.enable_visible_blendshapes")))
             {
-                SetFilteredBlendShapesEnabled(shapeNamesProperty, blendShapesProperty, meshBlendShapeSearchTerms[meshIndex], true);
+                SetFilteredBlendShapesEnabled(shapeNamesProperty, allShapeNames, meshBlendShapeSearchTerms[meshIndex], true);
             }
 
             if (GUILayout.Button(Localization.G("data.mute_visible_blendshapes")))
             {
-                SetFilteredBlendShapesEnabled(shapeNamesProperty, blendShapesProperty, meshBlendShapeSearchTerms[meshIndex], false);
+                SetFilteredBlendShapesEnabled(shapeNamesProperty, allShapeNames, meshBlendShapeSearchTerms[meshIndex], false);
             }
             GUILayout.EndHorizontal();
 
             GUILayout.BeginHorizontal();
             if (GUILayout.Button(Localization.G("data.enable_all_blendshapes")))
             {
-                SetFilteredBlendShapesEnabled(shapeNamesProperty, blendShapesProperty, string.Empty, true);
+                SetFilteredBlendShapesEnabled(shapeNamesProperty, allShapeNames, string.Empty, true);
             }
 
             if (GUILayout.Button(Localization.G("data.mute_all_blendshapes")))
             {
-                SetFilteredBlendShapesEnabled(shapeNamesProperty, blendShapesProperty, string.Empty, false);
+                SetFilteredBlendShapesEnabled(shapeNamesProperty, allShapeNames, string.Empty, false);
             }
             GUILayout.EndHorizontal();
 
@@ -770,7 +901,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                         shapeName,
                         isEnabled,
                         shapeNamesProperty,
-                        blendShapesProperty,
+                        allShapeNames,
                         out bool changed);
                     if (changed)
                     {
@@ -778,19 +909,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                     }
                 }
             }
-
-            EditorGUILayout.EndVertical();
-        }
-
-        private void DrawReorderList(int meshIndex)
-        {
-            EditorGUILayout.BeginVertical(GUI.skin.box);
-            //EditorGUILayout.HelpBox(Localization.S("data.order_adjust_mode_hint"), MessageType.None);
-
-            meshBlendShapes[meshIndex].draggable = true;
-            meshBlendShapes[meshIndex].displayRemove = true;
-            meshBlendShapes[meshIndex].footerHeight = EditorGUIUtility.singleLineHeight;
-            meshBlendShapes[meshIndex].DoLayoutList();
 
             EditorGUILayout.EndVertical();
         }
@@ -813,13 +931,18 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             {
                 EditorGUILayout.BeginVertical(GUI.skin.box);
                 EditorGUILayout.LabelField(Localization.G("data.edit_mode"), EditorStyles.boldLabel);
-                editMode = (BlendShapeEditMode)GUILayout.Toolbar(
+                var updatedEditMode = (BlendShapeEditMode)GUILayout.Toolbar(
                     (int)editMode,
                     new[]
                     {
                         Localization.S("data.edit_mode.order_adjust"),
                         Localization.S("data.edit_mode.bulk_toggle")
                     });
+                if (updatedEditMode != editMode)
+                {
+                    editMode = updatedEditMode;
+                    EditorStatePrefs.SetBlendShapeEditMode(target, editMode);
+                }
                 EditorGUILayout.EndVertical();
                 EditorGUILayout.Space(4);
             }
@@ -845,43 +968,52 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 }
                 EditorGUILayout.ObjectField(meshProperty, new GUIContent(meshNameProperty.stringValue));
                 EditorGUI.EndDisabledGroup();
-                EditorGUI.indentLevel++;
                 var shapeNamesProperty = meshBlendShapes[i].serializedProperty;
                 var blendShapesProperty = meshDataProperty.FindPropertyRelative(BlendShapesPropertyName);
                 var activeBlendShapeCount = shapeNamesProperty.arraySize;
                 var totalBlendShapeCount = blendShapesProperty.arraySize;
 
+                EditorGUI.indentLevel++;
 
                 Rect rect = EditorGUILayout.GetControlRect();
                 var foldoutLabel = readOnlyMode
-                    ? new GUIContent($"{Localization.S("blendshapes")}: {activeBlendShapeCount}")
+                    ? new GUIContent(Localization.SF("data.blendshape_readonly_count_summary", activeBlendShapeCount))
                     : new GUIContent(Localization.SF("data.blendshape_count_summary", activeBlendShapeCount, totalBlendShapeCount));
 
                 if(!readOnlyMode) foldoutLabel = EditorGUI.BeginProperty(rect, foldoutLabel, shapeNamesProperty);
                 shapeNamesProperty.isExpanded = EditorGUI.Foldout(rect, shapeNamesProperty.isExpanded, foldoutLabel, true);
                 if(!readOnlyMode) EditorGUI.EndProperty();
+
                 if (shapeNamesProperty.isExpanded)
                 {
+                    EditorGUILayout.BeginVertical(GUI.skin.box);
+
                     if (readOnlyMode)
                     {
-                        meshBlendShapes[i].DoLayoutList();
                         meshBlendShapes[i].draggable = false;
                         meshBlendShapes[i].displayRemove = false;
                         meshBlendShapes[i].footerHeight = 0;
+                        meshBlendShapes[i].DoLayoutList();
+
                     }
                     else if (editMode == BlendShapeEditMode.Reorder)
                     {
-                        DrawReorderList(i);
+                        meshBlendShapes[i].draggable = true;
+                        meshBlendShapes[i].displayRemove = true;
+                        meshBlendShapes[i].footerHeight = EditorGUIUtility.singleLineHeight;
+                        meshBlendShapes[i].DoLayoutList();
                     }
                     else
                     {
                         DrawEditableBlendShapeList(i, meshDataProperty, shapeNamesProperty);
                     }
+                    EditorGUILayout.EndVertical();
                 }
+                EditorGUI.indentLevel--;
+
 
                 DrawMeshSelectionSection(dataAsset, dataAsset.m_MeshDataList[i]);
                 
-                EditorGUI.indentLevel--;
 
                 EditorGUILayout.EndVertical();
                 EditorGUILayout.Separator();
@@ -893,7 +1025,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             bool useFbxSdk = true;
 #else
             bool useFbxSdk = false;
-            EditorGUILayout.HelpBox("Autodesk FBX SDK is missing. FBX manipulate features will be disabled", MessageType.Warning);
+            EditorGUILayout.HelpBox(Localization.S("data.fbx_sdk_missing"), MessageType.Warning);
 #endif
             EditorGUI.BeginDisabledGroup(!useFbxSdk || originalFbxProperty.objectReferenceValue == null);
             GUILayout.BeginHorizontal();
@@ -910,7 +1042,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 #if ENABLE_FBX_SDK
                 if (dataAsset.m_Original == null)
                 {
-                    Localization.DisplayDialog("data.dialog.fbx_missing");
+                    Localization.DisplayDialog("data.dialog.fbx_missing", Localization.S("data.dialog.ok"));
                     return;
                 }
                 if (Localization.DisplayDialog("data.dialog.apply_blendshapes", Localization.S("data.dialog.ok"), Localization.S("data.dialog.cancel")))
@@ -935,7 +1067,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 #if ENABLE_FBX_SDK
                 if (dataAsset.m_Original == null)
                 {
-                    Localization.DisplayDialog("data.dialog.fbx_missing");
+                    Localization.DisplayDialog("data.dialog.fbx_missing", Localization.S("data.dialog.ok"));
                     return;
                 }
                 if (Localization.DisplayDialog("data.dialog.remove_blendshapes", Localization.S("data.dialog.ok"), Localization.S("data.dialog.cancel")))
@@ -954,13 +1086,13 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 #if ENABLE_FBX_SDK
                 if (dataAsset.m_Original == null)
                 {
-                    Localization.DisplayDialog("data.dialog.fbx_missing");
+                    Localization.DisplayDialog("data.dialog.fbx_missing", Localization.S("data.dialog.ok"));
                     return;
                 }
                 string folderPath = System.IO.Path.GetDirectoryName(AssetDatabase.GetAssetPath(dataAsset));
-                string path = EditorUtility.SaveFilePanelInProject("Save FBX",
+                string path = EditorUtility.SaveFilePanelInProject(Localization.S("data.save_fbx.title"),
                     dataAsset.DefaultFbxName, "fbx",
-                    "Please enter a file name", folderPath);
+                    Localization.S("data.save_file.message"), folderPath);
                 if (path.Length > 0)
                 {
                     dataAsset.CreateFbx(dataAsset.m_Original, path);
@@ -974,14 +1106,14 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             {
                 if (dataAsset.m_Original == null)
                 {
-                    Localization.DisplayDialog("data.dialog.fbx_missing");
+                    Localization.DisplayDialog("data.dialog.fbx_missing", Localization.S("data.dialog.ok"));
                     return;
                 }
 
                 string folderPath = Path.GetDirectoryName(AssetDatabase.GetAssetPath(dataAsset));
-                var path = EditorUtility.SaveFilePanelInProject("Save Mesh",
+                var path = EditorUtility.SaveFilePanelInProject(Localization.S("data.save_mesh.title"),
                     dataAsset.DefaultMeshAssetName, "asset",
-                    "Please enter a file name", folderPath);
+                    Localization.S("data.save_file.message"), folderPath);
 
                 if (path.Length > 0)
                 {
@@ -990,7 +1122,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 #if !ENABLE_FBX_SDK
                     if (generated == null)
                     {
-                        EditorUtility.DisplayDialog("Unity mesh vertices not match", "Unable to create mesh since vertices not match. Please import FBX SDK and create FBX file", "OK");
+                        Localization.DisplayDialog("data.dialog.mesh_vertices_not_match", Localization.S("data.dialog.ok"));
                     }
 #endif
                 }
@@ -1046,7 +1178,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                     , GUILayout.ExpandWidth(false)))
             {
                 readOnlyMode = !readOnlyMode;
-                EditorPrefs.SetBool(editModePrefKey, !readOnlyMode);
+                EditorStatePrefs.SetEditingEnabled(target, !readOnlyMode);
 
             }
 
@@ -1057,7 +1189,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             {
                 EditorGUILayout.Separator();
                 GUILayout.BeginHorizontal(GUI.skin.box);
-                EditorGUILayout.LabelField("Blendshapes sharing tool created by Triturbo", EditorStyles.centeredGreyMiniLabel);
+                EditorGUILayout.LabelField(Localization.G("data.created_by"), EditorStyles.centeredGreyMiniLabel);
                 GUILayout.EndHorizontal();
 
                 EditorGUILayout.Separator();

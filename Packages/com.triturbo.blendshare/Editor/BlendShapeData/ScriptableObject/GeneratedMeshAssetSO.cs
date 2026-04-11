@@ -6,7 +6,6 @@ using UnityEngine;
 using UnityEditor;
 using System.Linq;
 using System.Security.Cryptography;
-using UnityEditorInternal;
 using Object = UnityEngine.Object;
 
 namespace Triturbo.BlendShapeShare.BlendShapeData
@@ -215,28 +214,58 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         {
             if (meshes == null) return null;
             if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Path must be non-empty", nameof(path));
-        
-            // Create instance
-            var asset = CreateInstance<GeneratedMeshAssetSO>();
-            asset.m_OriginalFbxAsset = originalFbx;
-            asset.m_OriginalFbxHash = CalculateHash(originalFbx);
-            asset.m_AppliedBlendShapes =  appliedBlendShapeData.ToArray();
+
+            BlendShapeDataSO[] appliedBlendShapes = appliedBlendShapeData?.ToArray() ?? Array.Empty<BlendShapeDataSO>();
+            Mesh[] meshArray = meshes.Where(mesh => mesh != null).ToArray();
+            var existingAsset = AssetDatabase.LoadAssetAtPath<GeneratedMeshAssetSO>(path);
+            GeneratedMeshAssetSO asset = existingAsset != null ? existingAsset : CreateInstance<GeneratedMeshAssetSO>();
             
             try
             {
                 AssetDatabase.StartAssetEditing();
                 AssetDatabase.DisallowAutoRefresh();
-                AssetDatabase.CreateAsset(asset, path);
-                // Add meshes as sub-assets
-                foreach (var mesh in meshes)
+                if (existingAsset == null)
                 {
-                    var meshToAdd = mesh;
-                    if (EditorUtility.IsPersistent(mesh))
+                    AssetDatabase.CreateAsset(asset, path);
+                }
+
+                asset.m_OriginalFbxAsset = originalFbx;
+                asset.m_OriginalFbxHash = CalculateHash(originalFbx);
+                asset.m_AppliedBlendShapes = appliedBlendShapes;
+                EditorUtility.SetDirty(asset);
+
+                var existingMeshesByName = AssetDatabase.LoadAllAssetRepresentationsAtPath(path)
+                    .OfType<Mesh>()
+                    .GroupBy(mesh => mesh.name)
+                    .ToDictionary(group => group.Key, group => group.First());
+
+                var desiredMeshNames = new HashSet<string>(meshArray.Select(mesh => mesh.name));
+
+                // Reuse same-name mesh sub-assets to keep their local file IDs stable.
+                foreach (var mesh in meshArray)
+                {
+                    if (existingMeshesByName.TryGetValue(mesh.name, out var existingMesh))
                     {
-                        meshToAdd = Instantiate(mesh);
-                        meshToAdd.name = mesh.name;
+                        EditorUtility.CopySerialized(mesh, existingMesh);
+                        existingMesh.name = mesh.name;
+                        EditorUtility.SetDirty(existingMesh);
+                        continue;
                     }
+
+                    var meshToAdd = EditorUtility.IsPersistent(mesh) ? Instantiate(mesh) : mesh;
+                    meshToAdd.name = mesh.name;
                     AssetDatabase.AddObjectToAsset(meshToAdd, asset);
+                    EditorUtility.SetDirty(meshToAdd);
+                }
+
+                foreach (var mesh in existingMeshesByName.Values)
+                {
+                    if (desiredMeshNames.Contains(mesh.name))
+                    {
+                        continue;
+                    }
+
+                    Object.DestroyImmediate(mesh, true);
                 }
             }
             finally
@@ -270,5 +299,4 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         }
     }
 }
-
 
