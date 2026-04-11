@@ -5,27 +5,27 @@ using UnityEngine;
 
 namespace Triturbo.BlendShapeShare.BlendShapeData
 {
-    internal static class MeshBlendShapeSelectionUtility
+    internal static class BlendShapeSelectionUtility
     {
-        public static List<MeshBlendShapeSelectionSO> LoadSelections(BlendShapeDataSO dataAsset)
+        public static List<BlendShapeSelectionSO> LoadSelections(BlendShapeDataSO dataAsset)
         {
             if (dataAsset == null)
             {
-                return new List<MeshBlendShapeSelectionSO>();
+                return new List<BlendShapeSelectionSO>();
             }
 
             string path = AssetDatabase.GetAssetPath(dataAsset);
             if (string.IsNullOrEmpty(path))
             {
-                return new List<MeshBlendShapeSelectionSO>();
+                return new List<BlendShapeSelectionSO>();
             }
 
             return AssetDatabase.LoadAllAssetRepresentationsAtPath(path)
-                .OfType<MeshBlendShapeSelectionSO>()
+                .OfType<BlendShapeSelectionSO>()
                 .ToList();
         }
 
-        public static Dictionary<string, List<MeshBlendShapeSelectionSO>> GroupSelectionsByMesh(BlendShapeDataSO dataAsset)
+        public static Dictionary<string, List<BlendShapeSelectionSO>> GroupSelectionsByMesh(BlendShapeDataSO dataAsset)
         {
             return LoadSelections(dataAsset)
                 .GroupBy(selection => selection.m_MeshName ?? string.Empty)
@@ -69,7 +69,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         public static List<string> ResolveSelectionShapeNames(
             BlendShapeDataSO dataAsset,
             MeshData meshData,
-            MeshBlendShapeSelectionSO selection,
+            BlendShapeSelectionSO selection,
             bool logWarnings)
         {
             if (selection == null)
@@ -96,7 +96,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                     .ToList();
         }
 
-        public static string GetNextSelectionName(IEnumerable<MeshBlendShapeSelectionSO> existingSelections, string meshName)
+        public static string GetNextSelectionName(IEnumerable<BlendShapeSelectionSO> existingSelections, string meshName)
         {
             string baseName = string.IsNullOrWhiteSpace(meshName) ? "Selection" : $"{meshName} Selection";
             var usedNames = new HashSet<string>(existingSelections.Select(selection => selection.DisplayName));

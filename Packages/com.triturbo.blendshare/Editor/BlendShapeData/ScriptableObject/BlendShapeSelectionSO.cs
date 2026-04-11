@@ -1,10 +1,12 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
 
 namespace Triturbo.BlendShapeShare.BlendShapeData
 {
     [PreferBinarySerialization]
-    public class MeshBlendShapeSelectionSO : ScriptableObject
+    [MovedFrom(true, null, null, "MeshBlendShapeSelectionSO")]
+    public class BlendShapeSelectionSO : ScriptableObject
     {
         public string m_MeshName;
         public List<string> m_BlendShapeNames = new();

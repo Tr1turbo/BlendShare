@@ -4,14 +4,14 @@ using UnityEngine;
 
 namespace Triturbo.BlendShapeShare.BlendShapeData
 {
-    internal class MeshBlendShapeSelectionNamePrompt : EditorWindow
+    internal class BlendShapeSelectionNamePrompt : EditorWindow
     {
         private string value;
         private Action<string> onSubmit;
 
         public static void Show(string title, string initialValue, Action<string> onSubmit)
         {
-            var window = CreateInstance<MeshBlendShapeSelectionNamePrompt>();
+            var window = CreateInstance<BlendShapeSelectionNamePrompt>();
             window.titleContent = new GUIContent(title);
             window.value = initialValue ?? string.Empty;
             window.onSubmit = onSubmit;
@@ -22,20 +22,20 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
         private void OnGUI()
         {
-            EditorGUILayout.LabelField("Selection Name", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(Localization.G("data.blendshape_selection.name_prompt"), EditorStyles.boldLabel);
             GUI.SetNextControlName("SelectionNameField");
             value = EditorGUILayout.TextField(value);
 
             GUILayout.Space(8f);
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Cancel"))
+            if (GUILayout.Button(Localization.S("data.dialog.cancel")))
             {
                 Close();
                 GUIUtility.ExitGUI();
             }
 
             EditorGUI.BeginDisabledGroup(string.IsNullOrWhiteSpace(value));
-            if (GUILayout.Button("Save"))
+            if (GUILayout.Button(Localization.S("data.dialog.save")))
             {
                 string trimmedValue = value.Trim();
                 Close();
