@@ -365,6 +365,56 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             return selection;
         }
 
+        private void DeleteMeshSelection(
+            BlendShapeDataSO dataAsset,
+            MeshData meshData,
+            BlendShapeSelectionSO selection)
+        {
+            if (selection == null)
+            {
+                return;
+            }
+
+            string selectionName = selection.DisplayName;
+            bool confirmed = EditorUtility.DisplayDialog(
+                Localization.S("data.blendshape_selection.delete_title"),
+                Localization.SF("data.blendshape_selection.delete_message", selectionName),
+                Localization.S("data.dialog.delete"),
+                Localization.S("data.dialog.cancel"));
+
+            if (!confirmed)
+            {
+                return;
+            }
+
+            if (workingSelectionSourcesByMeshName != null)
+            {
+                var keys = workingSelectionSourcesByMeshName
+                    .Where(entry => entry.Value == selection)
+                    .Select(entry => entry.Key)
+                    .ToArray();
+
+                foreach (var key in keys)
+                {
+                    workingSelectionSourcesByMeshName.Remove(key);
+                }
+            }
+
+            if (Selection.activeObject == selection)
+            {
+                Selection.activeObject = dataAsset;
+            }
+
+            UnityEngine.Object.DestroyImmediate(selection, true);
+            EditorUtility.SetDirty(dataAsset);
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+            RefreshMeshSelections(dataAsset);
+            SetWorkingSelectionSource(meshData.m_MeshName, null);
+            serializedObject.Update();
+            Repaint();
+        }
+
         private void LoadShapeNamesIntoWorkingSet(
             BlendShapeDataSO dataAsset,
             MeshData meshData,
@@ -526,16 +576,47 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             EditorGUILayout.BeginVertical(GUI.skin.box);
             EditorGUILayout.LabelField(Localization.G("data.blendshape_selection.title"), EditorStyles.boldLabel);
 
+            BlendShapeSelectionSO selectedSelection =
+                displayedPopupIndex > 0 && displayedPopupIndex <= selections.Count
+                    ? selections[displayedPopupIndex - 1]
+                    : null;
+
             Rect selectionRowRect = EditorGUILayout.GetControlRect();
             Rect popupRect = EditorGUI.PrefixLabel(
                 selectionRowRect,
                 GUIUtility.GetControlID(FocusType.Passive),
                 Localization.G("data.blendshape_selection.active"));
 
+            Rect deleteButtonRect = Rect.zero;
+            if (!readOnlyMode)
+            {
+                GUIContent deleteSelectionContent = Localization.G("data.blendshape_selection.delete");
+                float deleteButtonWidth = Mathf.Min(
+                    Mathf.Max(64f, GUI.skin.button.CalcSize(deleteSelectionContent).x + 12f),
+                    popupRect.width * 0.4f);
+                deleteButtonRect = new Rect(
+                    popupRect.xMax - deleteButtonWidth,
+                    popupRect.y,
+                    deleteButtonWidth,
+                    popupRect.height);
+                popupRect.xMax = deleteButtonRect.x - 4f;
+            }
+
             int updatedSelectionIndex = EditorGUI.Popup(
                 popupRect,
                 Mathf.Clamp(displayedPopupIndex, 0, Mathf.Max(0, optionNames.Length - 1)),
                 optionNames);
+
+            if (!readOnlyMode)
+            {
+                EditorGUI.BeginDisabledGroup(selectedSelection == null);
+                if (GUI.Button(deleteButtonRect, Localization.G("data.blendshape_selection.delete")))
+                {
+                    DeleteMeshSelection(dataAsset, meshData, selectedSelection);
+                    GUIUtility.ExitGUI();
+                }
+                EditorGUI.EndDisabledGroup();
+            }
 
             if (updatedSelectionIndex != displayedPopupIndex)
             {
@@ -579,11 +660,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 LoadPopupSelectionChoice(dataAsset, meshData, selections, updatedSelectionIndex);
                 GUIUtility.ExitGUI();
             }
-
-            BlendShapeSelectionSO selectedSelection =
-                displayedPopupIndex > 0 && displayedPopupIndex <= selections.Count
-                    ? selections[displayedPopupIndex - 1]
-                    : null;
 
             if (selectedSelection != null)
             {

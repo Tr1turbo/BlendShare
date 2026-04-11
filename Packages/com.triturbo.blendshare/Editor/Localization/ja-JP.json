@@ -96,6 +96,10 @@
   "data.blendshape_selection.save_as_new": "新規として保存...",
   "data.blendshape_selection.save_title": "シェイプキー選択を保存",
   "data.blendshape_selection.name_prompt": "選択名",
+  "data.blendshape_selection.delete": "削除",
+  "data.blendshape_selection.delete.tooltip": "現在保存されている選択を削除します。現在有効なシェイプキーのリストは変更されません。",
+  "data.blendshape_selection.delete_title": "シェイプキー選択を削除",
+  "data.blendshape_selection.delete_message": "選択「{0}」を削除しますか？現在有効なシェイプキーのリストは変更されません。",
   "blendshape_selection.title": "シェイプキー選択",
   "blendshape_selection.name": "名前",
   "blendshape_selection.mesh_name": "メッシュ名",
@@ -106,6 +110,7 @@
 
   "data.dialog.ok": "OK",
   "data.dialog.yes": "はい",
+  "data.dialog.delete": "削除",
   "data.dialog.save": "保存",
   "data.dialog.discard": "破棄",
   "data.dialog.cancel": "キャンセル",
