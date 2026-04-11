@@ -100,6 +100,10 @@
   "data.blendshape_selection.save_as_new": "Save As New...",
   "data.blendshape_selection.save_title": "Save BlendShape Selection",
   "data.blendshape_selection.name_prompt": "Selection Name",
+  "data.blendshape_selection.delete": "Delete",
+  "data.blendshape_selection.delete.tooltip": "Delete the active saved selection. The current enabled BlendShape list stays unchanged.",
+  "data.blendshape_selection.delete_title": "Delete BlendShape Selection",
+  "data.blendshape_selection.delete_message": "Delete selection '{0}'? The current enabled BlendShape list will stay unchanged.",
   "blendshape_selection.title": "BlendShape Selection",
   "blendshape_selection.name": "Name",
   "blendshape_selection.mesh_name": "Mesh Name",
@@ -110,6 +114,7 @@
 
   "data.dialog.ok": "OK",
   "data.dialog.yes": "Yes",
+  "data.dialog.delete": "Delete",
   "data.dialog.save": "Save",
   "data.dialog.discard": "Discard",
   "data.dialog.cancel": "Cancel",
