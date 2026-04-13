@@ -1,5 +1,17 @@
 # BlendShare Changelog
 
+## [1.0.4] - 2026/04/13
+
+### Added
+- `BlendShapeData` inspector: Added an editable BlendShape mode switch for manual reorder editing and bulk toggle editing.
+- `BlendShapeData` inspector: Added search and filter controls, plus enable/mute actions for visible or all BlendShapes on a mesh.
+- `BlendShapeData` inspector: Added click-drag bulk toggling across BlendShape rows.
+- Saved BlendShape selections can now be stored as sub-assets, with actions to save as new, save changes, revert changes, load a selection, and delete a selection.
+
+### Changed
+- Selected BlendShape names are now sanitized to remove missing, duplicate, or invalid entries.
+- Generated mesh sub-assets are now preserved by updating same-name meshes in place instead of recreating every mesh.
+
 ## [1.0.3] - 2025/11/03
 
 ### Fixed
