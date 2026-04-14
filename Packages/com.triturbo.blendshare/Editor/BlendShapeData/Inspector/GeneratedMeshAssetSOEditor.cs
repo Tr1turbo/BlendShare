@@ -12,6 +12,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         private SerializedProperty originalFbxProp;
         private SerializedProperty originalHashProp;
         private SerializedProperty appliedBlendShapesProp;
+        private SerializedProperty appliedBlendSharesProp;
         
         private string currentFbxHash = "";
 
@@ -21,6 +22,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             originalFbxProp = serializedObject.FindProperty("m_OriginalFbxAsset");
             originalHashProp = serializedObject.FindProperty("m_OriginalFbxHash");
             appliedBlendShapesProp = serializedObject.FindProperty("m_AppliedBlendShapes");
+            appliedBlendSharesProp = serializedObject.FindProperty("m_AppliedBlendShares");
             
             currentFbxHash =  GeneratedMeshAssetSO.CalculateHash(originalFbxProp.objectReferenceValue);
             // create a per-asset preference key so the edit-mode persists per asset
@@ -72,7 +74,27 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             
             if (isEditing)
             {
+                EditorGUILayout.PropertyField(appliedBlendSharesProp, new GUIContent("Applied BlendShare Objects"), true);
                 EditorGUILayout.PropertyField(appliedBlendShapesProp, Localization.G("mesh_asset.applied_blendshapes"), true);
+            }
+            else if (appliedBlendSharesProp.arraySize > 0)
+            {
+                EditorGUILayout.LabelField("Applied BlendShare Objects", EditorStyles.boldLabel);
+                EditorGUI.indentLevel++;
+                for (int i = 0; i < appliedBlendSharesProp.arraySize; i++)
+                {
+                    var element = appliedBlendSharesProp.GetArrayElementAtIndex(i);
+                    var obj = element.objectReferenceValue;
+                    if (obj is BlendShareObject share)
+                    {
+                        EditorGUILayout.ObjectField(share.m_DeformerID, obj, typeof(BlendShareObject), false);
+                    }
+                    else
+                    {
+                        EditorGUILayout.LabelField($"[{i}] (null)");
+                    }
+                }
+                EditorGUI.indentLevel--;
             }
             else if (appliedBlendShapesProp.arraySize > 0)
             {
@@ -176,5 +198,4 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         
     }
 }
-
 
