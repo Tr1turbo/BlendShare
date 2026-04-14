@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEditor;
 using Triturbo.BlendShapeShare.BlendShapeData;
@@ -186,33 +187,9 @@ namespace Triturbo.BlendShapeShare.Extractor
                     applyTranslate = applyTranslate,
                 };
 
-                BlendShapeDataSO so = BlendShapesExtractor.ExtractBlendShapes(sourceFBX, originFBX, meshDataList, blendShapesExtractorOptions);
-
-
-                if (so == null)
-                {
-                    EditorUtility.DisplayDialog("Fail", "Blendshapes extraction failed.", "OK");
-                    return;
-                }
-
                 if (string.IsNullOrWhiteSpace(defaultName))
                 {
                     defaultName = sourceFBX.name;
-                }
-
-                
-                foreach (var meshData in so.m_MeshDataList)
-                {
-                    if (meshData.m_VertexCount == -1 && meshData.m_VerticesHash == -1)
-                    {
-                        string msg = "Skip Unity blendshapes extraction. Fbx blendshapes still working.";
-                        if (!weldVertices)
-                        {
-                            msg += " Enable Weld Blendshape Vertices might fix the issue.";
-                        }
-                        EditorUtility.DisplayDialog("Unity vertices cannot match", "Skip Unity blendshapes extraction. Fbx blendshapes still working.", "OK");
-                        break;
-                    }
                 }
 
                 string path = "";
@@ -233,12 +210,36 @@ namespace Triturbo.BlendShapeShare.Extractor
                     break;
                 }
 
-                so.m_DefaultGeneratedAssetName = defaultName;
-                so.m_DeformerID = "+BlendShare-" + defaultName;
-                
-                AssetDatabase.CreateAsset(so, path);
-                AssetDatabase.SaveAssets();
-                AssetDatabase.Refresh();
+                BlendShareObject blendShare = BlendShareExtractionService.ExtractAndSaveBlendShapes(
+                    sourceFBX,
+                    originFBX,
+                    meshDataList,
+                    blendShapesExtractorOptions,
+                    path,
+                    defaultName);
+
+                if (blendShare == null)
+                {
+                    EditorUtility.DisplayDialog("Fail", "Blendshapes extraction failed.", "OK");
+                    return;
+                }
+
+                foreach (var meshData in blendShare.Meshes)
+                {
+                    if ((meshData.m_Mappings ?? System.Array.Empty<UnityMeshVerticesMappingObject>())
+                        .Any(mapping => mapping != null &&
+                                        mapping.m_UnityVertexCount == -1 &&
+                                        mapping.m_UnityVerticesHash == -1))
+                    {
+                        string msg = "Skip Unity blendshapes extraction. Fbx blendshapes still working.";
+                        if (!weldVertices)
+                        {
+                            msg += " Enable Weld Blendshape Vertices might fix the issue.";
+                        }
+                        EditorUtility.DisplayDialog("Unity vertices cannot match", msg, "OK");
+                        break;
+                    }
+                }
             }
             EditorGUI.EndDisabledGroup();
 

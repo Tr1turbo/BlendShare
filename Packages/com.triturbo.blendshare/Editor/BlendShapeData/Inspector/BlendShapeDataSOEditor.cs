@@ -1000,6 +1000,17 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             Localization.DrawLanguageSelection();
             EditorGUILayout.Separator();
 
+            EditorGUILayout.HelpBox("This is a legacy BlendShapeDataSO asset. Use the new BlendShareObject format for new workflows.", MessageType.Info);
+            if (GUILayout.Button("Upgrade to BlendShareObject"))
+            {
+                var upgraded = BlendShareUpgradeService.UpgradeSideBySide(dataAsset);
+                if (upgraded != null)
+                {
+                    Selection.activeObject = upgraded;
+                }
+            }
+            EditorGUILayout.Separator();
+
             EditorGUI.BeginDisabledGroup(readOnlyMode);
             EditorWidgets.FBXGameObjectField(Localization.G("data.original_fbx"), originalFbxProperty);
             EditorGUI.EndDisabledGroup();
