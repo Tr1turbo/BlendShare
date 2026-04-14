@@ -18,6 +18,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         public GameObject m_OriginalFbxAsset;
         public string m_OriginalFbxHash;
         public BlendShapeDataSO[]  m_AppliedBlendShapes;
+        public BlendShareObject[] m_AppliedBlendShares;
         
         
         
@@ -232,6 +233,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 asset.m_OriginalFbxAsset = originalFbx;
                 asset.m_OriginalFbxHash = CalculateHash(originalFbx);
                 asset.m_AppliedBlendShapes = appliedBlendShapes;
+                asset.m_AppliedBlendShares = Array.Empty<BlendShareObject>();
                 EditorUtility.SetDirty(asset);
 
                 var existingMeshesByName = AssetDatabase.LoadAllAssetRepresentationsAtPath(path)
@@ -277,6 +279,62 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             }
             return asset;
         }
+
+        public static GeneratedMeshAssetSO SaveBlendShareMeshesToAsset(
+            GameObject originalFbx,
+            IEnumerable<BlendShareObject> appliedBlendShares,
+            IEnumerable<Mesh> meshes,
+            string path)
+        {
+            var asset = SaveMeshesToAsset(originalFbx, Enumerable.Empty<BlendShapeDataSO>(), meshes, path);
+            if (asset == null)
+            {
+                return null;
+            }
+
+            asset.m_AppliedBlendShares = appliedBlendShares?.Where(share => share != null).Distinct().ToArray()
+                                        ?? Array.Empty<BlendShareObject>();
+            EditorUtility.SetDirty(asset);
+            AssetDatabase.SaveAssets();
+            return asset;
+        }
+
+        public static GeneratedMeshAssetSO SaveBlendShareMeshesToAsset(
+            GameObject originalFbx,
+            IEnumerable<BlendShareObject> appliedBlendShares,
+            string meshContainerAssetPath,
+            string path)
+        {
+            Object[] allAssets = AssetDatabase.LoadAllAssetsAtPath(meshContainerAssetPath);
+            if (allAssets == null)
+            {
+                return null;
+            }
+
+            var blendShareArray = appliedBlendShares?.Where(share => share != null).Distinct().ToArray()
+                                  ?? Array.Empty<BlendShareObject>();
+            var uniqueMeshNames = blendShareArray
+                .Where(share => share != null)
+                .SelectMany(share => share.Meshes)
+                .Where(meshData => meshData != null)
+                .Select(meshData => meshData.m_MeshName)
+                .Distinct()
+                .ToArray();
+
+            var meshesList = new List<Mesh>(uniqueMeshNames.Length);
+            foreach (var meshName in uniqueMeshNames)
+            {
+                Mesh targetMesh = allAssets
+                    .OfType<Mesh>()
+                    .FirstOrDefault(mesh => mesh.name == meshName);
+                if (targetMesh != null)
+                {
+                    meshesList.Add(targetMesh);
+                }
+            }
+
+            return SaveBlendShareMeshesToAsset(originalFbx, blendShareArray, meshesList, path);
+        }
         
         
         public static string CalculateHash(Object obj)
@@ -299,4 +357,3 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         }
     }
 }
-
