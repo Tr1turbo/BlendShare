@@ -18,74 +18,29 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 {
     public static class BlendShapeAppender
     {
+        public static GeneratedMeshAssetSO CreateMeshAsset(Object targetMeshContainer, IEnumerable<BlendShareObject> blendShares, string path)
+        {
+            return BlendShareGenerationService.CreateMeshAsset(targetMeshContainer, blendShares, path);
+        }
+
         // targetMeshContainer can be an FBX or GeneratedMeshAssetSO
+        [Obsolete("Use BlendShareGenerationService.CreateMeshAsset(Object, IEnumerable<BlendShareObject>, string) instead.")]
         public static GeneratedMeshAssetSO CreateMeshAsset(Object targetMeshContainer, IEnumerable<BlendShapeDataSO> blendShapes, string path)
         {
-            blendShapes = blendShapes.ToList();
-            
-            Dictionary<string, Mesh> targetMeshes =  MeshUtil.GetMeshes(targetMeshContainer);
-            Dictionary<string, Mesh> generatedMeshes = new();
-
-            List<BlendShapeDataSO> appliedBlendShapes;
-            
-            var targetFbx = targetMeshContainer as GameObject;
-            if (targetMeshContainer is GeneratedMeshAssetSO so)
-            {
-                targetFbx = so.m_OriginalFbxAsset;
-                appliedBlendShapes = so.m_AppliedBlendShapes
-                    .Concat(blendShapes)
-                    .Where(b => b != null)
-                    .Distinct() // Prevent duplicates by reference
-                    .ToList();            }
-            else
-            {
-                appliedBlendShapes = blendShapes.ToList();
-            }
-
-            if (targetFbx != null && !IsAllMeshesValid(blendShapes, targetMeshes.Values))
-            {
-                // If invalid, rebuild the FBX immediately
-                string folder = System.IO.Path.GetDirectoryName(path) ?? Application.dataPath;
-                string tempAssetPath = System.IO.Path.Combine(folder, $"{targetMeshContainer.name}-{System.Guid.NewGuid().ToString()}.fbx");
-                
-                if (!CreateFbx(targetFbx, appliedBlendShapes, tempAssetPath, true))
-                {
-                    Debug.LogError("Failed to create blendshapes fbx.");
-                    return null;
-                }
-                var result = GeneratedMeshAssetSO.SaveMeshesToAsset(targetFbx, appliedBlendShapes, tempAssetPath, path); 
-                AssetDatabase.MoveAssetToTrash(tempAssetPath);
-                return result;
-            }
-            
-            foreach (BlendShapeDataSO data in blendShapes)
-            {
-                foreach (var meshData in data.m_MeshDataList)
-                {
-                    if (!generatedMeshes.TryGetValue(meshData.m_MeshName, out Mesh targetMesh))
-                    {
-                        targetMesh = targetMeshes.GetValueOrDefault(meshData.m_MeshName) ?? meshData.m_OriginMesh;
-                    }
-                    var mesh = CreateBlendShapesMesh(meshData, targetMesh);
-                    if (mesh == null)
-                    {
-                        Debug.LogError($"Failed to create blendshapes mesh for {meshData.m_MeshName} in {data.name}");
-                        continue;
-                    }
-                
-                    mesh.name = meshData.m_MeshName;
-                    
-                    generatedMeshes[meshData.m_MeshName] = mesh;
-                }
-            }
-
-            if (generatedMeshes.Count == 0)
-            {
-                return null;
-            }
-            return GeneratedMeshAssetSO.SaveMeshesToAsset(targetFbx, appliedBlendShapes, generatedMeshes.Values, path);
+            var upgraded = blendShapes?
+                .Where(blendShape => blendShape != null)
+                .Select(BlendShareUpgradeService.UpgradeSideBySide)
+                .Where(blendShare => blendShare != null)
+                .ToArray() ?? Array.Empty<BlendShareObject>();
+            return BlendShareGenerationService.CreateMeshAsset(targetMeshContainer, upgraded, path);
         }
         
+        public static GeneratedMeshAssetSO CreateMeshAsset(this BlendShareObject so, string path)
+        {
+            return CreateMeshAsset(so.m_Original, new[] { so }, path);
+        }
+
+        [Obsolete("Use BlendShareObject.CreateMeshAsset compatibility overload or BlendShareGenerationService instead.")]
         public static GeneratedMeshAssetSO CreateMeshAsset(this BlendShapeDataSO so, string path)
         {
             return CreateMeshAsset(so.m_Original, new[]{so}, path);
@@ -170,17 +125,20 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             }
             return newMesh;
         }
+        public static bool IsAllMeshesValid(IEnumerable<BlendShareObject> blendShares, IEnumerable<Mesh> meshes)
+        {
+            return BlendShareGenerationService.IsAllMeshesValid(blendShares, meshes);
+        }
+
+        [Obsolete("Use BlendShareGenerationService.IsAllMeshesValid(IEnumerable<BlendShareObject>, IEnumerable<Mesh>) instead.")]
         public static bool IsAllMeshesValid(IEnumerable<BlendShapeDataSO> blendShapes, IEnumerable<Mesh> meshes)
         {
-            List<Mesh> meshList = meshes.ToList();
-            foreach (BlendShapeDataSO data in blendShapes) { 
-                foreach (var meshData in data.m_MeshDataList)
-                {
-                    var targetMesh =  meshList.FirstOrDefault(m => m.name == meshData.m_MeshName) ?? meshData.m_OriginMesh;
-                    if (!meshData.IsValidTarget(targetMesh)) return false;
-                } 
-            }
-            return true;
+            var upgraded = blendShapes?
+                .Where(blendShape => blendShape != null)
+                .Select(BlendShareUpgradeService.ConvertLegacy)
+                .Where(blendShare => blendShare != null)
+                .ToArray() ?? Array.Empty<BlendShareObject>();
+            return BlendShareGenerationService.IsAllMeshesValid(upgraded, meshes);
         }
 
         #endregion
@@ -208,177 +166,43 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         /// It creates an FBX scene, imports the source FBX, applies blend shape data to matching mesh nodes,  
         /// optionally removes unmodified meshes, and then exports the updated scene to the specified path.
         /// </remarks>
+        public static bool CreateFbx(GameObject source, IEnumerable<BlendShareObject> blendShares, string outputPath = null, bool onlyNecessary = false)
+        {
+            return BlendShareGenerationService.CreateFbx(source, blendShares, outputPath, onlyNecessary);
+        }
+
+        [Obsolete("Use BlendShareGenerationService.CreateFbx(GameObject, IEnumerable<BlendShareObject>, string, bool) instead.")]
         public static bool CreateFbx(GameObject source, IEnumerable<BlendShapeDataSO> blendShapes, string outputPath = null, bool onlyNecessary = false)
         {
-#if !ENABLE_FBX_SDK
-            return false;
-#endif
-
-            var fbxManager = FbxManager.Create();
-            var ios = FbxIOSettings.Create(fbxManager, Globals.IOSROOT);
-            fbxManager.SetIOSettings(ios);
-            var scene = FbxScene.Create(fbxManager, source.name);
-
-            if (EditorUtility.DisplayCancelableProgressBar("TransferFbxBlendshapes", "Create FBX scene...", 0))
-            {
-                EditorUtility.ClearProgressBar();
-                return false;
-            }
-            FbxImporter fbxImporter = FbxImporter.Create(fbxManager, "");
-            int pFileFormat = fbxManager.GetIOPluginRegistry().FindWriterIDByDescription("FBX binary (*.fbx)");
-
-            if (EditorUtility.DisplayCancelableProgressBar("TransferFbxBlendshapes", "Import source FBX...", 0.1f))
-            {
-                EditorUtility.ClearProgressBar();
-                return false;
-            }
-
-            if (!fbxImporter.Initialize(AssetDatabase.GetAssetPath(source), pFileFormat, fbxManager.GetIOSettings()))
-            {
-                return false;
-            }
-            fbxImporter.Import(scene);
-            fbxImporter.Destroy();
-
-            if (EditorUtility.DisplayCancelableProgressBar("TransferFbxBlendshapes", "Getting Root Node...", 0.4f))
-            {
-                EditorUtility.ClearProgressBar();
-                return false;
-            }
-            var sourceRootNode = scene.GetRootNode();
-
-            
-            HashSet<FbxNode> modifiedNode = new();
-            foreach (var so in blendShapes)
-            {
-                foreach (var meshData in so.m_MeshDataList)
-                {
-                    FbxNode node = sourceRootNode.FindMeshChild(meshData.m_MeshName);
-                    AddBlendShapes(so, meshData, node);
-                    modifiedNode.Add(node);
-                }
-            }
-            
-            if (onlyNecessary)
-                DeleteFbxNodesWithMesh(sourceRootNode, modifiedNode, false);
-
-            
-            var exporter = FbxExporter.Create(fbxManager, "");
-
-            if (string.IsNullOrWhiteSpace(outputPath))
-            {
-                outputPath = AssetDatabase.GetAssetPath(source);
-            }
-            else
-            {
-                AssetDatabase.CopyAsset(AssetDatabase.GetAssetPath(source), outputPath);
-            }
-            AssetDatabase.Refresh();
-
-            if (exporter.Initialize(outputPath, pFileFormat, fbxManager.GetIOSettings()) == false)
-            {
-                Debug.LogError("Exporter Initialize failed.");
-                return false;
-            }
-            exporter.Export(scene);
-            exporter.Destroy();
-
-            AssetDatabase.Refresh();
-            EditorUtility.ClearProgressBar();
-            return true;
+            var upgraded = blendShapes?
+                .Where(blendShape => blendShape != null)
+                .Select(BlendShareUpgradeService.UpgradeSideBySide)
+                .Where(blendShare => blendShare != null)
+                .ToArray() ?? Array.Empty<BlendShareObject>();
+            return BlendShareGenerationService.CreateFbx(source, upgraded, outputPath, onlyNecessary);
         }
         
+        public static bool CreateFbx(this BlendShareObject so, GameObject source, string outputPath = null)
+        {
+            return CreateFbx(source, new[] { so }, outputPath, false);
+        }
+
+        [Obsolete("Use BlendShareObject CreateFbx overload or BlendShareGenerationService instead.")]
         public static bool CreateFbx(this BlendShapeDataSO so, GameObject source, string outputPath = null)
         {
             return CreateFbx(source, new[] { so }, outputPath, false);
         }
         
+        public static bool RemoveBlendShapes(this BlendShareObject so, GameObject target, bool removeInAllDeformer = true)
+        {
+            return BlendShareGenerationService.RemoveBlendShapes(so, target, removeInAllDeformer);
+        }
+
+        [Obsolete("Use BlendShareGenerationService.RemoveBlendShapes(BlendShareObject, GameObject, bool) instead.")]
         public static bool RemoveBlendShapes(this BlendShapeDataSO so, GameObject target, bool removeInAllDeformer = true)
         {
-#if !ENABLE_FBX_SDK
-            return false;
-#endif
-            var fbxManager = FbxManager.Create();
-            var ios = FbxIOSettings.Create(fbxManager, Globals.IOSROOT);
-            fbxManager.SetIOSettings(ios);
-            var scene = FbxScene.Create(fbxManager, target.name);
-
-            if (EditorUtility.DisplayCancelableProgressBar("RemoveBlendShapes", "Create FBX scene...", 0))
-            {
-                EditorUtility.ClearProgressBar();
-                return false;
-            }
-            FbxImporter fbxImporter = FbxImporter.Create(fbxManager, "");
-            int pFileFormat = fbxManager.GetIOPluginRegistry().FindWriterIDByDescription("FBX binary (*.fbx)");
-
-            if (EditorUtility.DisplayCancelableProgressBar("RemoveBlendShapes", "Import source FBX...", 0.1f))
-            {
-                EditorUtility.ClearProgressBar();
-                return false;
-            }
-
-            if (!fbxImporter.Initialize(AssetDatabase.GetAssetPath(target), pFileFormat, fbxManager.GetIOSettings()))
-            {
-                return false;
-            }
-
-            fbxImporter.Import(scene);
-            fbxImporter.Destroy();
-
-            if (EditorUtility.DisplayCancelableProgressBar("RemoveBlendShapes", "Getting Root Node...", 0.4f))
-            {
-                EditorUtility.ClearProgressBar();
-                return false;
-            }
-            var sourceRootNode = scene.GetRootNode();
-
-
-
-            foreach (var meshData in so.m_MeshDataList)
-            {
-                FbxNode node = sourceRootNode.FindMeshChild(meshData.m_MeshName);
-                FbxMesh sourceMesh = node?.GetMesh();
-                if (sourceMesh == null)
-                {
-                    Debug.LogError($"Can not find mesh: {meshData.m_MeshName} in FBX file");
-                    continue;
-                }
-
-                if (sourceMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape) < 1)
-                {
-                    continue;
-                }
-
-                so.GetDeformer(sourceMesh, false)?.Destroy();
-                if (removeInAllDeformer)
-                {
-                    for (int i = 0; i < sourceMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape); i++)
-                    {
-                        var deformer = sourceMesh.GetBlendShapeDeformer(i);
-                        for (int j = deformer.GetBlendShapeChannelCount() - 1; j >= 0; j--)
-                        {
-                            var name = deformer.GetBlendShapeChannel(j).GetName();
-                            if (meshData.ContainsBlendShape(name))
-                            {
-                                deformer.RemoveBlendShapeChannel(deformer.GetBlendShapeChannel(j));
-
-                            }
-                        }
-                    }
-                }
-            }
-            var exporter = FbxExporter.Create(fbxManager, "");
-            if (exporter.Initialize(AssetDatabase.GetAssetPath(target), pFileFormat, fbxManager.GetIOSettings()) == false)
-            {
-                Debug.LogError("Exporter Initialize failed.");
-                return false;
-            }
-            exporter.Export(scene);
-            exporter.Destroy();
-
-            AssetDatabase.Refresh();
-            EditorUtility.ClearProgressBar();
-            return true;
+            var upgraded = BlendShareUpgradeService.UpgradeSideBySide(so);
+            return BlendShareGenerationService.RemoveBlendShapes(upgraded, target, removeInAllDeformer);
         }
 
         #region Private Methods
@@ -514,4 +338,3 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         #endregion
     }
 }
-
