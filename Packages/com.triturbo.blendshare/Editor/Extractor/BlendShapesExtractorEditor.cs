@@ -226,7 +226,7 @@ namespace Triturbo.BlendShapeShare.Extractor
 
                 foreach (var meshData in blendShare.Meshes)
                 {
-                    if ((meshData.m_Mappings ?? System.Array.Empty<UnityMeshVerticesMappingObject>())
+                    if ((meshData.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
                         .Any(mapping => mapping != null &&
                                         mapping.m_UnityVertexCount == -1 &&
                                         mapping.m_UnityVerticesHash == -1))

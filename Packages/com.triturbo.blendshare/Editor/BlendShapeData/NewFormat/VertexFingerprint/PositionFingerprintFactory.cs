@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using Triturbo.BlendShapeShare.FbxReader;
 
 namespace Triturbo.BlendShapeShare.BlendShapeData
 {
@@ -21,7 +22,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         }
 
         private static PositionFingerprint[] CreateFromFbxPositions(
-            Vector3[] basePositions,
+            Vector3d[] basePositions,
             FbxBlendShapeData[] blendShapes,
             float importScale)
         {
@@ -41,7 +42,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 {
                     fingerprints[fbxIndex].SetRelativeSample(
                         currentSampleIndex,
-                       ToVector3(frame?.GetDeltaControlPointAt(fbxIndex) ?? Vector4d.zero) * importScale);
+                       ToVector3(frame?.GetDeltaControlPointAt(fbxIndex) ?? Vector3d.zero) * importScale);
                 }
             }
 
@@ -102,6 +103,24 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         private static PositionFingerprint[] CreateFingerprints(
             int vertexCount,
             int sampleCount,
+            Vector3d[] basePositions,
+            float basePositionScale)
+        {
+            var fingerprints = new PositionFingerprint[Mathf.Max(0, vertexCount)];
+            for (int vertexIndex = 0; vertexIndex < fingerprints.Length; vertexIndex++)
+            {
+                Vector3 basePosition = basePositions != null && vertexIndex < basePositions.Length
+                    ? ToVector3(basePositions[vertexIndex]) * basePositionScale
+                    : Vector3.zero;
+                fingerprints[vertexIndex] = new PositionFingerprint(basePosition, new Vector3[sampleCount]);
+            }
+
+            return fingerprints;
+        }
+
+        private static PositionFingerprint[] CreateFingerprints(
+            int vertexCount,
+            int sampleCount,
             Vector3[] basePositions,
             float basePositionScale)
         {
@@ -131,9 +150,9 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             return frame != null;
         }
 
-        private static Vector3 ToVector3(Vector4d value)
+        private static Vector3 ToVector3(Vector3d value)
         {
-            return new Vector3((float)value.m_X, (float)value.m_Y, (float)value.m_Z);
+            return new Vector3((float)value.x, (float)value.y, (float)value.z);
         }
     }
 }

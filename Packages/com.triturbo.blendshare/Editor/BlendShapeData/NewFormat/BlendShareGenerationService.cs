@@ -173,7 +173,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
         private static UnityBlendShapeData CreateUnityBlendShapeData(MeshDataObject meshData, BlendShapeRecord blendShape, Mesh targetMesh)
         {
-            var mapping = (meshData.m_Mappings ?? System.Array.Empty<UnityMeshVerticesMappingObject>())
+            var mapping = (meshData.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
                 .FirstOrDefault(candidate => candidate != null && candidate.IsValidFor(targetMesh));
 
             if (mapping != null)
@@ -181,7 +181,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 return CreateUnityBlendShapeDataFromMapping(mapping, blendShape, targetMesh.vertexCount);
             }
 
-            var cacheMapping = (meshData.m_Mappings ?? System.Array.Empty<UnityMeshVerticesMappingObject>())
+            var cacheMapping = (meshData.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
                 .FirstOrDefault(candidate => candidate != null &&
                                              candidate.MatchesUnityMesh(targetMesh) &&
                                              candidate.GetCachedBlendShape(blendShape.m_Name) != null);
@@ -189,7 +189,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         }
 
         private static UnityBlendShapeData CreateUnityBlendShapeDataFromMapping(
-            UnityMeshVerticesMappingObject mapping,
+            UnityVertexMappingObject mapping,
             BlendShapeRecord blendShape,
             int unityVertexCount)
         {
@@ -214,7 +214,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                     }
 
                     var delta = frames[frameIndex].GetDeltaControlPointAt(fbxIndex);
-                    deltaVertices[unityIndex] = new Vector3((float)delta.m_X, (float)delta.m_Y, (float)delta.m_Z) *
+                    deltaVertices[unityIndex] = new Vector3((float)delta.x, (float)delta.y, (float)delta.z) *
                                                 mapping.FbxToUnityScale;
                 }
 
@@ -445,7 +445,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 for (int pointIndex = 0; pointIndex < controlPointCount; pointIndex++)
                 {
                     var delta = frame.GetDeltaControlPointAt(pointIndex);
-                    var controlPoint = mesh.GetControlPointAt(pointIndex) + new FbxVector4(delta.m_X, delta.m_Y, delta.m_Z, delta.m_W);
+                    var controlPoint = mesh.GetControlPointAt(pointIndex) + new FbxVector4(delta.x, delta.y, delta.z, 0.0);
                     newShape.SetControlPointAt(controlPoint, pointIndex);
                 }
 

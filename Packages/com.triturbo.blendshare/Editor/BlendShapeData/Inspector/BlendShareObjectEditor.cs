@@ -75,7 +75,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
         private void DrawMappings(MeshDataObject mesh)
         {
-            var mappings = mesh.m_Mappings ?? System.Array.Empty<UnityMeshVerticesMappingObject>();
+            var mappings = mesh.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>();
             EditorGUILayout.LabelField("Unity Mappings", mappings.Length.ToString());
             EditorGUI.indentLevel++;
             foreach (var mapping in mappings)

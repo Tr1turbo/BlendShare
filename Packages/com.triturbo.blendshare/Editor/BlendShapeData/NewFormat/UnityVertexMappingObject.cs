@@ -29,7 +29,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         }
     }
 
-    public class UnityMeshVerticesMappingObject : UpgradableScriptableObject
+    public class UnityVertexMappingObject : UpgradableScriptableObject
     {
         protected override int CurrentVersion => 2;
 

@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using UnityEditor.AssetImporters;
 using UnityEngine;
+using Triturbo.BlendShapeShare.FbxReader;
 
 
 namespace Triturbo.BlendShapeShare.BlendShapeData
@@ -28,6 +29,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             foreach (var meshData in m_MeshDataList)
             {
                 meshData?.SanitizeShapeNames();
+                meshData?.MigrateLegacyFbxBlendShapeVectors();
             }
         }
 
@@ -177,6 +179,14 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             return true;
         }
 
+        internal void MigrateLegacyFbxBlendShapeVectors()
+        {
+            foreach (var blendShape in m_BlendShapes ?? new List<BlendShapeWrapper>())
+            {
+                blendShape?.m_FbxBlendShapeData?.MigrateLegacyVectors();
+            }
+        }
+
         public bool AddBlendShape(BlendShapeWrapper blendShapeWrapper)
         {
             if (!ContainsBlendShape(blendShapeWrapper.m_ShapeName))
@@ -309,6 +319,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
     }
 
     
+    [System.Obsolete("Vector4d is kept only for deserializing legacy FBX blendshape data. Use Vector3d.")]
     [System.Serializable]
     public class Vector4d
     {
@@ -351,46 +362,83 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
             this.m_Frames = frames;
         }
+
+        public void MigrateLegacyVectors()
+        {
+            foreach (var frame in m_Frames ?? System.Array.Empty<FbxBlendShapeFrame>())
+            {
+                frame?.MigrateLegacyVectors();
+            }
+        }
     }
     [System.Serializable]
     public class FbxBlendShapeFrame
     {
         public List<int> m_PointsIndices;
-        public List<Vector4d> m_DeltaControlPointsList;
+        public List<Vector3d> m_DeltaControlPoints;
 
-        public Dictionary<int, Vector4d> _deltaControlPointsDict;
+        [SerializeField, HideInInspector]
+        private List<Vector4d> m_DeltaControlPointsList;
+
+        public Dictionary<int, Vector3d> _deltaControlPointsDict;
 
 
 
         public FbxBlendShapeFrame()
         {
             m_PointsIndices = new List<int>();
-            m_DeltaControlPointsList = new List<Vector4d>();
+            m_DeltaControlPoints = new List<Vector3d>();
         }
 
-        public void AddDeltaControlPointAt(Vector4d controlPoint, int index)
+        public void AddDeltaControlPointAt(Vector3d controlPoint, int index)
         {
             m_PointsIndices.Add(index);
-            m_DeltaControlPointsList.Add(controlPoint);
+            m_DeltaControlPoints.Add(controlPoint);
+            _deltaControlPointsDict = null;
         }
 
-        public Vector4d GetDeltaControlPointAt(int index)
+        public Vector3d GetDeltaControlPointAt(int index)
         {
+            MigrateLegacyVectors();
+
             if(_deltaControlPointsDict == null)
             {
-                _deltaControlPointsDict = new Dictionary<int, Vector4d>();
-                for (int i = 0; i < m_PointsIndices.Count;i++)
+                _deltaControlPointsDict = new Dictionary<int, Vector3d>();
+                int count = System.Math.Min(m_PointsIndices?.Count ?? 0, m_DeltaControlPoints?.Count ?? 0);
+                for (int i = 0; i < count;i++)
                 {
-                    _deltaControlPointsDict.Add(m_PointsIndices[i], m_DeltaControlPointsList[i]);
+                    _deltaControlPointsDict[m_PointsIndices[i]] = m_DeltaControlPoints[i];
                 }
             }
 
-            if(!_deltaControlPointsDict.TryGetValue(index, out Vector4d point))
+            if(!_deltaControlPointsDict.TryGetValue(index, out Vector3d point))
             {
-                point = Vector4d.zero;
+                point = Vector3d.zero;
             }
 
             return point;
+        }
+
+        public void MigrateLegacyVectors()
+        {
+            m_PointsIndices ??= new List<int>();
+            m_DeltaControlPoints ??= new List<Vector3d>();
+
+            if ((m_DeltaControlPoints.Count == 0) && m_DeltaControlPointsList != null && m_DeltaControlPointsList.Count > 0)
+            {
+                foreach (var legacyPoint in m_DeltaControlPointsList)
+                {
+                    m_DeltaControlPoints.Add(legacyPoint == null
+                        ? Vector3d.zero
+                        : new Vector3d(legacyPoint.m_X, legacyPoint.m_Y, legacyPoint.m_Z));
+                }
+            }
+
+            if (m_DeltaControlPointsList != null)
+            {
+                m_DeltaControlPointsList = null;
+                _deltaControlPointsDict = null;
+            }
         }
 
     }
@@ -486,12 +534,12 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 if (deltaNormals[i] != Vector3.zero)
                 {
                     this.m_NormalIndices.Add(i);
-                    this.m_DeltaVertices.Add(deltaNormals[i]);
+                    this.m_DeltaNormals.Add(deltaNormals[i]);
                 }
                 if (deltaTangents[i] != Vector3.zero)
                 {
                     this.m_TangentIndices.Add(i);
-                    this.m_DeltaVertices.Add(deltaTangents[i]);
+                    this.m_DeltaTangents.Add(deltaTangents[i]);
                 }
             }
 

@@ -10,6 +10,10 @@ using System.Diagnostics;
 using Debug = UnityEngine.Debug;
 using System.Threading.Tasks;
 
+
+using Triturbo.BlendShapeShare.FbxReader;
+
+
 #if ENABLE_FBX_SDK
 using Autodesk.Fbx;
 using Triturbo.BlendShapeShare.Util;
@@ -631,7 +635,7 @@ namespace Triturbo.BlendShapeShare.Extractor
 
                     if (weldingGroup == null)
                     {
-                        var delta = new Vector4d(deltas[pointIndex].X, deltas[pointIndex].Y, deltas[pointIndex].Z, deltas[pointIndex].W);
+                        var delta = new Vector3d(deltas[pointIndex].X, deltas[pointIndex].Y, deltas[pointIndex].Z);
 
                         if (!delta.IsZero())
                             frames[shapeIndex].AddDeltaControlPointAt(delta, pointIndex);
@@ -642,7 +646,7 @@ namespace Triturbo.BlendShapeShare.Extractor
                 {
                     for (int i = 0; i < deltas.Length; i++)
                     {
-                        var delta = new Vector4d(deltas[i].X, deltas[i].Y, deltas[i].Z, deltas[i].W);
+                        var delta = new Vector3d(deltas[i].X, deltas[i].Y, deltas[i].Z);
                         if (!delta.IsZero())
                             frames[shapeIndex].AddDeltaControlPointAt(delta, i);
                     }
@@ -886,5 +890,4 @@ namespace Triturbo.BlendShapeShare.Extractor
     }
 
 }
-
 

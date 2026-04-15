@@ -237,7 +237,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 for (int pointIndex = 0; pointIndex < controlPointCount; pointIndex++)
                 {
                     var d = frame.GetDeltaControlPointAt(pointIndex);
-                    var controlPoint = mesh.GetControlPointAt(pointIndex) + new FbxVector4(d.m_X, d.m_Y, d.m_Z, d.m_W);
+                    var controlPoint = mesh.GetControlPointAt(pointIndex) + new FbxVector4(d.x, d.y, d.z, 0.0);
                     newShape.SetControlPointAt(controlPoint, pointIndex);
                 }
                 fbxBlendShapeChannel.AddTargetShape(newShape, 100.0 * (shapeIndex + 1) / shapeCount);
@@ -261,7 +261,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 for (int pointIndex = 0; pointIndex < controlPointCount; pointIndex++)
                 {
                     var d = frame.GetDeltaControlPointAt(pointIndex);
-                    var controlPoint = mesh.GetControlPointAt(pointIndex) + new FbxVector4(d.m_X, d.m_Y, d.m_Z, d.m_W);
+                    var controlPoint = mesh.GetControlPointAt(pointIndex) + new FbxVector4(d.x, d.y, d.z, 0.0);
                     newShape.SetControlPointAt(controlPoint, pointIndex);
                 }
                 
