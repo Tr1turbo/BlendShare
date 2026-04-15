@@ -1,6 +1,4 @@
-using System.Collections;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using UnityEngine;
 
@@ -8,10 +6,8 @@ using UnityEngine;
 namespace Triturbo.BlendShapeShare.BlendShapeData
 {
     [CreateAssetMenu(fileName = "BlendShareData", menuName = "BlendShare/BlendShareObject", order = 1)]
-    public class BlendShareObject : UpgradableScriptableObject
+    public class BlendShareObject : ScriptableObject
     {
-        protected override int CurrentVersion => 1;
-
         public GameObject m_Original;
         public string m_DefaultGeneratedAssetName;
         public bool m_Applied = false;
@@ -96,20 +92,8 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
             foreach (var mesh in m_Meshes)
             {
-                mesh.SanitizeShapeNames();
+                mesh.Sanitize();
             }
-        }
-
-        protected override void UpgradeStep(int fromVersion)
-        {
-            if (fromVersion == 0)
-            {
-                m_Meshes ??= new List<MeshDataObject>();
-                SetVersion(1);
-                return;
-            }
-
-            SetVersion(CurrentVersion);
         }
     }
 }

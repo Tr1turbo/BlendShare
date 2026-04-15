@@ -6,15 +6,11 @@ using Stopwatch = System.Diagnostics.Stopwatch;
 
 using Triturbo.BlendShapeShare.FbxReader;
 
-#if ENABLE_FBX_SDK
-using Autodesk.Fbx;
-#endif
-
 namespace Triturbo.BlendShapeShare.BlendShapeData
 {
     public static class UnityFbxVertexMappingBuilder
     {
-        private const float FingerprintEpsilon = 1e-6f;
+        private const float FingerprintEpsilon = 1e-5f;
         private const string LogPrefix = "[BlendShare Vertex Mapping]";
 
         public static UnityVertexMappingObject BuildFromLegacy(
@@ -83,7 +79,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             var mapping = ScriptableObject.CreateInstance<UnityVertexMappingObject>();
             mapping.m_UnityRendererPath = unityRendererPath;
             mapping.m_UnityVertexCount = unityVertexCount;
-            mapping.m_UnityVerticesHash = unityVerticesHash;
+            mapping.m_UnityVertexHash = UnityVertexPositionHash.Calculate(unityMesh);
             mapping.m_FbxToUnityScale = fbxMesh?.ImportScale ?? 1f;
             mapping.m_BuildMode = UnityFbxMappingBuildMode.LegacyUpgrade;
             mapping.m_SourceBlendShapeNames = blendShapeSequence;
@@ -193,99 +189,155 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             return mapping;
         }
 
-#if ENABLE_FBX_SDK
-        public static UnityVertexMappingObject BuildFromExtraction(
+        public static UnityVertexMappingObject BuildFromFbx(
             string unityRendererPath,
             Mesh unityMesh,
-            FbxMesh fbxMesh,
-            IEnumerable<BlendShapeRecord> fbxBlendShapes,
-            IEnumerable<MappingUnityBlendShapeCache> unityBlendShapes,
-            float fbxImportScale = 1f)
+            GameObject fbxAsset)
+        {
+            return BuildFromFbx(unityRendererPath, unityMesh, fbxAsset, out FbxMeshSnapshot _);
+        }
+
+        public static UnityVertexMappingObject BuildFromFbx(
+            string unityRendererPath,
+            Mesh unityMesh,
+            GameObject fbxAsset,
+            out FbxMeshSnapshot fbxMesh)
         {
             var stopwatch = Stopwatch.StartNew();
             double lastLogMilliseconds = 0d;
-            var records = fbxBlendShapes?.ToArray()
-                          ?? System.Array.Empty<BlendShapeRecord>();
-            var unityCache = unityBlendShapes?.ToArray()
-                             ?? System.Array.Empty<MappingUnityBlendShapeCache>();
+
+            var readCandidates = BuildFbxReadCandidates(unityRendererPath, unityMesh);
             LogTiming(
-                "Extraction",
+                "FbxAsset",
                 unityRendererPath,
-                "Collect input arrays",
+                "Collect FBX read candidates",
                 stopwatch,
                 ref lastLogMilliseconds,
-                $"fbxBlendShapes={records.Length}, unityBlendShapes={unityCache.Length}");
+                $"candidates={readCandidates.Length}");
 
-            var unityBlendShapesByName = BuildUnityBlendShapeLookup(unityCache);
+            fbxMesh = null;
+            if (fbxAsset != null && readCandidates.Length > 0)
+            {
+                var fbxMeshes = BinaryFbxMeshReader.TryReadMeshes(
+                    fbxAsset,
+                    readCandidates,
+                    FbxMeshReadOptions.ControlPointPositions | FbxMeshReadOptions.BlendShapes);
+                TryGetFbxMesh(fbxMeshes, readCandidates, out fbxMesh);
+            }
             LogTiming(
-                "Extraction",
+                "FbxAsset",
                 unityRendererPath,
-                "Build Unity blendshape lookup",
+                "Read FBX control point positions and blendshapes",
                 stopwatch,
                 ref lastLogMilliseconds,
-                $"unityBlendShapeNames={unityBlendShapesByName.Count}");
+                $"found={(fbxMesh != null ? 1 : 0)}, controlPoints={fbxMesh?.ControlPointCount ?? 0}, blendShapes={fbxMesh?.BlendShapes?.Length ?? 0}");
 
-            BuildBlendShapeDataSequences(
-                records,
-                unityBlendShapesByName,
+            var unityMeshBlendShapes = BuildUnityMeshBlendShapeSequence(unityMesh, out var unityMeshBlendShapeNames);
+            LogTiming(
+                "FbxAsset",
+                unityRendererPath,
+                "Build Unity mesh blendshape sequence",
+                stopwatch,
+                ref lastLogMilliseconds,
+                $"unityBlendShapes={unityMeshBlendShapes.Length}");
+
+            var fbxMeshBlendShapes = BuildFbxBlendShapeSequence(
+                fbxMesh?.BlendShapes,
+                out var fbxMeshBlendShapeNames);
+            PairBlendShapeDataSequences(
+                fbxMeshBlendShapes,
+                unityMeshBlendShapes,
+                fbxMeshBlendShapeNames,
+                unityMeshBlendShapeNames,
                 out var blendShapeSequence,
                 out var fbxBlendShapeSequence,
                 out var unityBlendShapeSequence);
             LogTiming(
-                "Extraction",
+                "FbxAsset",
                 unityRendererPath,
                 "Build blendshape sequences",
                 stopwatch,
                 ref lastLogMilliseconds,
-                $"usableBlendShapes={blendShapeSequence.Length}");
+                $"fbxBlendShapes={fbxMeshBlendShapes.Length}, unityBlendShapes={unityMeshBlendShapes.Length}, usableBlendShapes={blendShapeSequence.Length}");
 
             var mapping = ScriptableObject.CreateInstance<UnityVertexMappingObject>();
             mapping.m_UnityRendererPath = unityRendererPath;
             mapping.m_UnityMesh = unityMesh;
             mapping.m_UnityVertexCount = unityMesh != null ? unityMesh.vertexCount : 0;
-            mapping.m_UnityVerticesHash = unityMesh != null ? MeshData.GetVerticesHash(unityMesh) : 0;
-            mapping.m_FbxToUnityScale = fbxImportScale;
-            mapping.m_BuildMode = UnityFbxMappingBuildMode.Extraction;
+            mapping.m_UnityVertexHash = UnityVertexPositionHash.Calculate(unityMesh);
+            mapping.m_FbxToUnityScale = fbxMesh?.ImportScale ?? 1f;
+            mapping.m_BuildMode = UnityFbxMappingBuildMode.FbxAsset;
             mapping.m_SourceBlendShapeNames = blendShapeSequence;
             mapping.m_Indices = Enumerable.Repeat(-1, Mathf.Max(0, mapping.m_UnityVertexCount)).ToArray();
             LogTiming(
-                "Extraction",
+                "FbxAsset",
                 unityRendererPath,
                 "Create mapping object",
                 stopwatch,
                 ref lastLogMilliseconds,
                 $"unityVertices={mapping.m_Indices.Length}");
 
-            if (unityMesh == null || fbxMesh == null)
+            if (unityMesh == null)
             {
                 mapping.m_IsValid = false;
-                mapping.m_InvalidReason = "Extraction mapping requires Unity mesh and FBX mesh.";
-                mapping.SetLegacyCache(unityCache);
-                LogCompletion("Extraction", unityRendererPath, stopwatch, mapping.m_IsValid, mapping.m_InvalidReason);
+                mapping.m_InvalidReason = "FBX asset mapping requires a Unity mesh asset.";
+                LogCompletion("FbxAsset", unityRendererPath, stopwatch, mapping.m_IsValid, mapping.m_InvalidReason);
                 return mapping;
             }
-            LogTiming(
-                "Extraction",
-                unityRendererPath,
-                "Validate source meshes",
-                stopwatch,
-                ref lastLogMilliseconds,
-                $"unityMeshVertices={unityMesh.vertexCount}, fbxControlPoints={fbxMesh.GetControlPointsCount()}");
 
-            var fbxMeshSnapshot = CreateFbxMeshSnapshot(fbxMesh, fbxImportScale);
+            if (fbxAsset == null)
+            {
+                mapping.m_IsValid = false;
+                mapping.m_InvalidReason = "FBX asset mapping requires an FBX asset.";
+                LogCompletion("FbxAsset", unityRendererPath, stopwatch, mapping.m_IsValid, mapping.m_InvalidReason);
+                return mapping;
+            }
+
+            if (!HasFbxMesh(fbxMesh))
+            {
+                mapping.m_IsValid = false;
+                mapping.m_InvalidReason = "FBX asset mapping could not read matching FBX control point positions.";
+                LogCompletion("FbxAsset", unityRendererPath, stopwatch, mapping.m_IsValid, mapping.m_InvalidReason);
+                return mapping;
+            }
+
+            if (blendShapeSequence.Length == 0)
+            {
+                mapping.m_IsValid = false;
+                mapping.m_InvalidReason = "FBX asset mapping requires matching FBX and Unity mesh blendshapes.";
+                LogCompletion("FbxAsset", unityRendererPath, stopwatch, mapping.m_IsValid, mapping.m_InvalidReason);
+                return mapping;
+            }
+
+            int sampleCount = PositionFingerprintFactory.CountSamples(unityBlendShapeSequence);
             LogTiming(
-                "Extraction",
+                "FbxAsset",
                 unityRendererPath,
-                "Create FBX mesh snapshot",
+                "Count fingerprint samples",
                 stopwatch,
                 ref lastLogMilliseconds,
-                $"fbxControlPoints={fbxMeshSnapshot.ControlPointCount}");
+                $"samples={sampleCount}");
+            if (sampleCount == 0)
+            {
+                mapping.m_IsValid = false;
+                mapping.m_InvalidReason = "FBX asset mapping requires matching FBX and Unity mesh blendshape frames.";
+                LogCompletion("FbxAsset", unityRendererPath, stopwatch, mapping.m_IsValid, mapping.m_InvalidReason);
+                return mapping;
+            }
+
+            if (mapping.m_UnityVertexCount <= 0)
+            {
+                mapping.m_IsValid = false;
+                mapping.m_InvalidReason = "FBX asset mapping requires a Unity mesh with vertices.";
+                LogCompletion("FbxAsset", unityRendererPath, stopwatch, mapping.m_IsValid, mapping.m_InvalidReason);
+                return mapping;
+            }
 
             var fbxFingerprints = PositionFingerprintFactory.CreateFromFbx(
-                fbxMeshSnapshot,
+                fbxMesh,
                 fbxBlendShapeSequence);
             LogTiming(
-                "Extraction",
+                "FbxAsset",
                 unityRendererPath,
                 "Create FBX fingerprints",
                 stopwatch,
@@ -296,7 +348,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 unityMesh,
                 unityBlendShapeSequence);
             LogTiming(
-                "Extraction",
+                "FbxAsset",
                 unityRendererPath,
                 "Create Unity fingerprints",
                 stopwatch,
@@ -308,9 +360,9 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 unityFingerprints,
                 fbxFingerprints);
             LogTiming(
-                "Extraction",
+                "FbxAsset",
                 unityRendererPath,
-                "Match Unity vertices to FBX vertices",
+                "Match Unity vertices to FBX control points",
                 stopwatch,
                 ref lastLogMilliseconds,
                 $"unresolved={unresolved}");
@@ -318,24 +370,11 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             mapping.m_IsValid = unresolved == 0;
             mapping.m_InvalidReason = mapping.m_IsValid
                 ? string.Empty
-                : $"Extraction mapping has {unresolved} unresolved Unity vertices.";
+                : $"FBX asset mapping has {unresolved} Unity vertices without matching FBX control point positions.";
 
-            if (!mapping.m_IsValid)
-            {
-                mapping.SetLegacyCache(unityCache);
-                LogTiming(
-                    "Extraction",
-                    unityRendererPath,
-                    "Store legacy fallback cache",
-                    stopwatch,
-                    ref lastLogMilliseconds,
-                    $"fallbackBlendShapes={unityCache.Length}");
-            }
-
-            LogCompletion("Extraction", unityRendererPath, stopwatch, mapping.m_IsValid, mapping.m_InvalidReason);
+            LogCompletion("FbxAsset", unityRendererPath, stopwatch, mapping.m_IsValid, mapping.m_InvalidReason);
             return mapping;
         }
-#endif
 
         private static Dictionary<string, UnityBlendShapeData> BuildUnityBlendShapeLookup(IEnumerable<MappingUnityBlendShapeCache> unityBlendShapes)
         {
@@ -344,6 +383,33 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 .GroupBy(blendShape => blendShape.m_Name)
                 .ToDictionary(group => group.Key, group => group.First().m_UnityBlendShapeData)
                 ?? new Dictionary<string, UnityBlendShapeData>();
+        }
+
+        private static UnityBlendShapeData[] BuildUnityMeshBlendShapeSequence(Mesh unityMesh, out string[] blendShapeNames)
+        {
+            var blendShapeNamesList = new List<string>();
+            var blendShapes = new List<UnityBlendShapeData>();
+            if (unityMesh == null)
+            {
+                blendShapeNames = System.Array.Empty<string>();
+                return System.Array.Empty<UnityBlendShapeData>();
+            }
+
+            for (int blendShapeIndex = 0; blendShapeIndex < unityMesh.blendShapeCount; blendShapeIndex++)
+            {
+                var blendShapeData = new UnityBlendShapeData(unityMesh, blendShapeIndex);
+                if (!PositionFingerprintFactory.HasSamples(blendShapeData) ||
+                    !HasAnyDelta(blendShapeData, unityMesh.vertexCount))
+                {
+                    continue;
+                }
+
+                blendShapeNamesList.Add(unityMesh.GetBlendShapeName(blendShapeIndex));
+                blendShapes.Add(blendShapeData);
+            }
+
+            blendShapeNames = blendShapeNamesList.ToArray();
+            return blendShapes.ToArray();
         }
 
         private static void BuildBlendShapeDataSequences(
@@ -381,6 +447,132 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             unityBlendShapeSequence = unityBlendShapes.ToArray();
         }
 
+        private static FbxBlendShapeData[] BuildFbxBlendShapeSequence(
+            IEnumerable<FbxBlendShapeSnapshot> snapshots,
+            out string[] blendShapeNames)
+        {
+            var names = new List<string>();
+            var fbxBlendShapes = new List<FbxBlendShapeData>();
+
+            foreach (var snapshot in snapshots ?? Enumerable.Empty<FbxBlendShapeSnapshot>())
+            {
+                if (snapshot == null ||
+                    string.IsNullOrEmpty(snapshot.BlendShapeName))
+                {
+                    continue;
+                }
+
+                var fbxBlendShapeData = CreateFbxBlendShapeData(snapshot);
+                if (!PositionFingerprintFactory.HasSamples(fbxBlendShapeData) ||
+                    !HasAnyDelta(fbxBlendShapeData))
+                {
+                    continue;
+                }
+
+                names.Add(snapshot.BlendShapeName);
+                fbxBlendShapes.Add(fbxBlendShapeData);
+            }
+
+            blendShapeNames = names.ToArray();
+            return fbxBlendShapes.ToArray();
+        }
+
+        private static void PairBlendShapeDataSequences(
+            IReadOnlyList<FbxBlendShapeData> fbxBlendShapes,
+            IReadOnlyList<UnityBlendShapeData> unityBlendShapes,
+            IReadOnlyList<string> fbxBlendShapeNames,
+            IReadOnlyList<string> unityBlendShapeNames,
+            out string[] blendShapeSequence,
+            out FbxBlendShapeData[] fbxBlendShapeSequence,
+            out UnityBlendShapeData[] unityBlendShapeSequence)
+        {
+            int count = Mathf.Min(fbxBlendShapes?.Count ?? 0, unityBlendShapes?.Count ?? 0);
+            var names = new string[count];
+            var fbxSequence = new FbxBlendShapeData[count];
+            var unitySequence = new UnityBlendShapeData[count];
+
+            for (int i = 0; i < count; i++)
+            {
+                names[i] = fbxBlendShapeNames != null && i < fbxBlendShapeNames.Count
+                    ? fbxBlendShapeNames[i]
+                    : unityBlendShapeNames != null && i < unityBlendShapeNames.Count
+                        ? unityBlendShapeNames[i]
+                        : $"BlendShape_{i}";
+                fbxSequence[i] = fbxBlendShapes[i];
+                unitySequence[i] = unityBlendShapes[i];
+            }
+
+            blendShapeSequence = names;
+            fbxBlendShapeSequence = fbxSequence;
+            unityBlendShapeSequence = unitySequence;
+        }
+
+        private static FbxBlendShapeData CreateFbxBlendShapeData(FbxBlendShapeSnapshot snapshot)
+        {
+            var snapshotFrames = snapshot?.Frames ?? System.Array.Empty<FbxBlendShapeFrameSnapshot>();
+            var frames = new FbxBlendShapeFrame[snapshotFrames.Length];
+
+            for (int frameIndex = 0; frameIndex < snapshotFrames.Length; frameIndex++)
+            {
+                frames[frameIndex] = CreateFbxBlendShapeFrame(snapshotFrames[frameIndex]);
+            }
+
+            return new FbxBlendShapeData(frames);
+        }
+
+        private static FbxBlendShapeFrame CreateFbxBlendShapeFrame(FbxBlendShapeFrameSnapshot snapshotFrame)
+        {
+            var frame = new FbxBlendShapeFrame();
+            var indices = snapshotFrame?.ControlPointIndices ?? System.Array.Empty<int>();
+            var deltas = snapshotFrame?.ControlPointDeltas ?? System.Array.Empty<Vector3d>();
+            int count = Mathf.Min(indices.Length, deltas.Length);
+
+            for (int i = 0; i < count; i++)
+            {
+                if (!deltas[i].IsZero())
+                {
+                    frame.AddDeltaControlPointAt(deltas[i], indices[i]);
+                }
+            }
+
+            return frame;
+        }
+
+        private static bool HasAnyDelta(FbxBlendShapeData blendShapeData)
+        {
+            foreach (var frame in blendShapeData?.m_Frames ?? System.Array.Empty<FbxBlendShapeFrame>())
+            {
+                if ((frame?.m_PointsIndices?.Count ?? 0) > 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool HasAnyDelta(UnityBlendShapeData blendShapeData, int vertexCount)
+        {
+            foreach (var frame in blendShapeData?.m_Frames ?? System.Array.Empty<UnityBlendShapeFrame>())
+            {
+                var deltaVertices = frame?.GetDeltaVertices(vertexCount);
+                if (deltaVertices == null)
+                {
+                    continue;
+                }
+
+                for (int i = 0; i < deltaVertices.Length; i++)
+                {
+                    if (deltaVertices[i] != Vector3.zero)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
         private static bool HasUnityMesh(Mesh mesh, int requiredVertexCount)
         {
             return mesh != null && requiredVertexCount > 0 && mesh.vertexCount == requiredVertexCount;
@@ -414,6 +606,45 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             }
 
             return unresolved;
+        }
+
+        private static string[] BuildFbxReadCandidates(string unityRendererPath, Mesh unityMesh)
+        {
+            var candidates = new List<string>();
+            var seenCandidates = new HashSet<string>();
+            AddFbxReadCandidate(candidates, seenCandidates, unityRendererPath);
+            AddFbxReadCandidate(candidates, seenCandidates, unityMesh != null ? unityMesh.name : null);
+            return candidates.ToArray();
+        }
+
+        private static void AddFbxReadCandidate(List<string> candidates, HashSet<string> seenCandidates, string candidate)
+        {
+            if (!string.IsNullOrEmpty(candidate) && seenCandidates.Add(candidate))
+            {
+                candidates.Add(candidate);
+            }
+        }
+
+        private static bool TryGetFbxMesh(
+            IReadOnlyDictionary<string, FbxMeshSnapshot> fbxMeshes,
+            IReadOnlyList<string> candidates,
+            out FbxMeshSnapshot fbxMesh)
+        {
+            fbxMesh = null;
+            if (fbxMeshes == null || candidates == null)
+            {
+                return false;
+            }
+
+            foreach (string candidate in candidates)
+            {
+                if (!string.IsNullOrEmpty(candidate) && fbxMeshes.TryGetValue(candidate, out fbxMesh))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static void LogTiming(
@@ -454,120 +685,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         {
             return string.IsNullOrEmpty(details) ? string.Empty : $" ({details})";
         }
-
-#if ENABLE_FBX_SDK
-        private static FbxMeshSnapshot CreateFbxMeshSnapshot(FbxMesh fbxMesh, float importScale)
-        {
-            int controlPointCount = fbxMesh.GetControlPointsCount();
-            var positions = new Vector3d[controlPointCount];
-            for (int i = 0; i < controlPointCount; i++)
-            {
-                positions[i] = ToVector3d(fbxMesh.GetControlPointAt(i));
-            }
-
-            return new FbxMeshSnapshot(
-                fbxMesh.GetName(),
-                positions,
-                CreateFbxBlendShapeSnapshots(fbxMesh, positions),
-                importScale);
-        }
-
-        private static FbxBlendShapeSnapshot[] CreateFbxBlendShapeSnapshots(
-            FbxMesh fbxMesh,
-            Vector3d[] basePositions)
-        {
-            int controlPointCount = basePositions?.Length ?? 0;
-            var snapshots = new List<FbxBlendShapeSnapshot>();
-            for (int deformerIndex = 0;
-                 deformerIndex < fbxMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape);
-                 deformerIndex++)
-            {
-                var deformer = fbxMesh.GetBlendShapeDeformer(deformerIndex);
-                if (deformer == null)
-                {
-                    continue;
-                }
-
-                for (int channelIndex = 0; channelIndex < deformer.GetBlendShapeChannelCount(); channelIndex++)
-                {
-                    var channel = deformer.GetBlendShapeChannel(channelIndex);
-                    if (channel == null)
-                    {
-                        continue;
-                    }
-
-                    int frameCount = channel.GetTargetShapeCount();
-                    var frames = new FbxBlendShapeFrameSnapshot[frameCount];
-                    for (int frameIndex = 0; frameIndex < frameCount; frameIndex++)
-                    {
-                        frames[frameIndex] = new FbxBlendShapeFrameSnapshot(
-                            frameCount > 0 ? 100.0 * (frameIndex + 1) / frameCount : 0.0,
-                            CreateControlPointIndices(channel.GetTargetShape(frameIndex), basePositions, controlPointCount),
-                            CreateControlPointDeltas(channel.GetTargetShape(frameIndex), basePositions, controlPointCount));
-                    }
-
-                    snapshots.Add(new FbxBlendShapeSnapshot(
-                        deformer.GetName(),
-                        channel.GetName(),
-                        frames));
-                }
-            }
-
-            return snapshots.ToArray();
-        }
-
-        private static Vector3d[] CreateControlPointDeltas(
-            FbxShape targetShape,
-            Vector3d[] basePositions,
-            int controlPointCount)
-        {
-            var deltas = new List<Vector3d>(controlPointCount);
-            if (targetShape == null || basePositions == null)
-            {
-                return deltas.ToArray();
-            }
-
-            int count = Mathf.Min(controlPointCount, targetShape.GetControlPointsCount());
-            for (int i = 0; i < count; i++)
-            {
-                var delta = ToVector3d(targetShape.GetControlPointAt(i)) - basePositions[i];
-                if (!delta.IsZero())
-                {
-                    deltas.Add(delta);
-                }
-            }
-
-            return deltas.ToArray();
-        }
-
-        private static int[] CreateControlPointIndices(
-            FbxShape targetShape,
-            Vector3d[] basePositions,
-            int controlPointCount)
-        {
-            var indices = new List<int>(controlPointCount);
-            if (targetShape == null || basePositions == null)
-            {
-                return indices.ToArray();
-            }
-
-            int count = Mathf.Min(controlPointCount, targetShape.GetControlPointsCount());
-            for (int i = 0; i < count; i++)
-            {
-                if (!ToVector3d(targetShape.GetControlPointAt(i)).Equals(basePositions[i]))
-                {
-                    indices.Add(i);
-                }
-            }
-
-            return indices.ToArray();
-        }
-
-        private static Vector3d ToVector3d(FbxVector4 value)
-        {
-            return new Vector3d(value.X, value.Y, value.Z);
-        }
-#endif
 
     }
 }

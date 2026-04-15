@@ -53,9 +53,13 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                     meshFoldouts[mesh] = false;
                 }
 
+                var blendShapeFeature = mesh.GetFeature<BlendShapeFeatureObject>();
+                int activeBlendShapeCount = blendShapeFeature?.ActiveBlendShapeIndices.Count ?? 0;
+                int blendShapeCount = blendShapeFeature?.BlendShapes.Count ?? 0;
+
                 meshFoldouts[mesh] = EditorGUILayout.Foldout(
                     meshFoldouts[mesh],
-                    $"{mesh.m_MeshName} ({mesh.ActiveBlendShapeIndices.Count}/{mesh.BlendShapes.Count})",
+                    $"{mesh.m_MeshName} ({activeBlendShapeCount}/{blendShapeCount})",
                     true);
 
                 if (!meshFoldouts[mesh])
@@ -67,8 +71,8 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 EditorGUILayout.LabelField("FBX Path", mesh.m_MeshPath);
                 EditorGUILayout.LabelField("FBX Control Points", mesh.m_FbxControlPointCount.ToString());
                 DrawMappings(mesh);
-                DrawMeshPresets(blendShare, mesh);
-                DrawBlendShapeToggles(mesh);
+                DrawMeshPresets(blendShare, mesh, blendShapeFeature);
+                DrawBlendShapeToggles(blendShapeFeature);
                 EditorGUI.indentLevel--;
             }
         }
@@ -97,7 +101,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             EditorGUI.indentLevel--;
         }
 
-        private void DrawMeshPresets(BlendShareObject blendShare, MeshDataObject mesh)
+        private void DrawMeshPresets(BlendShareObject blendShare, MeshDataObject mesh, BlendShapeFeatureObject blendShapeFeature)
         {
             var presets = BlendShareAssetService.LoadPresets(blendShare)
                 .Where(preset => preset.m_MeshPath == mesh.m_MeshPath)
@@ -105,35 +109,43 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
             using (new EditorGUILayout.HorizontalScope())
             {
+                EditorGUI.BeginDisabledGroup(blendShapeFeature == null);
                 if (GUILayout.Button("Save Preset"))
                 {
                     string presetName = $"{mesh.m_MeshName} Preset";
-                    var preset = mesh.CreatePreset(presetName);
+                    var preset = blendShapeFeature.CreatePreset(mesh, presetName);
                     AssetDatabase.AddObjectToAsset(preset, blendShare);
                     preset.hideFlags = HideFlags.HideInHierarchy;
                     EditorUtility.SetDirty(preset);
                     AssetDatabase.SaveAssets();
                 }
+                EditorGUI.EndDisabledGroup();
 
-                EditorGUI.BeginDisabledGroup(presets.Count == 0);
+                EditorGUI.BeginDisabledGroup(blendShapeFeature == null || presets.Count == 0);
                 if (GUILayout.Button("Apply First Preset"))
                 {
-                    Undo.RecordObject(mesh, "Apply BlendShape Preset");
-                    mesh.ApplyPreset(presets[0]);
-                    EditorUtility.SetDirty(mesh);
+                    Undo.RecordObject(blendShapeFeature, "Apply BlendShape Preset");
+                    blendShapeFeature.ApplyPreset(mesh, presets[0]);
+                    EditorUtility.SetDirty(blendShapeFeature);
                 }
                 EditorGUI.EndDisabledGroup();
             }
         }
 
-        private void DrawBlendShapeToggles(MeshDataObject mesh)
+        private void DrawBlendShapeToggles(BlendShapeFeatureObject blendShapeFeature)
         {
-            var active = new HashSet<int>(mesh.ActiveBlendShapeIndices);
+            if (blendShapeFeature == null)
+            {
+                EditorGUILayout.HelpBox("No BlendShape feature found for this mesh.", MessageType.Info);
+                return;
+            }
+
+            var active = new HashSet<int>(blendShapeFeature.ActiveBlendShapeIndices);
             bool changed = false;
 
-            for (int i = 0; i < mesh.BlendShapes.Count; i++)
+            for (int i = 0; i < blendShapeFeature.BlendShapes.Count; i++)
             {
-                var blendShape = mesh.BlendShapes[i];
+                var blendShape = blendShapeFeature.BlendShapes[i];
                 bool enabled = active.Contains(i);
                 bool updated = EditorGUILayout.ToggleLeft(blendShape.m_Name, enabled);
                 if (updated == enabled)
@@ -154,10 +166,10 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
             if (changed)
             {
-                Undo.RecordObject(mesh, "Update BlendShape Selection");
-                mesh.SetActiveBlendShapeIndices(mesh.ActiveBlendShapeIndices.Where(active.Contains)
-                    .Concat(Enumerable.Range(0, mesh.BlendShapes.Count).Where(index => active.Contains(index) && !mesh.ActiveBlendShapeIndices.Contains(index))));
-                EditorUtility.SetDirty(mesh);
+                Undo.RecordObject(blendShapeFeature, "Update BlendShape Selection");
+                blendShapeFeature.SetActiveBlendShapeIndices(blendShapeFeature.ActiveBlendShapeIndices.Where(active.Contains)
+                    .Concat(Enumerable.Range(0, blendShapeFeature.BlendShapes.Count).Where(index => active.Contains(index) && !blendShapeFeature.ActiveBlendShapeIndices.Contains(index))));
+                EditorUtility.SetDirty(blendShapeFeature);
             }
         }
 

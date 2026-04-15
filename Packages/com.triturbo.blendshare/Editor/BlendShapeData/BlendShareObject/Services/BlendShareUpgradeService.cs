@@ -8,8 +8,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 {
     public static class BlendShareUpgradeService
     {
-        private const string LogPrefix = "[BlendShare Upgrade]";
-
         public static BlendShareObject UpgradeSideBySide(BlendShapeDataSO legacyAsset)
         {
             if (legacyAsset == null)
@@ -59,15 +57,13 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 .Where(legacyMesh => legacyMesh != null)
                 .ToList() ?? new List<MeshData>();
             var meshPaths = ResolveFbxMeshPaths(legacyAsset.m_Original, legacyMeshes);
-            var fbxMeshes = TryReadFbxMeshes(legacyAsset.m_Original, meshPaths);
 
             var meshes = new List<MeshDataObject>();
             foreach (var legacyMesh in legacyMeshes)
             {
                 meshPaths.TryGetValue(legacyMesh, out string meshPath);
-                TryGetFbxMesh(fbxMeshes, meshPath, legacyMesh.m_MeshName, out var fbxMesh);
 
-                var mesh = ConvertMesh(legacyMesh, meshPath, fbxMesh);
+                var mesh = ConvertMesh(legacyMesh, meshPath, legacyAsset.m_Original);
                 if (mesh != null)
                 {
                     meshes.Add(mesh);
@@ -78,7 +74,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             return asset;
         }
 
-        private static MeshDataObject ConvertMesh(MeshData legacyMesh, string meshPath, FbxMeshSnapshot fbxMesh)
+        private static MeshDataObject ConvertMesh(MeshData legacyMesh, string meshPath, GameObject originalFbx)
         {
             if (legacyMesh == null)
             {
@@ -112,6 +108,12 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             mesh.SetBlendShapes(records);
             mesh.SetActiveBlendShapeNames(legacyMesh.m_ShapeNames);
 
+            var mapping = UnityFbxVertexMappingBuilder.BuildFromFbx(
+                mesh.m_MeshPath,
+                legacyMesh.m_OriginMesh,
+                originalFbx,
+                out FbxMeshSnapshot fbxMesh);
+
             if (fbxMesh != null && fbxMesh.ControlPointCount > 0)
             {
                 mesh.m_FbxControlPointCount = fbxMesh.ControlPointCount;
@@ -121,15 +123,11 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 mesh.InferFbxControlPointCount();
             }
 
-            var mapping = UnityFbxVertexMappingBuilder.BuildFromLegacy(
-                mesh.m_MeshPath,
-                legacyMesh.m_VertexCount,
-                legacyMesh.m_VerticesHash,
-                records,
-                cache,
-                legacyMesh.m_OriginMesh,
-                fbxMesh);
-            mapping.m_UnityMesh = legacyMesh.m_OriginMesh;
+            if (!mapping.m_IsValid)
+            {
+                mapping.SetLegacyCache(cache);
+            }
+
             mesh.m_Mappings = new[] { mapping };
             return mesh;
         }
@@ -149,68 +147,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             }
 
             return meshPaths;
-        }
-
-        private static Dictionary<string, FbxMeshSnapshot> TryReadFbxMeshes(GameObject fbxAsset, Dictionary<MeshData, string> meshPaths)
-        {
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-            var candidates = new List<string>();
-            var seenCandidates = new HashSet<string>();
-            foreach (var entry in meshPaths ?? new Dictionary<MeshData, string>())
-            {
-                AddFbxMeshReadCandidate(candidates, seenCandidates, entry.Value);
-                AddFbxMeshReadCandidate(candidates, seenCandidates, entry.Key?.m_MeshName);
-            }
-
-            Debug.Log(
-                $"{LogPrefix} TryReadFbxMeshes start: fbx='{FormatLogTarget(fbxAsset)}', candidates={candidates.Count}");
-
-            var snapshots = BinaryFbxMeshReader.TryReadMeshes(fbxAsset, candidates);
-
-            Debug.Log(
-                $"{LogPrefix} TryReadFbxMeshes finished in {stopwatch.Elapsed.TotalMilliseconds:0.###} ms (found={snapshots.Count}/{candidates.Count})");
-
-            return snapshots;
-        }
-
-        private static void AddFbxMeshReadCandidate(List<string> candidates, HashSet<string> seenCandidates, string candidate)
-        {
-            if (!string.IsNullOrEmpty(candidate) && seenCandidates.Add(candidate))
-            {
-                candidates.Add(candidate);
-            }
-        }
-
-        private static string FormatLogTarget(GameObject target)
-        {
-            return target == null ? "<null>" : target.name;
-        }
-
-        private static string FormatLogTarget(string target)
-        {
-            return string.IsNullOrEmpty(target) ? "<empty>" : target;
-        }
-
-        private static bool TryGetFbxMesh(
-            Dictionary<string, FbxMeshSnapshot> fbxMeshes,
-            string meshPath,
-            string meshName,
-            out FbxMeshSnapshot snapshot)
-        {
-            snapshot = null;
-            if (fbxMeshes == null)
-            {
-                return false;
-            }
-
-            if (!string.IsNullOrEmpty(meshPath) && fbxMeshes.TryGetValue(meshPath, out snapshot))
-            {
-                return true;
-            }
-
-            return !string.Equals(meshPath, meshName, System.StringComparison.Ordinal) &&
-                   !string.IsNullOrEmpty(meshName) &&
-                   fbxMeshes.TryGetValue(meshName, out snapshot);
         }
 
         private static List<BlendShapePresetObject> ConvertSelections(BlendShapeDataSO legacyAsset, BlendShareObject converted)

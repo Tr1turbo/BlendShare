@@ -49,6 +49,17 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                     mesh.name = GetMeshSubAssetName(mesh);
                     AddHiddenSubAsset(mesh, asset);
 
+                    foreach (var feature in mesh.Features)
+                    {
+                        if (feature == null)
+                        {
+                            continue;
+                        }
+
+                        feature.name = GetFeatureSubAssetName(mesh, feature);
+                        AddHiddenSubAsset(feature, asset);
+                    }
+
                     foreach (var mapping in mesh.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
                     {
                         if (mapping == null)
@@ -133,6 +144,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 }
 
                 if (subAsset is MeshDataObject ||
+                    subAsset is MeshFeatureObject ||
                     subAsset is UnityVertexMappingObject ||
                     subAsset is BlendShapePresetObject)
                 {
@@ -149,7 +161,13 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         private static string GetMappingSubAssetName(MeshDataObject mesh, UnityVertexMappingObject mapping)
         {
             string source = string.IsNullOrEmpty(mapping.m_UnityRendererPath) ? mesh.m_MeshPath : mapping.m_UnityRendererPath;
-            return $"Mapping_{SanitizeName(source)}_{mapping.m_UnityVerticesHash}";
+            return $"Mapping_{SanitizeName(source)}_{mapping.UnityVerticesHashShort}";
+        }
+
+        private static string GetFeatureSubAssetName(MeshDataObject mesh, MeshFeatureObject feature)
+        {
+            string meshKey = string.IsNullOrEmpty(mesh.m_MeshPath) ? mesh.m_MeshName : mesh.m_MeshPath;
+            return $"Feature::{feature.FeatureId}@{meshKey}";
         }
 
         private static string GetPresetSubAssetName(BlendShapePresetObject preset)
