@@ -2,11 +2,14 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEditor;
 using UnityEngine;
+using Triturbo.BlendShapeShare.FbxReader;
 
 namespace Triturbo.BlendShapeShare.BlendShapeData
 {
     public static class BlendShareUpgradeService
     {
+        private const string LogPrefix = "[BlendShare Upgrade]";
+
         public static BlendShareObject UpgradeSideBySide(BlendShapeDataSO legacyAsset)
         {
             if (legacyAsset == null)
@@ -52,10 +55,19 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             asset.m_Applied = legacyAsset.m_Applied;
             asset.m_DeformerID = legacyAsset.m_DeformerID;
 
+            var legacyMeshes = legacyAsset.m_MeshDataList?
+                .Where(legacyMesh => legacyMesh != null)
+                .ToList() ?? new List<MeshData>();
+            var meshPaths = ResolveFbxMeshPaths(legacyAsset.m_Original, legacyMeshes);
+            var fbxMeshes = TryReadFbxMeshes(legacyAsset.m_Original, meshPaths);
+
             var meshes = new List<MeshDataObject>();
-            foreach (var legacyMesh in legacyAsset.m_MeshDataList ?? new List<MeshData>())
+            foreach (var legacyMesh in legacyMeshes)
             {
-                var mesh = ConvertMesh(legacyAsset, legacyMesh);
+                meshPaths.TryGetValue(legacyMesh, out string meshPath);
+                TryGetFbxMesh(fbxMeshes, meshPath, legacyMesh.m_MeshName, out var fbxMesh);
+
+                var mesh = ConvertMesh(legacyMesh, meshPath, fbxMesh);
                 if (mesh != null)
                 {
                     meshes.Add(mesh);
@@ -66,7 +78,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             return asset;
         }
 
-        private static MeshDataObject ConvertMesh(BlendShapeDataSO legacyAsset, MeshData legacyMesh)
+        private static MeshDataObject ConvertMesh(MeshData legacyMesh, string meshPath, FbxMeshSnapshot fbxMesh)
         {
             if (legacyMesh == null)
             {
@@ -74,7 +86,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             }
 
             var mesh = ScriptableObject.CreateInstance<MeshDataObject>();
-            string meshPath = FindFbxMeshPath(legacyAsset.m_Original, legacyMesh.m_MeshName);
             mesh.Initialize(
                 string.IsNullOrEmpty(meshPath) ? legacyMesh.m_MeshName : meshPath,
                 legacyMesh.m_MeshName,
@@ -101,10 +112,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             mesh.SetBlendShapes(records);
             mesh.SetActiveBlendShapeNames(legacyMesh.m_ShapeNames);
 
-            FbxMeshSnapshot fbxMesh = TryReadFbxMesh(
-                legacyAsset.m_Original,
-                mesh.m_MeshPath,
-                mesh.m_MeshName);
             if (fbxMesh != null && fbxMesh.ControlPointCount > 0)
             {
                 mesh.m_FbxControlPointCount = fbxMesh.ControlPointCount;
@@ -127,16 +134,83 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             return mesh;
         }
 
-        private static FbxMeshSnapshot TryReadFbxMesh(GameObject fbxAsset, string meshPath, string meshName)
+        private static Dictionary<MeshData, string> ResolveFbxMeshPaths(GameObject root, IEnumerable<MeshData> legacyMeshes)
         {
-#if ENABLE_FBX_SDK
-            if (FbxMeshReader.TryReadMesh(fbxAsset, meshPath, out var snapshot) ||
-                FbxMeshReader.TryReadMesh(fbxAsset, meshName, out snapshot))
+            var rendererPathLookup = BuildFbxMeshPathLookup(root);
+            var meshPaths = new Dictionary<MeshData, string>();
+            foreach (var legacyMesh in legacyMeshes ?? Enumerable.Empty<MeshData>())
             {
-                return snapshot;
+                if (legacyMesh == null)
+                {
+                    continue;
+                }
+
+                meshPaths[legacyMesh] = FindFbxMeshPath(rendererPathLookup, legacyMesh.m_MeshName);
             }
-#endif
-            return null;
+
+            return meshPaths;
+        }
+
+        private static Dictionary<string, FbxMeshSnapshot> TryReadFbxMeshes(GameObject fbxAsset, Dictionary<MeshData, string> meshPaths)
+        {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var candidates = new List<string>();
+            var seenCandidates = new HashSet<string>();
+            foreach (var entry in meshPaths ?? new Dictionary<MeshData, string>())
+            {
+                AddFbxMeshReadCandidate(candidates, seenCandidates, entry.Value);
+                AddFbxMeshReadCandidate(candidates, seenCandidates, entry.Key?.m_MeshName);
+            }
+
+            Debug.Log(
+                $"{LogPrefix} TryReadFbxMeshes start: fbx='{FormatLogTarget(fbxAsset)}', candidates={candidates.Count}");
+
+            var snapshots = BinaryFbxMeshReader.TryReadMeshes(fbxAsset, candidates);
+
+            Debug.Log(
+                $"{LogPrefix} TryReadFbxMeshes finished in {stopwatch.Elapsed.TotalMilliseconds:0.###} ms (found={snapshots.Count}/{candidates.Count})");
+
+            return snapshots;
+        }
+
+        private static void AddFbxMeshReadCandidate(List<string> candidates, HashSet<string> seenCandidates, string candidate)
+        {
+            if (!string.IsNullOrEmpty(candidate) && seenCandidates.Add(candidate))
+            {
+                candidates.Add(candidate);
+            }
+        }
+
+        private static string FormatLogTarget(GameObject target)
+        {
+            return target == null ? "<null>" : target.name;
+        }
+
+        private static string FormatLogTarget(string target)
+        {
+            return string.IsNullOrEmpty(target) ? "<empty>" : target;
+        }
+
+        private static bool TryGetFbxMesh(
+            Dictionary<string, FbxMeshSnapshot> fbxMeshes,
+            string meshPath,
+            string meshName,
+            out FbxMeshSnapshot snapshot)
+        {
+            snapshot = null;
+            if (fbxMeshes == null)
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(meshPath) && fbxMeshes.TryGetValue(meshPath, out snapshot))
+            {
+                return true;
+            }
+
+            return !string.Equals(meshPath, meshName, System.StringComparison.Ordinal) &&
+                   !string.IsNullOrEmpty(meshName) &&
+                   fbxMeshes.TryGetValue(meshName, out snapshot);
         }
 
         private static List<BlendShapePresetObject> ConvertSelections(BlendShapeDataSO legacyAsset, BlendShareObject converted)
@@ -175,19 +249,40 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             return presets;
         }
 
-        private static string FindFbxMeshPath(GameObject root, string meshName)
+        private static Dictionary<string, string> BuildFbxMeshPathLookup(GameObject root)
         {
-            if (root == null || string.IsNullOrEmpty(meshName))
+            var lookup = new Dictionary<string, string>();
+            if (root == null)
             {
-                return meshName;
+                return lookup;
             }
 
             foreach (var renderer in root.GetComponentsInChildren<SkinnedMeshRenderer>(true))
             {
-                if (renderer.sharedMesh != null && renderer.sharedMesh.name == meshName)
+                if (renderer.sharedMesh == null || string.IsNullOrEmpty(renderer.sharedMesh.name))
                 {
-                    return GetRelativePath(renderer.transform, root.transform);
+                    continue;
                 }
+
+                if (!lookup.ContainsKey(renderer.sharedMesh.name))
+                {
+                    lookup.Add(renderer.sharedMesh.name, GetRelativePath(renderer.transform, root.transform));
+                }
+            }
+
+            return lookup;
+        }
+
+        private static string FindFbxMeshPath(Dictionary<string, string> rendererPathLookup, string meshName)
+        {
+            if (string.IsNullOrEmpty(meshName))
+            {
+                return meshName;
+            }
+
+            if (rendererPathLookup != null && rendererPathLookup.TryGetValue(meshName, out string meshPath))
+            {
+                return meshPath;
             }
 
             return meshName;

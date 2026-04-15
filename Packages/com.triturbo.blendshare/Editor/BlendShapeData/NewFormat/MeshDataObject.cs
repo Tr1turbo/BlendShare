@@ -24,7 +24,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
     public class MeshDataObject : UpgradableScriptableObject
     {
-        protected override int CurrentVersion => 1;
+        protected override int CurrentVersion => 2;
 
         // FBX hierarchy path. This is not a Unity asset path.
         public string m_MeshPath;
@@ -37,7 +37,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         [SerializeField]
         private List<int> m_ActiveBlendShapeIndices = new();
 
-        public UnityMeshVerticesMappingObject[] m_Mappings;
+        public UnityVertexMappingObject[] m_Mappings;
 
         public IReadOnlyList<BlendShapeRecord> BlendShapes => m_BlendShapes;
         public IReadOnlyList<int> ActiveBlendShapeIndices => m_ActiveBlendShapeIndices;
@@ -159,7 +159,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         public bool IsValidTarget(Mesh targetMesh)
         {
             return targetMesh != null &&
-                   (m_Mappings ?? System.Array.Empty<UnityMeshVerticesMappingObject>())
+                   (m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
                    .Any(mapping => mapping != null && mapping.MatchesUnityMesh(targetMesh));
         }
 
@@ -167,6 +167,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         {
             m_BlendShapes ??= new List<BlendShapeRecord>();
             m_ActiveBlendShapeIndices ??= new List<int>();
+            MigrateFbxBlendShapeVectors();
 
             int oldBlendShapeCount = m_BlendShapes.Count;
             m_BlendShapes = m_BlendShapes
@@ -197,6 +198,14 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
             m_ActiveBlendShapeIndices = validActive;
             return changed;
+        }
+
+        private void MigrateFbxBlendShapeVectors()
+        {
+            foreach (var blendShape in m_BlendShapes ?? new List<BlendShapeRecord>())
+            {
+                blendShape?.m_FbxBlendShapeData?.MigrateLegacyVectors();
+            }
         }
 
         public int InferFbxControlPointCount()
@@ -231,6 +240,13 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 m_BlendShapes ??= new List<BlendShapeRecord>();
                 m_ActiveBlendShapeIndices ??= Enumerable.Range(0, m_BlendShapes.Count).ToList();
                 SetVersion(1);
+                return;
+            }
+
+            if (fromVersion == 1)
+            {
+                MigrateFbxBlendShapeVectors();
+                SetVersion(2);
                 return;
             }
 
