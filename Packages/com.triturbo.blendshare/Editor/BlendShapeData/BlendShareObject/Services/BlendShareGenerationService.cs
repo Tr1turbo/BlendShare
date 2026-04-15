@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEditor;
 using UnityEngine;
+using Triturbo.BlendShapeShare.FbxReader;
 using Triturbo.BlendShapeShare.Util;
 using Object = UnityEngine.Object;
 
@@ -214,12 +215,12 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
                 for (int unityIndex = 0; unityIndex < unityVertexCount; unityIndex++)
                 {
-                    if (!mapping.TryGetFbxIndex(unityIndex, out int fbxIndex))
+                    if (!mapping.TryGetFbxGroup(unityIndex, out FbxIndexGroup group))
                     {
                         return null;
                     }
 
-                    var delta = frames[frameIndex].GetDeltaControlPointAt(fbxIndex);
+                    var delta = GetDeltaFromGroup(frames[frameIndex], group);
                     deltaVertices[unityIndex] = new Vector3((float)delta.x, (float)delta.y, (float)delta.z) *
                                                 mapping.FbxToUnityScale;
                 }
@@ -229,6 +230,19 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             }
 
             return unityData;
+        }
+
+        private static Vector3d GetDeltaFromGroup(FbxBlendShapeFrame frame, FbxIndexGroup group)
+        {
+            if (group.m_Indices == null) return Vector3d.zero;
+            // All welded members share the same delta; try each until a non-zero one is found.
+            // (Sparse FBX storage may omit zero-delta entries for some group members.)
+            for (int i = 0; i < group.m_Indices.Length; i++)
+            {
+                var delta = frame.GetDeltaControlPointAt(group.m_Indices[i]);
+                if (!delta.IsZero()) return delta;
+            }
+            return Vector3d.zero;
         }
 
 #if ENABLE_FBX_SDK

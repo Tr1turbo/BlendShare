@@ -41,7 +41,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         public Mesh m_UnityMesh;
         public int m_UnityVertexCount;
 
-        [FormerlySerializedAs("m_UnityVerticesHash")]
         public string m_UnityVertexHash;
         public float m_FbxToUnityScale = 1f;
         public int[] m_Indices;
