@@ -98,6 +98,38 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             return total;
         }
 
+        // Squared-distance variant of RelativeDistanceTo.
+        // Avoids sqrt — valid for finding the minimum since sqrt is monotone.
+        // NOTE: sum-of-sqr-distances != (sum-of-distances)², so this can rank candidates
+        // differently from RelativeDistanceTo in ambiguous cases. For genuine matches the
+        // true candidate has near-zero contribution on every sample, so either metric wins.
+        private double RelativeSqrDistanceTo(PositionFingerprint other, double stopAfter = double.PositiveInfinity)
+        {
+            if (other == null || _relativeSamples.Length != other._relativeSamples.Length)
+            {
+                return double.PositiveInfinity;
+            }
+
+            double total = 0.0;
+            for (int i = 0; i < _relativeSamples.Length; i++)
+            {
+                double dx = (double)_relativeSamples[i].x - other._relativeSamples[i].x;
+                double dy = (double)_relativeSamples[i].y - other._relativeSamples[i].y;
+                double dz = (double)_relativeSamples[i].z - other._relativeSamples[i].z;
+                total += dx * dx + dy * dy + dz * dz;
+                if (total >= stopAfter)
+                {
+                    return total;
+                }
+            }
+
+            return total;
+        }
+
+
+
+        // All-candidates search: uses squared distances + stopAfter to abort early within
+        // each candidate once its running total already exceeds the known best.
         private bool TryFindClosestRelativeCandidateIndex(
             IReadOnlyList<PositionFingerprint> candidates,
             out int candidateIndex)
@@ -108,13 +140,13 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 return false;
             }
 
-            double bestDistance = double.PositiveInfinity;
+            double bestSqrDistance = double.PositiveInfinity;
             for (int currentCandidateIndex = 0; currentCandidateIndex < candidates.Count; currentCandidateIndex++)
             {
-                double distance = RelativeDistanceTo(candidates[currentCandidateIndex], bestDistance);
-                if (distance < bestDistance)
+                double distance = RelativeSqrDistanceTo(candidates[currentCandidateIndex], bestSqrDistance);
+                if (distance < bestSqrDistance)
                 {
-                    bestDistance = distance;
+                    bestSqrDistance = distance;
                     candidateIndex = currentCandidateIndex;
                 }
             }
@@ -122,13 +154,22 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             return candidateIndex >= 0;
         }
 
+        // Indexed search for the case where multiple representative FBX control points share
+        // the same base position. This must compare every valid candidate across all samples:
+        // a candidate that is slightly worse on an early blendshape can still be the closest
+        // after later blendshapes are included.
         private bool TryFindClosestRelativeCandidateIndex(
             IReadOnlyList<PositionFingerprint> candidates,
             IReadOnlyList<int> candidateIndices,
             out int candidateIndex)
         {
             candidateIndex = -1;
-            double bestDistance = double.PositiveInfinity;
+            if (candidates == null || candidateIndices == null || candidateIndices.Count == 0)
+            {
+                return false;
+            }
+
+            double bestSqrDistance = double.PositiveInfinity;
             for (int i = 0; i < candidateIndices.Count; i++)
             {
                 int currentCandidateIndex = candidateIndices[i];
@@ -137,11 +178,122 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                     continue;
                 }
 
-                double distance = RelativeDistanceTo(candidates[currentCandidateIndex], bestDistance);
-                if (distance < bestDistance)
+                double distance = RelativeSqrDistanceTo(candidates[currentCandidateIndex], bestSqrDistance);
+                if (distance < bestSqrDistance)
                 {
-                    bestDistance = distance;
+                    bestSqrDistance = distance;
                     candidateIndex = currentCandidateIndex;
+                }
+            }
+
+            return candidateIndex >= 0;
+        }
+
+
+        // Test-only tolerance for the old incremental candidate filter.
+
+        // Tolerance for incremental candidate filtering (in squared-distance units).
+        // After each blendshape sample, candidates whose accumulated squared distance exceeds
+        // the current minimum by more than (min * FilterRelTol + FilterAbsEps) are eliminated.
+        // RelTol is metric-agnostic (relative comparison). FilterAbsEps = 1e-10 is the squared
+        // equivalent of ~1e-5 total Euclidean distance across samples (sub-millimeter floor).
+        private const double IncrementalFilterRelTol = 0.05;
+        private const double IncrementalFilterAbsEps = 1e-10;
+
+        // incremental sample-by-sample filter kept for test comparisons only.
+        // Production uses the exact indexed scan above.
+
+        // Incremental sample-by-sample filtering for the indexed case (multiple candidates
+        // at the same base position). Processes one blendshape at a time and eliminates
+        // candidates that are clearly worse after each sample, reducing O(K×M) work.
+        // Indexed search for the case where multiple representative FBX control points share
+        // the same base position. This must compare every valid candidate across all samples:
+        // a candidate that is slightly worse on an early blendshape can still be the closest
+        // after later blendshapes are included.
+        private bool TryFindClosestRelativeCandidateIndexIncremental(
+            IReadOnlyList<PositionFingerprint> candidates,
+            IReadOnlyList<int> candidateIndices,
+            out int candidateIndex)
+        {
+            candidateIndex = -1;
+            int count = candidateIndices?.Count ?? 0;
+            if (count == 0) return false;
+
+            int sampleCount = _relativeSamples.Length;
+            if (sampleCount == 0)
+            {
+                candidateIndex = candidateIndices[0];
+                return candidateIndex >= 0 && candidates != null && candidateIndex < candidates.Count;
+            }
+
+            var accum = new double[count];
+            var active = new bool[count];
+            int activeCount = 0;
+
+            for (int i = 0; i < count; i++)
+            {
+                int ci = candidateIndices[i];
+                if (candidates != null && ci >= 0 && ci < candidates.Count && candidates[ci] != null &&
+                    candidates[ci]._relativeSamples.Length == sampleCount)
+                {
+                    active[i] = true;
+                    activeCount++;
+                }
+            }
+
+            if (activeCount == 0) return false;
+
+            int samplesUsed = 0;
+            for (int si = 0; si < sampleCount && activeCount > 1; si++)
+            {
+                samplesUsed++;
+                double minAccum = double.PositiveInfinity;
+
+                for (int i = 0; i < count; i++)
+                {
+                    if (!active[i]) continue;
+                    var otherSamples = candidates[candidateIndices[i]]._relativeSamples;
+
+                    double dx = (double)_relativeSamples[si].x - otherSamples[si].x;
+                    double dy = (double)_relativeSamples[si].y - otherSamples[si].y;
+                    double dz = (double)_relativeSamples[si].z - otherSamples[si].z;
+                    accum[i] += dx * dx + dy * dy + dz * dz;
+
+                    if (accum[i] < minAccum) minAccum = accum[i];
+                }
+
+                double threshold = minAccum * (1.0 + IncrementalFilterRelTol) + IncrementalFilterAbsEps;
+                for (int i = 0; i < count; i++)
+                {
+                    if (active[i] && accum[i] > threshold)
+                    {
+                        active[i] = false;
+                        activeCount--;
+                    }
+                }
+            }
+
+            if (activeCount > 1)
+            {
+                Debug.Log(
+                    $"[PositionFingerprint] Incremental test ambiguous: {count} candidates, " +
+                    $"{sampleCount} blendshapes processed, still {activeCount} remaining.");
+            }
+            else
+            {
+                Debug.Log(
+                    $"[PositionFingerprint] Incremental test resolved: {count} candidates -> 1 after " +
+                    $"{samplesUsed}/{sampleCount} blendshapes");
+            }
+
+            double bestDist = double.PositiveInfinity;
+            for (int i = 0; i < count; i++)
+            {
+                if (!active[i]) continue;
+                if (accum[i] < bestDist)
+                {
+                    bestDist = accum[i];
+                    candidateIndex = candidateIndices[i];
                 }
             }
 
@@ -278,9 +430,19 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         {
             private readonly IReadOnlyList<PositionFingerprint> _candidates;
             private readonly Dictionary<BasePositionKey, List<int>> _indicesByBasePosition;
-            private readonly List<int> _basePositionMatches = new List<int>();
             private readonly float _epsilon;
             private readonly float _cellSize;
+            [System.ThreadStatic]
+            private static List<int> s_basePositionMatches;
+
+            // Accumulated stats across all TryFindMatchingCandidateIndex calls
+            private long _basePositionTicks;
+            private long _allCandidatesSearchTicks;
+            private long _indexedSearchTicks;
+            private int _resolvedByBasePosition;
+            private int _resolvedByAllCandidatesSearch;
+            private int _resolvedByIndexedSearch;
+            private int _unresolved;
 
             public CandidateIndex(IReadOnlyList<PositionFingerprint> candidates, float epsilon)
             {
@@ -315,27 +477,65 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 candidateIndex = -1;
                 if (fingerprint == null || _candidates.Count == 0)
                 {
+                    System.Threading.Interlocked.Increment(ref _unresolved);
                     return false;
                 }
 
-                _basePositionMatches.Clear();
-                AddBasePositionMatches(fingerprint, _basePositionMatches);
+                long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+                List<int> basePositionMatches = s_basePositionMatches ?? (s_basePositionMatches = new List<int>());
+                basePositionMatches.Clear();
+                AddBasePositionMatches(fingerprint, basePositionMatches);
+                System.Threading.Interlocked.Add(
+                    ref _basePositionTicks,
+                    System.Diagnostics.Stopwatch.GetTimestamp() - t0);
 
-                if (_basePositionMatches.Count == 0)
+                if (basePositionMatches.Count == 0)
                 {
-                    return fingerprint.TryFindClosestRelativeCandidateIndex(_candidates, out candidateIndex);
+                    long t1 = System.Diagnostics.Stopwatch.GetTimestamp();
+                    bool found = fingerprint.TryFindClosestRelativeCandidateIndex(_candidates, out candidateIndex);
+                    System.Threading.Interlocked.Add(
+                        ref _allCandidatesSearchTicks,
+                        System.Diagnostics.Stopwatch.GetTimestamp() - t1);
+                    if (found) System.Threading.Interlocked.Increment(ref _resolvedByAllCandidatesSearch);
+                    else System.Threading.Interlocked.Increment(ref _unresolved);
+                    return found;
                 }
 
-                if (_basePositionMatches.Count == 1)
+                if (basePositionMatches.Count == 1)
                 {
-                    candidateIndex = _basePositionMatches[0];
+                    candidateIndex = basePositionMatches[0];
+                    System.Threading.Interlocked.Increment(ref _resolvedByBasePosition);
                     return true;
                 }
 
-                return fingerprint.TryFindClosestRelativeCandidateIndex(
+                long t2 = System.Diagnostics.Stopwatch.GetTimestamp();
+                bool foundIndexed = fingerprint.TryFindClosestRelativeCandidateIndex(
                     _candidates,
-                    _basePositionMatches,
+                    basePositionMatches,
                     out candidateIndex);
+                System.Threading.Interlocked.Add(
+                    ref _indexedSearchTicks,
+                    System.Diagnostics.Stopwatch.GetTimestamp() - t2);
+                if (foundIndexed) System.Threading.Interlocked.Increment(ref _resolvedByIndexedSearch);
+                else System.Threading.Interlocked.Increment(ref _unresolved);
+                return foundIndexed;
+            }
+
+            public void LogStats(string prefix = "[CandidateIndex]")
+            {
+                double freq = System.Diagnostics.Stopwatch.Frequency;
+                double bpMs    = _basePositionTicks          / freq * 1000.0;
+                double allMs   = _allCandidatesSearchTicks   / freq * 1000.0;
+                double idxMs   = _indexedSearchTicks         / freq * 1000.0;
+                int total = _resolvedByBasePosition + _resolvedByAllCandidatesSearch
+                          + _resolvedByIndexedSearch + _unresolved;
+                Debug.Log(
+                    $"{prefix} {total} vertices total\n" +
+                    $"  AddBasePositionMatches:               {bpMs,10:0.###} ms\n" +
+                    $"  Resolved by base position (unique):   {_resolvedByBasePosition,8} vertices\n" +
+                    $"  TryFindClosest all-candidates:        {_resolvedByAllCandidatesSearch,8} vertices   {allMs,10:0.###} ms\n" +
+                    $"  TryFindClosest indexed (ambiguous):   {_resolvedByIndexedSearch,8} vertices   {idxMs,10:0.###} ms\n" +
+                    $"  Unresolved:                           {_unresolved,8}");
             }
 
             private void AddBasePositionMatches(PositionFingerprint fingerprint, List<int> matches)
