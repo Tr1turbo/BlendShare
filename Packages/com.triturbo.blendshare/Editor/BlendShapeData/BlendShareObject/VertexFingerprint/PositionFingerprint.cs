@@ -155,6 +155,125 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                    Mathf.Abs(a.z - b.z) <= epsilon;
         }
 
+        // Shared spatial key — used by both WeldingGroupIndex and CandidateIndex.
+        private readonly struct BasePositionKey : System.IEquatable<BasePositionKey>
+        {
+            public readonly long X;
+            public readonly long Y;
+            public readonly long Z;
+
+            public BasePositionKey(long x, long y, long z)
+            {
+                X = x;
+                Y = y;
+                Z = z;
+            }
+
+            public static BasePositionKey From(Vector3 position, float cellSize)
+            {
+                return new BasePositionKey(
+                    (long)System.Math.Floor(position.x / cellSize),
+                    (long)System.Math.Floor(position.y / cellSize),
+                    (long)System.Math.Floor(position.z / cellSize));
+            }
+
+            public bool Equals(BasePositionKey other)
+            {
+                return X == other.X && Y == other.Y && Z == other.Z;
+            }
+
+            public override bool Equals(object obj)
+            {
+                return obj is BasePositionKey other && Equals(other);
+            }
+
+            public override int GetHashCode()
+            {
+                unchecked
+                {
+                    int hash = 17;
+                    hash = hash * 31 + X.GetHashCode();
+                    hash = hash * 31 + Y.GetHashCode();
+                    hash = hash * 31 + Z.GetHashCode();
+                    return hash;
+                }
+            }
+        }
+
+        // Groups FBX control points whose fingerprints are identical (same base position + same relative
+        // samples). The matching step then builds a CandidateIndex over the K group representatives
+        // (K ≤ M) instead of all M control points, which is faster when the mesh has many welded seams.
+        internal sealed class WeldingGroupIndex
+        {
+            private readonly PositionFingerprint[] _representatives;
+            private readonly int[][] _groupMembers;
+
+            public int GroupCount => _representatives.Length;
+            public PositionFingerprint[] GetAllRepresentatives() => _representatives;
+            public int[] GetGroupMembers(int groupId) => _groupMembers[groupId];
+
+            public WeldingGroupIndex(PositionFingerprint[] fingerprints, float epsilon)
+            {
+                int count = fingerprints?.Length ?? 0;
+                float cellSize = epsilon > 0f ? epsilon : 1f;
+
+                // Spatial bucket map for O(1) neighbourhood lookup
+                var buckets = new Dictionary<BasePositionKey, List<int>>(count);
+                for (int i = 0; i < count; i++)
+                {
+                    if (fingerprints[i] == null) continue;
+                    var key = BasePositionKey.From(fingerprints[i].BasePosition, cellSize);
+                    if (!buckets.TryGetValue(key, out var list))
+                    {
+                        list = new List<int>();
+                        buckets[key] = list;
+                    }
+                    list.Add(i);
+                }
+
+                var controlPointToGroup = new int[count];
+                for (int i = 0; i < count; i++) controlPointToGroup[i] = -1;
+
+                var representatives = new List<PositionFingerprint>(count);
+                var memberLists = new List<int[]>(count);
+
+                for (int i = 0; i < count; i++)
+                {
+                    if (controlPointToGroup[i] >= 0 || fingerprints[i] == null) continue;
+
+                    int groupId = representatives.Count;
+                    controlPointToGroup[i] = groupId;
+                    var members = new List<int> { i };
+
+                    // Probe 3×3×3 neighbourhood to find identical-fingerprint control points
+                    var baseKey = BasePositionKey.From(fingerprints[i].BasePosition, cellSize);
+                    for (long x = baseKey.X - 1; x <= baseKey.X + 1; x++)
+                    for (long y = baseKey.Y - 1; y <= baseKey.Y + 1; y++)
+                    for (long z = baseKey.Z - 1; z <= baseKey.Z + 1; z++)
+                    {
+                        if (!buckets.TryGetValue(new BasePositionKey(x, y, z), out var bucket)) continue;
+                        for (int bi = 0; bi < bucket.Count; bi++)
+                        {
+                            int j = bucket[bi];
+                            if (j == i || controlPointToGroup[j] >= 0 || fingerprints[j] == null) continue;
+                            if (!fingerprints[i].IsBasePositionMatch(fingerprints[j], epsilon)) continue;
+                            // stopAfter=1e-12: aborts after the first differing sample, so this is O(1)
+                            // for non-identical pairs and O(samples) only for truly identical ones.
+                            if (fingerprints[i].RelativeDistanceTo(fingerprints[j], stopAfter: 1e-12) != 0.0) continue;
+                            controlPointToGroup[j] = groupId;
+                            members.Add(j);
+                        }
+                    }
+
+                    representatives.Add(fingerprints[i]);
+                    memberLists.Add(members.ToArray());
+                }
+
+                _representatives = representatives.ToArray();
+                _groupMembers = memberLists.ToArray();
+            }
+        }
+
         internal sealed class CandidateIndex
         {
             private readonly IReadOnlyList<PositionFingerprint> _candidates;
@@ -235,57 +354,13 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
                             for (int i = 0; i < indices.Count; i++)
                             {
-                                int candidateIndex = indices[i];
-                                if (fingerprint.IsBasePositionMatch(_candidates[candidateIndex], _epsilon))
+                                int candidateIdx = indices[i];
+                                if (fingerprint.IsBasePositionMatch(_candidates[candidateIdx], _epsilon))
                                 {
-                                    matches.Add(candidateIndex);
+                                    matches.Add(candidateIdx);
                                 }
                             }
                         }
-                    }
-                }
-            }
-
-            private readonly struct BasePositionKey : System.IEquatable<BasePositionKey>
-            {
-                public readonly long X;
-                public readonly long Y;
-                public readonly long Z;
-
-                public BasePositionKey(long x, long y, long z)
-                {
-                    X = x;
-                    Y = y;
-                    Z = z;
-                }
-
-                public static BasePositionKey From(Vector3 position, float cellSize)
-                {
-                    return new BasePositionKey(
-                        (long)System.Math.Floor(position.x / cellSize),
-                        (long)System.Math.Floor(position.y / cellSize),
-                        (long)System.Math.Floor(position.z / cellSize));
-                }
-
-                public bool Equals(BasePositionKey other)
-                {
-                    return X == other.X && Y == other.Y && Z == other.Z;
-                }
-
-                public override bool Equals(object obj)
-                {
-                    return obj is BasePositionKey other && Equals(other);
-                }
-
-                public override int GetHashCode()
-                {
-                    unchecked
-                    {
-                        int hash = 17;
-                        hash = hash * 31 + X.GetHashCode();
-                        hash = hash * 31 + Y.GetHashCode();
-                        hash = hash * 31 + Z.GetHashCode();
-                        return hash;
                     }
                 }
             }

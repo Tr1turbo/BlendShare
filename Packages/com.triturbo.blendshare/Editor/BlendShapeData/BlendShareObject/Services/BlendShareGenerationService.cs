@@ -128,8 +128,14 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 return null;
             }
 
+            var blendShapeFeature = meshData.GetFeature<BlendShapeFeatureObject>();
+            if (blendShapeFeature == null)
+            {
+                return null;
+            }
+
             Mesh newMesh = Object.Instantiate(target);
-            var activeBlendShapes = meshData.GetActiveBlendShapes().ToArray();
+            var activeBlendShapes = blendShapeFeature.GetActiveBlendShapes().ToArray();
             var activeNames = new HashSet<string>(activeBlendShapes.Select(blendShape => blendShape.m_Name));
             var blendShapesToApply = new List<(string name, UnityBlendShapeData data)>();
 
@@ -330,7 +336,10 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                     continue;
                 }
 
-                var activeNames = new HashSet<string>(meshData.GetActiveBlendShapes().Select(record => record.m_Name));
+                var blendShapeFeature = meshData.GetFeature<BlendShapeFeatureObject>();
+                var activeNames = new HashSet<string>(blendShapeFeature != null
+                    ? blendShapeFeature.GetActiveBlendShapes().Select(record => record.m_Name)
+                    : Enumerable.Empty<string>());
                 for (int i = 0; i < sourceMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape); i++)
                 {
                     var deformer = sourceMesh.GetBlendShapeDeformer(i);
@@ -385,8 +394,14 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             }
 
             share.GetDeformer(targetMesh, false)?.Destroy();
+            var blendShapeFeature = meshData.GetFeature<BlendShapeFeatureObject>();
+            if (blendShapeFeature == null)
+            {
+                return false;
+            }
+
             var existingBlendShapes = new HashSet<string>();
-            var activeNames = new HashSet<string>(meshData.GetActiveBlendShapes().Select(record => record.m_Name));
+            var activeNames = new HashSet<string>(blendShapeFeature.GetActiveBlendShapes().Select(record => record.m_Name));
 
             for (int i = 0; i < targetMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape); i++)
             {
@@ -405,13 +420,13 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                         channel.RemoveTargetShape(channel.GetTargetShape(shape));
                     }
 
-                    CreateFbxBlendShapeChannel(channel, targetMesh, meshData.GetBlendShape(name).m_FbxBlendShapeData);
+                    CreateFbxBlendShapeChannel(channel, targetMesh, blendShapeFeature.GetBlendShape(name).m_FbxBlendShapeData);
                     existingBlendShapes.Add(name);
                 }
             }
 
             var targetDeformer = share.GetDeformer(targetMesh);
-            foreach (var blendShape in meshData.GetActiveBlendShapes())
+            foreach (var blendShape in blendShapeFeature.GetActiveBlendShapes())
             {
                 if (existingBlendShapes.Contains(blendShape.m_Name))
                 {

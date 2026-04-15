@@ -1,9 +1,6 @@
-using System.Collections;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using UnityEngine;
-
 
 namespace Triturbo.BlendShapeShare.BlendShapeData
 {
@@ -22,14 +19,9 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         }
     }
 
-    public class MeshDataObject : UpgradableScriptableObject
+    public sealed class BlendShapeFeatureObject : MeshFeatureObject
     {
-        protected override int CurrentVersion => 2;
-
-        // FBX hierarchy path. This is not a Unity asset path.
-        public string m_MeshPath;
-        public string m_MeshName;
-        public int m_FbxControlPointCount = -1;
+        public const string Id = "blend-shapes";
 
         [SerializeField]
         private List<BlendShapeRecord> m_BlendShapes = new();
@@ -37,16 +29,12 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         [SerializeField]
         private List<int> m_ActiveBlendShapeIndices = new();
 
-        public UnityVertexMappingObject[] m_Mappings;
-
+        public override string FeatureId => Id;
         public IReadOnlyList<BlendShapeRecord> BlendShapes => m_BlendShapes;
         public IReadOnlyList<int> ActiveBlendShapeIndices => m_ActiveBlendShapeIndices;
 
-        public void Initialize(string meshPath, string meshName, int fbxControlPointCount)
+        public override void Sanitize(MeshDataObject owner)
         {
-            m_MeshPath = meshPath;
-            m_MeshName = meshName;
-            m_FbxControlPointCount = fbxControlPointCount;
             SanitizeShapeNames();
         }
 
@@ -138,9 +126,9 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 .Select(shapeName => lookup[shapeName]));
         }
 
-        public void ApplyPreset(BlendShapePresetObject preset)
+        public void ApplyPreset(MeshDataObject owner, BlendShapePresetObject preset)
         {
-            if (preset == null || preset.m_MeshPath != m_MeshPath)
+            if (owner == null || preset == null || preset.m_MeshPath != owner.m_MeshPath)
             {
                 return;
             }
@@ -148,26 +136,20 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             SetActiveBlendShapeIndices(preset.m_BlendShapeIndices);
         }
 
-        public BlendShapePresetObject CreatePreset(string presetName)
+        public BlendShapePresetObject CreatePreset(MeshDataObject owner, string presetName)
         {
-            var preset = CreateInstance<BlendShapePresetObject>();
-            preset.name = string.IsNullOrWhiteSpace(presetName) ? $"{m_MeshName} Preset" : presetName;
-            preset.Set(m_MeshPath, m_ActiveBlendShapeIndices, m_BlendShapes.Select(blendShape => blendShape?.m_Name));
+            var preset = ScriptableObject.CreateInstance<BlendShapePresetObject>();
+            string meshName = owner != null ? owner.m_MeshName : "Mesh";
+            string meshPath = owner != null ? owner.m_MeshPath : string.Empty;
+            preset.name = string.IsNullOrWhiteSpace(presetName) ? $"{meshName} Preset" : presetName;
+            preset.Set(meshPath, m_ActiveBlendShapeIndices, m_BlendShapes.Select(blendShape => blendShape?.m_Name));
             return preset;
-        }
-
-        public bool IsValidTarget(Mesh targetMesh)
-        {
-            return targetMesh != null &&
-                   (m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
-                   .Any(mapping => mapping != null && mapping.MatchesUnityMesh(targetMesh));
         }
 
         public bool SanitizeShapeNames()
         {
             m_BlendShapes ??= new List<BlendShapeRecord>();
             m_ActiveBlendShapeIndices ??= new List<int>();
-            MigrateFbxBlendShapeVectors();
 
             int oldBlendShapeCount = m_BlendShapes.Count;
             m_BlendShapes = m_BlendShapes
@@ -198,59 +180,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
             m_ActiveBlendShapeIndices = validActive;
             return changed;
-        }
-
-        private void MigrateFbxBlendShapeVectors()
-        {
-            foreach (var blendShape in m_BlendShapes ?? new List<BlendShapeRecord>())
-            {
-                blendShape?.m_FbxBlendShapeData?.MigrateLegacyVectors();
-            }
-        }
-
-        public int InferFbxControlPointCount()
-        {
-            if (m_FbxControlPointCount > 0)
-            {
-                return m_FbxControlPointCount;
-            }
-
-            int maxIndex = -1;
-            foreach (var blendShape in m_BlendShapes)
-            {
-                foreach (var frame in blendShape?.m_FbxBlendShapeData?.m_Frames ?? System.Array.Empty<FbxBlendShapeFrame>())
-                {
-                    if (frame?.m_PointsIndices == null || frame.m_PointsIndices.Count == 0)
-                    {
-                        continue;
-                    }
-
-                    maxIndex = Mathf.Max(maxIndex, frame.m_PointsIndices.Max());
-                }
-            }
-
-            m_FbxControlPointCount = maxIndex >= 0 ? maxIndex + 1 : -1;
-            return m_FbxControlPointCount;
-        }
-
-        protected override void UpgradeStep(int fromVersion)
-        {
-            if (fromVersion == 0)
-            {
-                m_BlendShapes ??= new List<BlendShapeRecord>();
-                m_ActiveBlendShapeIndices ??= Enumerable.Range(0, m_BlendShapes.Count).ToList();
-                SetVersion(1);
-                return;
-            }
-
-            if (fromVersion == 1)
-            {
-                MigrateFbxBlendShapeVectors();
-                SetVersion(2);
-                return;
-            }
-
-            SetVersion(CurrentVersion);
         }
     }
 }

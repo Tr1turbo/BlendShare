@@ -228,8 +228,7 @@ namespace Triturbo.BlendShapeShare.Extractor
                 {
                     if ((meshData.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
                         .Any(mapping => mapping != null &&
-                                        mapping.m_UnityVertexCount == -1 &&
-                                        mapping.m_UnityVerticesHash == -1))
+                                        !mapping.m_IsValid))
                     {
                         string msg = "Skip Unity blendshapes extraction. Fbx blendshapes still working.";
                         if (!weldVertices)

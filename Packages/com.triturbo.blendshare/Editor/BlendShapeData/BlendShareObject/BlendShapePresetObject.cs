@@ -4,10 +4,8 @@ using UnityEngine;
 
 namespace Triturbo.BlendShapeShare.BlendShapeData
 {
-    public class BlendShapePresetObject : UpgradableScriptableObject
+    public class BlendShapePresetObject : ScriptableObject
     {
-        protected override int CurrentVersion => 1;
-
         public string m_MeshPath;
         public List<int> m_BlendShapeIndices = new();
         public List<string> m_NameSnapshots = new();
@@ -27,19 +25,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 .Where(index => index >= 0 && index < blendShapeCount)
                 .Distinct()
                 .ToList() ?? new List<int>();
-        }
-
-        protected override void UpgradeStep(int fromVersion)
-        {
-            if (fromVersion == 0)
-            {
-                m_BlendShapeIndices ??= new List<int>();
-                m_NameSnapshots ??= new List<string>();
-                SetVersion(1);
-                return;
-            }
-
-            SetVersion(CurrentVersion);
         }
     }
 }
