@@ -49,12 +49,18 @@ namespace Triturbo.BlendShapeShare.Extractor
         
         private ModelImporter originalFbxImporter;
         private ModelImporter sourceFbxImporter;
+        private MeshFeatureExtractionOptionsSet featureOptionsSet = new MeshFeatureExtractionOptionsSet();
 
         
         [MenuItem("Tools/BlendShare/BlendShapes Extractor")]
         public static void ShowWindow()
         {
             GetWindow<BlendShapesExtractorEditor>("BlendShare");
+        }
+
+        private void OnEnable()
+        {
+            EnsureFeatureOptions();
         }
         
         
@@ -158,6 +164,8 @@ namespace Triturbo.BlendShapeShare.Extractor
                 EditorGUI.indentLevel--;
             }
 
+            DrawMeshFeatureOptions();
+
             EditorGUILayout.Separator();
 
             bool enable = sourceFBX != null && originFBX != null;
@@ -216,7 +224,8 @@ namespace Triturbo.BlendShapeShare.Extractor
                     meshDataList,
                     blendShapesExtractorOptions,
                     path,
-                    defaultName);
+                    defaultName,
+                    featureOptionsSet);
 
                 if (blendShare == null)
                 {
@@ -242,6 +251,73 @@ namespace Triturbo.BlendShapeShare.Extractor
             }
             EditorGUI.EndDisabledGroup();
 
+        }
+
+        private void EnsureFeatureOptions()
+        {
+            featureOptionsSet ??= new MeshFeatureExtractionOptionsSet();
+            foreach (var provider in MeshFeatureExtractionOptionsProviderRegistry.Providers)
+            {
+                if (provider == null ||
+                    provider.FeatureId == BlendShapeFeatureObject.Id ||
+                    featureOptionsSet.TryGet(provider.OptionsType, out _))
+                {
+                    continue;
+                }
+
+                featureOptionsSet.Set(provider.OptionsType, provider.CreateDefaultOptions());
+            }
+        }
+
+        private void DrawMeshFeatureOptions()
+        {
+            EnsureFeatureOptions();
+            var providers = MeshFeatureExtractionOptionsProviderRegistry.Providers;
+            if (providers.Count == 0)
+            {
+                return;
+            }
+
+            var context = new MeshFeatureOptionsEditorContext(
+                sourceFBX,
+                originFBX,
+                GetMeshFeatureRequests());
+
+            foreach (var provider in providers)
+            {
+                if (provider == null ||
+                    provider.FeatureId == BlendShapeFeatureObject.Id ||
+                    !featureOptionsSet.TryGet(provider.OptionsType, out var options) ||
+                    options == null)
+                {
+                    continue;
+                }
+
+                provider.DrawOptionsGUI(options, context);
+            }
+        }
+
+        private List<MeshFeatureExtractionMeshRequest> GetMeshFeatureRequests()
+        {
+            var requests = new List<MeshFeatureExtractionMeshRequest>();
+            if (originFBX == null)
+            {
+                return requests;
+            }
+
+            foreach (var renderer in originFBX.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            {
+                if (renderer.sharedMesh == null)
+                {
+                    continue;
+                }
+
+                requests.Add(new MeshFeatureExtractionMeshRequest(
+                    GetRelativePath(renderer.transform, originFBX.transform),
+                    renderer.sharedMesh.name));
+            }
+
+            return requests;
         }
         
         private static List<MeshData> GetMeshDataList(GameObject source, GameObject origin, Dictionary<SkinnedMeshRenderer, bool[]> blendShapeToggles)

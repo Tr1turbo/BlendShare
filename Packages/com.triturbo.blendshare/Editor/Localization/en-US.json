@@ -32,6 +32,24 @@
   "extractor.enum.compare_method.custom": "Custom",
   "extractor.enum.compare_method.custom.tooltip": "Toggle which blendshapes should be extracted individually.",
 
+  "new_extractor.title": "BlendShare Extractor (New System)",
+  "new_extractor.feature_options": "Feature Options",
+  "new_extractor.meshes": "Meshes",
+  "new_extractor.assign_fbx_hint": "Assign both Original FBX and Source FBX to select blendshapes.",
+  "new_extractor.refresh": "Refresh Meshes",
+  "new_extractor.no_meshes": "No matching skinned meshes with blendshapes were found.",
+  "new_extractor.mesh_path": "Mesh Path",
+  "new_extractor.save_asset": "Save BlendShare Asset",
+  "new_extractor.save_title": "Save BlendShare Asset",
+  "new_extractor.no_selection.title": "No BlendShapes Selected",
+  "new_extractor.no_selection.message": "Select at least one blendshape before saving.",
+  "new_extractor.failed.title": "Extraction Failed",
+  "new_extractor.failed.message": "Blendshape extraction failed.",
+  "new_extractor.invalid_mapping.title": "Unity vertices cannot match",
+  "new_extractor.invalid_mapping.message": "Unity blendshape generation may use the cached fallback. FBX blendshapes are still saved.",
+  "new_extractor.invalid_mapping.weld_hint": "Enabling Weld BlendShape Vertices might fix the issue.",
+  "new_extractor.missing_origin_mesh": "Cannot find matching original mesh for '{0}'.",
+
 
 
   "data.original_fbx": "Original FBX",

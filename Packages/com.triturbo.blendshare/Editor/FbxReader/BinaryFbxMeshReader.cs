@@ -340,11 +340,18 @@ namespace Triturbo.BlendShapeShare.FbxReader
                     long parentId = GetLong(properties, 2);
                     if (childId != 0)
                     {
-                        scene.Connections.Add(new ConnectionRecord(childId, parentId));
                         if (!scene.ObjectParents.ContainsKey(childId))
                         {
                             scene.ObjectParents[childId] = parentId;
                         }
+
+                        if (!scene.ChildrenByParent.TryGetValue(parentId, out var childList))
+                        {
+                            childList = new List<long>();
+                            scene.ChildrenByParent[parentId] = childList;
+                        }
+
+                        childList.Add(childId);
                     }
                 }
 
@@ -449,16 +456,18 @@ namespace Triturbo.BlendShapeShare.FbxReader
             BinaryFbxScene scene,
             long parentId)
         {
-            foreach (var connection in scene.Connections)
+            if (!scene.ChildrenByParent.TryGetValue(parentId, out var children))
             {
-                if (connection.ParentId != parentId ||
-                    !scene.Geometries.TryGetValue(connection.ChildId, out var geometry) ||
-                    !string.Equals(geometry.Type, "Shape", StringComparison.Ordinal))
-                {
-                    continue;
-                }
+                yield break;
+            }
 
-                yield return geometry;
+            foreach (long childId in children)
+            {
+                if (scene.Geometries.TryGetValue(childId, out var geometry) &&
+                    string.Equals(geometry.Type, "Shape", StringComparison.Ordinal))
+                {
+                    yield return geometry;
+                }
             }
         }
 
@@ -602,15 +611,15 @@ namespace Triturbo.BlendShapeShare.FbxReader
             long parentId)
             where TDeformer : DeformerRecord
         {
-            foreach (var connection in scene.Connections)
+            if (!scene.ChildrenByParent.TryGetValue(parentId, out var children))
             {
-                if (connection.ParentId != parentId ||
-                    !scene.Deformers.TryGetValue(connection.ChildId, out var deformer))
-                {
-                    continue;
-                }
+                yield break;
+            }
 
-                if (deformer is TDeformer typedDeformer)
+            foreach (long childId in children)
+            {
+                if (scene.Deformers.TryGetValue(childId, out var deformer) &&
+                    deformer is TDeformer typedDeformer)
                 {
                     yield return typedDeformer;
                 }
@@ -619,24 +628,25 @@ namespace Triturbo.BlendShapeShare.FbxReader
 
         private static string ResolveClusterBoneName(BinaryFbxScene scene, ClusterDeformerRecord cluster)
         {
-            foreach (var connection in scene.Connections)
+            // The joint model is typically connected as a child of the cluster: OO(jointId, clusterId).
+            if (scene.ChildrenByParent.TryGetValue(cluster.Id, out var children))
             {
-                if (connection.ParentId == cluster.Id &&
-                    scene.Models.TryGetValue(connection.ChildId, out var childModel) &&
-                    !string.IsNullOrEmpty(childModel.Name))
+                foreach (long childId in children)
                 {
-                    return childModel.Name;
+                    if (scene.Models.TryGetValue(childId, out var childModel) &&
+                        !string.IsNullOrEmpty(childModel.Name))
+                    {
+                        return childModel.Name;
+                    }
                 }
             }
 
-            foreach (var connection in scene.Connections)
+            // Fallback: cluster is connected as a child of the model.
+            if (scene.ObjectParents.TryGetValue(cluster.Id, out long parentModelId) &&
+                scene.Models.TryGetValue(parentModelId, out var parentModel) &&
+                !string.IsNullOrEmpty(parentModel.Name))
             {
-                if (connection.ChildId == cluster.Id &&
-                    scene.Models.TryGetValue(connection.ParentId, out var parentModel) &&
-                    !string.IsNullOrEmpty(parentModel.Name))
-                {
-                    return parentModel.Name;
-                }
+                return parentModel.Name;
             }
 
             return string.IsNullOrEmpty(cluster.Name) ? $"Cluster_{cluster.Id}" : cluster.Name;
@@ -740,7 +750,7 @@ namespace Triturbo.BlendShapeShare.FbxReader
             string[] parts = path.Split('/');
             for (int i = 1; i < parts.Length - 1; i++)
             {
-                AddLookupKey(lookup, string.Join("/", parts.Skip(i)), record);
+                AddLookupKey(lookup, string.Join("/", parts, i, parts.Length - i), record);
             }
         }
 
@@ -858,48 +868,43 @@ namespace Triturbo.BlendShapeShare.FbxReader
                 return null;
             }
 
-            byte[] encodedBytes = reader.ReadBytes(encodedByteCount);
-            byte[] bytes = encoding == 0 ? encodedBytes : InflateZlib(encodedBytes);
-            using var stream = new MemoryStream(bytes);
-            using var valueReader = new BinaryReader(stream);
+            // Uncompressed: read directly from the main stream — no intermediate byte[] or MemoryStream.
+            if (encoding == 0)
+            {
+                return ReadTypedArray(reader, typeCode, length);
+            }
 
+            // Compressed (deflate): decompress first, then read from the decompressed buffer.
+            byte[] decompressed = InflateZlib(reader.ReadBytes(encodedByteCount));
+            using var decompressedStream = new MemoryStream(decompressed);
+            using var decompressedReader = new BinaryReader(decompressedStream);
+            return ReadTypedArray(decompressedReader, typeCode, length);
+        }
+
+        private static object ReadTypedArray(BinaryReader reader, char typeCode, int length)
+        {
             switch (typeCode)
             {
                 case 'f':
                     var floats = new float[length];
-                    for (int i = 0; i < floats.Length; i++)
-                    {
-                        floats[i] = valueReader.ReadSingle();
-                    }
+                    for (int i = 0; i < floats.Length; i++) floats[i] = reader.ReadSingle();
                     return floats;
                 case 'd':
                     var doubles = new double[length];
-                    for (int i = 0; i < doubles.Length; i++)
-                    {
-                        doubles[i] = valueReader.ReadDouble();
-                    }
+                    for (int i = 0; i < doubles.Length; i++) doubles[i] = reader.ReadDouble();
                     return doubles;
                 case 'l':
                     var longs = new long[length];
-                    for (int i = 0; i < longs.Length; i++)
-                    {
-                        longs[i] = valueReader.ReadInt64();
-                    }
+                    for (int i = 0; i < longs.Length; i++) longs[i] = reader.ReadInt64();
                     return longs;
                 case 'i':
                     var ints = new int[length];
-                    for (int i = 0; i < ints.Length; i++)
-                    {
-                        ints[i] = valueReader.ReadInt32();
-                    }
+                    for (int i = 0; i < ints.Length; i++) ints[i] = reader.ReadInt32();
                     return ints;
                 case 'b':
                 case 'c':
                     var bools = new bool[length];
-                    for (int i = 0; i < bools.Length; i++)
-                    {
-                        bools[i] = valueReader.ReadByte() != 0;
-                    }
+                    for (int i = 0; i < bools.Length; i++) bools[i] = reader.ReadByte() != 0;
                     return bools;
                 default:
                     return null;
@@ -943,12 +948,18 @@ namespace Triturbo.BlendShapeShare.FbxReader
 
         private static long GetLong(object[] properties, int index)
         {
-            if (properties == null || index < 0 || index >= properties.Length || properties[index] == null)
+            if (properties == null || index < 0 || index >= properties.Length)
             {
                 return 0;
             }
 
-            return Convert.ToInt64(properties[index]);
+            return properties[index] switch
+            {
+                long l   => l,
+                int i    => i,
+                short s  => s,
+                _        => 0
+            };
         }
 
         private static string GetString(object[] properties, int index)
@@ -1089,8 +1100,9 @@ namespace Triturbo.BlendShapeShare.FbxReader
             public readonly Dictionary<long, GeometryRecord> Geometries = new();
             public readonly Dictionary<long, ModelRecord> Models = new();
             public readonly Dictionary<long, DeformerRecord> Deformers = new();
-            public readonly List<ConnectionRecord> Connections = new();
             public readonly Dictionary<long, long> ObjectParents = new();
+            // Keyed by parentId → list of childIds; built once in ReadConnections to replace O(n) linear scans.
+            public readonly Dictionary<long, List<long>> ChildrenByParent = new();
         }
 
         private sealed class GeometryRecord
@@ -1167,18 +1179,6 @@ namespace Triturbo.BlendShapeShare.FbxReader
             public UnknownDeformerRecord(long id, string name, string type)
                 : base(id, name, type)
             {
-            }
-        }
-
-        private readonly struct ConnectionRecord
-        {
-            public long ChildId { get; }
-            public long ParentId { get; }
-
-            public ConnectionRecord(long childId, long parentId)
-            {
-                ChildId = childId;
-                ParentId = parentId;
             }
         }
 
