@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Triturbo.BlendShapeShare.FbxReader;
+using Triturbo.FBX;
+using Triturbo.FBX.Unity;
 using UnityEditor;
 using UnityEngine;
+using FbxDocument = Triturbo.FBX.FbxDocument;
 
 #if ENABLE_FBX_SDK
 using Autodesk.Fbx;
@@ -115,30 +117,31 @@ namespace Triturbo.BlendShapeShare.Extractor
     public sealed class FbxMeshExtractionSource
     {
         private readonly GameObject fbxAsset;
-        private readonly Dictionary<CacheKey, FbxMeshSnapshot> snapshots = new();
+        private readonly Dictionary<FbxMeshReadOptions, FbxReadResult<FbxDocument>> documents = new();
+        private readonly Dictionary<CacheKey, FbxMeshGeometry> meshes = new();
 
         public FbxMeshExtractionSource(GameObject fbxAsset)
         {
             this.fbxAsset = fbxAsset;
         }
 
-        public FbxMeshSnapshot GetMesh(
+        public FbxMeshGeometry GetMesh(
             string meshPath,
             string meshName,
             FbxMeshReadOptions options)
         {
             var key = new CacheKey(meshPath, meshName, NormalizeReadOptions(options));
-            if (snapshots.TryGetValue(key, out var snapshot))
+            if (meshes.TryGetValue(key, out var mesh))
             {
-                return snapshot;
+                return mesh;
             }
 
-            snapshot = ReadMesh(meshPath, meshName, key.Options);
-            snapshots[key] = snapshot;
-            return snapshot;
+            mesh = ReadMesh(meshPath, meshName, key.Options);
+            meshes[key] = mesh;
+            return mesh;
         }
 
-        private FbxMeshSnapshot ReadMesh(string meshPath, string meshName, FbxMeshReadOptions options)
+        private FbxMeshGeometry ReadMesh(string meshPath, string meshName, FbxMeshReadOptions options)
         {
             if (fbxAsset == null)
             {
@@ -155,26 +158,38 @@ namespace Triturbo.BlendShapeShare.Extractor
                 return null;
             }
 
-            var results = BinaryFbxMeshReader.TryReadMeshes(fbxAsset, candidates, options);
+            var documentResult = GetDocument(options);
+            if (!documentResult.Success)
+            {
+                return null;
+            }
+
             foreach (string candidate in candidates)
             {
-                if (results.TryGetValue(candidate, out var snapshot))
+                var meshResult = FbxUnityAssetReader.FindMesh(documentResult.Value, candidate);
+                if (meshResult.Success)
                 {
-                    return snapshot;
+                    return meshResult.Value;
                 }
             }
 
             return null;
         }
 
-        private static FbxMeshReadOptions NormalizeReadOptions(FbxMeshReadOptions options)
+        private FbxReadResult<FbxDocument> GetDocument(FbxMeshReadOptions options)
         {
-            if ((options & (FbxMeshReadOptions.BlendShapes | FbxMeshReadOptions.BoneWeights)) != 0)
+            if (!documents.TryGetValue(options, out var result))
             {
-                options |= FbxMeshReadOptions.ControlPointPositions;
+                result = FbxUnityAssetReader.Read(fbxAsset, new FbxReadSettings(options));
+                documents[options] = result;
             }
 
-            return options;
+            return result;
+        }
+
+        private static FbxMeshReadOptions NormalizeReadOptions(FbxMeshReadOptions options)
+        {
+            return FbxReadSettings.NormalizeOptions(options);
         }
 
         private readonly struct CacheKey : IEquatable<CacheKey>

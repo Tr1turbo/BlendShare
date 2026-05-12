@@ -1,9 +1,9 @@
 using System;
 using UnityEngine;
 
-namespace Triturbo.BlendShapeShare.FbxReader
+namespace Triturbo.FBX
 {
-    [System.Serializable]
+    [Serializable]
     public struct Vector3d : IEquatable<Vector3d>
     {
         public const double Epsilon = 1e-10;
@@ -22,24 +22,9 @@ namespace Triturbo.BlendShapeShare.FbxReader
             this.z = z;
         }
 
-        public readonly double magnitude
-        {
-            get { return Math.Sqrt(sqrMagnitude); }
-        }
-
-        public readonly double sqrMagnitude
-        {
-            get { return x * x + y * y + z * z; }
-        }
-
-        public readonly Vector3d normalized
-        {
-            get
-            {
-                double mag = magnitude;
-                return mag > Epsilon ? this / mag : zero;
-            }
-        }
+        public readonly double magnitude => Math.Sqrt(sqrMagnitude);
+        public readonly double sqrMagnitude => x * x + y * y + z * z;
+        public readonly Vector3d normalized => magnitude > Epsilon ? this / magnitude : zero;
 
         public readonly bool IsZero()
         {
@@ -57,7 +42,15 @@ namespace Triturbo.BlendShapeShare.FbxReader
             this = mag > Epsilon ? this / mag : zero;
         }
 
+        public readonly bool Equals(Vector3d other)
+        {
+            return x == other.x && y == other.y && z == other.z;
+        }
 
+        public readonly override bool Equals(object other)
+        {
+            return other is Vector3d vector && Equals(vector);
+        }
 
         public readonly override int GetHashCode()
         {
@@ -69,16 +62,6 @@ namespace Triturbo.BlendShapeShare.FbxReader
                 hash = hash * 31 + z.GetHashCode();
                 return hash;
             }
-        }
-
-        public readonly bool Equals(Vector3d other)
-        {
-            return x == other.x && y == other.y && z == other.z;
-        }
-
-        public readonly override bool Equals(object other)
-        {
-            return other is Vector3d vector && Equals(vector);
         }
 
         public readonly override string ToString()
@@ -93,12 +76,12 @@ namespace Triturbo.BlendShapeShare.FbxReader
 
         public static bool operator ==(Vector3d lhs, Vector3d rhs)
         {
-            return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z;
+            return lhs.Equals(rhs);
         }
 
         public static bool operator !=(Vector3d lhs, Vector3d rhs)
         {
-            return lhs.x != rhs.x || lhs.y != rhs.y || lhs.z != rhs.z;
+            return !lhs.Equals(rhs);
         }
 
         public static Vector3d operator +(Vector3d lhs, Vector3d rhs)
@@ -135,7 +118,6 @@ namespace Triturbo.BlendShapeShare.FbxReader
         {
             return new Vector3d(value.x, value.y, value.z);
         }
-
 
         public readonly Vector3 ToVector3()
         {

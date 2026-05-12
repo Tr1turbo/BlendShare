@@ -11,7 +11,7 @@ using Debug = UnityEngine.Debug;
 using System.Threading.Tasks;
 
 
-using Triturbo.BlendShapeShare.FbxReader;
+using Vector3d = Triturbo.FBX.Vector3d;
 
 
 #if ENABLE_FBX_SDK
@@ -890,4 +890,3 @@ namespace Triturbo.BlendShapeShare.Extractor
     }
 
 }
-

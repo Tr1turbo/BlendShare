@@ -1,5 +1,5 @@
 {
-    "name": "Triturbo.BlendShapeShare.FbxReader",
+    "name": "Triturbo.FBX",
     "rootNamespace": "",
     "references": [],
     "includePlatforms": [

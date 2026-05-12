@@ -2,9 +2,9 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEditor;
 using UnityEngine;
-using Triturbo.BlendShapeShare.FbxReader;
 using Triturbo.BlendShapeShare.Util;
 using Object = UnityEngine.Object;
+using Vector3d = Triturbo.FBX.Vector3d;
 
 #if ENABLE_FBX_SDK
 using Autodesk.Fbx;
