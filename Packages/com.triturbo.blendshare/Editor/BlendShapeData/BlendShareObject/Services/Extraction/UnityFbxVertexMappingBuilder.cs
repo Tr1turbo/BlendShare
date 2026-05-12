@@ -180,7 +180,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 return mapping;
             }
 
-            if (fbxMesh != null && fbxMesh.ControlPointCount > 0)
+            if (fbxMesh == null || fbxMesh.ControlPointCount == 0)
             {
                 mapping.m_IsValid = false;
                 mapping.m_InvalidReason = "FBX asset mapping could not read matching FBX control point positions.";

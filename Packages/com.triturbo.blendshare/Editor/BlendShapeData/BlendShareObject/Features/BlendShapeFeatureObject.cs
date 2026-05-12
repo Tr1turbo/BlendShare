@@ -23,7 +23,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
     {
         public const string Id = "blend-shapes";
 
-        [SerializeField]
+        [SerializeField, NonReorderable]
         private List<BlendShapeRecord> m_BlendShapes = new();
 
         [SerializeField]

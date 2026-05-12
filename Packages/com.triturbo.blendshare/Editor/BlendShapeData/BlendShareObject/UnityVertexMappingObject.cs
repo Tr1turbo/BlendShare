@@ -139,5 +139,10 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         {
             m_LegacyCache = cache?.Where(entry => entry != null && entry.m_UnityBlendShapeData != null).ToArray();
         }
+
+        public void SetUnityBlendShapeCache(IEnumerable<MappingUnityBlendShapeCache> cache)
+        {
+            SetLegacyCache(cache);
+        }
     }
 }
