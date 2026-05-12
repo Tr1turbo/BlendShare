@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShapeShare.BlendShapeData;
-using Triturbo.BlendShapeShare.FbxReader;
+using Triturbo.FBX;
 using UnityEngine;
 
 namespace Triturbo.BlendShapeShare.Extractor
@@ -125,12 +125,12 @@ namespace Triturbo.BlendShapeShare.Extractor
             return Session.OriginUnityMeshes.GetMesh(MeshPath, MeshName);
         }
 
-        public FbxMeshSnapshot GetSourceFbxMesh(FbxMeshReadOptions options)
+        public FbxMeshGeometry GetSourceFbxMesh(FbxMeshReadOptions options)
         {
             return Session.SourceFbxMeshes.GetMesh(MeshPath, MeshName, options);
         }
 
-        public FbxMeshSnapshot GetOriginFbxMesh(FbxMeshReadOptions options)
+        public FbxMeshGeometry GetOriginFbxMesh(FbxMeshReadOptions options)
         {
             return Session.OriginFbxMeshes.GetMesh(MeshPath, MeshName, options);
         }

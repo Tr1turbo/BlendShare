@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEditor;
 using UnityEngine;
-using Triturbo.BlendShapeShare.FbxReader;
+using Triturbo.FBX;
 
 namespace Triturbo.BlendShapeShare.BlendShapeData
 {
@@ -112,7 +112,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 mesh.m_MeshPath,
                 legacyMesh.m_OriginMesh,
                 originalFbx,
-                out FbxMeshSnapshot fbxMesh);
+                out FbxMeshGeometry fbxMesh);
 
             if (fbxMesh != null && fbxMesh.ControlPointCount > 0)
             {

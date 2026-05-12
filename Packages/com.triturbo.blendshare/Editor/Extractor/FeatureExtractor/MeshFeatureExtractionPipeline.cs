@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShapeShare.BlendShapeData;
-using Triturbo.BlendShapeShare.FbxReader;
+using Triturbo.FBX;
 using UnityEngine;
 
 namespace Triturbo.BlendShapeShare.Extractor

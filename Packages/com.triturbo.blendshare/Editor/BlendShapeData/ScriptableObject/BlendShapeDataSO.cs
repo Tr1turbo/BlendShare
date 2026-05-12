@@ -4,7 +4,7 @@ using System.IO;
 using System.Linq;
 using UnityEditor.AssetImporters;
 using UnityEngine;
-using Triturbo.BlendShapeShare.FbxReader;
+using Vector3d = Triturbo.FBX.Vector3d;
 
 
 namespace Triturbo.BlendShapeShare.BlendShapeData
@@ -349,7 +349,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
     [System.Serializable]
     public class FbxBlendShapeData
     {
-
         public FbxBlendShapeFrame[] m_Frames;
 
         public FbxBlendShapeData(int frameCount)
