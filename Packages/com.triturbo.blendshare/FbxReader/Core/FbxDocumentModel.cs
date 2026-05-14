@@ -184,6 +184,8 @@ namespace Triturbo.FBX
         public int ControlPointCount { get; }
         public bool HasBlendShapes { get; }
         public bool HasBoneWeights { get; }
+        public bool HasNormals { get; }
+        public bool HasTangents { get; }
         public FbxMeshReadOptions AvailableOptions { get; }
 
         internal FbxMeshDescriptor(
@@ -195,6 +197,8 @@ namespace Triturbo.FBX
             int controlPointCount,
             bool hasBlendShapes,
             bool hasBoneWeights,
+            bool hasNormals,
+            bool hasTangents,
             FbxMeshReadOptions availableOptions)
         {
             GeometryId = geometryId;
@@ -205,6 +209,8 @@ namespace Triturbo.FBX
             ControlPointCount = Math.Max(0, controlPointCount);
             HasBlendShapes = hasBlendShapes;
             HasBoneWeights = hasBoneWeights;
+            HasNormals = hasNormals;
+            HasTangents = hasTangents;
             AvailableOptions = availableOptions;
         }
     }
@@ -215,6 +221,8 @@ namespace Triturbo.FBX
         public string Name { get; }
         public FbxSceneNode OwnerNode { get; }
         public IReadOnlyList<Vector3d> ControlPoints { get; }
+        public IReadOnlyList<Vector3d> ControlPointNormals { get; }
+        public IReadOnlyList<Vector3d> ControlPointTangents { get; }
         public IReadOnlyList<FbxDeformer> Deformers { get; }
         public IReadOnlyList<FbxSkinDeformer> SkinDeformers { get; }
         public IReadOnlyList<FbxBlendShapeDeformer> BlendShapeDeformers { get; }
@@ -223,6 +231,8 @@ namespace Triturbo.FBX
         public FbxMeshDescriptor Descriptor { get; }
         public int ControlPointCount { get; }
         public bool HasControlPoints => ControlPoints.Count > 0;
+        public bool HasNormals => ControlPointNormals.Count > 0;
+        public bool HasTangents => ControlPointTangents.Count > 0;
         public bool HasBlendShapes => BlendShapeDeformers.Count > 0;
         public bool HasBoneWeights => SkinDeformers.Count > 0;
 
@@ -232,6 +242,8 @@ namespace Triturbo.FBX
             FbxSceneNode ownerNode,
             int controlPointCount,
             IEnumerable<Vector3d> controlPoints,
+            IEnumerable<Vector3d> controlPointNormals,
+            IEnumerable<Vector3d> controlPointTangents,
             IEnumerable<FbxDeformer> deformers,
             FbxMeshReadOptions requestedOptions,
             FbxMeshReadOptions availableOptions)
@@ -240,6 +252,8 @@ namespace Triturbo.FBX
             Name = name ?? string.Empty;
             OwnerNode = ownerNode;
             ControlPoints = FbxCollection.ToReadOnly(controlPoints);
+            ControlPointNormals = FbxCollection.ToReadOnly(controlPointNormals);
+            ControlPointTangents = FbxCollection.ToReadOnly(controlPointTangents);
             Deformers = FbxCollection.ToReadOnly(deformers);
             SkinDeformers = FbxCollection.ToReadOnly(Deformers.OfType<FbxSkinDeformer>());
             BlendShapeDeformers = FbxCollection.ToReadOnly(Deformers.OfType<FbxBlendShapeDeformer>());
@@ -255,6 +269,8 @@ namespace Triturbo.FBX
                 ControlPointCount,
                 BlendShapeDeformers.Count > 0,
                 SkinDeformers.Count > 0,
+                ControlPointNormals.Count > 0,
+                ControlPointTangents.Count > 0,
                 availableOptions);
         }
 

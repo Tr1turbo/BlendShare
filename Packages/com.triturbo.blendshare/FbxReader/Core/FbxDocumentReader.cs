@@ -9,6 +9,9 @@ namespace Triturbo.FBX
 {
     public static class FbxDocumentReader
     {
+        // Reference source for the binary FBX container layout:
+        // https://code.blender.org/2013/08/fbx-binary-file-format-specification/
+        // this reader implements only the nodes BlendShare needs.
         private static readonly byte[] BinaryHeader = Encoding.ASCII.GetBytes("Kaydara FBX Binary  \0\x1a\0");
 
         public static FbxReadResult<FbxDocument> Read(string assetPath, FbxReadSettings settings = null)
@@ -90,6 +93,8 @@ namespace Triturbo.FBX
 
             var scene = new BinaryFbxScene();
             long fileLength = stream.Length;
+            // Top-level FBX nodes are section records. BlendShare only needs Objects
+            // for models/geometries/deformers and Connections for their hierarchy.
             while (stream.Position < fileLength)
             {
                 if (!TryReadNodeHeader(reader, version, fileLength, out var header) || header.IsNull)
@@ -164,15 +169,25 @@ namespace Triturbo.FBX
             }
 
             bool readBasePositions = isMesh && Includes(readOptions, FbxMeshReadOptions.ControlPointPositions);
+            bool readBaseNormals = isMesh && Includes(readOptions, FbxMeshReadOptions.Normals);
+            bool readBaseTangents = isMesh && Includes(readOptions, FbxMeshReadOptions.Tangents);
             bool readShapePositions = isShape && Includes(readOptions, FbxMeshReadOptions.BlendShapes);
-            if (isShape && !readShapePositions)
+            bool readShapeNormals = isShape && Includes(readOptions, FbxMeshReadOptions.BlendShapes) && Includes(readOptions, FbxMeshReadOptions.Normals);
+            bool readShapeTangents = isShape && Includes(readOptions, FbxMeshReadOptions.BlendShapes) && Includes(readOptions, FbxMeshReadOptions.Tangents);
+            if (isShape && !readShapePositions && !readShapeNormals && !readShapeTangents)
             {
                 return;
             }
 
+            // Mesh Geometry nodes hold base control points. Shape Geometry nodes hold
+            // blendshape frame data, usually as sparse Indexes plus per-index values.
             double[] vertices = null;
+            Vector3d[] normals = Array.Empty<Vector3d>();
+            Vector3d[] tangents = Array.Empty<Vector3d>();
             int[] indices = null;
             int controlPointCount = 0;
+            bool legacyStyle = true;
+            bool absoluteMode = false;
             while (reader.BaseStream.Position < header.EndOffset)
             {
                 if (!TryReadNodeHeader(reader, version, header.EndOffset, out var childHeader) || childHeader.IsNull)
@@ -180,8 +195,48 @@ namespace Triturbo.FBX
                     break;
                 }
 
+                if (childHeader.Name == "LayerElementNormal")
+                {
+                    _ = ReadProperties(reader, childHeader.PropertyCount, false);
+                    normals = ReadVectorLayerElement(
+                        reader,
+                        version,
+                        childHeader.EndOffset,
+                        "Normals",
+                        "NormalsIndex",
+                        readBaseNormals || readShapeNormals);
+                    Seek(reader, childHeader.EndOffset);
+                    continue;
+                }
+
+                if (childHeader.Name == "LayerElementTangent")
+                {
+                    _ = ReadProperties(reader, childHeader.PropertyCount, false);
+                    tangents = ReadVectorLayerElement(
+                        reader,
+                        version,
+                        childHeader.EndOffset,
+                        "Tangents",
+                        "TangentsIndex",
+                        readBaseTangents || readShapeTangents);
+                    Seek(reader, childHeader.EndOffset);
+                    continue;
+                }
+
+                if (childHeader.Name == "Properties70")
+                {
+                    _ = ReadProperties(reader, childHeader.PropertyCount, false);
+                    ReadGeometryProperties(reader, version, childHeader.EndOffset, ref legacyStyle, ref absoluteMode);
+                    Seek(reader, childHeader.EndOffset);
+                    continue;
+                }
+
                 bool isVerticesNode = childHeader.Name == "Vertices";
+                bool isNormalsNode = childHeader.Name == "Normals";
+                bool isTangentsNode = childHeader.Name == "Tangents";
                 bool readArrayValues = (isVerticesNode && (readBasePositions || readShapePositions)) ||
+                                       (isNormalsNode && (readBaseNormals || readShapeNormals)) ||
+                                       (isTangentsNode && (readBaseTangents || readShapeTangents)) ||
                                        (readShapePositions && childHeader.Name == "Indexes");
                 var childProperties = ReadProperties(reader, childHeader.PropertyCount, readArrayValues);
                 if (isVerticesNode)
@@ -190,19 +245,43 @@ namespace Triturbo.FBX
                     int vertexValueCount = vertices?.Length ?? GetArrayLength(childProperties);
                     controlPointCount = Math.Max(controlPointCount, vertexValueCount / 3);
                 }
+                else if (isNormalsNode)
+                {
+                    normals = ToVector3dArray(GetDoubleArray(childProperties));
+                }
+                else if (isTangentsNode)
+                {
+                    tangents = ToVector3dArray(GetDoubleArray(childProperties));
+                }
                 else if (isShape && childHeader.Name == "Indexes")
                 {
                     indices = GetIntArray(childProperties);
+                }
+                else if (isShape && childHeader.Name == "LegacyStyle")
+                {
+                    legacyStyle = GetBool(childProperties, 0, legacyStyle);
+                }
+                else if (isShape && childHeader.Name == "AbsoluteMode")
+                {
+                    absoluteMode = GetBool(childProperties, 0, absoluteMode);
                 }
 
                 Seek(reader, childHeader.EndOffset);
             }
 
-            if ((readBasePositions || readShapePositions) && (vertices == null || vertices.Length < 3))
+            if (vertices == null)
+            {
+                vertices = Array.Empty<double>();
+            }
+
+            if ((readBasePositions || readShapePositions) && vertices.Length < 3)
             {
                 return;
             }
 
+            // LegacyStyle/AbsoluteMode is FBX's way of distinguishing relative shape
+            // deltas from absolute shape positions. BuildShapeFrame normalizes both
+            // forms into deltas for downstream BlendShare code.
             scene.Geometries[id] = new GeometryRecord
             {
                 Id = id,
@@ -210,9 +289,12 @@ namespace Triturbo.FBX
                 Type = type,
                 Indices = indices,
                 ControlPointCount = controlPointCount,
-                ControlPointPositions = vertices != null
-                    ? ToVector3dArray(vertices)
-                    : Array.Empty<Vector3d>()
+                ControlPointPositions = ToVector3dArray(vertices),
+                ControlPointNormals = normals ?? Array.Empty<Vector3d>(),
+                ControlPointTangents = tangents ?? Array.Empty<Vector3d>(),
+                ShapeValueMode = !legacyStyle && absoluteMode
+                    ? FbxShapeValueMode.Absolute
+                    : FbxShapeValueMode.Relative
             };
         }
 
@@ -297,6 +379,105 @@ namespace Triturbo.FBX
             }
         }
 
+        private static void ReadGeometryProperties(
+            BinaryReader reader,
+            int version,
+            long endOffset,
+            ref bool legacyStyle,
+            ref bool absoluteMode)
+        {
+            while (reader.BaseStream.Position < endOffset)
+            {
+                if (!TryReadNodeHeader(reader, version, endOffset, out var header) || header.IsNull)
+                {
+                    break;
+                }
+
+                var properties = ReadProperties(reader, header.PropertyCount, false);
+                if (header.Name == "P")
+                {
+                    string propertyName = GetString(properties, 0);
+                    if (propertyName == "LegacyStyle")
+                    {
+                        legacyStyle = GetBool(properties, 4, legacyStyle);
+                    }
+                    else if (propertyName == "AbsoluteMode")
+                    {
+                        absoluteMode = GetBool(properties, 4, absoluteMode);
+                    }
+                }
+
+                Seek(reader, header.EndOffset);
+            }
+        }
+
+        private static Vector3d[] ReadVectorLayerElement(
+            BinaryReader reader,
+            int version,
+            long endOffset,
+            string valuesNodeName,
+            string indicesNodeName,
+            bool readValues)
+        {
+            double[] values = null;
+            int[] indices = null;
+            string referenceMode = string.Empty;
+            // Normals and tangents are LayerElement records. When they use an indexed
+            // reference mode, the direct array must be expanded through the index array
+            // before it can be associated with control points.
+            while (reader.BaseStream.Position < endOffset)
+            {
+                if (!TryReadNodeHeader(reader, version, endOffset, out var header) || header.IsNull)
+                {
+                    break;
+                }
+
+                bool readArrayValues = readValues && (header.Name == valuesNodeName || header.Name == indicesNodeName);
+                var properties = ReadProperties(reader, header.PropertyCount, readArrayValues);
+                if (header.Name == valuesNodeName)
+                {
+                    values = GetDoubleArray(properties);
+                }
+                else if (header.Name == indicesNodeName)
+                {
+                    indices = GetIntArray(properties);
+                }
+                else if (header.Name == "ReferenceInformationType")
+                {
+                    referenceMode = GetString(properties, 0) ?? string.Empty;
+                }
+
+                Seek(reader, header.EndOffset);
+            }
+
+            if (!readValues)
+            {
+                return Array.Empty<Vector3d>();
+            }
+
+            var directValues = ToVector3dArray(values);
+            if (directValues.Length == 0 || indices == null || indices.Length == 0)
+            {
+                return directValues;
+            }
+
+            if (referenceMode.IndexOf("Index", StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                return directValues;
+            }
+
+            var indexedValues = new Vector3d[indices.Length];
+            for (int i = 0; i < indexedValues.Length; i++)
+            {
+                int directIndex = indices[i];
+                indexedValues[i] = directIndex >= 0 && directIndex < directValues.Length
+                    ? directValues[directIndex]
+                    : Vector3d.zero;
+            }
+
+            return indexedValues;
+        }
+
         private static void ReadDeformer(
             BinaryReader reader,
             int version,
@@ -318,6 +499,10 @@ namespace Triturbo.FBX
             bool readBoneWeights = Includes(readOptions, FbxMeshReadOptions.BoneWeights) && isCluster;
             bool readBlendShapeWeights = Includes(readOptions, FbxMeshReadOptions.BlendShapes) && isBlendShapeChannel;
 
+            // Deformer children carry the data for different FBX concepts:
+            // Cluster -> skin weights and bind matrices,
+            // BlendShapeChannel -> frame weights,
+            // BlendShape/VertexCache -> grouping records.
             int[] indices = null;
             double[] weights = null;
             double[] fullWeights = null;
@@ -401,6 +586,8 @@ namespace Triturbo.FBX
                 }
 
                 var properties = ReadProperties(reader, header.PropertyCount, false);
+                // Object-object connections are enough to rebuild model ownership,
+                // deformer membership, blendshape frames, and bone links.
                 if (header.Name == "C" && string.Equals(GetString(properties, 0), "OO", StringComparison.Ordinal))
                 {
                     long childId = GetLong(properties, 1);
@@ -429,6 +616,8 @@ namespace Triturbo.FBX
         private static FbxDocument BuildDocument(BinaryFbxScene scene, FbxMeshReadOptions requestedOptions)
         {
             var rootNode = new FbxSceneNode(0, string.Empty, string.Empty, FbxSceneNodeType.Root, FbxTransform.Identity);
+            // Parsing stores flat records keyed by FBX object id. This pass resolves
+            // the connection table into the public node tree and mesh objects.
             var nodesById = scene.Models.Values.ToDictionary(
                 model => model.Id,
                 model => new FbxSceneNode(
@@ -485,6 +674,8 @@ namespace Triturbo.FBX
                     ownerNode,
                     controlPointCount,
                     geometry.ControlPointPositions,
+                    geometry.ControlPointNormals,
+                    geometry.ControlPointTangents,
                     deformers,
                     requestedOptions,
                     availableOptions);
@@ -576,18 +767,34 @@ namespace Triturbo.FBX
             GeometryRecord baseGeometry,
             GeometryRecord shapeGeometry)
         {
-            int controlPointCount = baseGeometry?.ControlPointPositions?.Length ?? 0;
+            int controlPointCount = Math.Max(
+                baseGeometry?.ControlPointCount ?? 0,
+                baseGeometry?.ControlPointPositions?.Length ?? 0);
             var shapePositions = shapeGeometry?.ControlPointPositions ?? Array.Empty<Vector3d>();
-            if (controlPointCount == 0 || shapePositions.Length == 0)
+            var shapeNormals = shapeGeometry?.ControlPointNormals ?? Array.Empty<Vector3d>();
+            var shapeTangents = shapeGeometry?.ControlPointTangents ?? Array.Empty<Vector3d>();
+            var valueMode = shapeGeometry?.ShapeValueMode ?? FbxShapeValueMode.Relative;
+            bool isAbsolute = valueMode == FbxShapeValueMode.Absolute;
+            if (controlPointCount == 0 || (shapePositions.Length == 0 && shapeNormals.Length == 0 && shapeTangents.Length == 0))
             {
-                return new FbxShapeFrame(frameWeight, Array.Empty<int>(), Array.Empty<Vector3d>());
+                return new FbxShapeFrame(
+                    frameWeight,
+                    Array.Empty<int>(),
+                    Array.Empty<Vector3d>(),
+                    Array.Empty<Vector3d>(),
+                    Array.Empty<Vector3d>(),
+                    valueMode);
             }
 
+            // Sparse shapes store only changed control point indices. Dense shapes
+            // omit Indexes, so each shape vector corresponds to the same base index.
             if (shapeGeometry?.Indices != null && shapeGeometry.Indices.Length > 0)
             {
-                int count = Math.Min(shapeGeometry.Indices.Length, shapePositions.Length);
+                int count = shapeGeometry.Indices.Length;
                 var indices = new List<int>(count);
                 var deltas = new List<Vector3d>(count);
+                var normalDeltas = new List<Vector3d>(count);
+                var tangentDeltas = new List<Vector3d>(count);
                 for (int i = 0; i < count; i++)
                 {
                     int controlPointIndex = shapeGeometry.Indices[i];
@@ -596,35 +803,62 @@ namespace Triturbo.FBX
                         continue;
                     }
 
-                    var delta = shapePositions[i] - baseGeometry.ControlPointPositions[controlPointIndex];
-                    if (delta.IsZero())
+                    var delta = GetShapeDelta(
+                        shapePositions,
+                        baseGeometry.ControlPointPositions,
+                        controlPointIndex,
+                        i,
+                        isAbsolute);
+                    var normalDelta = GetShapeDelta(
+                        shapeNormals,
+                        baseGeometry.ControlPointNormals,
+                        controlPointIndex,
+                        i,
+                        isAbsolute);
+                    var tangentDelta = GetShapeDelta(
+                        shapeTangents,
+                        baseGeometry.ControlPointTangents,
+                        controlPointIndex,
+                        i,
+                        isAbsolute);
+                    if (delta.IsZero() && normalDelta.IsZero() && tangentDelta.IsZero())
                     {
                         continue;
                     }
 
                     indices.Add(controlPointIndex);
                     deltas.Add(delta);
+                    normalDeltas.Add(normalDelta);
+                    tangentDeltas.Add(tangentDelta);
                 }
 
-                return new FbxShapeFrame(frameWeight, indices, deltas);
+                return new FbxShapeFrame(frameWeight, indices, deltas, normalDeltas, tangentDeltas, valueMode);
             }
 
-            int denseCount = Math.Min(controlPointCount, shapePositions.Length);
+            int denseCount = Math.Min(
+                controlPointCount,
+                Math.Max(shapePositions.Length, Math.Max(shapeNormals.Length, shapeTangents.Length)));
             var denseIndices = new List<int>(denseCount);
             var denseDeltas = new List<Vector3d>(denseCount);
+            var denseNormalDeltas = new List<Vector3d>(denseCount);
+            var denseTangentDeltas = new List<Vector3d>(denseCount);
             for (int i = 0; i < denseCount; i++)
             {
-                var delta = shapePositions[i] - baseGeometry.ControlPointPositions[i];
-                if (delta.IsZero())
+                var delta = GetShapeDelta(shapePositions, baseGeometry.ControlPointPositions, i, i, isAbsolute);
+                var normalDelta = GetShapeDelta(shapeNormals, baseGeometry.ControlPointNormals, i, i, isAbsolute);
+                var tangentDelta = GetShapeDelta(shapeTangents, baseGeometry.ControlPointTangents, i, i, isAbsolute);
+                if (delta.IsZero() && normalDelta.IsZero() && tangentDelta.IsZero())
                 {
                     continue;
                 }
 
                 denseIndices.Add(i);
                 denseDeltas.Add(delta);
+                denseNormalDeltas.Add(normalDelta);
+                denseTangentDeltas.Add(tangentDelta);
             }
 
-            return new FbxShapeFrame(frameWeight, denseIndices, denseDeltas);
+            return new FbxShapeFrame(frameWeight, denseIndices, denseDeltas, denseNormalDeltas, denseTangentDeltas, valueMode);
         }
 
         private static FbxSkinDeformer BuildSkinDeformer(
@@ -639,6 +873,9 @@ namespace Triturbo.FBX
             var clusters = new List<FbxCluster>();
             var weightsByControlPoint = new List<FbxControlPointBoneWeight>[Math.Max(0, controlPointCount)];
 
+            // Each Cluster links one bone model to weighted control point indices.
+            // Keeping cluster metadata lets callers inspect bind matrices even when
+            // Unity later repacks weights for Mesh.boneWeights.
             foreach (var cluster in FindChildDeformers<ClusterDeformerRecord>(scene, skin.Id))
             {
                 long boneNodeId = ResolveClusterBoneNodeId(scene, cluster);
@@ -732,6 +969,18 @@ namespace Triturbo.FBX
             if (geometry.ControlPointPositions.Length > 0)
             {
                 options |= FbxMeshReadOptions.ControlPointPositions;
+            }
+
+            if (Includes(requestedOptions, FbxMeshReadOptions.Normals) &&
+                geometry.ControlPointNormals.Length > 0)
+            {
+                options |= FbxMeshReadOptions.Normals;
+            }
+
+            if (Includes(requestedOptions, FbxMeshReadOptions.Tangents) &&
+                geometry.ControlPointTangents.Length > 0)
+            {
+                options |= FbxMeshReadOptions.Tangents;
             }
 
             var deformerList = deformers as IReadOnlyList<FbxDeformer> ?? deformers.ToArray();
@@ -834,6 +1083,29 @@ namespace Triturbo.FBX
             }
 
             return ResolveClusterBoneName(null, cluster, boneNode);
+        }
+
+        private static Vector3d GetShapeDelta(
+            IReadOnlyList<Vector3d> shapeValues,
+            IReadOnlyList<Vector3d> baseValues,
+            int controlPointIndex,
+            int shapeValueIndex,
+            bool isAbsolute)
+        {
+            if (shapeValues == null || shapeValueIndex < 0 || shapeValueIndex >= shapeValues.Count)
+            {
+                return Vector3d.zero;
+            }
+
+            var shapeValue = shapeValues[shapeValueIndex];
+            if (!isAbsolute)
+            {
+                return shapeValue;
+            }
+
+            return baseValues != null && controlPointIndex >= 0 && controlPointIndex < baseValues.Count
+                ? shapeValue - baseValues[controlPointIndex]
+                : shapeValue;
         }
 
         private static int GetOrAddBoneBinding(
@@ -966,6 +1238,8 @@ namespace Triturbo.FBX
             out FbxNodeHeader header)
         {
             header = default;
+            // FBX 7500 and newer widened node offsets/counts from 32-bit to 64-bit.
+            // A zero-filled header is the null sentinel that terminates a child list.
             int scalarSize = version >= 7500 ? 8 : 4;
             int headerSize = scalarSize * 3 + 1;
             if (reader.BaseStream.Position + headerSize > parentEndOffset)
@@ -1021,6 +1295,8 @@ namespace Triturbo.FBX
         private static object ReadProperty(BinaryReader reader, bool readArrayValues)
         {
             char typeCode = (char)reader.ReadByte();
+            // Property type codes follow the binary FBX scalar/array encoding. Heavy
+            // arrays are optionally skipped so metadata-only scans avoid allocation.
             switch (typeCode)
             {
                 case 'Y':
@@ -1068,6 +1344,8 @@ namespace Triturbo.FBX
                 return new SkippedArrayProperty(typeCode, length);
             }
 
+            // FBX array payloads are either raw little-endian values or zlib-wrapped
+            // deflate streams, depending on the encoding flag.
             if (encoding == 0)
             {
                 return ReadTypedArray(reader, typeCode, length);
@@ -1116,6 +1394,8 @@ namespace Triturbo.FBX
                 return Array.Empty<byte>();
             }
 
+            // DeflateStream consumes the deflate payload, so strip the two-byte zlib
+            // header and trailing Adler-32 checksum stored by FBX.
             using var compressed = new MemoryStream(bytes, 2, bytes.Length - 6);
             using var deflate = new DeflateStream(compressed, CompressionMode.Decompress);
             using var decompressed = new MemoryStream();
@@ -1249,6 +1529,25 @@ namespace Triturbo.FBX
             };
         }
 
+        private static bool GetBool(object[] properties, int index, bool defaultValue = false)
+        {
+            if (properties == null || index < 0 || index >= properties.Length)
+            {
+                return defaultValue;
+            }
+
+            return properties[index] switch
+            {
+                bool value => value,
+                long l => l != 0,
+                int i => i != 0,
+                short s => s != 0,
+                byte value => value != 0,
+                string text when bool.TryParse(text, out bool parsed) => parsed,
+                _ => defaultValue
+            };
+        }
+
         private static Vector3d GetVector3d(object[] properties, int startIndex, Vector3d defaultValue)
         {
             if (properties == null || startIndex < 0 || startIndex + 2 >= properties.Length)
@@ -1300,6 +1599,11 @@ namespace Triturbo.FBX
 
         private static Vector3d[] ToVector3dArray(double[] values)
         {
+            if (values == null || values.Length < 3)
+            {
+                return Array.Empty<Vector3d>();
+            }
+
             int count = values.Length / 3;
             var positions = new Vector3d[count];
             for (int i = 0; i < positions.Length; i++)
@@ -1331,6 +1635,8 @@ namespace Triturbo.FBX
 
         private readonly struct SkippedArrayProperty
         {
+            // Metadata-only reads keep array lengths without materializing the values.
+            // This preserves descriptor data such as control point counts.
             public readonly char TypeCode;
             public readonly int Length;
 
@@ -1367,6 +1673,9 @@ namespace Triturbo.FBX
             public int[] Indices;
             public int ControlPointCount;
             public Vector3d[] ControlPointPositions;
+            public Vector3d[] ControlPointNormals;
+            public Vector3d[] ControlPointTangents;
+            public FbxShapeValueMode ShapeValueMode;
         }
 
         private sealed class ModelRecord
