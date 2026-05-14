@@ -11,7 +11,9 @@ namespace Triturbo.FBX
         ControlPointPositions = 1 << 0,
         BlendShapes = 1 << 1,
         BoneWeights = 1 << 2,
-        All = ControlPointPositions | BlendShapes | BoneWeights
+        Normals = 1 << 3,
+        Tangents = 1 << 4,
+        All = ControlPointPositions | BlendShapes | BoneWeights | Normals | Tangents
     }
 
     public enum FbxReadStatus

@@ -19,6 +19,12 @@ namespace Triturbo.FBX
         TotalOne
     }
 
+    public enum FbxShapeValueMode
+    {
+        Relative,
+        Absolute
+    }
+
     public abstract class FbxDeformer
     {
         public long Id { get; }
@@ -199,17 +205,26 @@ namespace Triturbo.FBX
     public sealed class FbxShapeFrame
     {
         public double FrameWeight { get; }
+        public FbxShapeValueMode SourceValueMode { get; }
         public IReadOnlyList<int> ControlPointIndices { get; }
         public IReadOnlyList<Vector3d> ControlPointDeltas { get; }
+        public IReadOnlyList<Vector3d> ControlPointNormalDeltas { get; }
+        public IReadOnlyList<Vector3d> ControlPointTangentDeltas { get; }
 
         internal FbxShapeFrame(
             double frameWeight,
             IEnumerable<int> controlPointIndices,
-            IEnumerable<Vector3d> controlPointDeltas)
+            IEnumerable<Vector3d> controlPointDeltas,
+            IEnumerable<Vector3d> controlPointNormalDeltas = null,
+            IEnumerable<Vector3d> controlPointTangentDeltas = null,
+            FbxShapeValueMode sourceValueMode = FbxShapeValueMode.Relative)
         {
             FrameWeight = frameWeight;
+            SourceValueMode = sourceValueMode;
             ControlPointIndices = FbxCollection.ToReadOnly(controlPointIndices);
             ControlPointDeltas = FbxCollection.ToReadOnly(controlPointDeltas);
+            ControlPointNormalDeltas = FbxCollection.ToReadOnly(controlPointNormalDeltas);
+            ControlPointTangentDeltas = FbxCollection.ToReadOnly(controlPointTangentDeltas);
         }
     }
 }
