@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 
-namespace Triturbo.FBX
+[assembly: InternalsVisibleTo("Triturbo.BlendShapeShare.Data.Editor")]
+
+namespace Triturbo.Fbx
 {
     public enum FbxSceneNodeType
     {
@@ -18,23 +21,22 @@ namespace Triturbo.FBX
     {
         public FbxSceneNode RootNode { get; }
         public IReadOnlyList<FbxSceneNode> Nodes { get; }
-        public IReadOnlyList<FbxMeshGeometry> Meshes { get; }
         public IReadOnlyList<FbxMeshDescriptor> MeshDescriptors { get; }
-        public FbxMeshReadOptions RequestedOptions { get; }
-        public FbxMeshReadOptions AvailableOptions { get; }
+        public IReadOnlyList<FbxMeshGeometry> Meshes =>
+            FbxCollection.ToReadOnly(Nodes.Select(node => node.Mesh).Where(mesh => mesh != null));
+        public string AssetPath { get; }
 
         internal FbxDocument(
             FbxSceneNode rootNode,
             IEnumerable<FbxSceneNode> nodes,
             IEnumerable<FbxMeshGeometry> meshes,
-            FbxMeshReadOptions requestedOptions)
+            IEnumerable<FbxMeshDescriptor> meshDescriptors = null,
+            string assetPath = null)
         {
             RootNode = rootNode;
             Nodes = FbxCollection.ToReadOnly(nodes);
-            Meshes = FbxCollection.ToReadOnly(meshes);
-            MeshDescriptors = FbxCollection.ToReadOnly(Meshes.Select(mesh => mesh.Descriptor));
-            RequestedOptions = requestedOptions;
-            AvailableOptions = Meshes.Aggregate(FbxMeshReadOptions.None, (current, mesh) => current | mesh.AvailableOptions);
+            MeshDescriptors = FbxCollection.ToReadOnly(meshDescriptors ?? (meshes ?? Enumerable.Empty<FbxMeshGeometry>()).Select(mesh => mesh.Descriptor));
+            AssetPath = assetPath;
         }
 
         public IReadOnlyList<FbxMeshDescriptor> ListMeshes()
@@ -53,51 +55,35 @@ namespace Triturbo.FBX
             var node = Nodes.FirstOrDefault(candidate => candidate.Path == normalizedPath);
             return node != null
                 ? FbxReadResult<FbxSceneNode>.Succeeded(node)
-                : FbxReadResult<FbxSceneNode>.Failed(FbxReadStatus.MeshNotFound, $"FBX node '{path}' was not found.");
+                : FbxReadResult<FbxSceneNode>.Failed(FbxReadStatus.NodeNotFound, $"FBX node '{path}' was not found.");
         }
 
-        public FbxReadResult<FbxMeshGeometry> TryFindMesh(FbxMeshSelector selector)
+        public FbxReadResult<FbxMeshGeometry> TryFindMesh(string nodePath)
         {
-            List<FbxMeshGeometry> matches;
-            switch (selector.Kind)
-            {
-                case FbxMeshSelectorKind.GeometryId:
-                    matches = Meshes.Where(mesh => mesh.Id == selector.Id).ToList();
-                    break;
-                case FbxMeshSelectorKind.NodePath:
-                    string path = FbxNameUtility.NormalizePath(selector.Value);
-                    matches = Meshes.Where(mesh => mesh.OwnerNode != null && mesh.OwnerNode.Path == path).ToList();
-                    break;
-                case FbxMeshSelectorKind.NodeName:
-                    matches = Meshes.Where(mesh => mesh.OwnerNode != null && mesh.OwnerNode.Name == selector.Value).ToList();
-                    break;
-                case FbxMeshSelectorKind.GeometryName:
-                    matches = Meshes.Where(mesh => mesh.Name == selector.Value).ToList();
-                    break;
-                default:
-                    return FbxReadResult<FbxMeshGeometry>.Failed(FbxReadStatus.InvalidArgument, "Unsupported FBX mesh selector.");
-            }
-
-            if (matches.Count == 0)
-            {
-                return FbxReadResult<FbxMeshGeometry>.Failed(FbxReadStatus.MeshNotFound, "No FBX mesh matched the selector.");
-            }
-
-            if (matches.Count > 1)
+            var nodeResult = TryFindNode(nodePath);
+            if (!nodeResult.Success)
             {
                 return FbxReadResult<FbxMeshGeometry>.Failed(
-                    FbxReadStatus.AmbiguousMesh,
-                    "More than one FBX mesh matched the selector.",
-                    candidateMeshes: matches.Select(mesh => mesh.Descriptor));
+                    nodeResult.Status,
+                    nodeResult.Message,
+                    nodeResult.Diagnostics,
+                    MeshDescriptors);
             }
 
-            return FbxReadResult<FbxMeshGeometry>.Succeeded(matches[0]);
+            var mesh = nodeResult.Value.Mesh;
+            return mesh != null
+                ? FbxReadResult<FbxMeshGeometry>.Succeeded(mesh)
+                : FbxReadResult<FbxMeshGeometry>.Failed(
+                    FbxReadStatus.MeshNotFound,
+                    $"FBX node '{nodePath}' does not contain a mesh.",
+                    candidateMeshes: MeshDescriptors);
         }
     }
 
     public sealed class FbxSceneNode
     {
         private IReadOnlyList<FbxSceneNode> children = Array.AsReadOnly(Array.Empty<FbxSceneNode>());
+        private FbxMeshGeometry mesh;
         private bool isClusterBone;
 
         public long Id { get; }
@@ -110,7 +96,7 @@ namespace Triturbo.FBX
         public FbxTransform LocalTransform { get; }
         public FbxSceneNode Parent { get; private set; }
         public IReadOnlyList<FbxSceneNode> Children => children;
-        public FbxMeshGeometry Mesh { get; private set; }
+        public FbxMeshGeometry Mesh => mesh;
         public bool HasMesh => Mesh != null;
         public bool IsBone => isClusterBone || NodeType == FbxSceneNodeType.Skeleton || NodeType == FbxSceneNodeType.LimbNode;
 
@@ -140,9 +126,9 @@ namespace Triturbo.FBX
 
         internal void SetMesh(FbxMeshGeometry mesh)
         {
-            if (Mesh == null)
+            if (this.mesh == null)
             {
-                Mesh = mesh;
+                this.mesh = mesh;
             }
         }
 
@@ -186,7 +172,6 @@ namespace Triturbo.FBX
         public bool HasBoneWeights { get; }
         public bool HasNormals { get; }
         public bool HasTangents { get; }
-        public FbxMeshReadOptions AvailableOptions { get; }
 
         internal FbxMeshDescriptor(
             long geometryId,
@@ -198,8 +183,7 @@ namespace Triturbo.FBX
             bool hasBlendShapes,
             bool hasBoneWeights,
             bool hasNormals,
-            bool hasTangents,
-            FbxMeshReadOptions availableOptions)
+            bool hasTangents)
         {
             GeometryId = geometryId;
             NodeId = nodeId;
@@ -211,7 +195,6 @@ namespace Triturbo.FBX
             HasBoneWeights = hasBoneWeights;
             HasNormals = hasNormals;
             HasTangents = hasTangents;
-            AvailableOptions = availableOptions;
         }
     }
 
@@ -226,8 +209,6 @@ namespace Triturbo.FBX
         public IReadOnlyList<FbxDeformer> Deformers { get; }
         public IReadOnlyList<FbxSkinDeformer> SkinDeformers { get; }
         public IReadOnlyList<FbxBlendShapeDeformer> BlendShapeDeformers { get; }
-        public FbxMeshReadOptions RequestedOptions { get; }
-        public FbxMeshReadOptions AvailableOptions { get; }
         public FbxMeshDescriptor Descriptor { get; }
         public int ControlPointCount { get; }
         public bool HasControlPoints => ControlPoints.Count > 0;
@@ -244,9 +225,7 @@ namespace Triturbo.FBX
             IEnumerable<Vector3d> controlPoints,
             IEnumerable<Vector3d> controlPointNormals,
             IEnumerable<Vector3d> controlPointTangents,
-            IEnumerable<FbxDeformer> deformers,
-            FbxMeshReadOptions requestedOptions,
-            FbxMeshReadOptions availableOptions)
+            IEnumerable<FbxDeformer> deformers)
         {
             Id = id;
             Name = name ?? string.Empty;
@@ -257,8 +236,6 @@ namespace Triturbo.FBX
             Deformers = FbxCollection.ToReadOnly(deformers);
             SkinDeformers = FbxCollection.ToReadOnly(Deformers.OfType<FbxSkinDeformer>());
             BlendShapeDeformers = FbxCollection.ToReadOnly(Deformers.OfType<FbxBlendShapeDeformer>());
-            RequestedOptions = requestedOptions;
-            AvailableOptions = availableOptions;
             ControlPointCount = Math.Max(controlPointCount, ControlPoints.Count);
             Descriptor = new FbxMeshDescriptor(
                 id,
@@ -270,8 +247,7 @@ namespace Triturbo.FBX
                 BlendShapeDeformers.Count > 0,
                 SkinDeformers.Count > 0,
                 ControlPointNormals.Count > 0,
-                ControlPointTangents.Count > 0,
-                availableOptions);
+                ControlPointTangents.Count > 0);
         }
 
         public bool TryGetSkin(out FbxSkinDeformer skin)

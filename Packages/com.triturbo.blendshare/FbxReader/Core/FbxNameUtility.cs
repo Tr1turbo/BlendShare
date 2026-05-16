@@ -1,7 +1,7 @@
 using System;
 using System.Linq;
 
-namespace Triturbo.FBX
+namespace Triturbo.Fbx
 {
     internal static class FbxNameUtility
     {

@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 
-namespace Triturbo.FBX
+namespace Triturbo.Fbx
 {
     public enum FbxDeformerType
     {

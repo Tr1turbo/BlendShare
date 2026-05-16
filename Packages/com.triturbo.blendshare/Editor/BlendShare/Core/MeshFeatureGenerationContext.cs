@@ -1,0 +1,471 @@
+using System.Collections.Generic;
+using System.Linq;
+using UnityEditor;
+using UnityEngine;
+using Object = UnityEngine.Object;
+
+#if ENABLE_FBX_SDK
+using Autodesk.Fbx;
+#endif
+
+namespace Triturbo.BlendShare.Core
+{
+    /// <summary>
+    /// Shared state for one mesh feature generation request.
+    /// </summary>
+    public sealed class MeshFeatureGenerationSession
+    {
+        private readonly List<Object> generatedObjects = new();
+        private readonly Dictionary<string, Object> generatedObjectsByKey = new();
+
+        public Object TargetMeshContainer { get; }
+        public IReadOnlyList<BlendShareObject> Shares { get; }
+        public MeshFeatureTargetMeshLookup TargetMeshes { get; }
+        public IReadOnlyList<Object> GeneratedObjects => generatedObjects;
+
+        /// <summary>
+        /// Creates a generation session for a target mesh container and a set of BlendShare assets.
+        /// </summary>
+        /// <param name="targetMeshContainer">FBX asset, generated mesh asset, or other Unity object that contains target meshes.</param>
+        /// <param name="shares">BlendShare assets being applied.</param>
+        /// <param name="targetMeshes">Lookup table for target meshes.</param>
+        public MeshFeatureGenerationSession(
+            Object targetMeshContainer,
+            IEnumerable<BlendShareObject> shares,
+            MeshFeatureTargetMeshLookup targetMeshes)
+        {
+            TargetMeshContainer = targetMeshContainer;
+            Shares = shares?.Where(share => share != null).Distinct().ToArray() ??
+                     System.Array.Empty<BlendShareObject>();
+            TargetMeshes = targetMeshes;
+        }
+
+        /// <summary>
+        /// Builds the stable mesh key used while stacking generated results.
+        /// </summary>
+        /// <param name="meshData">Stored mesh data.</param>
+        /// <returns>The stored mesh path.</returns>
+        public static string BuildMeshKey(MeshDataObject meshData)
+        {
+            if (meshData == null)
+            {
+                return MeshNodePath.Root;
+            }
+
+            return MeshNodePath.Normalize(meshData.m_Path);
+        }
+
+        /// <summary>
+        /// Formats the target object name for diagnostics.
+        /// </summary>
+        /// <returns>The target object name, or a generic fallback.</returns>
+        public string FormatTargetName()
+        {
+            return TargetMeshContainer != null ? TargetMeshContainer.name : "target";
+        }
+
+        /// <summary>
+        /// Tracks an object produced by a generator. Persistence happens after the session completes.
+        /// </summary>
+        /// <param name="key">Session-unique key for this generated object.</param>
+        /// <param name="generatedObject">Object created by a generator pass.</param>
+        /// <returns>The object tracked by the session, or <c>null</c> when no object was supplied.</returns>
+        public Object AddObject(string key, Object generatedObject)
+        {
+            if (generatedObject == null)
+            {
+                return null;
+            }
+
+            string objectKey = BuildGeneratedObjectKey(generatedObject.GetType(), key, generatedObject.name);
+            if (generatedObjectsByKey.TryGetValue(objectKey, out var existing))
+            {
+                return existing;
+            }
+
+            var objectToTrack = EditorUtility.IsPersistent(generatedObject)
+                ? Object.Instantiate(generatedObject)
+                : generatedObject;
+            objectToTrack.name = string.IsNullOrWhiteSpace(generatedObject.name)
+                ? generatedObject.GetType().Name
+                : generatedObject.name;
+
+            if (!generatedObjects.Contains(objectToTrack))
+            {
+                generatedObjects.Add(objectToTrack);
+            }
+
+            generatedObjectsByKey[objectKey] = objectToTrack;
+            EditorUtility.SetDirty(objectToTrack);
+            return objectToTrack;
+        }
+
+        /// <summary>
+        /// Gets a shared object for this generation session, or creates it when missing.
+        /// </summary>
+        /// <typeparam name="T">Generated Unity object type.</typeparam>
+        /// <param name="key">Session-unique key for this generated object.</param>
+        /// <param name="create">Factory used when no object has been registered for the key.</param>
+        /// <returns>The session-shared generated object.</returns>
+        public T GetOrCreateObject<T>(string key, System.Func<T> create)
+            where T : Object
+        {
+            string objectKey = BuildGeneratedObjectKey(typeof(T), key, null);
+            if (generatedObjectsByKey.TryGetValue(objectKey, out var cached))
+            {
+                return cached as T;
+            }
+
+            var created = create != null ? create() : null;
+            if (created == null)
+            {
+                return null;
+            }
+
+            if (string.IsNullOrWhiteSpace(created.name))
+            {
+                created.name = string.IsNullOrWhiteSpace(key) ? typeof(T).Name : key;
+            }
+
+            return AddObject(key, created) as T;
+        }
+
+        private static string BuildGeneratedObjectKey(System.Type type, string key, string fallbackName)
+        {
+            string name = string.IsNullOrWhiteSpace(key) ? fallbackName : key;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                name = type.Name;
+            }
+
+            return $"{type.FullName ?? type.Name}::{name}";
+        }
+    }
+
+    /// <summary>
+    /// Context passed to generators while applying a feature to a Unity mesh.
+    /// </summary>
+    public sealed class MeshFeatureUnityGenerationContext
+    {
+        private readonly HashSet<MeshFeatureObject> handledFeatures = new();
+
+        public MeshFeatureGenerationSession Session { get; }
+        public BlendShareObject Share { get; }
+        public MeshDataObject MeshData { get; }
+        public Mesh OriginalMesh { get; }
+        public Mesh WorkingMesh { get; set; }
+        public SkinnedMeshRenderer TargetRenderer { get; }
+        public Transform TargetRootTransform { get; }
+        public IReadOnlyList<MeshFeatureObject> Features =>
+            MeshData != null ? MeshData.Features : System.Array.Empty<MeshFeatureObject>();
+        public bool HasUnhandledFeatures => Features.Any(feature => feature != null && !handledFeatures.Contains(feature));
+        public string MeshKey => MeshFeatureGenerationSession.BuildMeshKey(MeshData);
+
+        /// <summary>
+        /// Creates a Unity mesh generation context.
+        /// </summary>
+        /// <param name="session">Parent generation session.</param>
+        /// <param name="share">BlendShare asset currently being applied.</param>
+        /// <param name="meshData">Stored mesh data currently being generated.</param>
+        /// <param name="originalMesh">Original target mesh for the current mesh pass.</param>
+        /// <param name="workingMesh">Mutable mesh instance that generators update.</param>
+        /// <param name="targetRenderer">Target renderer for GameObject-backed generation, when available.</param>
+        /// <param name="targetRootTransform">Target avatar/root transform for scene-backed generation, when available.</param>
+        public MeshFeatureUnityGenerationContext(
+            MeshFeatureGenerationSession session,
+            BlendShareObject share,
+            MeshDataObject meshData,
+            Mesh originalMesh,
+            Mesh workingMesh,
+            SkinnedMeshRenderer targetRenderer = null,
+            Transform targetRootTransform = null)
+        {
+            Session = session;
+            Share = share;
+            MeshData = meshData;
+            OriginalMesh = originalMesh;
+            WorkingMesh = workingMesh;
+            TargetRenderer = targetRenderer;
+            TargetRootTransform = targetRootTransform ?? session?.TargetMeshes?.RootTransform;
+        }
+
+        /// <summary>
+        /// Gets and claims the stored feature object for this mesh, if present.
+        /// </summary>
+        /// <typeparam name="TFeature">Feature object type to retrieve.</typeparam>
+        /// <returns>The stored feature object, or <c>null</c> when the mesh does not contain that feature.</returns>
+        public TFeature GetFeature<TFeature>() where TFeature : MeshFeatureObject
+        {
+            var feature = MeshData != null ? MeshData.GetFeature<TFeature>() : null;
+            if (feature != null)
+            {
+                handledFeatures.Add(feature);
+            }
+
+            return feature;
+        }
+
+        /// <summary>
+        /// Gets stored feature objects that no generation pass claimed from this context.
+        /// </summary>
+        /// <returns>Unhandled feature objects for diagnostics.</returns>
+        public IEnumerable<MeshFeatureObject> GetUnhandledFeatures()
+        {
+            return Features.Where(feature => feature != null && !handledFeatures.Contains(feature));
+        }
+
+        /// <summary>
+        /// Gets a shared generated object from this session.
+        /// </summary>
+        public T GetOrCreateObject<T>(string key, System.Func<T> create)
+            where T : Object
+        {
+            return Session != null ? Session.GetOrCreateObject(key, create) : null;
+        }
+
+        /// <summary>
+        /// Tracks a generated object in this session. Persistence happens after generation finishes.
+        /// </summary>
+        public void AddObject(string key, Object obj)
+        {
+            Session?.AddObject(key, obj);
+        }
+
+    }
+
+    /// <summary>
+    /// Resolves target Unity meshes by stored mesh path.
+    /// </summary>
+    public sealed class MeshFeatureTargetMeshLookup
+    {
+        private readonly Dictionary<string, Mesh> meshesByPath = new();
+        private readonly Dictionary<string, SkinnedMeshRenderer> renderersByPath = new();
+        private readonly List<Mesh> meshes = new();
+
+        public IReadOnlyList<Mesh> Meshes => meshes;
+        public Transform RootTransform { get; private set; }
+
+        private MeshFeatureTargetMeshLookup() { }
+
+        /// <summary>
+        /// Builds a mesh lookup from a Unity object that owns target meshes.
+        /// </summary>
+        /// <param name="targetMeshContainer">Asset or object containing target meshes.</param>
+        /// <returns>A lookup instance, or <c>null</c> when the container has no asset path.</returns>
+        public static MeshFeatureTargetMeshLookup Create(Object targetMeshContainer)
+        {
+            if (targetMeshContainer == null)
+            {
+                return null;
+            }
+
+            string path = AssetDatabase.GetAssetPath(targetMeshContainer);
+            if (string.IsNullOrEmpty(path))
+            {
+                return null;
+            }
+
+            var lookup = new MeshFeatureTargetMeshLookup();
+            if (targetMeshContainer is GameObject root)
+            {
+                lookup.AddRendererPaths(root);
+            }
+            else
+            {
+                foreach (var asset in AssetDatabase.LoadAllAssetsAtPath(path))
+                {
+                    if (asset is Mesh mesh)
+                    {
+                        // Generated mesh subassets use their name to store the canonical node path.
+                        lookup.AddMeshPath(mesh, mesh.name);
+                    }
+                }
+            }
+
+            return lookup;
+        }
+
+        /// <summary>
+        /// Builds a mesh lookup from an explicit mesh collection.
+        /// </summary>
+        /// <param name="sourceMeshes">Meshes whose names already contain the path identifier.</param>
+        /// <returns>A lookup instance.</returns>
+        public static MeshFeatureTargetMeshLookup Create(IEnumerable<Mesh> sourceMeshes)
+        {
+            var lookup = new MeshFeatureTargetMeshLookup();
+            foreach (var mesh in sourceMeshes ?? Enumerable.Empty<Mesh>())
+            {
+                // Explicit mesh collections are only valid when their mesh names store node paths
+                // from a previously generated BlendShare asset.
+                lookup.AddMeshPath(mesh, mesh != null ? mesh.name : null);
+            }
+
+            return lookup;
+        }
+
+        /// <summary>
+        /// Finds the target mesh for stored mesh data.
+        /// </summary>
+        /// <param name="meshData">Stored mesh data to resolve.</param>
+        /// <param name="mesh">Resolved target mesh.</param>
+        /// <returns><c>true</c> when a target mesh was found.</returns>
+        public bool TryGetMesh(MeshDataObject meshData, out Mesh mesh)
+        {
+            mesh = null;
+            if (meshData == null)
+            {
+                return false;
+            }
+
+            string path = MeshNodePath.Normalize(meshData.m_Path);
+            if (meshesByPath.TryGetValue(path, out mesh))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Finds the target renderer for stored mesh data.
+        /// </summary>
+        /// <param name="meshData">Stored mesh data to resolve.</param>
+        /// <param name="renderer">Resolved target renderer.</param>
+        /// <returns><c>true</c> when a scene/prefab renderer was found.</returns>
+        public bool TryGetRenderer(MeshDataObject meshData, out SkinnedMeshRenderer renderer)
+        {
+            renderer = null;
+            if (meshData == null)
+            {
+                return false;
+            }
+
+            string path = MeshNodePath.Normalize(meshData.m_Path);
+            if (renderersByPath.TryGetValue(path, out renderer))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        public string GetResolutionError(MeshDataObject meshData)
+        {
+            string path = MeshNodePath.Normalize(meshData?.m_Path);
+            if (meshesByPath.ContainsKey(path))
+            {
+                return null;
+            }
+
+            return $"Node path '{path}' was not found.";
+        }
+
+
+        private void AddMeshPath(Mesh mesh, string path)
+        {
+            if (mesh == null)
+            {
+                return;
+            }
+
+            if (!meshes.Contains(mesh))
+            {
+                meshes.Add(mesh);
+            }
+
+            string normalizedPath = MeshNodePath.Normalize(path);
+            if (!meshesByPath.ContainsKey(normalizedPath))
+            {
+                meshesByPath.Add(normalizedPath, mesh);
+            }
+        }
+
+        private void AddRendererPaths(GameObject root)
+        {
+            if (root == null)
+            {
+                return;
+            }
+
+            RootTransform = root.transform;
+            foreach (var renderer in root.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            {
+                var mesh = renderer.sharedMesh;
+                if (mesh == null)
+                {
+                    continue;
+                }
+
+                string rendererPath = MeshNodePath.GetRelativePath(renderer.transform, root.transform);
+                AddMeshPath(mesh, rendererPath);
+                if (!renderersByPath.ContainsKey(rendererPath))
+                {
+                    renderersByPath.Add(rendererPath, renderer);
+                }
+            }
+        }
+    }
+
+#if ENABLE_FBX_SDK
+    /// <summary>
+    /// Context passed to generators while applying or removing a feature on an FBX mesh node.
+    /// </summary>
+    public sealed class MeshFeatureFbxGenerationContext
+    {
+        private readonly HashSet<MeshFeatureObject> handledFeatures = new();
+
+        public BlendShareObject Share { get; }
+        public MeshDataObject MeshData { get; }
+        public FbxNode Node { get; }
+        public bool RemoveInAllDeformer { get; }
+        public IReadOnlyList<MeshFeatureObject> Features =>
+            MeshData != null ? MeshData.Features : System.Array.Empty<MeshFeatureObject>();
+        public bool HasUnhandledFeatures => Features.Any(feature => feature != null && !handledFeatures.Contains(feature));
+        public FbxMesh TargetMesh => Node?.GetMesh();
+
+        /// <summary>
+        /// Creates an FBX mesh generation context.
+        /// </summary>
+        /// <param name="share">BlendShare asset currently being applied.</param>
+        /// <param name="meshData">Stored mesh data currently being generated.</param>
+        /// <param name="node">Target FBX node.</param>
+        /// <param name="removeInAllDeformer">Whether removal should scan all blendshape deformers.</param>
+        public MeshFeatureFbxGenerationContext(
+            BlendShareObject share,
+            MeshDataObject meshData,
+            FbxNode node,
+            bool removeInAllDeformer = true)
+        {
+            Share = share;
+            MeshData = meshData;
+            Node = node;
+            RemoveInAllDeformer = removeInAllDeformer;
+        }
+
+        /// <summary>
+        /// Gets and claims the stored feature object for this mesh, if present.
+        /// </summary>
+        /// <typeparam name="TFeature">Feature object type to retrieve.</typeparam>
+        /// <returns>The stored feature object, or <c>null</c> when the mesh does not contain that feature.</returns>
+        public TFeature GetFeature<TFeature>() where TFeature : MeshFeatureObject
+        {
+            var feature = MeshData != null ? MeshData.GetFeature<TFeature>() : null;
+            if (feature != null)
+            {
+                handledFeatures.Add(feature);
+            }
+
+            return feature;
+        }
+
+        /// <summary>
+        /// Gets stored feature objects that no generation pass claimed from this context.
+        /// </summary>
+        /// <returns>Unhandled feature objects for diagnostics.</returns>
+        public IEnumerable<MeshFeatureObject> GetUnhandledFeatures()
+        {
+            return Features.Where(feature => feature != null && !handledFeatures.Contains(feature));
+        }
+    }
+#endif
+}

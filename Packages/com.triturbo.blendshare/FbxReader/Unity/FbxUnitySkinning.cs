@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace Triturbo.FBX.Unity
+namespace Triturbo.Fbx.Unity
 {
     public static class FbxUnitySkinning
     {
@@ -18,9 +18,9 @@ namespace Triturbo.FBX.Unity
             return unityMatrix;
         }
 
-        public static float GetImportScale(GameObject fbxAsset)
+        public static float GetImportScale(GameObject FbxGo)
         {
-            return FbxUnityAssetReader.GetImportScale(fbxAsset);
+            return FbxUnityAssetReader.GetImportScale(FbxGo);
         }
     }
 }

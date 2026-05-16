@@ -1,6 +1,6 @@
 using System;
 
-namespace Triturbo.FBX
+namespace Triturbo.Fbx
 {
     [Serializable]
     public readonly struct FbxMatrix4x4 : IEquatable<FbxMatrix4x4>

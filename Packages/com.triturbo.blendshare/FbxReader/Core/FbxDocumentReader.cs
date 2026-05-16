@@ -5,7 +5,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Text;
 
-namespace Triturbo.FBX
+namespace Triturbo.Fbx
 {
     public static class FbxDocumentReader
     {
@@ -14,9 +14,15 @@ namespace Triturbo.FBX
         // this reader implements only the nodes BlendShare needs.
         private static readonly byte[] BinaryHeader = Encoding.ASCII.GetBytes("Kaydara FBX Binary  \0\x1a\0");
 
-        public static FbxReadResult<FbxDocument> Read(string assetPath, FbxReadSettings settings = null)
+        public static FbxReadResult<FbxDocument> Read(string assetPath, IEnumerable<string> nodePaths = null)
         {
-            settings ??= FbxReadSettings.MetadataOnly;
+            return ReadInternal(assetPath, nodePaths);
+        }
+
+        private static FbxReadResult<FbxDocument> ReadInternal(
+            string assetPath,
+            IEnumerable<string> nodePaths)
+        {
             if (string.IsNullOrEmpty(assetPath))
             {
                 return FbxReadResult<FbxDocument>.Failed(FbxReadStatus.InvalidArgument, "FBX asset path is empty.");
@@ -29,10 +35,32 @@ namespace Triturbo.FBX
 
             try
             {
-                var scene = ReadScene(assetPath, settings.ReadOptions);
+                var requestedPaths = NormalizeRequestedNodePaths(nodePaths);
+                if (requestedPaths.Length == 0)
+                {
+                    var fullScene = ReadScene(assetPath, FbxObjectReadFilter.All);
+                    return FbxReadResult<FbxDocument>.Succeeded(
+                        BuildDocument(fullScene, assetPath, null),
+                        fullScene.Diagnostics);
+                }
+
+                var metadataScene = ReadScene(assetPath, FbxObjectReadFilter.MetadataOnly);
+                var selectedModelIds = ResolveRequestedModelIds(metadataScene, requestedPaths, out var missingPaths);
+                if (missingPaths.Count > 0)
+                {
+                    return FbxReadResult<FbxDocument>.Failed(
+                        FbxReadStatus.NodeNotFound,
+                        $"FBX node path was not found: {string.Join(", ", missingPaths)}.",
+                        metadataScene.Diagnostics,
+                        BuildMeshDescriptors(metadataScene, null));
+                }
+
+                var materializedObjectIds = BuildMaterializedObjectIds(metadataScene, selectedModelIds);
+                var includedModelIds = BuildIncludedModelIds(metadataScene, selectedModelIds, materializedObjectIds);
+                var materializedScene = ReadScene(assetPath, new FbxObjectReadFilter(materializedObjectIds));
                 return FbxReadResult<FbxDocument>.Succeeded(
-                    BuildDocument(scene, settings.ReadOptions),
-                    scene.Diagnostics);
+                    BuildDocument(materializedScene, assetPath, includedModelIds),
+                    materializedScene.Diagnostics);
             }
             catch (UnsupportedFbxVersionException exception)
             {
@@ -60,9 +88,9 @@ namespace Triturbo.FBX
             }
         }
 
-        public static FbxDocument ReadOrThrow(string assetPath, FbxReadSettings settings = null)
+        public static FbxDocument ReadOrThrow(string assetPath, IEnumerable<string> nodePaths = null)
         {
-            var result = Read(assetPath, settings);
+            var result = Read(assetPath, nodePaths);
             if (!result.Success)
             {
                 throw new FbxReadException(result.Status, result.Message, result.Diagnostics);
@@ -79,8 +107,9 @@ namespace Triturbo.FBX
             };
         }
 
-        private static BinaryFbxScene ReadScene(string assetPath, FbxMeshReadOptions readOptions)
+        private static BinaryFbxScene ReadScene(string assetPath, FbxObjectReadFilter readFilter)
         {
+            readFilter ??= FbxObjectReadFilter.All;
             using var stream = File.OpenRead(assetPath);
             using var reader = new BinaryReader(stream);
 
@@ -105,7 +134,7 @@ namespace Triturbo.FBX
                 _ = ReadProperties(reader, header.PropertyCount, false);
                 if (header.Name == "Objects")
                 {
-                    ReadObjects(reader, version, header.EndOffset, scene, readOptions);
+                    ReadObjects(reader, version, header.EndOffset, scene, readFilter);
                 }
                 else if (header.Name == "Connections")
                 {
@@ -123,7 +152,7 @@ namespace Triturbo.FBX
             int version,
             long endOffset,
             BinaryFbxScene scene,
-            FbxMeshReadOptions readOptions)
+            FbxObjectReadFilter readFilter)
         {
             while (reader.BaseStream.Position < endOffset)
             {
@@ -135,7 +164,7 @@ namespace Triturbo.FBX
                 var properties = ReadProperties(reader, header.PropertyCount, false);
                 if (header.Name == "Geometry")
                 {
-                    ReadGeometry(reader, version, header, properties, scene, readOptions);
+                    ReadGeometry(reader, version, header, properties, scene, readFilter);
                 }
                 else if (header.Name == "Model")
                 {
@@ -143,7 +172,7 @@ namespace Triturbo.FBX
                 }
                 else if (header.Name == "Deformer")
                 {
-                    ReadDeformer(reader, version, header, properties, scene, readOptions);
+                    ReadDeformer(reader, version, header, properties, scene, readFilter);
                 }
 
                 Seek(reader, header.EndOffset);
@@ -156,7 +185,7 @@ namespace Triturbo.FBX
             FbxNodeHeader header,
             object[] properties,
             BinaryFbxScene scene,
-            FbxMeshReadOptions readOptions)
+            FbxObjectReadFilter readFilter)
         {
             long id = GetLong(properties, 0);
             string name = FbxNameUtility.CleanObjectName(GetString(properties, 1));
@@ -168,16 +197,9 @@ namespace Triturbo.FBX
                 return;
             }
 
-            bool readBasePositions = isMesh && Includes(readOptions, FbxMeshReadOptions.ControlPointPositions);
-            bool readBaseNormals = isMesh && Includes(readOptions, FbxMeshReadOptions.Normals);
-            bool readBaseTangents = isMesh && Includes(readOptions, FbxMeshReadOptions.Tangents);
-            bool readShapePositions = isShape && Includes(readOptions, FbxMeshReadOptions.BlendShapes);
-            bool readShapeNormals = isShape && Includes(readOptions, FbxMeshReadOptions.BlendShapes) && Includes(readOptions, FbxMeshReadOptions.Normals);
-            bool readShapeTangents = isShape && Includes(readOptions, FbxMeshReadOptions.BlendShapes) && Includes(readOptions, FbxMeshReadOptions.Tangents);
-            if (isShape && !readShapePositions && !readShapeNormals && !readShapeTangents)
-            {
-                return;
-            }
+            bool materializePayload = readFilter.ShouldMaterialize(id);
+            bool readBasePayload = isMesh && materializePayload;
+            bool readShapePayload = isShape && materializePayload;
 
             // Mesh Geometry nodes hold base control points. Shape Geometry nodes hold
             // blendshape frame data, usually as sparse Indexes plus per-index values.
@@ -204,7 +226,7 @@ namespace Triturbo.FBX
                         childHeader.EndOffset,
                         "Normals",
                         "NormalsIndex",
-                        readBaseNormals || readShapeNormals);
+                        readBasePayload || readShapePayload);
                     Seek(reader, childHeader.EndOffset);
                     continue;
                 }
@@ -218,7 +240,7 @@ namespace Triturbo.FBX
                         childHeader.EndOffset,
                         "Tangents",
                         "TangentsIndex",
-                        readBaseTangents || readShapeTangents);
+                        readBasePayload || readShapePayload);
                     Seek(reader, childHeader.EndOffset);
                     continue;
                 }
@@ -234,10 +256,10 @@ namespace Triturbo.FBX
                 bool isVerticesNode = childHeader.Name == "Vertices";
                 bool isNormalsNode = childHeader.Name == "Normals";
                 bool isTangentsNode = childHeader.Name == "Tangents";
-                bool readArrayValues = (isVerticesNode && (readBasePositions || readShapePositions)) ||
-                                       (isNormalsNode && (readBaseNormals || readShapeNormals)) ||
-                                       (isTangentsNode && (readBaseTangents || readShapeTangents)) ||
-                                       (readShapePositions && childHeader.Name == "Indexes");
+                bool readArrayValues = (isVerticesNode && (readBasePayload || readShapePayload)) ||
+                                       (isNormalsNode && (readBasePayload || readShapePayload)) ||
+                                       (isTangentsNode && (readBasePayload || readShapePayload)) ||
+                                       (readShapePayload && childHeader.Name == "Indexes");
                 var childProperties = ReadProperties(reader, childHeader.PropertyCount, readArrayValues);
                 if (isVerticesNode)
                 {
@@ -274,7 +296,7 @@ namespace Triturbo.FBX
                 vertices = Array.Empty<double>();
             }
 
-            if ((readBasePositions || readShapePositions) && vertices.Length < 3)
+            if (materializePayload && vertices.Length < 3)
             {
                 return;
             }
@@ -292,6 +314,7 @@ namespace Triturbo.FBX
                 ControlPointPositions = ToVector3dArray(vertices),
                 ControlPointNormals = normals ?? Array.Empty<Vector3d>(),
                 ControlPointTangents = tangents ?? Array.Empty<Vector3d>(),
+                IsPayloadMaterialized = materializePayload,
                 ShapeValueMode = !legacyStyle && absoluteMode
                     ? FbxShapeValueMode.Absolute
                     : FbxShapeValueMode.Relative
@@ -484,7 +507,7 @@ namespace Triturbo.FBX
             FbxNodeHeader header,
             object[] properties,
             BinaryFbxScene scene,
-            FbxMeshReadOptions readOptions)
+            FbxObjectReadFilter readFilter)
         {
             long id = GetLong(properties, 0);
             if (id == 0)
@@ -496,8 +519,9 @@ namespace Triturbo.FBX
             string type = GetString(properties, 2);
             bool isCluster = string.Equals(type, "Cluster", StringComparison.Ordinal);
             bool isBlendShapeChannel = string.Equals(type, "BlendShapeChannel", StringComparison.Ordinal);
-            bool readBoneWeights = Includes(readOptions, FbxMeshReadOptions.BoneWeights) && isCluster;
-            bool readBlendShapeWeights = Includes(readOptions, FbxMeshReadOptions.BlendShapes) && isBlendShapeChannel;
+            bool materializePayload = readFilter.ShouldMaterialize(id);
+            bool readBoneWeights = materializePayload && isCluster;
+            bool readBlendShapeWeights = materializePayload && isBlendShapeChannel;
 
             // Deformer children carry the data for different FBX concepts:
             // Cluster -> skin weights and bind matrices,
@@ -613,12 +637,18 @@ namespace Triturbo.FBX
             }
         }
 
-        private static FbxDocument BuildDocument(BinaryFbxScene scene, FbxMeshReadOptions requestedOptions)
+        private static FbxDocument BuildDocument(
+            BinaryFbxScene scene,
+            string assetPath,
+            ISet<long> includedModelIds)
         {
             var rootNode = new FbxSceneNode(0, string.Empty, string.Empty, FbxSceneNodeType.Root, FbxTransform.Identity);
             // Parsing stores flat records keyed by FBX object id. This pass resolves
             // the connection table into the public node tree and mesh objects.
-            var nodesById = scene.Models.Values.ToDictionary(
+            var includedModels = includedModelIds != null
+                ? scene.Models.Values.Where(model => includedModelIds.Contains(model.Id))
+                : scene.Models.Values;
+            var nodesById = includedModels.ToDictionary(
                 model => model.Id,
                 model => new FbxSceneNode(
                     model.Id,
@@ -634,7 +664,7 @@ namespace Triturbo.FBX
                 childrenByNode[node] = new List<FbxSceneNode>();
             }
 
-            foreach (var model in scene.Models.Values)
+            foreach (var model in includedModels)
             {
                 var node = nodesById[model.Id];
                 FbxSceneNode parentNode = rootNode;
@@ -656,7 +686,8 @@ namespace Triturbo.FBX
             var meshes = new List<FbxMeshGeometry>();
             foreach (var geometry in scene.Geometries.Values)
             {
-                if (!string.Equals(geometry.Type, "Mesh", StringComparison.Ordinal))
+                if (!string.Equals(geometry.Type, "Mesh", StringComparison.Ordinal) ||
+                    !geometry.IsPayloadMaterialized)
                 {
                     continue;
                 }
@@ -666,8 +697,7 @@ namespace Triturbo.FBX
                 ownerNode ??= rootNode;
 
                 int controlPointCount = Math.Max(geometry.ControlPointCount, geometry.ControlPointPositions.Length);
-                var deformers = BuildDeformers(scene, geometry, requestedOptions, controlPointCount, nodesById);
-                FbxMeshReadOptions availableOptions = GetAvailableOptions(geometry, deformers, requestedOptions);
+                var deformers = BuildDeformers(scene, geometry, controlPointCount, nodesById);
                 var mesh = new FbxMeshGeometry(
                     geometry.Id,
                     geometry.Name,
@@ -676,9 +706,7 @@ namespace Triturbo.FBX
                     geometry.ControlPointPositions,
                     geometry.ControlPointNormals,
                     geometry.ControlPointTangents,
-                    deformers,
-                    requestedOptions,
-                    availableOptions);
+                    deformers);
 
                 foreach (var deformer in deformers)
                 {
@@ -691,13 +719,17 @@ namespace Triturbo.FBX
 
             var nodes = new List<FbxSceneNode> { rootNode };
             nodes.AddRange(nodesById.Values);
-            return new FbxDocument(rootNode, nodes, meshes, requestedOptions);
+            return new FbxDocument(
+                rootNode,
+                nodes,
+                meshes,
+                BuildMeshDescriptors(scene, includedModelIds),
+                assetPath);
         }
 
         private static List<FbxDeformer> BuildDeformers(
             BinaryFbxScene scene,
             GeometryRecord geometry,
-            FbxMeshReadOptions readOptions,
             int controlPointCount,
             IReadOnlyDictionary<long, FbxSceneNode> nodesById)
         {
@@ -720,7 +752,7 @@ namespace Triturbo.FBX
                         deformers.Add(BuildSkinDeformer(scene, skin, controlPointCount, nodesById));
                         break;
                     case BlendShapeDeformerRecord blendShape:
-                        deformers.Add(BuildBlendShapeDeformer(scene, blendShape, geometry, readOptions));
+                        deformers.Add(BuildBlendShapeDeformer(scene, blendShape, geometry));
                         break;
                     case VertexCacheDeformerRecord vertexCache:
                         deformers.Add(new FbxVertexCacheDeformer(vertexCache.Id, vertexCache.Name));
@@ -737,23 +769,19 @@ namespace Triturbo.FBX
         private static FbxBlendShapeDeformer BuildBlendShapeDeformer(
             BinaryFbxScene scene,
             BlendShapeDeformerRecord deformer,
-            GeometryRecord geometry,
-            FbxMeshReadOptions readOptions)
+            GeometryRecord geometry)
         {
             var channels = new List<FbxBlendShapeChannel>();
             foreach (var channel in FindChildDeformers<BlendShapeChannelRecord>(scene, deformer.Id))
             {
                 var frames = new List<FbxShapeFrame>();
-                if (Includes(readOptions, FbxMeshReadOptions.BlendShapes))
+                var shapes = FindChildShapeGeometries(scene, channel.Id).ToArray();
+                for (int frameIndex = 0; frameIndex < shapes.Length; frameIndex++)
                 {
-                    var shapes = FindChildShapeGeometries(scene, channel.Id).ToArray();
-                    for (int frameIndex = 0; frameIndex < shapes.Length; frameIndex++)
-                    {
-                        frames.Add(BuildShapeFrame(
-                            GetFrameWeight(channel, frameIndex, shapes.Length),
-                            geometry,
-                            shapes[frameIndex]));
-                    }
+                    frames.Add(BuildShapeFrame(
+                        GetFrameWeight(channel, frameIndex, shapes.Length),
+                        geometry,
+                        shapes[frameIndex]));
                 }
 
                 channels.Add(new FbxBlendShapeChannel(channel.Id, channel.Name, frames));
@@ -960,43 +988,155 @@ namespace Triturbo.FBX
             return new FbxSkinDeformer(skin.Id, skin.Name, bones, clusters, packedWeights);
         }
 
-        private static FbxMeshReadOptions GetAvailableOptions(
-            GeometryRecord geometry,
-            IEnumerable<FbxDeformer> deformers,
-            FbxMeshReadOptions requestedOptions)
+        private static string[] NormalizeRequestedNodePaths(IEnumerable<string> nodePaths)
         {
-            FbxMeshReadOptions options = FbxMeshReadOptions.None;
-            if (geometry.ControlPointPositions.Length > 0)
+            return nodePaths?
+                .Select(FbxNameUtility.NormalizePath)
+                .Where(path => !string.IsNullOrEmpty(path))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray() ?? Array.Empty<string>();
+        }
+
+        private static HashSet<long> ResolveRequestedModelIds(
+            BinaryFbxScene scene,
+            IReadOnlyList<string> nodePaths,
+            out List<string> missingPaths)
+        {
+            missingPaths = new List<string>();
+            var modelIdsByPath = scene.Models.Values
+                .GroupBy(model => FbxNameUtility.NormalizePath(BuildModelPath(scene, model.Id)))
+                .ToDictionary(group => group.Key, group => group.Select(model => model.Id).ToArray(), StringComparer.Ordinal);
+            var selected = new HashSet<long>();
+
+            foreach (string path in nodePaths ?? Array.Empty<string>())
             {
-                options |= FbxMeshReadOptions.ControlPointPositions;
+                if (modelIdsByPath.TryGetValue(path, out var modelIds) && modelIds.Length == 1)
+                {
+                    selected.Add(modelIds[0]);
+                }
+                else
+                {
+                    missingPaths.Add(path);
+                }
             }
 
-            if (Includes(requestedOptions, FbxMeshReadOptions.Normals) &&
-                geometry.ControlPointNormals.Length > 0)
+            return selected;
+        }
+
+        private static HashSet<long> BuildMaterializedObjectIds(BinaryFbxScene scene, IEnumerable<long> selectedModelIds)
+        {
+            var objectIds = new HashSet<long>();
+            foreach (long modelId in selectedModelIds ?? Enumerable.Empty<long>())
             {
-                options |= FbxMeshReadOptions.Normals;
+                objectIds.Add(modelId);
+
+                foreach (var geometry in scene.Geometries.Values.Where(geometry =>
+                             string.Equals(geometry.Type, "Mesh", StringComparison.Ordinal) &&
+                             scene.ObjectParents.TryGetValue(geometry.Id, out long ownerId) &&
+                             ownerId == modelId))
+                {
+                    objectIds.Add(geometry.Id);
+                    AddChildDependencies(scene, geometry.Id, objectIds);
+                }
             }
 
-            if (Includes(requestedOptions, FbxMeshReadOptions.Tangents) &&
-                geometry.ControlPointTangents.Length > 0)
+            return objectIds;
+        }
+
+        private static HashSet<long> BuildIncludedModelIds(
+            BinaryFbxScene scene,
+            IEnumerable<long> selectedModelIds,
+            ISet<long> materializedObjectIds)
+        {
+            var modelIds = new HashSet<long>();
+            foreach (long modelId in selectedModelIds ?? Enumerable.Empty<long>())
             {
-                options |= FbxMeshReadOptions.Tangents;
+                modelIds.Add(modelId);
             }
 
-            var deformerList = deformers as IReadOnlyList<FbxDeformer> ?? deformers.ToArray();
-            if (Includes(requestedOptions, FbxMeshReadOptions.BlendShapes) &&
-                deformerList.OfType<FbxBlendShapeDeformer>().Any(blendShape => blendShape.Channels.Count > 0))
+            foreach (long objectId in materializedObjectIds != null ? materializedObjectIds : Enumerable.Empty<long>())
             {
-                options |= FbxMeshReadOptions.BlendShapes;
+                if (scene.Models.ContainsKey(objectId))
+                {
+                    modelIds.Add(objectId);
+                }
             }
 
-            if (Includes(requestedOptions, FbxMeshReadOptions.BoneWeights) &&
-                deformerList.OfType<FbxSkinDeformer>().Any(skin => skin.HasWeights))
+            return modelIds;
+        }
+
+        private static void AddChildDependencies(BinaryFbxScene scene, long parentId, HashSet<long> objectIds)
+        {
+            if (!scene.ChildrenByParent.TryGetValue(parentId, out var children))
             {
-                options |= FbxMeshReadOptions.BoneWeights;
+                return;
             }
 
-            return options;
+            foreach (long childId in children)
+            {
+                if (scene.Geometries.TryGetValue(childId, out var geometry))
+                {
+                    if (string.Equals(geometry.Type, "Shape", StringComparison.Ordinal))
+                    {
+                        objectIds.Add(childId);
+                    }
+                    continue;
+                }
+
+                if (scene.Deformers.ContainsKey(childId))
+                {
+                    objectIds.Add(childId);
+                    AddChildDependencies(scene, childId, objectIds);
+                    continue;
+                }
+
+                if (scene.Models.ContainsKey(childId))
+                {
+                    objectIds.Add(childId);
+                }
+            }
+        }
+
+        private static IReadOnlyList<FbxMeshDescriptor> BuildMeshDescriptors(
+            BinaryFbxScene scene,
+            ISet<long> includedModelIds)
+        {
+            var descriptors = new List<FbxMeshDescriptor>();
+            foreach (var geometry in scene.Geometries.Values)
+            {
+                if (!string.Equals(geometry.Type, "Mesh", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                scene.ObjectParents.TryGetValue(geometry.Id, out long modelId);
+                if (includedModelIds != null && !includedModelIds.Contains(modelId))
+                {
+                    continue;
+                }
+
+                scene.Models.TryGetValue(modelId, out var ownerModel);
+                int controlPointCount = Math.Max(geometry.ControlPointCount, geometry.ControlPointPositions?.Length ?? 0);
+                descriptors.Add(new FbxMeshDescriptor(
+                    geometry.Id,
+                    modelId,
+                    geometry.Name,
+                    ownerModel?.Name,
+                    ownerModel != null ? BuildModelPath(scene, ownerModel.Id) : string.Empty,
+                    controlPointCount,
+                    HasChildDeformer<BlendShapeDeformerRecord>(scene, geometry.Id),
+                    HasChildDeformer<SkinDeformerRecord>(scene, geometry.Id),
+                    (geometry.ControlPointNormals?.Length ?? 0) > 0,
+                    (geometry.ControlPointTangents?.Length ?? 0) > 0));
+            }
+
+            return descriptors;
+        }
+
+        private static bool HasChildDeformer<TDeformer>(BinaryFbxScene scene, long parentId)
+            where TDeformer : DeformerRecord
+        {
+            return FindChildDeformers<TDeformer>(scene, parentId).Any();
         }
 
         private static IEnumerable<GeometryRecord> FindChildShapeGeometries(BinaryFbxScene scene, long parentId)
@@ -1419,11 +1559,6 @@ namespace Triturbo.FBX
             return version >= 7500 ? reader.ReadInt64() : reader.ReadUInt32();
         }
 
-        private static bool Includes(FbxMeshReadOptions readOptions, FbxMeshReadOptions option)
-        {
-            return (readOptions & option) == option;
-        }
-
         private static long GetLong(object[] properties, int index)
         {
             if (properties == null || index < 0 || index >= properties.Length)
@@ -1655,6 +1790,34 @@ namespace Triturbo.FBX
             public bool IsNull;
         }
 
+        private sealed class FbxObjectReadFilter
+        {
+            private readonly ISet<long> materializedObjectIds;
+
+            public static readonly FbxObjectReadFilter All = new(null, true);
+            public static readonly FbxObjectReadFilter MetadataOnly = new(Array.Empty<long>());
+
+            public FbxObjectReadFilter(IEnumerable<long> materializedObjectIds)
+                : this(materializedObjectIds, false)
+            {
+            }
+
+            private FbxObjectReadFilter(IEnumerable<long> materializedObjectIds, bool materializeAll = false)
+            {
+                this.materializedObjectIds = materializedObjectIds != null
+                    ? new HashSet<long>(materializedObjectIds)
+                    : null;
+                MaterializeAll = materializeAll;
+            }
+
+            public bool MaterializeAll { get; }
+
+            public bool ShouldMaterialize(long objectId)
+            {
+                return MaterializeAll || (materializedObjectIds != null && materializedObjectIds.Contains(objectId));
+            }
+        }
+
         private sealed class BinaryFbxScene
         {
             public readonly Dictionary<long, GeometryRecord> Geometries = new();
@@ -1675,6 +1838,7 @@ namespace Triturbo.FBX
             public Vector3d[] ControlPointPositions;
             public Vector3d[] ControlPointNormals;
             public Vector3d[] ControlPointTangents;
+            public bool IsPayloadMaterialized;
             public FbxShapeValueMode ShapeValueMode;
         }
 

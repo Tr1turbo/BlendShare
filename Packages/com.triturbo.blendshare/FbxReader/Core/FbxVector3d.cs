@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
 
-namespace Triturbo.FBX
+namespace Triturbo.Fbx
 {
     [Serializable]
     public struct Vector3d : IEquatable<Vector3d>
