@@ -123,26 +123,30 @@ namespace Triturbo.BlendShare.Core
         }
 #endif
 
-        public bool ApplyAverage(Vector3d[] values)
+        public bool ApplyAverage<TValue, TAccumulator>(
+            IList<TValue> values,
+            System.Func<TAccumulator> createAccumulator,
+            System.Action<TAccumulator, TValue> addValue,
+            System.Func<TAccumulator, int, TValue> getAverage)
         {
-            if (groups.Length == 0 || values == null)
+            if (groups.Length == 0 || values == null || createAccumulator == null || addValue == null || getAverage == null)
             {
                 return false;
             }
 
             foreach (var group in groups)
             {
-                var average = Vector3d.zero;
+                var accumulator = createAccumulator();
                 int mergedCount = 0;
 
                 foreach (int index in group)
                 {
-                    if (index < 0 || index >= values.Length)
+                    if (index < 0 || index >= values.Count)
                     {
                         continue;
                     }
 
-                    average += values[index];
+                    addValue(accumulator, values[index]);
                     mergedCount++;
                 }
 
@@ -151,10 +155,10 @@ namespace Triturbo.BlendShare.Core
                     continue;
                 }
 
-                average /= mergedCount;
+                var average = getAverage(accumulator, mergedCount);
                 foreach (int index in group)
                 {
-                    if (index >= 0 && index < values.Length)
+                    if (index >= 0 && index < values.Count)
                     {
                         values[index] = average;
                     }
@@ -162,6 +166,15 @@ namespace Triturbo.BlendShare.Core
             }
 
             return true;
+        }
+
+        public bool ApplyAverage(Vector3d[] values)
+        {
+            return ApplyAverage(
+                values,
+                () => new Vector3dAccumulator(),
+                (accumulator, value) => accumulator.Add(value),
+                (accumulator, count) => accumulator.Average(count));
         }
 
         private static List<List<int>> GroupWithShape(
@@ -220,43 +233,11 @@ namespace Triturbo.BlendShare.Core
 #if ENABLE_FBX_SDK
         public bool ApplyAverage(FbxVector4[] values)
         {
-            if (groups.Length == 0 || values == null)
-            {
-                return false;
-            }
-
-            foreach (var group in groups)
-            {
-                var average = new FbxVector4(0, 0, 0, 0);
-                int mergedCount = 0;
-
-                foreach (int index in group)
-                {
-                    if (index < 0 || index >= values.Length)
-                    {
-                        continue;
-                    }
-
-                    average += values[index];
-                    mergedCount++;
-                }
-
-                if (mergedCount == 0)
-                {
-                    continue;
-                }
-
-                average /= mergedCount;
-                foreach (int index in group)
-                {
-                    if (index >= 0 && index < values.Length)
-                    {
-                        values[index] = average;
-                    }
-                }
-            }
-
-            return true;
+            return ApplyAverage(
+                values,
+                () => new FbxVector4Accumulator(),
+                (accumulator, value) => accumulator.Add(value),
+                (accumulator, count) => accumulator.Average(count));
         }
 
         private static List<List<int>> GroupWithShape(List<List<int>> groups, FbxShape targetShape)
@@ -284,6 +265,38 @@ namespace Triturbo.BlendShare.Core
             }
 
             return newGroups;
+        }
+#endif
+
+        private sealed class Vector3dAccumulator
+        {
+            private Vector3d sum = Vector3d.zero;
+
+            public void Add(Vector3d value)
+            {
+                sum += value;
+            }
+
+            public Vector3d Average(int count)
+            {
+                return count > 0 ? sum / count : Vector3d.zero;
+            }
+        }
+
+#if ENABLE_FBX_SDK
+        private sealed class FbxVector4Accumulator
+        {
+            private FbxVector4 sum = new(0, 0, 0, 0);
+
+            public void Add(FbxVector4 value)
+            {
+                sum += value;
+            }
+
+            public FbxVector4 Average(int count)
+            {
+                return count > 0 ? sum / count : new FbxVector4(0, 0, 0, 0);
+            }
         }
 #endif
     }

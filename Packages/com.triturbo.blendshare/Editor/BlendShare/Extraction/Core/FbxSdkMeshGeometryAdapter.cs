@@ -54,7 +54,7 @@ namespace Triturbo.BlendShare.Core
                 deformer.OwnerMesh = mesh;
             }
 
-            ownerNode.SetMesh(mesh);
+            ownerNode.SetAttribute(mesh);
             return mesh;
         }
 

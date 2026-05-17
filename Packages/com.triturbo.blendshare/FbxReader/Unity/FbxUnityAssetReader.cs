@@ -65,7 +65,7 @@ namespace Triturbo.Fbx.Unity
             return FbxReadResult<FbxMeshGeometry>.Failed(
                 FbxReadStatus.MeshNotFound,
                 $"No FBX mesh matched node path: {string.Join(", ", requestedPaths)}.",
-                candidateMeshes: documentResult.Value.MeshDescriptors);
+                candidateMeshes: documentResult.Value.ListMeshes());
         }
 
         public static Dictionary<string, FbxMeshGeometry> ReadMeshes(

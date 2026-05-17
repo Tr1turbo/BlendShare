@@ -61,11 +61,18 @@ namespace Triturbo.Fbx
 
     public sealed class FbxSkinDeformer : FbxDeformer
     {
+        private readonly List<List<FbxControlPointBoneWeight>> controlPointWeights;
+
         public IReadOnlyList<FbxBoneBinding> Bones { get; }
         public IReadOnlyList<string> BoneNames { get; }
         public IReadOnlyList<FbxCluster> Clusters { get; }
-        public IReadOnlyList<IReadOnlyList<FbxControlPointBoneWeight>> ControlPointWeights { get; }
-        public bool HasWeights => ControlPointWeights.Any(weights => weights.Count > 0);
+        public IReadOnlyList<IReadOnlyList<FbxControlPointBoneWeight>> ControlPointWeights =>
+            controlPointWeights
+                .Select(weights => (IReadOnlyList<FbxControlPointBoneWeight>)weights.AsReadOnly())
+                .ToArray();
+        public bool HasWeights => controlPointWeights.Any(weights => weights.Count > 0);
+
+        internal List<List<FbxControlPointBoneWeight>> MutableControlPointWeights => controlPointWeights;
 
         internal FbxSkinDeformer(
             long id,
@@ -78,13 +85,15 @@ namespace Triturbo.Fbx
             Bones = FbxCollection.ToReadOnly(bones);
             BoneNames = FbxCollection.ToReadOnly(Bones.Select(bone => bone.Name));
             Clusters = FbxCollection.ToReadOnly(clusters);
-            ControlPointWeights = FbxCollection.ToReadOnly(controlPointWeights);
+            this.controlPointWeights = controlPointWeights?
+                .Select(weights => weights?.ToList() ?? new List<FbxControlPointBoneWeight>())
+                .ToList() ?? new List<List<FbxControlPointBoneWeight>>();
         }
 
         public IReadOnlyList<FbxControlPointBoneWeight> GetWeights(int controlPointIndex)
         {
-            return controlPointIndex >= 0 && controlPointIndex < ControlPointWeights.Count
-                ? ControlPointWeights[controlPointIndex]
+            return controlPointIndex >= 0 && controlPointIndex < controlPointWeights.Count
+                ? controlPointWeights[controlPointIndex].AsReadOnly()
                 : System.Array.AsReadOnly(System.Array.Empty<FbxControlPointBoneWeight>());
         }
     }
@@ -109,6 +118,11 @@ namespace Triturbo.Fbx
 
     public sealed class FbxCluster
     {
+        private readonly List<int> controlPointIndices;
+        private readonly List<double> weights;
+        private readonly IReadOnlyList<int> readOnlyControlPointIndices;
+        private readonly IReadOnlyList<double> readOnlyWeights;
+
         public long Id { get; }
         public string Name { get; }
         public int BoneIndex { get; }
@@ -125,8 +139,11 @@ namespace Triturbo.Fbx
         public bool HasTransformLinkMatrix { get; }
         public bool HasTransformAssociateModelMatrix { get; }
         public bool HasBindPose { get; }
-        public IReadOnlyList<int> ControlPointIndices { get; }
-        public IReadOnlyList<double> Weights { get; }
+        public IReadOnlyList<int> ControlPointIndices => readOnlyControlPointIndices;
+        public IReadOnlyList<double> Weights => readOnlyWeights;
+
+        internal List<int> MutableControlPointIndices => controlPointIndices;
+        internal List<double> MutableWeights => weights;
 
         internal FbxCluster(
             long id,
@@ -160,8 +177,10 @@ namespace Triturbo.Fbx
             FbxMatrix4x4 inverse = FbxMatrix4x4.Identity;
             HasBindPose = hasTransformMatrix && hasTransformLinkMatrix && transformLinkMatrix.TryInverse(out inverse);
             BindPose = HasBindPose ? inverse * transformMatrix : FbxMatrix4x4.Identity;
-            ControlPointIndices = FbxCollection.ToReadOnly(controlPointIndices);
-            Weights = FbxCollection.ToReadOnly(weights);
+            this.controlPointIndices = controlPointIndices?.ToList() ?? new List<int>();
+            this.weights = weights?.ToList() ?? new List<double>();
+            readOnlyControlPointIndices = this.controlPointIndices.AsReadOnly();
+            readOnlyWeights = this.weights.AsReadOnly();
         }
     }
 
@@ -204,12 +223,26 @@ namespace Triturbo.Fbx
 
     public sealed class FbxShapeFrame
     {
+        private readonly List<int> controlPointIndices;
+        private readonly List<Vector3d> controlPointDeltas;
+        private readonly List<Vector3d> controlPointNormalDeltas;
+        private readonly List<Vector3d> controlPointTangentDeltas;
+        private readonly IReadOnlyList<int> readOnlyControlPointIndices;
+        private readonly IReadOnlyList<Vector3d> readOnlyControlPointDeltas;
+        private readonly IReadOnlyList<Vector3d> readOnlyControlPointNormalDeltas;
+        private readonly IReadOnlyList<Vector3d> readOnlyControlPointTangentDeltas;
+
         public double FrameWeight { get; }
         public FbxShapeValueMode SourceValueMode { get; }
-        public IReadOnlyList<int> ControlPointIndices { get; }
-        public IReadOnlyList<Vector3d> ControlPointDeltas { get; }
-        public IReadOnlyList<Vector3d> ControlPointNormalDeltas { get; }
-        public IReadOnlyList<Vector3d> ControlPointTangentDeltas { get; }
+        public IReadOnlyList<int> ControlPointIndices => readOnlyControlPointIndices;
+        public IReadOnlyList<Vector3d> ControlPointDeltas => readOnlyControlPointDeltas;
+        public IReadOnlyList<Vector3d> ControlPointNormalDeltas => readOnlyControlPointNormalDeltas;
+        public IReadOnlyList<Vector3d> ControlPointTangentDeltas => readOnlyControlPointTangentDeltas;
+
+        internal List<int> MutableControlPointIndices => controlPointIndices;
+        internal List<Vector3d> MutableControlPointDeltas => controlPointDeltas;
+        internal List<Vector3d> MutableControlPointNormalDeltas => controlPointNormalDeltas;
+        internal List<Vector3d> MutableControlPointTangentDeltas => controlPointTangentDeltas;
 
         internal FbxShapeFrame(
             double frameWeight,
@@ -221,10 +254,14 @@ namespace Triturbo.Fbx
         {
             FrameWeight = frameWeight;
             SourceValueMode = sourceValueMode;
-            ControlPointIndices = FbxCollection.ToReadOnly(controlPointIndices);
-            ControlPointDeltas = FbxCollection.ToReadOnly(controlPointDeltas);
-            ControlPointNormalDeltas = FbxCollection.ToReadOnly(controlPointNormalDeltas);
-            ControlPointTangentDeltas = FbxCollection.ToReadOnly(controlPointTangentDeltas);
+            this.controlPointIndices = controlPointIndices?.ToList() ?? new List<int>();
+            this.controlPointDeltas = controlPointDeltas?.ToList() ?? new List<Vector3d>();
+            this.controlPointNormalDeltas = controlPointNormalDeltas?.ToList() ?? new List<Vector3d>();
+            this.controlPointTangentDeltas = controlPointTangentDeltas?.ToList() ?? new List<Vector3d>();
+            readOnlyControlPointIndices = this.controlPointIndices.AsReadOnly();
+            readOnlyControlPointDeltas = this.controlPointDeltas.AsReadOnly();
+            readOnlyControlPointNormalDeltas = this.controlPointNormalDeltas.AsReadOnly();
+            readOnlyControlPointTangentDeltas = this.controlPointTangentDeltas.AsReadOnly();
         }
     }
 }

@@ -46,14 +46,14 @@ namespace Triturbo.Fbx
         public FbxReadStatus Status { get; }
         public string Message { get; }
         public IReadOnlyList<FbxDiagnostic> Diagnostics { get; }
-        public IReadOnlyList<FbxMeshDescriptor> CandidateMeshes { get; }
+        public IReadOnlyList<FbxMeshGeometry> CandidateMeshes { get; }
 
         public FbxReadResult(
             FbxReadStatus status,
             T value,
             string message = null,
             IEnumerable<FbxDiagnostic> diagnostics = null,
-            IEnumerable<FbxMeshDescriptor> candidateMeshes = null)
+            IEnumerable<FbxMeshGeometry> candidateMeshes = null)
         {
             Status = status;
             Value = value;
@@ -71,7 +71,7 @@ namespace Triturbo.Fbx
             FbxReadStatus status,
             string message,
             IEnumerable<FbxDiagnostic> diagnostics = null,
-            IEnumerable<FbxMeshDescriptor> candidateMeshes = null)
+            IEnumerable<FbxMeshGeometry> candidateMeshes = null)
         {
             return new FbxReadResult<T>(status, default, message, diagnostics, candidateMeshes);
         }

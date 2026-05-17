@@ -181,7 +181,7 @@ namespace Triturbo.BlendShare.Core
                 mesh = GetSdkFbxMesh(path, source);
                 if (mesh != null && source)
                 {
-                    mesh = FbxMeshGeometryNormalizer.Normalize(mesh, GetFbxControlPointWelding(path));
+                    mesh = FbxSourceFbxNormalizer.Normalize(mesh, GetFbxControlPointWelding(path));
                 }
             }
 #endif
@@ -261,9 +261,7 @@ namespace Triturbo.BlendShare.Core
                 return null;
             }
 
-            return FbxExtractionDocumentNormalizer.NormalizeMeshes(
-                sourceDocument,
-                mesh => FbxMeshGeometryNormalizer.Normalize(mesh, GetFbxControlPointWelding(mesh.OwnerNode?.Path)));
+            return FbxSourceFbxNormalizer.Normalize(sourceDocument, GetFbxControlPointWelding);
         }
 
 #if ENABLE_FBX_SDK

@@ -17,11 +17,18 @@ namespace Triturbo.Fbx
         Root
     }
 
+    public enum FbxNodeAttributeType
+    {
+        Unknown,
+        Null,
+        Skeleton,
+        Mesh
+    }
+
     public sealed class FbxDocument
     {
         public FbxSceneNode RootNode { get; }
         public IReadOnlyList<FbxSceneNode> Nodes { get; }
-        public IReadOnlyList<FbxMeshDescriptor> MeshDescriptors { get; }
         public IReadOnlyList<FbxMeshGeometry> Meshes =>
             FbxCollection.ToReadOnly(Nodes.Select(node => node.Mesh).Where(mesh => mesh != null));
         public string AssetPath { get; }
@@ -29,19 +36,16 @@ namespace Triturbo.Fbx
         internal FbxDocument(
             FbxSceneNode rootNode,
             IEnumerable<FbxSceneNode> nodes,
-            IEnumerable<FbxMeshGeometry> meshes,
-            IEnumerable<FbxMeshDescriptor> meshDescriptors = null,
             string assetPath = null)
         {
             RootNode = rootNode;
             Nodes = FbxCollection.ToReadOnly(nodes);
-            MeshDescriptors = FbxCollection.ToReadOnly(meshDescriptors ?? (meshes ?? Enumerable.Empty<FbxMeshGeometry>()).Select(mesh => mesh.Descriptor));
             AssetPath = assetPath;
         }
 
-        public IReadOnlyList<FbxMeshDescriptor> ListMeshes()
+        public IReadOnlyList<FbxMeshGeometry> ListMeshes()
         {
-            return MeshDescriptors;
+            return Meshes;
         }
 
         public FbxReadResult<FbxSceneNode> TryFindNode(string path)
@@ -67,7 +71,7 @@ namespace Triturbo.Fbx
                     nodeResult.Status,
                     nodeResult.Message,
                     nodeResult.Diagnostics,
-                    MeshDescriptors);
+                    ListMeshes());
             }
 
             var mesh = nodeResult.Value.Mesh;
@@ -76,29 +80,40 @@ namespace Triturbo.Fbx
                 : FbxReadResult<FbxMeshGeometry>.Failed(
                     FbxReadStatus.MeshNotFound,
                     $"FBX node '{nodePath}' does not contain a mesh.",
-                    candidateMeshes: MeshDescriptors);
+                    candidateMeshes: ListMeshes());
         }
     }
 
     public sealed class FbxSceneNode
     {
         private IReadOnlyList<FbxSceneNode> children = Array.AsReadOnly(Array.Empty<FbxSceneNode>());
-        private FbxMeshGeometry mesh;
+        private FbxNodeAttribute attribute;
+        private readonly FbxSceneNodeType fallbackNodeType;
         private bool isClusterBone;
 
         public long Id { get; }
         public string Name { get; }
         public string Path { get; }
-        public FbxSceneNodeType NodeType { get; }
+        public FbxSceneNodeType NodeType => Attribute switch
+        {
+            FbxMeshGeometry => FbxSceneNodeType.Mesh,
+            FbxSkeleton skeleton => skeleton.SkeletonType == "LimbNode"
+                ? FbxSceneNodeType.LimbNode
+                : FbxSceneNodeType.Skeleton,
+            _ => fallbackNodeType
+        };
         public Vector3d LocalTranslation => LocalTransform.Translation;
         public Vector3d LocalRotation => LocalTransform.Rotation;
         public Vector3d LocalScale => LocalTransform.Scale;
         public FbxTransform LocalTransform { get; }
         public FbxSceneNode Parent { get; private set; }
         public IReadOnlyList<FbxSceneNode> Children => children;
-        public FbxMeshGeometry Mesh => mesh;
+        public FbxNodeAttribute Attribute => attribute;
+        public FbxMeshGeometry Mesh => Attribute as FbxMeshGeometry;
+        public FbxSkeleton Skeleton => Attribute as FbxSkeleton;
         public bool HasMesh => Mesh != null;
-        public bool IsBone => isClusterBone || NodeType == FbxSceneNodeType.Skeleton || NodeType == FbxSceneNodeType.LimbNode;
+        public bool HasAttribute => Attribute != null;
+        public bool IsBone => isClusterBone || Attribute is FbxSkeleton;
 
         internal FbxSceneNode(
             long id,
@@ -110,7 +125,7 @@ namespace Triturbo.Fbx
             Id = id;
             Name = name ?? string.Empty;
             Path = FbxNameUtility.NormalizePath(path);
-            NodeType = nodeType;
+            fallbackNodeType = nodeType;
             LocalTransform = localTransform ?? FbxTransform.Identity;
         }
 
@@ -124,11 +139,11 @@ namespace Triturbo.Fbx
             children = FbxCollection.ToReadOnly(nodes);
         }
 
-        internal void SetMesh(FbxMeshGeometry mesh)
+        internal void SetAttribute(FbxNodeAttribute attribute)
         {
-            if (this.mesh == null)
+            if (this.attribute == null)
             {
-                this.mesh = mesh;
+                this.attribute = attribute;
             }
         }
 
@@ -160,62 +175,76 @@ namespace Triturbo.Fbx
         }
     }
 
-    public sealed class FbxMeshDescriptor
-    {
-        public long GeometryId { get; }
-        public long NodeId { get; }
-        public string GeometryName { get; }
-        public string NodeName { get; }
-        public string NodePath { get; }
-        public int ControlPointCount { get; }
-        public bool HasBlendShapes { get; }
-        public bool HasBoneWeights { get; }
-        public bool HasNormals { get; }
-        public bool HasTangents { get; }
-
-        internal FbxMeshDescriptor(
-            long geometryId,
-            long nodeId,
-            string geometryName,
-            string nodeName,
-            string nodePath,
-            int controlPointCount,
-            bool hasBlendShapes,
-            bool hasBoneWeights,
-            bool hasNormals,
-            bool hasTangents)
-        {
-            GeometryId = geometryId;
-            NodeId = nodeId;
-            GeometryName = geometryName ?? string.Empty;
-            NodeName = nodeName ?? string.Empty;
-            NodePath = nodePath ?? string.Empty;
-            ControlPointCount = Math.Max(0, controlPointCount);
-            HasBlendShapes = hasBlendShapes;
-            HasBoneWeights = hasBoneWeights;
-            HasNormals = hasNormals;
-            HasTangents = hasTangents;
-        }
-    }
-
-    public sealed class FbxMeshGeometry
+    /// <summary>
+    /// Simplified equivalent of the FBX SDK's FbxNodeAttribute.
+    /// A scene node owns one attribute that describes what kind of object the node represents.
+    /// </summary>
+    public abstract class FbxNodeAttribute
     {
         public long Id { get; }
         public string Name { get; }
         public FbxSceneNode OwnerNode { get; }
+        public FbxNodeAttributeType AttributeType { get; }
+
+        protected FbxNodeAttribute(
+            long id,
+            string name,
+            FbxSceneNode ownerNode,
+            FbxNodeAttributeType attributeType)
+        {
+            Id = id;
+            Name = name ?? string.Empty;
+            OwnerNode = ownerNode;
+            AttributeType = attributeType;
+        }
+    }
+
+    /// <summary>
+    /// Simplified skeleton node attribute, equivalent to the FBX SDK's FbxSkeleton concept.
+    /// Used to identify nodes that participate in skeleton hierarchies.
+    /// </summary>
+    public sealed class FbxSkeleton : FbxNodeAttribute
+    {
+        public string SkeletonType { get; }
+
+        internal FbxSkeleton(
+            long id,
+            string name,
+            FbxSceneNode ownerNode,
+            string skeletonType)
+            : base(id, name, ownerNode, FbxNodeAttributeType.Skeleton)
+        {
+            SkeletonType = string.IsNullOrEmpty(skeletonType) ? "Skeleton" : skeletonType;
+        }
+    }
+
+    /// <summary>
+    /// Simplified mesh node attribute.
+    /// This intentionally folds the FBX SDK mesh-related hierarchy
+    /// (FbxLayerContainer, FbxGeometryBase, FbxGeometry, and FbxMesh) into one reader type.
+    /// </summary>
+    public sealed class FbxMeshGeometry : FbxNodeAttribute
+    {
+        private readonly Vector3d[] controlPoints;
+        private readonly Vector3d[] controlPointNormals;
+        private readonly Vector3d[] controlPointTangents;
+
         public IReadOnlyList<Vector3d> ControlPoints { get; }
         public IReadOnlyList<Vector3d> ControlPointNormals { get; }
         public IReadOnlyList<Vector3d> ControlPointTangents { get; }
         public IReadOnlyList<FbxDeformer> Deformers { get; }
         public IReadOnlyList<FbxSkinDeformer> SkinDeformers { get; }
         public IReadOnlyList<FbxBlendShapeDeformer> BlendShapeDeformers { get; }
-        public FbxMeshDescriptor Descriptor { get; }
         public int ControlPointCount { get; }
         public bool HasControlPoints => ControlPoints.Count > 0;
         public bool HasNormals => ControlPointNormals.Count > 0;
         public bool HasTangents => ControlPointTangents.Count > 0;
         public bool HasBlendShapes => BlendShapeDeformers.Count > 0;
         public bool HasBoneWeights => SkinDeformers.Count > 0;
+
+        internal Vector3d[] MutableControlPoints => controlPoints;
+        internal Vector3d[] MutableControlPointNormals => controlPointNormals;
+        internal Vector3d[] MutableControlPointTangents => controlPointTangents;
 
         internal FbxMeshGeometry(
             long id,
@@ -226,34 +255,34 @@ namespace Triturbo.Fbx
             IEnumerable<Vector3d> controlPointNormals,
             IEnumerable<Vector3d> controlPointTangents,
             IEnumerable<FbxDeformer> deformers)
+            : base(id, name, ownerNode, FbxNodeAttributeType.Mesh)
         {
-            Id = id;
-            Name = name ?? string.Empty;
-            OwnerNode = ownerNode;
-            ControlPoints = FbxCollection.ToReadOnly(controlPoints);
-            ControlPointNormals = FbxCollection.ToReadOnly(controlPointNormals);
-            ControlPointTangents = FbxCollection.ToReadOnly(controlPointTangents);
+            this.controlPoints = ToArray(controlPoints);
+            this.controlPointNormals = ToArray(controlPointNormals);
+            this.controlPointTangents = ToArray(controlPointTangents);
+            ControlPoints = Array.AsReadOnly(this.controlPoints);
+            ControlPointNormals = Array.AsReadOnly(this.controlPointNormals);
+            ControlPointTangents = Array.AsReadOnly(this.controlPointTangents);
             Deformers = FbxCollection.ToReadOnly(deformers);
             SkinDeformers = FbxCollection.ToReadOnly(Deformers.OfType<FbxSkinDeformer>());
             BlendShapeDeformers = FbxCollection.ToReadOnly(Deformers.OfType<FbxBlendShapeDeformer>());
-            ControlPointCount = Math.Max(controlPointCount, ControlPoints.Count);
-            Descriptor = new FbxMeshDescriptor(
-                id,
-                ownerNode?.Id ?? 0,
-                Name,
-                ownerNode?.Name,
-                ownerNode?.Path,
-                ControlPointCount,
-                BlendShapeDeformers.Count > 0,
-                SkinDeformers.Count > 0,
-                ControlPointNormals.Count > 0,
-                ControlPointTangents.Count > 0);
+            ControlPointCount = Math.Max(controlPointCount, this.controlPoints.Length);
         }
 
         public bool TryGetSkin(out FbxSkinDeformer skin)
         {
             skin = SkinDeformers.Count > 0 ? SkinDeformers[0] : null;
             return skin != null;
+        }
+
+        private static Vector3d[] ToArray(IEnumerable<Vector3d> values)
+        {
+            return values switch
+            {
+                null => Array.Empty<Vector3d>(),
+                Vector3d[] array => (Vector3d[])array.Clone(),
+                _ => values.ToArray()
+            };
         }
     }
 }

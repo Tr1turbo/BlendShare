@@ -51,8 +51,7 @@ namespace Triturbo.Fbx
                     return FbxReadResult<FbxDocument>.Failed(
                         FbxReadStatus.NodeNotFound,
                         $"FBX node path was not found: {string.Join(", ", missingPaths)}.",
-                        metadataScene.Diagnostics,
-                        BuildMeshDescriptors(metadataScene, null));
+                        metadataScene.Diagnostics);
                 }
 
                 var materializedObjectIds = BuildMaterializedObjectIds(metadataScene, selectedModelIds);
@@ -667,6 +666,11 @@ namespace Triturbo.Fbx
             foreach (var model in includedModels)
             {
                 var node = nodesById[model.Id];
+                if (model.Type == "Skeleton" || model.Type == "LimbNode")
+                {
+                    node.SetAttribute(new FbxSkeleton(model.Id, model.Name, node, model.Type));
+                }
+
                 FbxSceneNode parentNode = rootNode;
                 if (scene.ObjectParents.TryGetValue(model.Id, out long parentId) &&
                     nodesById.TryGetValue(parentId, out var modelParent))
@@ -683,7 +687,6 @@ namespace Triturbo.Fbx
                 pair.Key.SetChildren(pair.Value);
             }
 
-            var meshes = new List<FbxMeshGeometry>();
             foreach (var geometry in scene.Geometries.Values)
             {
                 if (!string.Equals(geometry.Type, "Mesh", StringComparison.Ordinal) ||
@@ -713,8 +716,7 @@ namespace Triturbo.Fbx
                     deformer.OwnerMesh = mesh;
                 }
 
-                ownerNode.SetMesh(mesh);
-                meshes.Add(mesh);
+                ownerNode.SetAttribute(mesh);
             }
 
             var nodes = new List<FbxSceneNode> { rootNode };
@@ -722,8 +724,6 @@ namespace Triturbo.Fbx
             return new FbxDocument(
                 rootNode,
                 nodes,
-                meshes,
-                BuildMeshDescriptors(scene, includedModelIds),
                 assetPath);
         }
 
@@ -1095,48 +1095,6 @@ namespace Triturbo.Fbx
                     objectIds.Add(childId);
                 }
             }
-        }
-
-        private static IReadOnlyList<FbxMeshDescriptor> BuildMeshDescriptors(
-            BinaryFbxScene scene,
-            ISet<long> includedModelIds)
-        {
-            var descriptors = new List<FbxMeshDescriptor>();
-            foreach (var geometry in scene.Geometries.Values)
-            {
-                if (!string.Equals(geometry.Type, "Mesh", StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                scene.ObjectParents.TryGetValue(geometry.Id, out long modelId);
-                if (includedModelIds != null && !includedModelIds.Contains(modelId))
-                {
-                    continue;
-                }
-
-                scene.Models.TryGetValue(modelId, out var ownerModel);
-                int controlPointCount = Math.Max(geometry.ControlPointCount, geometry.ControlPointPositions?.Length ?? 0);
-                descriptors.Add(new FbxMeshDescriptor(
-                    geometry.Id,
-                    modelId,
-                    geometry.Name,
-                    ownerModel?.Name,
-                    ownerModel != null ? BuildModelPath(scene, ownerModel.Id) : string.Empty,
-                    controlPointCount,
-                    HasChildDeformer<BlendShapeDeformerRecord>(scene, geometry.Id),
-                    HasChildDeformer<SkinDeformerRecord>(scene, geometry.Id),
-                    (geometry.ControlPointNormals?.Length ?? 0) > 0,
-                    (geometry.ControlPointTangents?.Length ?? 0) > 0));
-            }
-
-            return descriptors;
-        }
-
-        private static bool HasChildDeformer<TDeformer>(BinaryFbxScene scene, long parentId)
-            where TDeformer : DeformerRecord
-        {
-            return FindChildDeformers<TDeformer>(scene, parentId).Any();
         }
 
         private static IEnumerable<GeometryRecord> FindChildShapeGeometries(BinaryFbxScene scene, long parentId)
