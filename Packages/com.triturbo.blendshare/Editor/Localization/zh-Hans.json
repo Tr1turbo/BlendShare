@@ -1,4 +1,4 @@
-﻿{
+{
   "lang": "语言",
   "origin_fbx": "原始 FBX",
   "origin_fbx.tooltip": "未经修改的原始 FBX 文件。",
@@ -6,6 +6,7 @@
   "source_fbx": "来源 FBX",
   "source_fbx.tooltip": "作为形态键来源的 FBX 文件。",
   "blendshapes": "形态键",
+  "skin_weights": "蒙皮权重",
 
   "extractor.file_unit_warning": "FBX 文件单位不一致，可能会导致问题\n原始：{0}\n来源：{1}",
   "extractor.default_asset_name": "默认资产名称",
@@ -55,6 +56,12 @@
 
   "data.apply_blendshapes_as_new_fbx": "以新 FBX 应用形态键",
   "data.apply_blendshapes_as_new_fbx.tooltip": "复制原始 FBX，并将形态键应用到新副本。",
+  "data.bone_graph.title": "骨骼图",
+  "data.bone_graph.created_count": "要创建的骨骼",
+  "data.skin_weights.title": "蒙皮权重",
+  "data.skin_weights.bone_count": "骨骼",
+  "data.skin_weights.weighted_control_points": "带权重控制点",
+  "data.skin_weights.root_bone": "根骨骼",
   "data.create_meshes": "生成网格",
   "data.create_meshes.tooltip": "生成包含列表中形态键的新网格资产。",
   "data.open_advanced_generator": "打开高级形态键生成器",
@@ -151,6 +158,32 @@
   "mesh_generator.blendshapes_data_list.tooltip": "列表中的所有形态键将被合并并应用到同一个模型。",
   "mesh_generator.generate_mesh": "生成新的网格资产",
   "mesh_generator.generate_fbx": "生成新的 FBX 资产",
+
+
+  "fbx_partial_read.title": "FBX 部分读取计时",
+  "fbx_partial_read.fbx": "FBX 预制体",
+  "fbx_partial_read.fbx.tooltip": "要测量的 FBX 预制体资产。",
+  "fbx_partial_read.concern_path": "关注路径",
+  "fbx_partial_read.iterations": "迭代次数",
+  "fbx_partial_read.run": "运行比较",
+  "fbx_partial_read.refresh_meshes": "刷新网格",
+  "fbx_partial_read.meshes": "网格路径",
+  "fbx_partial_read.no_meshes": "指定 FBX 预制体并刷新以列出网格路径。",
+  "fbx_partial_read.more_meshes": "还有 {0} 个网格",
+  "fbx_partial_read.mesh_summary": "{0} 控制点",
+  "fbx_partial_read.results": "计时结果",
+  "fbx_partial_read.status": "状态",
+  "fbx_partial_read.avg_time": "平均时间",
+  "fbx_partial_read.last_time": "最后一次时间",
+  "fbx_partial_read.managed_delta": "托管内存差值",
+  "fbx_partial_read.nodes": "节点",
+  "fbx_partial_read.mesh_descriptors": "网格描述",
+  "fbx_partial_read.materialized_meshes": "已实体化网格",
+  "fbx_partial_read.concern_mesh": "关注网格",
+  "fbx_partial_read.mesh_missing": "无网格",
+  "fbx_partial_read.concern_mesh_summary": "{0} | 控制点 {1}, 已加载 {2}, 法线 {3}, 切线 {4}, 形态键通道 {5}, 帧 {6}, 骨骼 {7}",
+  "fbx_partial_read.case_full": "读取所有节点和所有网格",
+  "fbx_partial_read.case_partial": "仅读取关注路径",
 
 
   "updater.update_check_failed": "检查更新失败：\n{0}",

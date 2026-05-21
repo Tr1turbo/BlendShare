@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -122,6 +123,8 @@ namespace Triturbo.Fbx
         private readonly List<double> weights;
         private readonly IReadOnlyList<int> readOnlyControlPointIndices;
         private readonly IReadOnlyList<double> readOnlyWeights;
+        private readonly FbxMatrix4x4 rawTransformMatrix;
+        private readonly FbxMatrix4x4 rawBindPose;
 
         public long Id { get; }
         public string Name { get; }
@@ -131,10 +134,27 @@ namespace Triturbo.Fbx
         public string BonePath { get; }
         public FbxSceneNode BoneNode { get; }
         public FbxClusterLinkMode LinkMode { get; }
-        public FbxMatrix4x4 TransformMatrix { get; }
+        /// <summary>
+        /// Raw FBX cluster Transform matrix. Do not use this for skin rebuilds: real-world FBXs can store this in
+        /// a space that does not match the SDK mesh node used when recreating clusters.
+        /// </summary>
+        [Obsolete("Raw cluster Transform is not reliable for production use. Use SDK meshNode.EvaluateGlobalTransform() when rebuilding clusters, or RawTransformMatrixForDiagnostics for explicit diagnostics.", true)]
+        public FbxMatrix4x4 TransformMatrix => rawTransformMatrix;
+
+        public FbxMatrix4x4 RawTransformMatrixForDiagnostics => rawTransformMatrix;
+        public FbxMatrix4x4 MeshBindWorldMatrix => rawTransformMatrix;
         public FbxMatrix4x4 TransformLinkMatrix { get; }
+        public FbxMatrix4x4 BoneBindWorldMatrix => TransformLinkMatrix;
+        public FbxMatrix4x4 MeshNodeToBoneBindMatrix { get; }
+        public FbxMatrix4x4 GeometryToBoneMatrix { get; }
         public FbxMatrix4x4 TransformAssociateModelMatrix { get; }
-        public FbxMatrix4x4 BindPose { get; }
+        /// <summary>
+        /// Derived from TransformLink^-1 * Transform, so it inherits the same mesh Transform reliability problem.
+        /// </summary>
+        [Obsolete("Reader-derived cluster BindPose depends on raw cluster Transform and is not reliable for production use. Use SDK node evaluation or RawBindPoseForDiagnostics only for explicit diagnostics.", true)]
+        public FbxMatrix4x4 BindPose => rawBindPose;
+
+        public FbxMatrix4x4 RawBindPoseForDiagnostics => rawBindPose;
         public bool HasTransformMatrix { get; }
         public bool HasTransformLinkMatrix { get; }
         public bool HasTransformAssociateModelMatrix { get; }
@@ -157,6 +177,8 @@ namespace Triturbo.Fbx
             bool hasTransformLinkMatrix,
             FbxMatrix4x4 transformAssociateModelMatrix,
             bool hasTransformAssociateModelMatrix,
+            FbxMatrix4x4? meshNodeToBoneBindMatrix,
+            FbxMatrix4x4? geometryToBoneMatrix,
             IEnumerable<int> controlPointIndices,
             IEnumerable<double> weights)
         {
@@ -168,7 +190,7 @@ namespace Triturbo.Fbx
             BonePath = bone?.Path ?? string.Empty;
             BoneNode = bone?.Node;
             LinkMode = linkMode;
-            TransformMatrix = transformMatrix;
+            rawTransformMatrix = transformMatrix;
             TransformLinkMatrix = transformLinkMatrix;
             TransformAssociateModelMatrix = transformAssociateModelMatrix;
             HasTransformMatrix = hasTransformMatrix;
@@ -176,7 +198,9 @@ namespace Triturbo.Fbx
             HasTransformAssociateModelMatrix = hasTransformAssociateModelMatrix;
             FbxMatrix4x4 inverse = FbxMatrix4x4.Identity;
             HasBindPose = hasTransformMatrix && hasTransformLinkMatrix && transformLinkMatrix.TryInverse(out inverse);
-            BindPose = HasBindPose ? inverse * transformMatrix : FbxMatrix4x4.Identity;
+            rawBindPose = HasBindPose ? inverse * transformMatrix : FbxMatrix4x4.Identity;
+            MeshNodeToBoneBindMatrix = meshNodeToBoneBindMatrix ?? rawBindPose;
+            GeometryToBoneMatrix = geometryToBoneMatrix ?? MeshNodeToBoneBindMatrix;
             this.controlPointIndices = controlPointIndices?.ToList() ?? new List<int>();
             this.weights = weights?.ToList() ?? new List<double>();
             readOnlyControlPointIndices = this.controlPointIndices.AsReadOnly();

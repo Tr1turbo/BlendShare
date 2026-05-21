@@ -2,7 +2,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Triturbo.BlendShare.Core;
+using Triturbo.BlendShare.Features.BoneGraph;
 using Triturbo.BlendShare.Features.BlendShapes;
+using Triturbo.BlendShare.Features.SkinWeights;
 using UnityEditor;
 using UnityEngine;
 using Object = UnityEngine.Object;
@@ -26,6 +28,7 @@ namespace Triturbo.BlendShare.Persistence
 
             var meshArray = meshes?.Where(mesh => mesh != null).ToArray() ?? System.Array.Empty<MeshDataObject>();
             var presetArray = presets?.Where(preset => preset != null).ToArray() ?? System.Array.Empty<BlendShapePresetObject>();
+            var boneGraphs = CollectBoneGraphs(meshArray);
             var existing = AssetDatabase.LoadAssetAtPath<BlendShareObject>(path);
             BlendShareObject asset = existing != null ? existing : source;
 
@@ -45,6 +48,12 @@ namespace Triturbo.BlendShare.Persistence
                 }
 
                 RemoveOldSubAssets(path, asset);
+
+                for (int i = 0; i < boneGraphs.Length; i++)
+                {
+                    boneGraphs[i].name = GetBoneGraphSubAssetName(i);
+                    AddHiddenSubAsset(boneGraphs[i], asset);
+                }
 
                 foreach (var mesh in meshArray)
                 {
@@ -136,6 +145,17 @@ namespace Triturbo.BlendShare.Persistence
             EditorUtility.SetDirty(subAsset);
         }
 
+        private static BoneGraphObject[] CollectBoneGraphs(IEnumerable<MeshDataObject> meshes)
+        {
+            return (meshes ?? Enumerable.Empty<MeshDataObject>())
+                .SelectMany(mesh => mesh?.Features ?? System.Array.Empty<MeshFeatureObject>())
+                .OfType<SkinWeightFeatureObject>()
+                .Select(feature => feature.m_BoneGraph)
+                .Where(graph => graph != null)
+                .Distinct()
+                .ToArray();
+        }
+
         private static void RemoveOldSubAssets(string path, BlendShareObject mainAsset)
         {
             foreach (var subAsset in AssetDatabase.LoadAllAssetRepresentationsAtPath(path))
@@ -147,12 +167,18 @@ namespace Triturbo.BlendShare.Persistence
 
                 if (subAsset is MeshDataObject ||
                     subAsset is MeshFeatureObject ||
+                    subAsset is BoneGraphObject ||
                     subAsset is UnityVertexMappingObject ||
                     subAsset is BlendShapePresetObject)
                 {
                     Object.DestroyImmediate(subAsset, true);
                 }
             }
+        }
+
+        private static string GetBoneGraphSubAssetName(int index)
+        {
+            return index == 0 ? "BoneGraph" : $"BoneGraph_{index}";
         }
 
         private static string GetMeshSubAssetName(MeshDataObject mesh)

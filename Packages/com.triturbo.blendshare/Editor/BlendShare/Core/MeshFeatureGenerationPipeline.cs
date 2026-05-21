@@ -1,13 +1,14 @@
 using System.Collections.Generic;
 using System.Linq;
-using Triturbo.BlendShare.Features.BlendShapes;
-using Triturbo.BlendShare.Features.SkinWeights;
 using UnityEditor;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
 #if ENABLE_FBX_SDK
 using Autodesk.Fbx;
+using Triturbo.Fbx.Unity;
+using ReaderFbxDocument = Triturbo.Fbx.FbxDocument;
+using ReaderFbxDocumentReader = Triturbo.Fbx.FbxDocumentReader;
 #endif
 
 namespace Triturbo.BlendShare.Core
@@ -20,11 +21,9 @@ namespace Triturbo.BlendShare.Core
         // Keep generation passes explicit so feature generation stays predictable and object-based.
         // A pass claims its MeshFeatureObject through the context instead of being selected by feature id.
         private static readonly IReadOnlyList<IMeshFeatureGenerator> FeatureGenerators =
-            new IMeshFeatureGenerator[]
-            {
-                BlendShapeFeatureGenerator.Instance,
-                SkinWeightFeatureGenerator.Instance
-            }
+            BlendShareFeatureModules.All
+                .Select(module => module?.Generator)
+                .Where(generator => generator != null)
             .OrderBy(generator => generator.Order)
             .ThenBy(generator => generator.GetType().FullName, System.StringComparer.Ordinal)
             .ToArray();
@@ -330,8 +329,34 @@ namespace Triturbo.BlendShare.Core
             var scene = FbxScene.Create(fbxManager, source.name);
             var fbxImporter = FbxImporter.Create(fbxManager, "");
             int fileFormat = fbxManager.GetIOPluginRegistry().FindWriterIDByDescription("FBX binary (*.fbx)");
+            string sourceAssetPath = AssetDatabase.GetAssetPath(source);
+            bool requiresSkinReader = shares
+                .SelectMany(share => share.Meshes ?? System.Array.Empty<MeshDataObject>())
+                .Where(meshData => meshData != null)
+                .SelectMany(meshData => meshData.Features ?? System.Array.Empty<MeshFeatureObject>())
+                .Any(feature => feature != null && feature.FeatureId == "skin-weights");
+            var requestedMeshPaths = shares
+                .SelectMany(share => share.Meshes ?? System.Array.Empty<MeshDataObject>())
+                .Where(meshData => meshData != null)
+                .Select(meshData => MeshNodePath.Normalize(meshData.m_Path))
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(System.StringComparer.Ordinal)
+                .ToArray();
+            ReaderFbxDocument readerDocument = null;
+            if (requiresSkinReader)
+            {
+                var readerResult = ReaderFbxDocumentReader.Read(sourceAssetPath, requestedMeshPaths);
+                if (readerResult.Success)
+                {
+                    readerDocument = readerResult.Value;
+                }
+                else
+                {
+                    Debug.LogWarning($"[BlendShare] Could not read original FBX skin data: {readerResult.Message}");
+                }
+            }
 
-            if (!fbxImporter.Initialize(AssetDatabase.GetAssetPath(source), fileFormat, fbxManager.GetIOSettings()))
+            if (!fbxImporter.Initialize(sourceAssetPath, fileFormat, fbxManager.GetIOSettings()))
             {
                 return false;
             }
@@ -340,6 +365,10 @@ namespace Triturbo.BlendShare.Core
             fbxImporter.Destroy();
 
             var sourceRootNode = scene.GetRootNode();
+            var generationSession = new MeshFeatureFbxGenerationSession(
+                sourceRootNode,
+                FbxUnityAssetReader.GetImportScale(source),
+                readerDocument);
             var modifiedNodes = new HashSet<FbxNode>();
             // modifiedNodes drives onlyNecessary export pruning and must include every node touched by a generator.
             foreach (var share in shares)
@@ -359,7 +388,11 @@ namespace Triturbo.BlendShare.Core
                     }
 
                     bool failed = false;
-                    var context = new MeshFeatureFbxGenerationContext(share, meshData, node);
+                    var context = new MeshFeatureFbxGenerationContext(
+                        share,
+                        meshData,
+                        node,
+                        session: generationSession);
 
                     foreach (var generator in FeatureGenerators)
                     {
@@ -403,11 +436,11 @@ namespace Triturbo.BlendShare.Core
             var exporter = FbxExporter.Create(fbxManager, "");
             if (string.IsNullOrWhiteSpace(outputPath))
             {
-                outputPath = AssetDatabase.GetAssetPath(source);
+                outputPath = sourceAssetPath;
             }
             else
             {
-                AssetDatabase.CopyAsset(AssetDatabase.GetAssetPath(source), outputPath);
+                AssetDatabase.CopyAsset(sourceAssetPath, outputPath);
             }
             AssetDatabase.Refresh();
 

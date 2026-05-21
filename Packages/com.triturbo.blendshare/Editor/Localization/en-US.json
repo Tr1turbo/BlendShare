@@ -7,6 +7,7 @@
   "source_fbx": "Source FBX",
   "source_fbx.tooltip": "FBX file used as the source for BlendShapes.",
   "blendshapes": "BlendShapes",
+  "skin_weights": "Skin Weights",
 
   
   "extractor.file_unit_warning": "FBX file units not same, may cause problem\nOriginal: {0}\nSource: {1}",
@@ -68,6 +69,13 @@
   "data.hidden_settings.applied": "Applied",
   "data.hidden_settings.applied.tooltip": "Indicate if user has applied BlendShapes to FBX.",
   "data.hidden_settings.deformer_id": "Deformer ID",
+
+  "data.bone_graph.title": "Bone Graph",
+  "data.bone_graph.created_count": "Bones to Create",
+  "data.skin_weights.title": "Skin Weights",
+  "data.skin_weights.bone_count": "Bones",
+  "data.skin_weights.weighted_control_points": "Weighted Control Points",
+  "data.skin_weights.root_bone": "Root Bone",
 
   
   "data.create_meshes": "Create Meshes",
@@ -164,6 +172,33 @@
   "mesh_generator.generate_mesh": "Generate new Mesh Asset",
   "mesh_generator.generate_fbx": "Generate new FBX Asset",
 
+
+
+
+  "fbx_partial_read.title": "FBX Partial Read Timing",
+  "fbx_partial_read.fbx": "FBX Prefab",
+  "fbx_partial_read.fbx.tooltip": "FBX prefab asset to measure.",
+  "fbx_partial_read.concern_path": "Concern Path",
+  "fbx_partial_read.iterations": "Iterations",
+  "fbx_partial_read.run": "Run Comparison",
+  "fbx_partial_read.refresh_meshes": "Refresh Meshes",
+  "fbx_partial_read.meshes": "Mesh Paths",
+  "fbx_partial_read.no_meshes": "Assign an FBX prefab and refresh to list mesh paths.",
+  "fbx_partial_read.more_meshes": "+{0} more meshes",
+  "fbx_partial_read.mesh_summary": "{0} cps",
+  "fbx_partial_read.results": "Timing Results",
+  "fbx_partial_read.status": "Status",
+  "fbx_partial_read.avg_time": "Average Time",
+  "fbx_partial_read.last_time": "Last Time",
+  "fbx_partial_read.managed_delta": "Managed Memory Delta",
+  "fbx_partial_read.nodes": "Nodes",
+  "fbx_partial_read.mesh_descriptors": "Mesh Descriptors",
+  "fbx_partial_read.materialized_meshes": "Materialized Meshes",
+  "fbx_partial_read.concern_mesh": "Concern Mesh",
+  "fbx_partial_read.mesh_missing": "No mesh",
+  "fbx_partial_read.concern_mesh_summary": "{0} | cps {1}, loaded {2}, normals {3}, tangents {4}, blendshape channels {5}, frames {6}, bones {7}",
+  "fbx_partial_read.case_full": "Load all nodes and all meshes",
+  "fbx_partial_read.case_partial": "Load only concern path",
 
 
 

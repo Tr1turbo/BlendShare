@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Triturbo.BlendShare.Features.BoneGraph;
 using Triturbo.Fbx;
 using Triturbo.Fbx.Unity;
 using UnityEngine;
@@ -45,6 +46,9 @@ namespace Triturbo.BlendShare.Core
         private readonly bool rawFbxSdkAccessAllowed;
         private readonly UnityMeshExtractionSource sourceUnityMeshes;
         private readonly UnityMeshExtractionSource originUnityMeshes;
+        private readonly Dictionary<string, Transform> sourceTransformsByPath = new();
+        private readonly Dictionary<string, Transform> originTransformsByPath = new();
+        private BoneGraphObject boneGraph;
 
 #if ENABLE_FBX_SDK
         private FbxSdkExtractionSource sourceSdkSource;
@@ -113,6 +117,8 @@ namespace Triturbo.BlendShare.Core
             requestedFbxPaths = new HashSet<string>(nodePaths, StringComparer.Ordinal);
             OriginDocument = ReadDocument(originFbxGo, nodePaths, "origin");
             SourceDocument = NormalizeSourceDocument(ReadDocument(sourceFbxGo, nodePaths, "source"));
+            CacheTransformPaths(sourceFbxGo != null ? sourceFbxGo.transform : null, sourceTransformsByPath);
+            CacheTransformPaths(originFbxGo != null ? originFbxGo.transform : null, originTransformsByPath);
         }
 
         /// <summary>
@@ -199,6 +205,105 @@ namespace Triturbo.BlendShare.Core
             welding = BuildFbxControlPointWelding(path);
             fbxWeldingByMesh[key] = welding;
             return welding;
+        }
+
+        internal BoneGraphObject GetOrCreateBoneGraph()
+        {
+            if (boneGraph != null)
+            {
+                return boneGraph;
+            }
+
+            boneGraph = ScriptableObject.CreateInstance<BoneGraphObject>();
+            boneGraph.name = "BoneGraph";
+            return boneGraph;
+        }
+
+        internal bool OriginHasTransform(string path)
+        {
+            return originTransformsByPath.ContainsKey(MeshNodePath.Normalize(path));
+        }
+
+        internal bool AddMissingBonePatch(string path)
+        {
+            string normalizedPath = MeshNodePath.Normalize(path);
+            if (normalizedPath == MeshNodePath.Root || OriginHasTransform(normalizedPath))
+            {
+                return false;
+            }
+
+            var graph = GetOrCreateBoneGraph();
+            if (graph.HasBone(normalizedPath))
+            {
+                return false;
+            }
+
+            string parentPath = GetParentPath(normalizedPath);
+            if (parentPath != MeshNodePath.Root && !OriginHasTransform(parentPath))
+            {
+                AddMissingBonePatch(parentPath);
+            }
+
+            graph.GetOrAddBone(CreateBoneNode(normalizedPath, parentPath));
+            return true;
+        }
+
+        internal BoneGraphObject GetBoneGraphIfCreated()
+        {
+            return boneGraph;
+        }
+
+        private BoneNodeData CreateBoneNode(string path, string parentPath)
+        {
+            var node = new BoneNodeData
+            {
+                m_Path = path,
+                m_ParentPath = parentPath,
+                m_CreateIfMissing = true
+            };
+
+            var fbxNode = GetSourceNode(path);
+            if (fbxNode != null)
+            {
+                node.m_FbxLocalTranslation = fbxNode.LocalTranslation.ToVector3();
+                node.m_FbxLocalEulerRotation = fbxNode.LocalRotation.ToVector3();
+                node.m_FbxLocalScale = fbxNode.LocalScale.ToVector3();
+                return node;
+            }
+
+            node.m_FbxLocalTranslation = Vector3.zero;
+            node.m_FbxLocalEulerRotation = Vector3.zero;
+            node.m_FbxLocalScale = Vector3.one;
+            return node;
+        }
+
+        private static string GetParentPath(string path)
+        {
+            string normalized = MeshNodePath.Normalize(path);
+            if (normalized == MeshNodePath.Root)
+            {
+                return MeshNodePath.Root;
+            }
+
+            int separator = normalized.LastIndexOf('/');
+            return separator > 0 ? normalized.Substring(0, separator) : MeshNodePath.Root;
+        }
+
+        private static void CacheTransformPaths(Transform root, IDictionary<string, Transform> lookup)
+        {
+            if (root == null || lookup == null)
+            {
+                return;
+            }
+
+            foreach (var transform in root.GetComponentsInChildren<Transform>(true))
+            {
+                string path = MeshNodePath.GetRelativePath(transform, root);
+                if (!lookup.ContainsKey(path))
+                {
+                    lookup.Add(path, transform);
+                }
+            }
         }
 
         private FbxControlPointWelding BuildFbxControlPointWelding(string path)

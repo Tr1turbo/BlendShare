@@ -17,6 +17,7 @@ namespace Triturbo.BlendShare.Editor
         private readonly List<MeshFeatureExtractionMeshRequest> meshRequests = new();
         private readonly List<string> skippedMeshes = new();
         private MeshFeatureExtractionOptionsSet featureOptionsSet = new();
+        private Vector2 scrollPosition;
 
         [MenuItem("Tools/BlendShare/Feature Extractor")]
         public static void ShowWindow()
@@ -41,9 +42,11 @@ namespace Triturbo.BlendShare.Editor
             Localization.DrawLanguageSelection();
             EditorGUILayout.Separator();
 
+            scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition);
             DrawFbxFields();
             DrawFeatureOptions();
             DrawSaveButton();
+            EditorGUILayout.EndScrollView();
         }
 
         private void DrawFbxFields()
@@ -91,7 +94,7 @@ namespace Triturbo.BlendShare.Editor
             }
 
             var context = new MeshFeatureOptionsEditorContext(sourceFBX, originFBX, meshRequests);
-            foreach (var provider in MeshFeatureExtractionOptionsProviderRegistry.Providers)
+            foreach (var provider in GetFeatureOptionsProviders())
             {
                 if (provider == null ||
                     !featureOptionsSet.TryGet(provider.OptionsType, out var options) ||
@@ -284,7 +287,7 @@ namespace Triturbo.BlendShare.Editor
         private void EnsureFeatureOptions()
         {
             featureOptionsSet ??= new MeshFeatureExtractionOptionsSet();
-            foreach (var provider in MeshFeatureExtractionOptionsProviderRegistry.Providers)
+            foreach (var provider in GetFeatureOptionsProviders())
             {
                 if (provider == null || featureOptionsSet.TryGet(provider.OptionsType, out _))
                 {
@@ -293,6 +296,15 @@ namespace Triturbo.BlendShare.Editor
 
                 featureOptionsSet.Set(provider.OptionsType, provider.CreateDefaultOptions());
             }
+        }
+
+        private static IEnumerable<IMeshFeatureExtractionOptionsProvider> GetFeatureOptionsProviders()
+        {
+            return BlendShareFeatureModules.All
+                .Select(module => module?.OptionsProvider)
+                .Where(provider => provider != null)
+                .OrderBy(provider => provider.DisplayOrder)
+                .ThenBy(provider => provider.GetType().FullName, System.StringComparer.Ordinal);
         }
 
     }

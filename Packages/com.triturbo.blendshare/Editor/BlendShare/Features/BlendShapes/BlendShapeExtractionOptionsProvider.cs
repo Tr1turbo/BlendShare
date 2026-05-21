@@ -86,7 +86,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             var sourceMeshes = new UnityMeshExtractionSource(context.SourceFbxGo);
             var originMeshes = new UnityMeshExtractionSource(context.OriginFbxGo);
 
-            scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition);
+            scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition, GUILayout.MinHeight(120), GUILayout.MaxHeight(360));
             foreach (var request in requests)
             {
                 DrawMeshBlendShapeToggles(options, request, sourceMeshes, originMeshes);

@@ -1,4 +1,4 @@
-﻿{
+{
   "lang": "言語",
   "origin_fbx": "オリジナルFBX",
   "origin_fbx.tooltip": "変更されていない元の FBX ファイルです。",
@@ -6,6 +6,7 @@
   "source_fbx": "ソース FBX",
   "source_fbx.tooltip": "シェイプキーのソースとして使用される FBX ファイルです。",
   "blendshapes": "シェイプキー",
+  "skin_weights": "スキンウェイト",
 
 
   "extractor.file_unit_warning": "FBX ファイルの単位が一致していません。問題が発生する可能性があります。\n元の単位: {0}\nソース単位: {1}",
@@ -65,6 +66,13 @@
   "data.hidden_settings.applied": "適用済み",
   "data.hidden_settings.applied.tooltip": "ユーザーがシェイプキーを FBX に適用したかどうかを示します。",
   "data.hidden_settings.deformer_id": "デフォーマー ID",
+
+  "data.bone_graph.title": "ボーングラフ",
+  "data.bone_graph.created_count": "作成するボーン",
+  "data.skin_weights.title": "スキンウェイト",
+  "data.skin_weights.bone_count": "ボーン",
+  "data.skin_weights.weighted_control_points": "ウェイト付き制御点",
+  "data.skin_weights.root_bone": "ルートボーン",
 
 
   "data.create_meshes": "メッシュを作成",
@@ -159,6 +167,32 @@
   "mesh_generator.blendshapes_data_list.tooltip": "リスト内のすべてのシェイプキーが統合され、単一のモデルに適用されます。",
   "mesh_generator.generate_mesh": "新しいメッシュアセットを生成",
   "mesh_generator.generate_fbx": "新しい FBX アセットを生成",
+
+
+  "fbx_partial_read.title": "FBX 部分読み込みタイミング",
+  "fbx_partial_read.fbx": "FBX プレハブ",
+  "fbx_partial_read.fbx.tooltip": "計測対象の FBX プレハブアセット。",
+  "fbx_partial_read.concern_path": "対象パス",
+  "fbx_partial_read.iterations": "反復回数",
+  "fbx_partial_read.run": "比較を実行",
+  "fbx_partial_read.refresh_meshes": "メッシュを更新",
+  "fbx_partial_read.meshes": "メッシュパス",
+  "fbx_partial_read.no_meshes": "FBX プレハブを指定して更新すると、メッシュパスが表示されます。",
+  "fbx_partial_read.more_meshes": "他 {0} メッシュ",
+  "fbx_partial_read.mesh_summary": "{0} 制御点",
+  "fbx_partial_read.results": "タイミング結果",
+  "fbx_partial_read.status": "状態",
+  "fbx_partial_read.avg_time": "平均時間",
+  "fbx_partial_read.last_time": "最終時間",
+  "fbx_partial_read.managed_delta": "管理メモリ差分",
+  "fbx_partial_read.nodes": "ノード",
+  "fbx_partial_read.mesh_descriptors": "メッシュ記述子",
+  "fbx_partial_read.materialized_meshes": "実体化メッシュ",
+  "fbx_partial_read.concern_mesh": "対象メッシュ",
+  "fbx_partial_read.mesh_missing": "メッシュなし",
+  "fbx_partial_read.concern_mesh_summary": "{0} | 制御点 {1}, 読込済み {2}, 法線 {3}, 接線 {4}, ブレンドシェイプチャンネル {5}, フレーム {6}, ボーン {7}",
+  "fbx_partial_read.case_full": "全ノードと全メッシュを読み込み",
+  "fbx_partial_read.case_partial": "対象パスのみ読み込み",
 
 
   "updater.update_check_failed": "アップデートの確認に失敗しました:\n{0}",

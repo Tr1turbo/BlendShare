@@ -43,7 +43,7 @@ namespace Triturbo.BlendShare.Core
                     var context = new MeshFeatureExtractionContext(session, request.Path);
                     var meshDataObject = CreateMeshData(context);
 
-                    foreach (var extractor in MeshFeatureExtractorRegistry.Extractors)
+                    foreach (var extractor in BlendShareFeatureModules.All.Select(module => module?.Extractor))
                     {
                         if (!ShouldRunExtractor(session.Options, extractor))
                         {

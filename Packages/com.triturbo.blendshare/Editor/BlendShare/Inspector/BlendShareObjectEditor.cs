@@ -4,7 +4,9 @@ using System.Linq;
 using Triturbo.BlendShapeShare;
 using Triturbo.BlendShapeShare.BlendShapeData;
 using Triturbo.BlendShare.Core;
+using Triturbo.BlendShare.Features.BoneGraph;
 using Triturbo.BlendShare.Features.BlendShapes;
+using Triturbo.BlendShare.Features.SkinWeights;
 using Triturbo.BlendShare.Persistence;
 using UnityEditor;
 using UnityEngine;
@@ -26,6 +28,8 @@ namespace Triturbo.BlendShare.Inspector
             EditorGUILayout.Space();
 
             DrawMetadata();
+            EditorGUILayout.Space();
+            DrawSharedBoneGraphs(blendShare);
             EditorGUILayout.Space();
             DrawMeshes(blendShare);
             EditorGUILayout.Space();
@@ -76,10 +80,68 @@ namespace Triturbo.BlendShare.Inspector
                 EditorGUILayout.LabelField("Path", mesh.m_Path);
                 EditorGUILayout.LabelField("FBX Control Points", mesh.m_FbxControlPointCount.ToString());
                 DrawMappings(mesh);
+                DrawSkinWeightSummary(mesh.GetFeature<SkinWeightFeatureObject>());
                 DrawMeshPresets(blendShare, mesh, blendShapeFeature);
                 DrawBlendShapeToggles(blendShapeFeature);
                 EditorGUI.indentLevel--;
             }
+        }
+
+        private void DrawSharedBoneGraphs(BlendShareObject blendShare)
+        {
+            var boneGraphs = GetSharedBoneGraphs(blendShare);
+            if (boneGraphs.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var boneGraph in boneGraphs)
+            {
+                DrawBoneGraphSummary(boneGraph);
+            }
+        }
+
+        private void DrawBoneGraphSummary(BoneGraphObject boneGraph)
+        {
+            EditorGUILayout.LabelField(Localization.G("data.bone_graph.title"), EditorStyles.boldLabel);
+            var bones = boneGraph?.Bones ?? System.Array.Empty<BoneNodeData>();
+            int createdCount = bones.Count(bone => bone != null && bone.m_CreateIfMissing);
+            EditorGUILayout.LabelField(Localization.S("data.bone_graph.created_count"), createdCount.ToString());
+            EditorGUILayout.LabelField(Localization.S("data.skin_weights.bone_count"), bones.Count.ToString());
+            EditorGUI.indentLevel++;
+            foreach (var bone in bones)
+            {
+                if (bone == null)
+                {
+                    continue;
+                }
+
+                EditorGUILayout.LabelField(bone.m_Path);
+            }
+            EditorGUI.indentLevel--;
+        }
+
+        private static List<BoneGraphObject> GetSharedBoneGraphs(BlendShareObject blendShare)
+        {
+            return (blendShare?.Meshes ?? System.Array.Empty<MeshDataObject>())
+                .Where(mesh => mesh != null)
+                .Select(mesh => mesh.GetFeature<SkinWeightFeatureObject>()?.m_BoneGraph)
+                .Where(graph => graph != null)
+                .Distinct()
+                .ToList();
+        }
+
+        private void DrawSkinWeightSummary(SkinWeightFeatureObject skinWeightFeature)
+        {
+            if (skinWeightFeature == null)
+            {
+                return;
+            }
+
+            EditorGUILayout.LabelField(Localization.G("data.skin_weights.title"), EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(Localization.S("data.skin_weights.bone_count"), skinWeightFeature.BoneSlotCount.ToString());
+            EditorGUILayout.LabelField(Localization.S("data.skin_weights.weighted_control_points"), skinWeightFeature.WeightedControlPointCount.ToString());
+            EditorGUILayout.LabelField(Localization.S("data.skin_weights.root_bone"), skinWeightFeature.m_RootBonePath);
         }
 
         private void DrawMappings(MeshDataObject mesh)

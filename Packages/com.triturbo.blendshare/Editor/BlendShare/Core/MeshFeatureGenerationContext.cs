@@ -6,6 +6,7 @@ using Object = UnityEngine.Object;
 
 #if ENABLE_FBX_SDK
 using Autodesk.Fbx;
+using ReaderFbxDocument = Triturbo.Fbx.FbxDocument;
 #endif
 
 namespace Triturbo.BlendShare.Core
@@ -17,6 +18,8 @@ namespace Triturbo.BlendShare.Core
     {
         private readonly List<Object> generatedObjects = new();
         private readonly Dictionary<string, Object> generatedObjectsByKey = new();
+        private readonly Dictionary<string, Transform> transformsByPath = new();
+        private readonly HashSet<string> completedSteps = new();
 
         public Object TargetMeshContainer { get; }
         public IReadOnlyList<BlendShareObject> Shares { get; }
@@ -62,6 +65,44 @@ namespace Triturbo.BlendShare.Core
         public string FormatTargetName()
         {
             return TargetMeshContainer != null ? TargetMeshContainer.name : "target";
+        }
+
+        /// <summary>
+        /// Finds and caches a target hierarchy transform by normalized path.
+        /// </summary>
+        public Transform ResolveTransform(Transform root, string path)
+        {
+            string normalizedPath = MeshNodePath.Normalize(path);
+            if (transformsByPath.TryGetValue(normalizedPath, out var cached) && cached != null)
+            {
+                return cached;
+            }
+
+            var transform = MeshNodePath.FindRelativeTransform(root, normalizedPath);
+            if (transform != null)
+            {
+                transformsByPath[normalizedPath] = transform;
+            }
+
+            return transform;
+        }
+
+        /// <summary>
+        /// Registers a target hierarchy transform so later mesh generators reuse it.
+        /// </summary>
+        public void CacheTransform(string path, Transform transform)
+        {
+            if (transform == null)
+            {
+                return;
+            }
+
+            transformsByPath[MeshNodePath.Normalize(path)] = transform;
+        }
+
+        public bool MarkStepOnce(string key)
+        {
+            return !string.IsNullOrWhiteSpace(key) && completedSteps.Add(key);
         }
 
         /// <summary>
@@ -223,6 +264,23 @@ namespace Triturbo.BlendShare.Core
             return Session != null ? Session.GetOrCreateObject(key, create) : null;
         }
 
+        public Transform ResolveTransform(string path)
+        {
+            return Session != null
+                ? Session.ResolveTransform(TargetRootTransform, path)
+                : MeshNodePath.FindRelativeTransform(TargetRootTransform, path);
+        }
+
+        public void CacheTransform(string path, Transform transform)
+        {
+            Session?.CacheTransform(path, transform);
+        }
+
+        public bool MarkStepOnce(string key)
+        {
+            return Session == null || Session.MarkStepOnce(key);
+        }
+
         /// <summary>
         /// Tracks a generated object in this session. Persistence happens after generation finishes.
         /// </summary>
@@ -251,16 +309,10 @@ namespace Triturbo.BlendShare.Core
         /// Builds a mesh lookup from a Unity object that owns target meshes.
         /// </summary>
         /// <param name="targetMeshContainer">Asset or object containing target meshes.</param>
-        /// <returns>A lookup instance, or <c>null</c> when the container has no asset path.</returns>
+        /// <returns>A lookup instance, or <c>null</c> when the container cannot provide target meshes.</returns>
         public static MeshFeatureTargetMeshLookup Create(Object targetMeshContainer)
         {
             if (targetMeshContainer == null)
-            {
-                return null;
-            }
-
-            string path = AssetDatabase.GetAssetPath(targetMeshContainer);
-            if (string.IsNullOrEmpty(path))
             {
                 return null;
             }
@@ -272,6 +324,12 @@ namespace Triturbo.BlendShare.Core
             }
             else
             {
+                string path = AssetDatabase.GetAssetPath(targetMeshContainer);
+                if (string.IsNullOrEmpty(path))
+                {
+                    return null;
+                }
+
                 foreach (var asset in AssetDatabase.LoadAllAssetsAtPath(path))
                 {
                     if (asset is Mesh mesh)
@@ -408,6 +466,52 @@ namespace Triturbo.BlendShare.Core
 
 #if ENABLE_FBX_SDK
     /// <summary>
+    /// Shared state for one FBX feature generation request.
+    /// </summary>
+    public sealed class MeshFeatureFbxGenerationSession
+    {
+        private readonly Dictionary<string, object> stateByKey = new();
+
+        public FbxNode RootNode { get; }
+        public float ImportScale { get; }
+        public ReaderFbxDocument ReaderDocument { get; }
+
+        public MeshFeatureFbxGenerationSession(
+            FbxNode rootNode,
+            float importScale,
+            ReaderFbxDocument readerDocument = null)
+        {
+            RootNode = rootNode;
+            ImportScale = importScale == 0f ? 1f : importScale;
+            ReaderDocument = readerDocument;
+        }
+
+        public bool TryGetState<T>(string key, out T state) where T : class
+        {
+            if (!string.IsNullOrWhiteSpace(key) &&
+                stateByKey.TryGetValue(key, out var cached) &&
+                cached is T typed)
+            {
+                state = typed;
+                return true;
+            }
+
+            state = null;
+            return false;
+        }
+
+        public void SetState<T>(string key, T state) where T : class
+        {
+            if (string.IsNullOrWhiteSpace(key) || state == null)
+            {
+                return;
+            }
+
+            stateByKey[key] = state;
+        }
+    }
+
+    /// <summary>
     /// Context passed to generators while applying or removing a feature on an FBX mesh node.
     /// </summary>
     public sealed class MeshFeatureFbxGenerationContext
@@ -417,11 +521,13 @@ namespace Triturbo.BlendShare.Core
         public BlendShareObject Share { get; }
         public MeshDataObject MeshData { get; }
         public FbxNode Node { get; }
+        public MeshFeatureFbxGenerationSession Session { get; }
         public bool RemoveInAllDeformer { get; }
         public IReadOnlyList<MeshFeatureObject> Features =>
             MeshData != null ? MeshData.Features : System.Array.Empty<MeshFeatureObject>();
         public bool HasUnhandledFeatures => Features.Any(feature => feature != null && !handledFeatures.Contains(feature));
         public FbxMesh TargetMesh => Node?.GetMesh();
+        public FbxNode RootNode => Session?.RootNode;
 
         /// <summary>
         /// Creates an FBX mesh generation context.
@@ -430,15 +536,18 @@ namespace Triturbo.BlendShare.Core
         /// <param name="meshData">Stored mesh data currently being generated.</param>
         /// <param name="node">Target FBX node.</param>
         /// <param name="removeInAllDeformer">Whether removal should scan all blendshape deformers.</param>
+        /// <param name="session">Shared FBX generation session.</param>
         public MeshFeatureFbxGenerationContext(
             BlendShareObject share,
             MeshDataObject meshData,
             FbxNode node,
-            bool removeInAllDeformer = true)
+            bool removeInAllDeformer = true,
+            MeshFeatureFbxGenerationSession session = null)
         {
             Share = share;
             MeshData = meshData;
             Node = node;
+            Session = session;
             RemoveInAllDeformer = removeInAllDeformer;
         }
 

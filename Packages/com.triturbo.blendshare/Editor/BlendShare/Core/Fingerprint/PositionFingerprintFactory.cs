@@ -28,7 +28,7 @@ namespace Triturbo.BlendShare.Core
         public bool IsValid =>
             FbxFingerprints != null && FbxFingerprints.Length > 0 &&
             UnityFingerprints != null && UnityFingerprints.Length > 0 &&
-            BlendShapeNames != null && BlendShapeNames.Length > 0;
+            BlendShapeNames != null;
     }
 
     /// <summary>
@@ -62,7 +62,8 @@ namespace Triturbo.BlendShare.Core
                 out var fbxPaired,
                 out var unityPaired);
 
-            if (pairedNames.Length == 0)
+            if (pairedNames.Length == 0 &&
+                ((fbxBlendShapes?.Length ?? 0) > 0 || (unityBlendShapes?.Length ?? 0) > 0))
             {
                 return default;
             }

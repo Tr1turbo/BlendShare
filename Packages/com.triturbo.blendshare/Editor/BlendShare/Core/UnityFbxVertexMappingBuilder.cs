@@ -91,6 +91,14 @@ namespace Triturbo.BlendShare.Core
                 return mapping;
             }
 
+            if (mapping.m_UnityVertexCount <= 0)
+            {
+                mapping.m_IsValid = false;
+                mapping.m_InvalidReason = "FBX asset mapping requires a Unity mesh with vertices.";
+                LogCompletion("FbxAsset", nodePath, stopwatch, mapping.m_IsValid, mapping.m_InvalidReason);
+                return mapping;
+            }
+
             var pair = PositionFingerprintFactory.CreatePair(fbxMesh, unityMesh, importScale);
             LogTiming("FbxAsset", nodePath, "CreatePair", stopwatch, ref lastLogMs,
                 $"usableBlendShapes={pair.BlendShapeNames?.Length ?? 0}");
@@ -98,15 +106,7 @@ namespace Triturbo.BlendShare.Core
             if (!pair.IsValid)
             {
                 mapping.m_IsValid = false;
-                mapping.m_InvalidReason = "FBX asset mapping requires matching FBX and Unity mesh blendshapes with frames.";
-                LogCompletion("FbxAsset", nodePath, stopwatch, mapping.m_IsValid, mapping.m_InvalidReason);
-                return mapping;
-            }
-
-            if (mapping.m_UnityVertexCount <= 0)
-            {
-                mapping.m_IsValid = false;
-                mapping.m_InvalidReason = "FBX asset mapping requires a Unity mesh with vertices.";
+                mapping.m_InvalidReason = "FBX asset mapping requires matching FBX and Unity mesh blendshapes, or no usable blendshapes on either mesh for position-only matching.";
                 LogCompletion("FbxAsset", nodePath, stopwatch, mapping.m_IsValid, mapping.m_InvalidReason);
                 return mapping;
             }

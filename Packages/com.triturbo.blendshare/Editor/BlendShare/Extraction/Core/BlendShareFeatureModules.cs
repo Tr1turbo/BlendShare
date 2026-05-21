@@ -6,7 +6,7 @@ using Triturbo.BlendShare.Features.SkinWeights;
 namespace Triturbo.BlendShare.Core
 {
     /// <summary>
-    /// Hardcoded feature module contract for extraction, generation, and optional editor options.
+    /// Feature module contract for extraction, generation, and optional editor options.
     /// </summary>
     public interface IBlendShareFeatureModule
     {
@@ -60,7 +60,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         public string FeatureId => SkinWeightFeatureObject.Id;
         public IMeshFeatureExtractor Extractor => SkinWeightFeatureExtractor.Instance;
         public IMeshFeatureGenerator Generator => SkinWeightFeatureGenerator.Instance;
-        public IMeshFeatureExtractionOptionsProvider OptionsProvider => null;
+        public IMeshFeatureExtractionOptionsProvider OptionsProvider => new SkinWeightExtractionOptionsProvider();
         public bool RequiresRawFbxSdk => false;
     }
 }

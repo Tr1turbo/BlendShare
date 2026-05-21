@@ -136,8 +136,12 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 if (obj is GameObject go)
                 {
                     string path = AssetDatabase.GetAssetPath(go);
-                    if (!string.IsNullOrEmpty(path) && path.EndsWith(".fbx", StringComparison.OrdinalIgnoreCase))
+                    if (!string.IsNullOrEmpty(path) &&
+                        (path.EndsWith(".fbx", StringComparison.OrdinalIgnoreCase) ||
+                         path.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase)))
+                    {
                         return true;
+                    }
                 }
                 return false;
             }
