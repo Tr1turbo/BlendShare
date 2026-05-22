@@ -77,6 +77,8 @@
 
   "data.create_meshes": "メッシュを作成",
   "data.create_meshes.tooltip": "シェイプキーを含む新しいメッシュアセットを作成します。",
+  "data.create_artifact": "BlendShare アーティファクトを作成",
+  "data.create_artifact.tooltip": "生成メッシュとスキンバインディング記述子を含む BlendShare アーティファクトを作成します。",
   "data.open_advanced_generator": "アドバンスドシェイプキー生成ツールを開く",
   "data.open_advanced_generator.tooltip": "複数の BlendShape データアセットからシェイプキーを組み合わせて、新しいメッシュを生成するためのアドバンスドシェイプキージェネレーターを開きます。",
 
@@ -86,6 +88,7 @@
   "data.fbx_sdk_missing": "Autodesk FBX SDK が見つかりません。FBX 操作機能は無効になります。",
   "data.save_fbx.title": "FBX を保存",
   "data.save_mesh.title": "メッシュを保存",
+  "data.save_artifact.title": "BlendShare アーティファクトを保存",
   "data.save_file.message": "ファイル名を入力してください",
   "data.created_by": "Triturbo が作成した Blendshapes 共有ツール",
   "data.edit_mode": "編集モード",

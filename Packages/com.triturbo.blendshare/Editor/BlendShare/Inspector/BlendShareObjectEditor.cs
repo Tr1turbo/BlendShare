@@ -303,6 +303,27 @@ namespace Triturbo.BlendShare.Inspector
                 }
             }
 
+            if (GUILayout.Button(Localization.G("data.create_artifact")))
+            {
+                if (blendShare.m_Original == null)
+                {
+                    Localization.DisplayDialog("data.dialog.fbx_missing", Localization.S("data.dialog.ok"));
+                    return;
+                }
+
+                string folderPath = Path.GetDirectoryName(AssetDatabase.GetAssetPath(blendShare));
+                string path = EditorUtility.SaveFilePanelInProject(
+                    Localization.S("data.save_artifact.title"),
+                    $"{blendShare.DefaultMeshAssetName}_Artifact",
+                    "asset",
+                    Localization.S("data.save_file.message"),
+                    folderPath);
+                if (!string.IsNullOrEmpty(path))
+                {
+                    BlendShareArtifactService.CreateArtifact(blendShare.m_Original, new[] { blendShare }, path);
+                }
+            }
+
             if (GUILayout.Button(Localization.G("data.open_advanced_generator")))
             {
                 var window = EditorWindow.GetWindow<BlendShapeMeshGeneratorWindow>("BlendShare");

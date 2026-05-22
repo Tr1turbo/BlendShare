@@ -80,6 +80,8 @@
   
   "data.create_meshes": "Create Meshes",
   "data.create_meshes.tooltip": "Create new mesh assets with BlendShapes.",
+  "data.create_artifact": "Create BlendShare Artifact",
+  "data.create_artifact.tooltip": "Create a BlendShare artifact with generated meshes and skin binding descriptors.",
   "data.open_advanced_generator": "Open Advanced BlendShape Generator",
   "data.open_advanced_generator.tooltip": "Open the Advanced BlendShape Generator to create a new mesh that combines BlendShapes from multiple BlendShape data assets.",
 
@@ -90,6 +92,7 @@
   "data.fbx_sdk_missing": "Autodesk FBX SDK is missing. FBX manipulate features will be disabled",
   "data.save_fbx.title": "Save FBX",
   "data.save_mesh.title": "Save Mesh",
+  "data.save_artifact.title": "Save BlendShare Artifact",
   "data.save_file.message": "Please enter a file name",
   "data.created_by": "Blendshapes sharing tool created by Triturbo",
   "data.edit_mode": "Edit Mode",

@@ -64,6 +64,8 @@
   "data.skin_weights.root_bone": "根骨骼",
   "data.create_meshes": "生成网格",
   "data.create_meshes.tooltip": "生成包含列表中形态键的新网格资产。",
+  "data.create_artifact": "创建 BlendShare 工件",
+  "data.create_artifact.tooltip": "创建包含生成网格和蒙皮绑定描述符的 BlendShare 工件。",
   "data.open_advanced_generator": "打开高级形态键生成器",
   "data.open_advanced_generator.tooltip": "打开高级形态键生成器，将多个 BlendShape 数据资产中的形态键合并生成新的网格。",
 
@@ -73,6 +75,7 @@
   "data.fbx_sdk_missing": "缺少 Autodesk FBX SDK。FBX 操作功能将被停用。",
   "data.save_fbx.title": "保存 FBX",
   "data.save_mesh.title": "保存网格",
+  "data.save_artifact.title": "保存 BlendShare 工件",
   "data.save_file.message": "请输入文件名",
   "data.created_by": "Triturbo 制作的形态键分享工具",
   "data.edit_mode": "编辑模式",

@@ -66,6 +66,8 @@
   "data.skin_weights.root_bone": "根骨骼",
   "data.create_meshes": "生成網格",
   "data.create_meshes.tooltip": "生成包含清單中型態鍵的新網格資產。",
+  "data.create_artifact": "建立 BlendShare 成品",
+  "data.create_artifact.tooltip": "建立包含生成網格與蒙皮綁定描述子的 BlendShare 成品。",
   "data.open_advanced_generator": "開啟進階型態鍵生成器",
   "data.open_advanced_generator.tooltip": "開啟進階型態鍵產生器，將多個 BlendShape 資料資產中的型態鍵合併生成新的網格。",
 
@@ -75,6 +77,7 @@
   "data.fbx_sdk_missing": "缺少 Autodesk FBX SDK。FBX 操作功能將被停用。",
   "data.save_fbx.title": "儲存 FBX",
   "data.save_mesh.title": "儲存網格",
+  "data.save_artifact.title": "儲存 BlendShare 成品",
   "data.save_file.message": "請輸入檔案名稱",
   "data.created_by": "Triturbo 製作的型態鍵分享工具",
   "data.edit_mode": "編輯模式",
