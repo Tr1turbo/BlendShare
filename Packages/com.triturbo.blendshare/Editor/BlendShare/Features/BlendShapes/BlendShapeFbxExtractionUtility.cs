@@ -3,12 +3,78 @@ using Debug = UnityEngine.Debug;
 using FbxReaderBlendShapeChannel = Triturbo.Fbx.FbxBlendShapeChannel;
 using FbxReaderMatrix = Triturbo.Fbx.FbxMatrix4x4;
 using FbxReaderMesh = Triturbo.Fbx.FbxMeshGeometry;
+using UfbxBlendChannel = Triturbo.Fbx.UfbxBlendChannel;
+using UfbxMesh = Triturbo.Fbx.UfbxMesh;
+using UfbxScene = Triturbo.Fbx.UfbxScene;
 using Vector3d = Triturbo.Fbx.Vector3d;
 
 namespace Triturbo.BlendShare.Features.BlendShapes
 {
     public static class BlendShapeFbxExtractionUtility
     {
+        public static FbxBlendShapeData GetFbxBlendShapeData(
+            UfbxBlendChannel source,
+            UfbxMesh sourceMesh,
+            FbxReaderMatrix transformMatrix,
+            UfbxMesh baseMesh = null)
+        {
+            if (source == null || sourceMesh == null)
+            {
+                return null;
+            }
+
+            int controlPointCount = sourceMesh.ControlPointCount;
+
+            if (baseMesh == null)
+            {
+                baseMesh = sourceMesh;
+            }
+            else if (controlPointCount != baseMesh.ControlPointCount)
+            {
+                Debug.LogWarning("Base mesh control point count does not match the source mesh control point count. Use blendshape source as basis");
+                baseMesh = sourceMesh;
+            }
+
+            var sourceControlPoints = sourceMesh.GetVertices();
+            var baseControlPoints = baseMesh.GetVertices();
+            if (sourceControlPoints.Length == 0 || baseControlPoints.Length == 0)
+            {
+                return null;
+            }
+
+            int shapeCount = source.BlendShapes.Count;
+            var frames = new FbxBlendShapeFrame[shapeCount];
+
+            for (int shapeIndex = 0; shapeIndex < shapeCount; shapeIndex++)
+            {
+                var sourceFrame = source.BlendShapes[shapeIndex];
+                frames[shapeIndex] = new FbxBlendShapeFrame();
+                var sourceDeltas = BuildDenseUfbxDeltas(sourceFrame, controlPointCount);
+                var deltas = new Vector3d[controlPointCount];
+
+                for (int pointIndex = 0; pointIndex < controlPointCount; pointIndex++)
+                {
+                    var sourceDelta = sourceDeltas[pointIndex];
+                    var sourceControlPoint = GetControlPoint(sourceControlPoints, pointIndex);
+                    var baseControlPoint = GetControlPoint(baseControlPoints, pointIndex);
+
+                    deltas[pointIndex] = baseMesh == sourceMesh
+                        ? TransformPoint(transformMatrix, sourceDelta)
+                        : TransformPoint(transformMatrix, sourceControlPoint + sourceDelta) - baseControlPoint;
+                }
+
+                for (int index = 0; index < deltas.Length; index++)
+                {
+                    if (!deltas[index].IsZero())
+                    {
+                        frames[shapeIndex].AddDeltaControlPointAt(deltas[index], index);
+                    }
+                }
+            }
+
+            return new FbxBlendShapeData(frames);
+        }
+
         public static FbxBlendShapeData GetFbxBlendShapeData(
             FbxReaderBlendShapeChannel source,
             FbxReaderMesh sourceMesh,
@@ -70,6 +136,37 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             }
 
             return new FbxBlendShapeData(frames);
+        }
+
+        private static Vector3d[] BuildDenseUfbxDeltas(
+            Triturbo.Fbx.UfbxBlendShape sourceFrame,
+            int controlPointCount)
+        {
+            var deltas = new Vector3d[controlPointCount];
+            if (sourceFrame == null || sourceFrame.OffsetCount <= 0)
+            {
+                return deltas;
+            }
+
+            var indices = new int[sourceFrame.OffsetCount];
+            var values = new double[sourceFrame.OffsetCount * 3];
+            if (sourceFrame.CopyOffsets(indices, values, null) == 0)
+            {
+                return deltas;
+            }
+
+            var sourceDeltas = UfbxScene.ToVector3dArray(values);
+            int count = System.Math.Min(indices.Length, sourceDeltas.Length);
+            for (int i = 0; i < count; i++)
+            {
+                int index = indices[i];
+                if (index >= 0 && index < controlPointCount)
+                {
+                    deltas[index] = sourceDeltas[i];
+                }
+            }
+
+            return deltas;
         }
 
         private static Vector3d[] BuildDenseReaderDeltas(

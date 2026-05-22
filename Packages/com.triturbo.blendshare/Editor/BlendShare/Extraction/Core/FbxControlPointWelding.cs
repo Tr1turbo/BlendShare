@@ -75,6 +75,49 @@ namespace Triturbo.BlendShare.Core
             return groups.Count > 0 ? new FbxControlPointWelding(groups.Select(group => group.ToArray())) : Empty;
         }
 
+        public static FbxControlPointWelding FromUfbxMesh(UfbxMesh mesh)
+        {
+            if (mesh == null || mesh.ControlPointCount == 0)
+            {
+                return Empty;
+            }
+
+            var stopwatch = Stopwatch.StartNew();
+            var controlPoints = mesh.GetVertices();
+            var controlPointPosition = new Dictionary<Vector3d, List<int>>();
+
+            for (int i = 0; i < controlPoints.Length; i++)
+            {
+                Vector3d position = controlPoints[i];
+                if (!controlPointPosition.TryGetValue(position, out var indices))
+                {
+                    indices = new List<int>();
+                    controlPointPosition[position] = indices;
+                }
+
+                indices.Add(i);
+            }
+
+            var groups = controlPointPosition
+                .Where(kv => kv.Value.Count > 1)
+                .Select(kv => kv.Value)
+                .ToList();
+
+            foreach (var deformer in mesh.BlendDeformers)
+            {
+                foreach (var channel in deformer.Channels)
+                {
+                    foreach (var shape in channel.BlendShapes)
+                    {
+                        groups = GroupWithShape(groups, controlPoints, shape);
+                    }
+                }
+            }
+
+            stopwatch.Stop();
+            Debug.Log($"[BlendShare] Build ufbx welding groups: {groups.Count} groups in {stopwatch.ElapsedMilliseconds} ms");
+            return groups.Count > 0 ? new FbxControlPointWelding(groups.Select(group => group.ToArray())) : Empty;
+        }
 #if ENABLE_FBX_SDK
         public static FbxControlPointWelding FromMesh(FbxMesh mesh)
         {
@@ -219,6 +262,70 @@ namespace Triturbo.BlendShare.Core
             var indices = shapeFrame?.ControlPointIndices ?? System.Array.Empty<int>();
             var deltas = shapeFrame?.ControlPointDeltas ?? System.Array.Empty<Vector3d>();
             int count = System.Math.Min(indices.Count, deltas.Count);
+            for (int i = 0; i < count; i++)
+            {
+                if (indices[i] == controlPointIndex)
+                {
+                    return basePosition + deltas[i];
+                }
+            }
+
+            return basePosition;
+        }
+
+        private static List<List<int>> GroupWithShape(
+            List<List<int>> groups,
+            IReadOnlyList<Vector3d> basePositions,
+            UfbxBlendShape shape)
+        {
+            if (shape == null || shape.OffsetCount <= 0)
+            {
+                return groups;
+            }
+
+            var indices = new int[shape.OffsetCount];
+            var deltas = new double[shape.OffsetCount * 3];
+            if (shape.CopyOffsets(indices, deltas, null) == 0)
+            {
+                return groups;
+            }
+
+            var newGroups = new List<List<int>>();
+            foreach (var group in groups)
+            {
+                var newGroup = new Dictionary<Vector3d, List<int>>();
+                foreach (int index in group)
+                {
+                    var vertex = GetTargetPosition(basePositions, indices, UfbxScene.ToVector3dArray(deltas), index);
+                    if (!newGroup.TryGetValue(vertex, out var groupedIndices))
+                    {
+                        groupedIndices = new List<int>();
+                        newGroup[vertex] = groupedIndices;
+                    }
+
+                    groupedIndices.Add(index);
+                }
+
+                newGroups.AddRange(newGroup
+                    .Where(kv => kv.Value.Count > 1)
+                    .Select(kv => kv.Value)
+                    .ToList());
+            }
+
+            return newGroups;
+        }
+
+        private static Vector3d GetTargetPosition(
+            IReadOnlyList<Vector3d> basePositions,
+            IReadOnlyList<int> indices,
+            IReadOnlyList<Vector3d> deltas,
+            int controlPointIndex)
+        {
+            var basePosition = controlPointIndex >= 0 && controlPointIndex < (basePositions?.Count ?? 0)
+                ? basePositions[controlPointIndex]
+                : Vector3d.zero;
+
+            int count = System.Math.Min(indices?.Count ?? 0, deltas?.Count ?? 0);
             for (int i = 0; i < count; i++)
             {
                 if (indices[i] == controlPointIndex)

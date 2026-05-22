@@ -74,6 +74,35 @@ namespace Triturbo.BlendShare.Core
                 pairedNames);
         }
 
+        public static FingerprintPair CreatePair(UfbxMesh fbxMesh, Mesh unityMesh, float importScale = 1f)
+        {
+            var fbxBlendShapes = BuildFbxBlendShapeSequence(
+                fbxMesh,
+                out var fbxNames);
+
+            var unityBlendShapes = BuildUnityBlendShapeSequence(
+                unityMesh,
+                out var unityNames);
+
+            PairBlendShapeSequences(
+                fbxBlendShapes, unityBlendShapes,
+                fbxNames, unityNames,
+                out var pairedNames,
+                out var fbxPaired,
+                out var unityPaired);
+
+            if (pairedNames.Length == 0 &&
+                ((fbxBlendShapes?.Length ?? 0) > 0 || (unityBlendShapes?.Length ?? 0) > 0))
+            {
+                return default;
+            }
+
+            return new FingerprintPair(
+                CreateFromFbx(fbxMesh, fbxPaired, importScale),
+                CreateFromUnity(unityMesh, unityPaired),
+                pairedNames);
+        }
+
         // ─── FBX / Unity fingerprint creation ─────────────────────────────────────
 
         public static PositionFingerprint[] CreateFromFbx(
@@ -88,6 +117,22 @@ namespace Triturbo.BlendShare.Core
 
             return CreateFromFbxPositions(
                 mesh.ControlPoints,
+                blendShapes,
+                importScale);
+        }
+
+        public static PositionFingerprint[] CreateFromFbx(
+            UfbxMesh mesh,
+            FbxBlendShapeData[] blendShapes,
+            float importScale = 1f)
+        {
+            if (mesh == null)
+            {
+                return System.Array.Empty<PositionFingerprint>();
+            }
+
+            return CreateFromFbxPositions(
+                mesh.GetVertices(),
                 blendShapes,
                 importScale);
         }
@@ -204,6 +249,37 @@ namespace Triturbo.BlendShare.Core
             return fbxBlendShapes.ToArray();
         }
 
+        internal static FbxBlendShapeData[] BuildFbxBlendShapeSequence(
+            UfbxMesh mesh,
+            out string[] blendShapeNames)
+        {
+            if (mesh == null)
+            {
+                blendShapeNames = System.Array.Empty<string>();
+                return System.Array.Empty<FbxBlendShapeData>();
+            }
+
+            var names = new List<string>();
+            var fbxBlendShapes = new List<FbxBlendShapeData>();
+
+            foreach (var deformer in mesh.BlendDeformers)
+            {
+                foreach (var channel in deformer.Channels)
+                {
+                    if (channel == null || string.IsNullOrEmpty(channel.Name)) continue;
+
+                    var data = CreateFbxBlendShapeData(channel);
+                    if (!HasSamples(data) || !HasAnyDelta(data)) continue;
+
+                    names.Add(channel.Name);
+                    fbxBlendShapes.Add(data);
+                }
+            }
+
+            blendShapeNames = names.ToArray();
+            return fbxBlendShapes.ToArray();
+        }
+
         /// <summary>
         /// Zips FBX and Unity blendshape sequences by index (FBX asset path).
         /// Truncates to the shorter list.
@@ -292,6 +368,44 @@ namespace Triturbo.BlendShare.Core
                 frames[i] = CreateFbxBlendShapeFrame(channelFrames[i]);
             }
             return new FbxBlendShapeData(frames);
+        }
+
+        internal static FbxBlendShapeData CreateFbxBlendShapeData(UfbxBlendChannel channel)
+        {
+            var shapes = channel?.BlendShapes ?? System.Array.Empty<UfbxBlendShape>();
+            var frames = new FbxBlendShapeFrame[shapes.Count];
+            for (int i = 0; i < shapes.Count; i++)
+            {
+                frames[i] = CreateFbxBlendShapeFrame(shapes[i]);
+            }
+            return new FbxBlendShapeData(frames);
+        }
+
+        internal static FbxBlendShapeFrame CreateFbxBlendShapeFrame(UfbxBlendShape shape)
+        {
+            var frame = new FbxBlendShapeFrame();
+            if (shape == null || shape.OffsetCount <= 0)
+            {
+                return frame;
+            }
+
+            var indices = new int[shape.OffsetCount];
+            var values = new double[shape.OffsetCount * 3];
+            if (shape.CopyOffsets(indices, values, null) == 0)
+            {
+                return frame;
+            }
+
+            var deltas = UfbxScene.ToVector3dArray(values);
+            int count = System.Math.Min(indices.Length, deltas.Length);
+            for (int i = 0; i < count; i++)
+            {
+                if (!deltas[i].IsZero())
+                {
+                    frame.AddDeltaControlPointAt(deltas[i], indices[i]);
+                }
+            }
+            return frame;
         }
 
         internal static FbxBlendShapeFrame CreateFbxBlendShapeFrame(FbxShapeFrame shapeFrame)

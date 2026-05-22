@@ -7,8 +7,7 @@ using Object = UnityEngine.Object;
 #if ENABLE_FBX_SDK
 using Autodesk.Fbx;
 using Triturbo.Fbx.Unity;
-using ReaderFbxDocument = Triturbo.Fbx.FbxDocument;
-using ReaderFbxDocumentReader = Triturbo.Fbx.FbxDocumentReader;
+using UfbxScene = Triturbo.Fbx.UfbxScene;
 #endif
 
 namespace Triturbo.BlendShare.Core
@@ -335,20 +334,13 @@ namespace Triturbo.BlendShare.Core
                 .Where(meshData => meshData != null)
                 .SelectMany(meshData => meshData.Features ?? System.Array.Empty<MeshFeatureObject>())
                 .Any(feature => feature != null && feature.FeatureId == "skin-weights");
-            var requestedMeshPaths = shares
-                .SelectMany(share => share.Meshes ?? System.Array.Empty<MeshDataObject>())
-                .Where(meshData => meshData != null)
-                .Select(meshData => MeshNodePath.Normalize(meshData.m_Path))
-                .Where(path => !string.IsNullOrWhiteSpace(path))
-                .Distinct(System.StringComparer.Ordinal)
-                .ToArray();
-            ReaderFbxDocument readerDocument = null;
+            UfbxScene readerScene = null;
             if (requiresSkinReader)
             {
-                var readerResult = ReaderFbxDocumentReader.Read(sourceAssetPath, requestedMeshPaths);
+                var readerResult = UfbxScene.TryLoad(sourceAssetPath);
                 if (readerResult.Success)
                 {
-                    readerDocument = readerResult.Value;
+                    readerScene = readerResult.Value;
                 }
                 else
                 {
@@ -356,104 +348,111 @@ namespace Triturbo.BlendShare.Core
                 }
             }
 
-            if (!fbxImporter.Initialize(sourceAssetPath, fileFormat, fbxManager.GetIOSettings()))
+            try
             {
-                return false;
-            }
-
-            fbxImporter.Import(scene);
-            fbxImporter.Destroy();
-
-            var sourceRootNode = scene.GetRootNode();
-            var generationSession = new MeshFeatureFbxGenerationSession(
-                sourceRootNode,
-                FbxUnityAssetReader.GetImportScale(source),
-                readerDocument);
-            var modifiedNodes = new HashSet<FbxNode>();
-            // modifiedNodes drives onlyNecessary export pruning and must include every node touched by a generator.
-            foreach (var share in shares)
-            {
-                foreach (var meshData in share.Meshes ?? System.Array.Empty<MeshDataObject>())
+                if (!fbxImporter.Initialize(sourceAssetPath, fileFormat, fbxManager.GetIOSettings()))
                 {
-                    if (meshData == null)
+                    return false;
+                }
+
+                fbxImporter.Import(scene);
+                fbxImporter.Destroy();
+
+                var sourceRootNode = scene.GetRootNode();
+                var generationSession = new MeshFeatureFbxGenerationSession(
+                    sourceRootNode,
+                    FbxUnityAssetReader.GetImportScale(source),
+                    readerScene);
+                var modifiedNodes = new HashSet<FbxNode>();
+                // modifiedNodes drives onlyNecessary export pruning and must include every node touched by a generator.
+                foreach (var share in shares)
+                {
+                    foreach (var meshData in share.Meshes ?? System.Array.Empty<MeshDataObject>())
                     {
-                        continue;
-                    }
-
-                    FbxNode node = FindFbxMeshNode(sourceRootNode, meshData);
-                    if (node?.GetMesh() == null)
-                    {
-                        Debug.LogError($"Can not find mesh: {FormatMesh(meshData)} in FBX file");
-                        continue;
-                    }
-
-                    bool failed = false;
-                    var context = new MeshFeatureFbxGenerationContext(
-                        share,
-                        meshData,
-                        node,
-                        session: generationSession);
-
-                    foreach (var generator in FeatureGenerators)
-                    {
-                        var result = generator.ApplyToFbx(context);
-                        if (result.Failed)
-                        {
-                            LogFeatureFailure("apply to FBX", generator, meshData, result);
-                            failed = true;
-                            break;
-                        }
-
-                        if (result.Status == MeshFeatureGenerationStatus.Skipped)
+                        if (meshData == null)
                         {
                             continue;
                         }
 
-                        if (result.Modified)
+                        FbxNode node = FindFbxMeshNode(sourceRootNode, meshData);
+                        if (node?.GetMesh() == null)
                         {
-                            modifiedNodes.Add(node);
+                            Debug.LogError($"Can not find mesh: {FormatMesh(meshData)} in FBX file");
+                            continue;
+                        }
+
+                        bool failed = false;
+                        var context = new MeshFeatureFbxGenerationContext(
+                            share,
+                            meshData,
+                            node,
+                            session: generationSession);
+
+                        foreach (var generator in FeatureGenerators)
+                        {
+                            var result = generator.ApplyToFbx(context);
+                            if (result.Failed)
+                            {
+                                LogFeatureFailure("apply to FBX", generator, meshData, result);
+                                failed = true;
+                                break;
+                            }
+
+                            if (result.Status == MeshFeatureGenerationStatus.Skipped)
+                            {
+                                continue;
+                            }
+
+                            if (result.Modified)
+                            {
+                                modifiedNodes.Add(node);
+                            }
+                        }
+
+                        if (!failed && context.HasUnhandledFeatures)
+                        {
+                            LogUnhandledFeatures("apply to FBX", meshData, context.GetUnhandledFeatures());
+                            failed = true;
+                        }
+
+                        if (failed)
+                        {
+                            continue;
                         }
                     }
-
-                    if (!failed && context.HasUnhandledFeatures)
-                    {
-                        LogUnhandledFeatures("apply to FBX", meshData, context.GetUnhandledFeatures());
-                        failed = true;
-                    }
-
-                    if (failed)
-                    {
-                        continue;
-                    }
                 }
-            }
 
-            if (onlyNecessary)
-            {
-                DeleteFbxNodesWithMesh(sourceRootNode, modifiedNodes, false);
-            }
+                if (onlyNecessary)
+                {
+                    DeleteFbxNodesWithMesh(sourceRootNode, modifiedNodes, false);
+                }
 
-            var exporter = FbxExporter.Create(fbxManager, "");
-            if (string.IsNullOrWhiteSpace(outputPath))
-            {
-                outputPath = sourceAssetPath;
-            }
-            else
-            {
-                AssetDatabase.CopyAsset(sourceAssetPath, outputPath);
-            }
-            AssetDatabase.Refresh();
+                var exporter = FbxExporter.Create(fbxManager, "");
+                if (string.IsNullOrWhiteSpace(outputPath))
+                {
+                    outputPath = sourceAssetPath;
+                }
+                else
+                {
+                    AssetDatabase.CopyAsset(sourceAssetPath, outputPath);
+                }
+                AssetDatabase.Refresh();
 
-            if (!exporter.Initialize(outputPath, fileFormat, fbxManager.GetIOSettings()))
-            {
-                Debug.LogError("Exporter Initialize failed.");
-                return false;
-            }
+                if (!exporter.Initialize(outputPath, fileFormat, fbxManager.GetIOSettings()))
+                {
+                    Debug.LogError("Exporter Initialize failed.");
+                    return false;
+                }
 
-            exporter.Export(scene);
-            exporter.Destroy();
-            AssetDatabase.Refresh();
-            return true;
+                exporter.Export(scene);
+                exporter.Destroy();
+                AssetDatabase.Refresh();
+                return true;
+            }
+            finally
+            {
+                readerScene?.Dispose();
+            }
         }
 
         /// <summary>

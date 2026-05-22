@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using Triturbo.Fbx;
+using Triturbo.Fbx.Unity;
 using UnityEngine;
 
 namespace Triturbo.BlendShare.Core
@@ -123,7 +124,8 @@ namespace Triturbo.BlendShare.Core
             var mapping = UnityFbxVertexMappingBuilder.BuildFromFbx(
                 nodePath,
                 originMesh,
-                context.Session.OriginFbxGo,
+                context.Session.OriginScene,
+                FbxUnityAssetReader.GetImportScale(context.Session.OriginFbxGo),
                 out _);
 
             return mapping != null

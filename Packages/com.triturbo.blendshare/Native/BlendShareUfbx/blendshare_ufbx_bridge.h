@@ -23,11 +23,17 @@ typedef struct bs_ufbx_node_info {
     uint64_t id;
     int32_t parent_index;
     int32_t type;
-    double local_translation[3];
-    double local_rotation[3];
-    double local_scale[3];
+    double lcl_translation[3];
+    double lcl_rotation[3];
+    double lcl_scale[3];
     int32_t name_length;
     int32_t path_length;
+    double euler_rotation[3];
+    double pre_rotation[3];
+    double post_rotation[3];
+    double ufbx_local_translation[3];
+    double ufbx_local_rotation[4];
+    double ufbx_local_scale[3];
 } bs_ufbx_node_info;
 
 typedef struct bs_ufbx_mesh_info {

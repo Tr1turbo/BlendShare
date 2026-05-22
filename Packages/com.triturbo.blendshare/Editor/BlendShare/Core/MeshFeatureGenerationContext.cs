@@ -1,12 +1,12 @@
 using System.Collections.Generic;
 using System.Linq;
+using Triturbo.Fbx;
 using UnityEditor;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
 #if ENABLE_FBX_SDK
 using Autodesk.Fbx;
-using ReaderFbxDocument = Triturbo.Fbx.FbxDocument;
 #endif
 
 namespace Triturbo.BlendShare.Core
@@ -474,16 +474,16 @@ namespace Triturbo.BlendShare.Core
 
         public FbxNode RootNode { get; }
         public float ImportScale { get; }
-        public ReaderFbxDocument ReaderDocument { get; }
+        public UfbxScene ReaderScene { get; }
 
         public MeshFeatureFbxGenerationSession(
             FbxNode rootNode,
             float importScale,
-            ReaderFbxDocument readerDocument = null)
+            UfbxScene readerScene = null)
         {
             RootNode = rootNode;
             ImportScale = importScale == 0f ? 1f : importScale;
-            ReaderDocument = readerDocument;
+            ReaderScene = readerScene;
         }
 
         public bool TryGetState<T>(string key, out T state) where T : class

@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using Triturbo.BlendShare.Core;
 using UnityEngine;
-using FbxReaderTransform = Triturbo.Fbx.FbxTransform;
+using UfbxReaderTransform = Triturbo.Fbx.UfbxTransform;
 
 namespace Triturbo.BlendShare.Features.BlendShapes
 {
@@ -58,7 +58,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                 return false;
             }
 
-            if (sourceMesh.BlendShapeDeformers.Count == 0)
+            if (sourceMesh.BlendDeformers.Count == 0)
             {
                 error = $"Reader did not expose blendshape data for mesh '{context.Path}'.";
                 return false;
@@ -66,12 +66,12 @@ namespace Triturbo.BlendShare.Features.BlendShapes
 
             var originMesh = context.GetOriginFbxMesh();
             var selected = new HashSet<string>(selectedShapeNames);
-            var sourceTransform = sourceMesh.OwnerNode?.LocalTransform ?? FbxReaderTransform.Identity;
-            var originTransform = originMesh?.OwnerNode?.LocalTransform ?? FbxReaderTransform.Identity;
+            var sourceTransform = sourceMesh.OwnerNode?.LocalTransform ?? UfbxReaderTransform.Identity;
+            var originTransform = originMesh?.OwnerNode?.LocalTransform ?? UfbxReaderTransform.Identity;
             var relativeTransform = options.GetReaderTransform(originTransform, sourceTransform);
             var baseMesh = options.BaseMesh == BlendShapeBaseMesh.Source ? sourceMesh : originMesh;
 
-            foreach (var deformer in sourceMesh.BlendShapeDeformers)
+            foreach (var deformer in sourceMesh.BlendDeformers)
             {
                 foreach (var channel in deformer.Channels)
                 {

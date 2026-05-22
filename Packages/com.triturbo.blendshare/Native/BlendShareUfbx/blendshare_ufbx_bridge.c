@@ -164,24 +164,23 @@ static void bs_matrix_from_ufbx(bs_ufbx_matrix *dst, const ufbx_matrix *src)
     dst->m[12] = src->m03; dst->m[13] = src->m13; dst->m[14] = src->m23; dst->m[15] = 1.0;
 }
 
-static void bs_transform_to_trs(const ufbx_transform *transform, double *translation, double *rotation, double *scale)
+static void bs_vec3_to_array(ufbx_vec3 value, double *dst)
 {
-    if (translation != NULL) {
-        translation[0] = transform != NULL ? transform->translation.x : 0.0;
-        translation[1] = transform != NULL ? transform->translation.y : 0.0;
-        translation[2] = transform != NULL ? transform->translation.z : 0.0;
-    }
-    if (rotation != NULL) {
-        rotation[0] = 0.0;
-        rotation[1] = 0.0;
-        rotation[2] = 0.0;
-    }
-    if (scale != NULL) {
-        scale[0] = transform != NULL ? transform->scale.x : 1.0;
-        scale[1] = transform != NULL ? transform->scale.y : 1.0;
-        scale[2] = transform != NULL ? transform->scale.z : 1.0;
-    }
+    if (dst == NULL) return;
+    dst[0] = value.x;
+    dst[1] = value.y;
+    dst[2] = value.z;
 }
+
+static void bs_quat_to_array(ufbx_quat value, double *dst)
+{
+    if (dst == NULL) return;
+    dst[0] = value.x;
+    dst[1] = value.y;
+    dst[2] = value.z;
+    dst[3] = value.w;
+}
+
 
 static ufbx_vec3 bs_vertex_attrib_value(const ufbx_vertex_vec3 *attrib, const ufbx_mesh *mesh, size_t vertex_index)
 {
@@ -330,10 +329,19 @@ BS_UFBX_API int32_t bs_ufbx_get_node_info(bs_ufbx_scene *scene, int32_t node_ind
     out_info->id = node->element_id;
     out_info->parent_index = bs_node_index(scene, node->parent);
     out_info->type = bs_node_type(node);
-    bs_transform_to_trs(&node->local_transform, out_info->local_translation, out_info->local_rotation, out_info->local_scale);
+    bs_vec3_to_array(ufbx_find_vec3(&node->props, UFBX_Lcl_Translation, ufbx_zero_vec3), out_info->lcl_translation);
+    bs_vec3_to_array(ufbx_find_vec3(&node->props, UFBX_Lcl_Rotation, ufbx_zero_vec3), out_info->lcl_rotation);
+    ufbx_vec3 one = { 1.0, 1.0, 1.0 };
+    bs_vec3_to_array(ufbx_find_vec3(&node->props, UFBX_Lcl_Scaling, one), out_info->lcl_scale);
     out_info->name_length = bs_min_i32_size(node->name.length);
     const char *path = scene->node_paths != NULL ? scene->node_paths[node_index] : "";
     out_info->path_length = bs_min_i32_size(path != NULL ? strlen(path) : 0);
+    bs_vec3_to_array(node->euler_rotation, out_info->euler_rotation);
+    bs_vec3_to_array(ufbx_find_vec3(&node->props, UFBX_PreRotation, ufbx_zero_vec3), out_info->pre_rotation);
+    bs_vec3_to_array(ufbx_find_vec3(&node->props, UFBX_PostRotation, ufbx_zero_vec3), out_info->post_rotation);
+    bs_vec3_to_array(node->local_transform.translation, out_info->ufbx_local_translation);
+    bs_quat_to_array(node->local_transform.rotation, out_info->ufbx_local_rotation);
+    bs_vec3_to_array(node->local_transform.scale, out_info->ufbx_local_scale);
     return 1;
 }
 

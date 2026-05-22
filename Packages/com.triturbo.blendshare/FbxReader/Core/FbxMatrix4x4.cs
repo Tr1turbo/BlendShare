@@ -152,12 +152,44 @@ namespace Triturbo.Fbx
             return rx * ry * rz;
         }
 
+        public static FbxMatrix4x4 RotateQuaternion(Quaterniond rotation)
+        {
+            var q = rotation.normalized;
+            double x = q.x;
+            double y = q.y;
+            double z = q.z;
+            double w = q.w;
+            double xx = x * x;
+            double yy = y * y;
+            double zz = z * z;
+            double xy = x * y;
+            double xz = x * z;
+            double yz = y * z;
+            double wx = w * x;
+            double wy = w * y;
+            double wz = w * z;
+
+            return new FbxMatrix4x4(
+                1d - 2d * (yy + zz), 2d * (xy + wz), 2d * (xz - wy), 0d,
+                2d * (xy - wz), 1d - 2d * (xx + zz), 2d * (yz + wx), 0d,
+                2d * (xz + wy), 2d * (yz - wx), 1d - 2d * (xx + yy), 0d,
+                0d, 0d, 0d, 1d);
+        }
+
         public static FbxMatrix4x4 FromTranslationRotationScale(
             Vector3d translation,
             Vector3d rotation,
             Vector3d scale)
         {
             return Scale(scale) * RotateEulerDegrees(rotation) * Translate(translation);
+        }
+
+        public static FbxMatrix4x4 FromTranslationRotationScale(
+            Vector3d translation,
+            Quaterniond rotation,
+            Vector3d scale)
+        {
+            return Scale(scale) * RotateQuaternion(rotation) * Translate(translation);
         }
 
         public double[] ToRowMajorArray()
@@ -347,6 +379,93 @@ namespace Triturbo.Fbx
         public FbxMatrix4x4 LocalMatrix => FbxMatrix4x4.FromTranslationRotationScale(Translation, Rotation, Scale);
 
         public FbxTransform(Vector3d translation, Vector3d rotation, Vector3d scale)
+        {
+            Translation = translation;
+            Rotation = rotation;
+            Scale = scale;
+        }
+    }
+
+    [Serializable]
+    public readonly struct Quaterniond : IEquatable<Quaterniond>
+    {
+        public static readonly Quaterniond Identity = new Quaterniond(0d, 0d, 0d, 1d);
+
+        public double x { get; }
+        public double y { get; }
+        public double z { get; }
+        public double w { get; }
+
+        public Quaterniond(double x, double y, double z, double w)
+        {
+            this.x = x;
+            this.y = y;
+            this.z = z;
+            this.w = w;
+        }
+
+        public double magnitude => Math.Sqrt(x * x + y * y + z * z + w * w);
+        public Quaterniond normalized => magnitude > Vector3d.Epsilon ? this / magnitude : Identity;
+        public Quaterniond Inverse
+        {
+            get
+            {
+                double sqrMagnitude = x * x + y * y + z * z + w * w;
+                return sqrMagnitude > Vector3d.Epsilon
+                    ? new Quaterniond(-x / sqrMagnitude, -y / sqrMagnitude, -z / sqrMagnitude, w / sqrMagnitude)
+                    : Identity;
+            }
+        }
+
+        public bool Equals(Quaterniond other)
+        {
+            return x == other.x && y == other.y && z == other.z && w == other.w;
+        }
+
+        public override bool Equals(object obj)
+        {
+            return obj is Quaterniond other && Equals(other);
+        }
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                int hash = 17;
+                hash = hash * 31 + x.GetHashCode();
+                hash = hash * 31 + y.GetHashCode();
+                hash = hash * 31 + z.GetHashCode();
+                hash = hash * 31 + w.GetHashCode();
+                return hash;
+            }
+        }
+
+        public static Quaterniond operator *(Quaterniond lhs, Quaterniond rhs)
+        {
+            return new Quaterniond(
+                lhs.w * rhs.x + lhs.x * rhs.w + lhs.y * rhs.z - lhs.z * rhs.y,
+                lhs.w * rhs.y - lhs.x * rhs.z + lhs.y * rhs.w + lhs.z * rhs.x,
+                lhs.w * rhs.z + lhs.x * rhs.y - lhs.y * rhs.x + lhs.z * rhs.w,
+                lhs.w * rhs.w - lhs.x * rhs.x - lhs.y * rhs.y - lhs.z * rhs.z);
+        }
+
+        public static Quaterniond operator /(Quaterniond quaternion, double scalar)
+        {
+            return new Quaterniond(quaternion.x / scalar, quaternion.y / scalar, quaternion.z / scalar, quaternion.w / scalar);
+        }
+    }
+
+    [Serializable]
+    public readonly struct UfbxTransform
+    {
+        public static readonly UfbxTransform Identity = new UfbxTransform(Vector3d.zero, Quaterniond.Identity, Vector3d.one);
+
+        public Vector3d Translation { get; }
+        public Quaterniond Rotation { get; }
+        public Vector3d Scale { get; }
+        public FbxMatrix4x4 LocalMatrix => FbxMatrix4x4.FromTranslationRotationScale(Translation, Rotation, Scale);
+
+        public UfbxTransform(Vector3d translation, Quaterniond rotation, Vector3d scale)
         {
             Translation = translation;
             Rotation = rotation;

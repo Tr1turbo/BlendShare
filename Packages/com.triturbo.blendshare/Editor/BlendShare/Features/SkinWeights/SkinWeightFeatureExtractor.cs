@@ -125,17 +125,18 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return MeshFeatureExtractionResult.Success();
         }
 
-        private static Dictionary<int, string> BuildBonePathsByIndex(FbxSkinDeformer skin)
+        private static Dictionary<int, string> BuildBonePathsByIndex(UfbxSkinDeformer skin)
         {
-            return (skin?.Bones ?? (IEnumerable<FbxBoneBinding>)System.Array.Empty<FbxBoneBinding>())
-                .Where(bone => bone != null)
+            return (skin?.Clusters ?? (IEnumerable<UfbxSkinCluster>)System.Array.Empty<UfbxSkinCluster>())
+                .Select((cluster, index) => new { cluster, index })
+                .Where(item => item.cluster?.BoneNode != null)
                 .ToDictionary(
-                    bone => bone.Index,
-                    bone => SkinWeightExtractionUtility.NormalizeBonePath(bone.Path));
+                    item => item.index,
+                    item => SkinWeightExtractionUtility.NormalizeBonePath(item.cluster.BoneNode.Path));
         }
 
         private static Dictionary<int, Dictionary<string, float>> BuildWeightsByControlPointAndPath(
-            FbxSkinDeformer skin,
+            UfbxSkinDeformer skin,
             IReadOnlyDictionary<int, string> bonePathByIndex)
         {
             var result = new Dictionary<int, Dictionary<string, float>>();
@@ -144,11 +145,22 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return result;
             }
 
-            for (int controlPointIndex = 0; controlPointIndex < skin.ControlPointWeights.Count; controlPointIndex++)
+            for (int boneIndex = 0; boneIndex < skin.Clusters.Count; boneIndex++)
             {
-                foreach (var influence in skin.GetWeights(controlPointIndex))
+                var cluster = skin.Clusters[boneIndex];
+                if (cluster == null || !bonePathByIndex.TryGetValue(boneIndex, out string bonePath))
                 {
-                    if (influence.Weight <= 0f || !bonePathByIndex.TryGetValue(influence.BoneIndex, out string bonePath))
+                    continue;
+                }
+
+                var indices = cluster.GetIndices();
+                var weights = cluster.GetWeights();
+                int count = System.Math.Min(indices.Length, weights.Length);
+                for (int i = 0; i < count; i++)
+                {
+                    int controlPointIndex = indices[i];
+                    float weight = (float)weights[i];
+                    if (controlPointIndex < 0 || weight <= 0f)
                     {
                         continue;
                     }
@@ -160,7 +172,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     }
 
                     weightsByPath.TryGetValue(bonePath, out float existing);
-                    weightsByPath[bonePath] = existing + influence.Weight;
+                    weightsByPath[bonePath] = existing + weight;
                 }
             }
 
@@ -209,7 +221,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static List<SkinWeightExtraBoneBindPoseData> ExtractExtraBoneBindPoses(
-            FbxSkinDeformer sourceSkin,
+            UfbxSkinDeformer sourceSkin,
             IReadOnlyList<string> bonePaths,
             IReadOnlyDictionary<int, string> sourceBonesByIndex,
             MeshFeatureExtractionSession session)
@@ -223,7 +235,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     continue;
                 }
 
-                session.AddMissingBonePatch(bonePath);
+                session.AddMissingBonePatch(bonePath, FindBoneNode(sourceSkin, sourceBonesByIndex, bonePath));
                 if (sourceBindPoses.TryGetValue(bonePath, out var sourceBindPose))
                 {
                     result.Add(sourceBindPose);
@@ -233,8 +245,33 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return result;
         }
 
+        private static UfbxNode FindBoneNode(
+            UfbxSkinDeformer skin,
+            IReadOnlyDictionary<int, string> bonePathByIndex,
+            string bonePath)
+        {
+            if (skin == null || bonePathByIndex == null)
+            {
+                return null;
+            }
+
+            string normalized = MeshNodePath.Normalize(bonePath);
+            for (int boneIndex = 0; boneIndex < skin.Clusters.Count; boneIndex++)
+            {
+                if (!bonePathByIndex.TryGetValue(boneIndex, out string path) ||
+                    MeshNodePath.Normalize(path) != normalized)
+                {
+                    continue;
+                }
+
+                return skin.Clusters[boneIndex]?.BoneNode;
+            }
+
+            return null;
+        }
+
         private static Dictionary<string, SkinWeightExtraBoneBindPoseData> BuildBindPosesByPath(
-            FbxSkinDeformer skin,
+            UfbxSkinDeformer skin,
             IReadOnlyDictionary<int, string> bonePathByIndex)
         {
             var result = new Dictionary<string, SkinWeightExtraBoneBindPoseData>();
@@ -243,22 +280,20 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return result;
             }
 
-            foreach (var bone in skin.Bones ?? (IEnumerable<FbxBoneBinding>)System.Array.Empty<FbxBoneBinding>())
+            for (int boneIndex = 0; boneIndex < skin.Clusters.Count; boneIndex++)
             {
-                if (bone == null || !bonePathByIndex.TryGetValue(bone.Index, out string path))
+                if (!bonePathByIndex.TryGetValue(boneIndex, out string path))
                 {
                     continue;
                 }
 
-                var cluster = SkinWeightExtractionUtility.GetCluster(skin, bone.Index);
-                if (cluster != null && cluster.HasBindPose)
+                var cluster = skin.Clusters[boneIndex];
+                if (cluster != null)
                 {
-                    // The reader's cluster Transform/derived bind pose are not stable through SDK rebuilds.
-                    // For extra bones, keep only the link-side bind matrix; generation supplies the mesh
-                    // Transform from the SDK mesh node currently being rebuilt.
                     result[path] = new SkinWeightExtraBoneBindPoseData(
                         path,
-                        cluster.TransformLinkMatrix);
+                        cluster.MeshBindWorld,
+                        cluster.BindToWorld);
                 }
             }
 

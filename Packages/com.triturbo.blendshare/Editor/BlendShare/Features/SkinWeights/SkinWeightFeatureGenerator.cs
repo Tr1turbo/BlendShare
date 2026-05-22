@@ -3,15 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Features.BoneGraph;
+using Triturbo.Fbx;
 using UnityEditor;
 using UnityEngine;
 #if ENABLE_FBX_SDK
 using Autodesk.Fbx;
-using ReaderFbxCluster = Triturbo.Fbx.FbxCluster;
-using ReaderFbxClusterLinkMode = Triturbo.Fbx.FbxClusterLinkMode;
-using ReaderFbxMeshGeometry = Triturbo.Fbx.FbxMeshGeometry;
-using ReaderFbxSkinDeformer = Triturbo.Fbx.FbxSkinDeformer;
 using SdkCluster = Autodesk.Fbx.FbxCluster;
+using SdkDeformer = Autodesk.Fbx.FbxDeformer;
+using SdkSkeleton = Autodesk.Fbx.FbxSkeleton;
 #endif
 
 namespace Triturbo.BlendShare.Features.SkinWeights
@@ -310,10 +309,10 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
             var manager = context.Node.GetFbxManager();
             var created = FbxNode.Create(manager, MeshNodePath.LeafName(path));
-            var skeleton = FbxSkeleton.Create(manager, MeshNodePath.LeafName(path));
+            var skeleton = SdkSkeleton.Create(manager, MeshNodePath.LeafName(path));
             skeleton.SetSkeletonType(parent == rootNode
-                ? FbxSkeleton.EType.eRoot
-                : FbxSkeleton.EType.eLimbNode);
+                ? SdkSkeleton.EType.eRoot
+                : SdkSkeleton.EType.eLimbNode);
             created.SetNodeAttribute(skeleton);
             SetLocalTransform(created, bone, context.Session != null ? context.Session.ImportScale : 1f);
             parent.AddChild(created);
@@ -351,7 +350,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return false;
             }
 
-            var readerSkin = readerMesh.SkinDeformers.FirstOrDefault(skin => skin != null && skin.HasWeights) ??
+            var readerSkin = readerMesh.SkinDeformers.FirstOrDefault(skin => skin != null && skin.Clusters.Any(cluster => cluster != null && cluster.WeightCount > 0)) ??
                              readerMesh.SkinDeformers.FirstOrDefault(skin => skin != null);
             if (readerSkin == null)
             {
@@ -359,7 +358,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return false;
             }
 
-            state = FbxSkinRebuildState.FromReaderSkin(readerSkin, context.TargetMesh.GetControlPointsCount());
+            state = FbxSkinRebuildState.FromUfbxSkin(readerSkin, context.TargetMesh.GetControlPointsCount());
             context.Session?.SetState(stateKey, state);
             return true;
         }
@@ -369,26 +368,26 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return $"fbx-skin::{MeshNodePath.Normalize(context?.MeshData?.m_Path)}";
         }
 
-        private static ReaderFbxMeshGeometry GetReaderMesh(
+        private static UfbxMesh GetReaderMesh(
             MeshFeatureFbxGenerationContext context,
             out string error)
         {
             error = null;
-            var document = context.Session?.ReaderDocument;
-            if (document == null)
+            var scene = context.Session?.ReaderScene;
+            if (scene == null)
             {
-                error = "Original FBX skin data was not available. Skin weights require binary FBX reader data so the primary skin deformer can be rebuilt.";
+                error = "Original FBX skin data was not available. Skin weights require ufbx scene data so the primary skin deformer can be rebuilt.";
                 return null;
             }
 
-            var meshResult = document.TryFindMesh(MeshNodePath.Normalize(context.MeshData?.m_Path));
-            if (!meshResult.Success)
+            var mesh = scene.FindMeshByNodePath(MeshNodePath.Normalize(context.MeshData?.m_Path));
+            if (mesh == null)
             {
-                error = meshResult.Message;
+                error = $"FBX mesh node '{MeshNodePath.Normalize(context.MeshData?.m_Path)}' was not found.";
                 return null;
             }
 
-            return meshResult.Value;
+            return mesh;
         }
 
         private static void ApplyDeltaWeights(
@@ -552,13 +551,13 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             string path,
             FbxNode boneNode)
         {
-            if (feature.TryGetExtraBoneFbxTransformLinkMatrix(path, out var fbxTransformLinkMatrix))
+            if (feature.TryGetExtraBoneFbxClusterMatrices(
+                    path,
+                    out var fbxTransformMatrix,
+                    out var fbxTransformLinkMatrix))
             {
-                // Stored extra-bone cluster Transform values come from the binary reader and are not stable
-                // through SDK rebuild/export. Use SDK mesh evaluation for Transform, and keep only the
-                // link-side matrix that describes the bone bind node.
                 return new ClusterMatrices(
-                    context.Node.EvaluateGlobalTransform(),
+                    ToFbxAMatrix(fbxTransformMatrix),
                     ToFbxAMatrix(fbxTransformLinkMatrix));
             }
 
@@ -568,9 +567,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
         private static void RemoveSkinDeformers(FbxMesh targetMesh)
         {
-            for (int i = targetMesh.GetDeformerCount(FbxDeformer.EDeformerType.eSkin) - 1; i >= 0; i--)
+            for (int i = targetMesh.GetDeformerCount(SdkDeformer.EDeformerType.eSkin) - 1; i >= 0; i--)
             {
-                var deformer = targetMesh.GetDeformer(i, FbxDeformer.EDeformerType.eSkin);
+                var deformer = targetMesh.GetDeformer(i, SdkDeformer.EDeformerType.eSkin);
                 if (deformer != null)
                 {
                     deformer.Destroy();
@@ -663,16 +662,6 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return result;
         }
 
-        private static SdkCluster.ELinkMode ToSdkLinkMode(ReaderFbxClusterLinkMode linkMode)
-        {
-            return linkMode switch
-            {
-                ReaderFbxClusterLinkMode.Additive => SdkCluster.ELinkMode.eAdditive,
-                ReaderFbxClusterLinkMode.TotalOne => SdkCluster.ELinkMode.eTotalOne,
-                _ => SdkCluster.ELinkMode.eNormalize
-            };
-        }
-
         private static FbxAMatrix CreateIdentityFbxMatrix()
         {
             var result = new FbxAMatrix();
@@ -703,33 +692,37 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 this.weightsByControlPoint = weightsByControlPoint;
             }
 
-            public static FbxSkinRebuildState FromReaderSkin(
-                ReaderFbxSkinDeformer skin,
+            public static FbxSkinRebuildState FromUfbxSkin(
+                UfbxSkinDeformer skin,
                 int controlPointCount)
             {
                 controlPointCount = Mathf.Max(0, controlPointCount);
                 var weights = Enumerable.Range(0, controlPointCount)
                     .Select(_ => new Dictionary<string, double>())
                     .ToList();
-                var pathsByBoneIndex = (skin.Bones ?? Array.Empty<Triturbo.Fbx.FbxBoneBinding>())
-                    .Where(bone => bone != null)
+                var pathsByBoneIndex = (skin.Clusters ?? Array.Empty<UfbxSkinCluster>())
+                    .Select((cluster, index) => new { cluster, index })
+                    .Where(item => item.cluster?.BoneNode != null)
                     .ToDictionary(
-                        bone => bone.Index,
-                        bone => MeshNodePath.Normalize(bone.Path));
+                        item => item.index,
+                        item => MeshNodePath.Normalize(item.cluster.BoneNode.Path));
 
-                var clusters = (skin.Clusters ?? Array.Empty<ReaderFbxCluster>())
-                    .Where(cluster => cluster != null)
-                    .Select(cluster =>
+                var clusters = (skin.Clusters ?? Array.Empty<UfbxSkinCluster>())
+                    .Select((cluster, index) => new { cluster, index })
+                    .Where(item => item.cluster != null)
+                    .Select(item =>
                     {
-                        string path = MeshNodePath.Normalize(cluster.BonePath);
+                        string path = item.cluster.BoneNode != null
+                            ? MeshNodePath.Normalize(item.cluster.BoneNode.Path)
+                            : MeshNodePath.Root;
                         if (path == MeshNodePath.Root &&
-                            pathsByBoneIndex.TryGetValue(cluster.BoneIndex, out string fallbackPath))
+                            pathsByBoneIndex.TryGetValue(item.index, out string fallbackPath))
                         {
                             path = fallbackPath;
                         }
 
                         return path != MeshNodePath.Root
-                            ? FbxOriginalClusterData.FromReaderCluster(cluster, path)
+                            ? FbxOriginalClusterData.FromUfbxCluster(item.cluster, path)
                             : null;
                     })
                     .Where(cluster => cluster != null)
@@ -806,13 +799,15 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 WeightsByControlPoint = weightsByControlPoint ?? new Dictionary<int, double>();
             }
 
-            public static FbxOriginalClusterData FromReaderCluster(ReaderFbxCluster cluster, string path)
+            public static FbxOriginalClusterData FromUfbxCluster(UfbxSkinCluster cluster, string path)
             {
                 var weightsByControlPoint = new Dictionary<int, double>();
-                for (int i = 0; i < cluster.ControlPointIndices.Count && i < cluster.Weights.Count; i++)
+                var indices = cluster.GetIndices();
+                var weights = cluster.GetWeights();
+                for (int i = 0; i < indices.Length && i < weights.Length; i++)
                 {
-                    int controlPointIndex = cluster.ControlPointIndices[i];
-                    double weight = cluster.Weights[i];
+                    int controlPointIndex = indices[i];
+                    double weight = weights[i];
                     if (controlPointIndex >= 0 && weight > WeightEpsilon)
                     {
                         weightsByControlPoint.TryGetValue(controlPointIndex, out double existing);
@@ -823,9 +818,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return new FbxOriginalClusterData(
                     path,
                     cluster.Name,
-                    ToSdkLinkMode(cluster.LinkMode),
-                    cluster.HasTransformMatrix ? ToFbxAMatrix(cluster.MeshBindWorldMatrix) : null,
-                    cluster.HasTransformLinkMatrix ? ToFbxAMatrix(cluster.BoneBindWorldMatrix) : null,
+                    SdkCluster.ELinkMode.eNormalize,
+                    ToFbxAMatrix(cluster.MeshBindWorld),
+                    ToFbxAMatrix(cluster.BindToWorld),
                     weightsByControlPoint);
             }
         }

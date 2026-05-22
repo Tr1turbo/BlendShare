@@ -7,6 +7,7 @@ using Triturbo.BlendShare.Persistence;
 using UnityEditor;
 using UnityEngine;
 using Triturbo.Fbx;
+using Triturbo.Fbx.Unity;
 
 namespace Triturbo.BlendShare.Migration
 {
@@ -61,24 +62,42 @@ namespace Triturbo.BlendShare.Migration
                 .Where(legacyMesh => legacyMesh != null)
                 .ToList() ?? new List<MeshData>();
             var meshPaths = ResolveFbxMeshPaths(legacyAsset.m_Original, legacyMeshes);
-
-            var meshes = new List<MeshDataObject>();
-            foreach (var legacyMesh in legacyMeshes)
+            UfbxScene originalScene = null;
+            var sceneResult = FbxUnityAssetReader.ReadScene(legacyAsset.m_Original);
+            if (sceneResult.Success)
             {
-                meshPaths.TryGetValue(legacyMesh, out string meshPath);
-
-                var mesh = ConvertMesh(legacyMesh, meshPath, legacyAsset.m_Original);
-                if (mesh != null)
-                {
-                    meshes.Add(mesh);
-                }
+                originalScene = sceneResult.Value;
             }
 
-            asset.SetMeshes(meshes);
-            return asset;
+            try
+            {
+                float importScale = FbxUnityAssetReader.GetImportScale(legacyAsset.m_Original);
+                var meshes = new List<MeshDataObject>();
+                foreach (var legacyMesh in legacyMeshes)
+                {
+                    meshPaths.TryGetValue(legacyMesh, out string meshPath);
+
+                    var mesh = ConvertMesh(legacyMesh, meshPath, originalScene, importScale);
+                    if (mesh != null)
+                    {
+                        meshes.Add(mesh);
+                    }
+                }
+
+                asset.SetMeshes(meshes);
+                return asset;
+            }
+            finally
+            {
+                originalScene?.Dispose();
+            }
         }
 
-        private static MeshDataObject ConvertMesh(MeshData legacyMesh, string meshPath, GameObject originalFbx)
+        private static MeshDataObject ConvertMesh(
+            MeshData legacyMesh,
+            string meshPath,
+            UfbxScene originalScene,
+            float importScale)
         {
             if (legacyMesh == null)
             {
@@ -114,8 +133,9 @@ namespace Triturbo.BlendShare.Migration
             var mapping = UnityFbxVertexMappingBuilder.BuildFromFbx(
                 mesh.m_Path,
                 legacyMesh.m_OriginMesh,
-                originalFbx,
-                out FbxMeshGeometry fbxMesh);
+                originalScene,
+                importScale,
+                out UfbxMesh fbxMesh);
 
             if (fbxMesh != null && fbxMesh.ControlPointCount > 0)
             {

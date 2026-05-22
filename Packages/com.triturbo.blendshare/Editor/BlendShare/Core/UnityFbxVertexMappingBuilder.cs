@@ -24,44 +24,62 @@ namespace Triturbo.BlendShare.Core
             Mesh unityMesh,
             GameObject fbxGo)
         {
-            return BuildFromFbx(unityRendererPath, unityMesh, fbxGo, out FbxMeshGeometry _);
+            return BuildFromFbx(unityRendererPath, unityMesh, fbxGo, out UfbxMesh _);
         }
 
         public static UnityVertexMappingObject BuildFromFbx(
             string unityRendererPath,
             Mesh unityMesh,
             GameObject fbxGo,
-            out FbxMeshGeometry fbxMesh)
+            out UfbxMesh fbxMesh)
+        {
+            fbxMesh = null;
+            UfbxScene scene = null;
+            try
+            {
+                if (fbxGo != null)
+                {
+                    var sceneResult = FbxUnityAssetReader.ReadScene(fbxGo);
+                    if (sceneResult.Success)
+                    {
+                        scene = sceneResult.Value;
+                    }
+                }
+
+                return BuildFromFbx(
+                    unityRendererPath,
+                    unityMesh,
+                    scene,
+                    FbxUnityAssetReader.GetImportScale(fbxGo),
+                    out fbxMesh);
+            }
+            finally
+            {
+                scene?.Dispose();
+            }
+        }
+
+        public static UnityVertexMappingObject BuildFromFbx(
+            string unityRendererPath,
+            Mesh unityMesh,
+            UfbxScene fbxScene,
+            float importScale,
+            out UfbxMesh fbxMesh)
         {
             var stopwatch = Stopwatch.StartNew();
             double lastLogMs = 0d;
 
-            fbxMesh = null;
-            float importScale = FbxUnityAssetReader.GetImportScale(fbxGo);
             string nodePath = MeshNodePath.Normalize(unityRendererPath);
-            if (fbxGo != null)
-            {
-                var documentResult = FbxUnityAssetReader.Read(
-                    fbxGo,
-                    new[] { MeshNodePath.ToFbxPath(nodePath) });
-                if (documentResult.Success)
-                {
-                    var fbxMeshResult = documentResult.Value.TryFindMesh(MeshNodePath.ToFbxPath(nodePath));
-                    if (fbxMeshResult.Success)
-                    {
-                        fbxMesh = fbxMeshResult.Value;
-                    }
-                }
-            }
+            fbxMesh = fbxScene?.FindMeshByNodePath(MeshNodePath.ToFbxPath(nodePath));
             LogTiming("FbxAsset", nodePath,
-                "Read FBX control point positions and blendshapes by node path", stopwatch, ref lastLogMs,
+                "Resolve FBX control point positions and blendshapes by node path", stopwatch, ref lastLogMs,
                 $"found={(fbxMesh != null ? 1 : 0)}, controlPoints={fbxMesh?.ControlPointCount ?? 0}, blendShapes={CountBlendShapeChannels(fbxMesh)}");
 
             var mapping = ScriptableObject.CreateInstance<UnityVertexMappingObject>();
             mapping.m_UnityMesh = unityMesh;
             mapping.m_UnityVertexCount = unityMesh != null ? unityMesh.vertexCount : 0;
             mapping.m_UnityVertexHash = UnityVertexPositionHash.Calculate(unityMesh);
-            mapping.m_FbxToUnityScale = importScale;
+            mapping.m_FbxToUnityScale = importScale == 0f ? 1f : importScale;
             mapping.m_BuildMode = UnityFbxMappingBuildMode.FbxAsset;
             mapping.m_IndexGroups = CreateEmptyGroups(Mathf.Max(0, mapping.m_UnityVertexCount));
             LogTiming("FbxAsset", nodePath, "Create mapping object", stopwatch, ref lastLogMs,
@@ -75,10 +93,10 @@ namespace Triturbo.BlendShare.Core
                 return mapping;
             }
 
-            if (fbxGo == null)
+            if (fbxScene == null)
             {
                 mapping.m_IsValid = false;
-                mapping.m_InvalidReason = "FBX asset mapping requires an FBX asset.";
+                mapping.m_InvalidReason = "FBX asset mapping requires an open ufbx scene.";
                 LogCompletion("FbxAsset", nodePath, stopwatch, mapping.m_IsValid, mapping.m_InvalidReason);
                 return mapping;
             }
@@ -99,7 +117,7 @@ namespace Triturbo.BlendShare.Core
                 return mapping;
             }
 
-            var pair = PositionFingerprintFactory.CreatePair(fbxMesh, unityMesh, importScale);
+            var pair = PositionFingerprintFactory.CreatePair(fbxMesh, unityMesh, mapping.m_FbxToUnityScale);
             LogTiming("FbxAsset", nodePath, "CreatePair", stopwatch, ref lastLogMs,
                 $"usableBlendShapes={pair.BlendShapeNames?.Length ?? 0}");
 
@@ -218,9 +236,9 @@ namespace Triturbo.BlendShare.Core
             return groups;
         }
 
-        private static int CountBlendShapeChannels(FbxMeshGeometry mesh)
+        private static int CountBlendShapeChannels(UfbxMesh mesh)
         {
-            return mesh?.BlendShapeDeformers.Sum(deformer => deformer.Channels.Count) ?? 0;
+            return mesh?.BlendDeformers.Sum(deformer => deformer.Channels.Count) ?? 0;
         }
 
         // ─── Logging ───────────────────────────────────────────────────────────────

@@ -73,9 +73,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
     {
         public string m_Path;
 
-        // Store only the bone-side bind matrix. The reader's cluster TransformMatrix is not
-        // reliable for SDK rebuilds, so generation supplies the mesh-side Transform from
-        // meshNode.EvaluateGlobalTransform() instead.
+        public FbxMatrixData m_FbxTransformMatrix = new();
         public FbxMatrixData m_FbxTransformLinkMatrix = new();
         public bool m_HasFbxClusterMatrices;
 
@@ -83,9 +81,11 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
         public SkinWeightExtraBoneBindPoseData(
             string path,
+            Triturbo.Fbx.FbxMatrix4x4 fbxTransformMatrix,
             Triturbo.Fbx.FbxMatrix4x4 fbxTransformLinkMatrix)
         {
             m_Path = MeshNodePath.Normalize(path);
+            m_FbxTransformMatrix = new FbxMatrixData(fbxTransformMatrix);
             m_FbxTransformLinkMatrix = new FbxMatrixData(fbxTransformLinkMatrix);
             m_HasFbxClusterMatrices = true;
         }
@@ -127,7 +127,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 .Select(bindPose =>
                 {
                     bindPose.m_Path = MeshNodePath.Normalize(bindPose.m_Path);
+                    bindPose.m_FbxTransformMatrix ??= new FbxMatrixData();
                     bindPose.m_FbxTransformLinkMatrix ??= new FbxMatrixData();
+                    bindPose.m_FbxTransformMatrix.Sanitize();
                     bindPose.m_FbxTransformLinkMatrix.Sanitize();
                     return bindPose;
                 })
@@ -183,17 +185,31 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             Sanitize(null);
         }
 
-        public bool TryGetExtraBoneFbxTransformLinkMatrix(
+        public bool TryGetExtraBoneFbxClusterMatrices(
             string path,
+            out Triturbo.Fbx.FbxMatrix4x4 transformMatrix,
             out Triturbo.Fbx.FbxMatrix4x4 transformLinkMatrix)
         {
             string normalized = MeshNodePath.Normalize(path);
             var entry = (m_ExtraBoneBindPoses ?? System.Array.Empty<SkinWeightExtraBoneBindPoseData>())
                 .FirstOrDefault(candidate => candidate != null && MeshNodePath.Normalize(candidate.m_Path) == normalized);
+            transformMatrix = entry != null && entry.m_FbxTransformMatrix != null
+                ? entry.m_FbxTransformMatrix.ToFbxMatrix()
+                : Triturbo.Fbx.FbxMatrix4x4.Identity;
             transformLinkMatrix = entry != null && entry.m_FbxTransformLinkMatrix != null
                 ? entry.m_FbxTransformLinkMatrix.ToFbxMatrix()
                 : Triturbo.Fbx.FbxMatrix4x4.Identity;
             return entry != null && entry.m_HasFbxClusterMatrices;
+        }
+
+        public bool TryGetExtraBoneFbxTransformLinkMatrix(
+            string path,
+            out Triturbo.Fbx.FbxMatrix4x4 transformLinkMatrix)
+        {
+            return TryGetExtraBoneFbxClusterMatrices(
+                path,
+                out _,
+                out transformLinkMatrix);
         }
     }
 }

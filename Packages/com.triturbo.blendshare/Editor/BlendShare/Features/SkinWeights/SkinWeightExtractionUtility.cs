@@ -24,21 +24,21 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return transform != null ? transform.GetComponent<SkinnedMeshRenderer>() : null;
         }
 
-        public static FbxSkinDeformer GetPrimarySkinDeformer(MeshFeatureExtractionContext context)
+        public static UfbxSkinDeformer GetPrimarySkinDeformer(MeshFeatureExtractionContext context)
         {
             return GetPrimarySourceSkinDeformer(context);
         }
 
-        public static FbxSkinDeformer GetPrimarySourceSkinDeformer(MeshFeatureExtractionContext context)
+        public static UfbxSkinDeformer GetPrimarySourceSkinDeformer(MeshFeatureExtractionContext context)
         {
             return context?.GetSourceFbxMesh()?.SkinDeformers
-                .FirstOrDefault(deformer => deformer != null && deformer.HasWeights);
+                .FirstOrDefault(deformer => deformer != null && deformer.Clusters.Any(cluster => cluster.WeightCount > 0));
         }
 
-        public static FbxSkinDeformer GetPrimaryOriginSkinDeformer(MeshFeatureExtractionContext context)
+        public static UfbxSkinDeformer GetPrimaryOriginSkinDeformer(MeshFeatureExtractionContext context)
         {
             return context?.GetOriginFbxMesh()?.SkinDeformers
-                .FirstOrDefault(deformer => deformer != null && deformer.HasWeights);
+                .FirstOrDefault(deformer => deformer != null && deformer.Clusters.Any(cluster => cluster.WeightCount > 0));
         }
 
         public static string NormalizeBonePath(string path)
@@ -53,9 +53,11 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 : null);
         }
 
-        public static FbxCluster GetCluster(FbxSkinDeformer skin, int boneIndex)
+        public static UfbxSkinCluster GetCluster(UfbxSkinDeformer skin, int boneIndex)
         {
-            return skin?.Clusters.FirstOrDefault(candidate => candidate != null && candidate.BoneIndex == boneIndex);
+            return skin != null && boneIndex >= 0 && boneIndex < skin.Clusters.Count
+                ? skin.Clusters[boneIndex]
+                : null;
         }
 
         public static Dictionary<string, Transform> BuildTransformLookup(Transform root)

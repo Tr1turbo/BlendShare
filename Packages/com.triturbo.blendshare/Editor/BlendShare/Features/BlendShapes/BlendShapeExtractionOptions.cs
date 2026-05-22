@@ -3,6 +3,7 @@ using System.Linq;
 using Triturbo.BlendShare.Core;
 using ReaderFbxMatrix = Triturbo.Fbx.FbxMatrix4x4;
 using ReaderFbxTransform = Triturbo.Fbx.FbxTransform;
+using ReaderUfbxTransform = Triturbo.Fbx.UfbxTransform;
 using ReaderVector3d = Triturbo.Fbx.Vector3d;
 
 #if ENABLE_FBX_SDK
@@ -127,6 +128,43 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                 : ReaderVector3d.one;
 
             return ReaderFbxMatrix.FromTranslationRotationScale(translation, rotation, scale);
+        }
+
+        internal ReaderFbxMatrix GetReaderTransform(ReaderUfbxTransform originalTransform, ReaderUfbxTransform sourceTransform)
+        {
+            if (!ApplyTransform)
+            {
+                return ReaderFbxMatrix.Identity;
+            }
+
+            if (ApplyRotation && ApplyScale && ApplyTranslate)
+            {
+                var originalMatrix = originalTransform.LocalMatrix;
+                return originalMatrix.TryInverse(out var originalInverse)
+                    ? sourceTransform.LocalMatrix * originalInverse
+                    : ReaderFbxMatrix.Identity;
+            }
+
+            var matrix = ReaderFbxMatrix.Identity;
+            if (ApplyScale)
+            {
+                matrix = matrix * ReaderFbxMatrix.Scale(SafeDivide(sourceTransform.Scale, originalTransform.Scale));
+            }
+
+            if (ApplyRotation)
+            {
+                var rotationMatrix =
+                    ReaderFbxMatrix.RotateQuaternion(sourceTransform.Rotation) *
+                    ReaderFbxMatrix.RotateQuaternion(originalTransform.Rotation.Inverse);
+                matrix = matrix * rotationMatrix;
+            }
+
+            if (ApplyTranslate)
+            {
+                matrix = matrix * ReaderFbxMatrix.Translate(sourceTransform.Translation - originalTransform.Translation);
+            }
+
+            return matrix;
         }
 
         private static ReaderVector3d SafeDivide(ReaderVector3d value, ReaderVector3d divisor)

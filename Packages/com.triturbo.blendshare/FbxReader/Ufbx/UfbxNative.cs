@@ -46,17 +46,36 @@ namespace Triturbo.Fbx
             public ulong Id;
             public int ParentIndex;
             public int Type;
-            public double LocalTranslationX;
-            public double LocalTranslationY;
-            public double LocalTranslationZ;
-            public double LocalRotationX;
-            public double LocalRotationY;
-            public double LocalRotationZ;
-            public double LocalScaleX;
-            public double LocalScaleY;
-            public double LocalScaleZ;
+            public double LclTranslationX;
+            public double LclTranslationY;
+            public double LclTranslationZ;
+            public double LclRotationX;
+            public double LclRotationY;
+            public double LclRotationZ;
+            public double LclScaleX;
+            public double LclScaleY;
+            public double LclScaleZ;
             public int NameLength;
             public int PathLength;
+            public double EulerRotationX;
+            public double EulerRotationY;
+            public double EulerRotationZ;
+            public double PreRotationX;
+            public double PreRotationY;
+            public double PreRotationZ;
+            public double PostRotationX;
+            public double PostRotationY;
+            public double PostRotationZ;
+            public double UfbxLocalTranslationX;
+            public double UfbxLocalTranslationY;
+            public double UfbxLocalTranslationZ;
+            public double UfbxLocalRotationX;
+            public double UfbxLocalRotationY;
+            public double UfbxLocalRotationZ;
+            public double UfbxLocalRotationW;
+            public double UfbxLocalScaleX;
+            public double UfbxLocalScaleY;
+            public double UfbxLocalScaleZ;
         }
 
         [StructLayout(LayoutKind.Sequential)]
