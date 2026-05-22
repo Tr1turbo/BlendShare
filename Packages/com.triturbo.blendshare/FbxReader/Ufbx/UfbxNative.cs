@@ -1,8 +1,9 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Text;
+using Triturbo.Fbx;
 
-namespace Triturbo.Fbx
+namespace Triturbo.Fbx.Ufbx
 {
     internal static class UfbxNative
     {

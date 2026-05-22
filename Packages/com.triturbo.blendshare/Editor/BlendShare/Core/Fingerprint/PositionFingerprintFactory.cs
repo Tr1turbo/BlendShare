@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Triturbo.BlendShapeShare.BlendShapeData;
 using Triturbo.Fbx;
+using Triturbo.Fbx.Ufbx;
 using UnityEngine;
 
 namespace Triturbo.BlendShare.Core
@@ -45,35 +46,6 @@ namespace Triturbo.BlendShare.Core
         /// Blendshape sequences are paired by index order (FBX asset path).
         /// Returns an empty/invalid pair when either mesh is null or no shared blendshapes exist.
         /// </summary>
-        public static FingerprintPair CreatePair(FbxMeshGeometry fbxMesh, Mesh unityMesh, float importScale = 1f)
-        {
-            var fbxBlendShapes = BuildFbxBlendShapeSequence(
-                fbxMesh,
-                out var fbxNames);
-
-            var unityBlendShapes = BuildUnityBlendShapeSequence(
-                unityMesh,
-                out var unityNames);
-
-            PairBlendShapeSequences(
-                fbxBlendShapes, unityBlendShapes,
-                fbxNames, unityNames,
-                out var pairedNames,
-                out var fbxPaired,
-                out var unityPaired);
-
-            if (pairedNames.Length == 0 &&
-                ((fbxBlendShapes?.Length ?? 0) > 0 || (unityBlendShapes?.Length ?? 0) > 0))
-            {
-                return default;
-            }
-
-            return new FingerprintPair(
-                CreateFromFbx(fbxMesh, fbxPaired, importScale),
-                CreateFromUnity(unityMesh, unityPaired),
-                pairedNames);
-        }
-
         public static FingerprintPair CreatePair(UfbxMesh fbxMesh, Mesh unityMesh, float importScale = 1f)
         {
             var fbxBlendShapes = BuildFbxBlendShapeSequence(
@@ -104,23 +76,6 @@ namespace Triturbo.BlendShare.Core
         }
 
         // ─── FBX / Unity fingerprint creation ─────────────────────────────────────
-
-        public static PositionFingerprint[] CreateFromFbx(
-            FbxMeshGeometry mesh,
-            FbxBlendShapeData[] blendShapes,
-            float importScale = 1f)
-        {
-            if (mesh == null)
-            {
-                return System.Array.Empty<PositionFingerprint>();
-            }
-
-            return CreateFromFbxPositions(
-                mesh.ControlPoints,
-                blendShapes,
-                importScale);
-        }
-
         public static PositionFingerprint[] CreateFromFbx(
             UfbxMesh mesh,
             FbxBlendShapeData[] blendShapes,
@@ -218,37 +173,6 @@ namespace Triturbo.BlendShare.Core
         /// Converts FBX blend shape channels to FbxBlendShapeData, filtering out entries
         /// without frames or deltas.
         /// </summary>
-        internal static FbxBlendShapeData[] BuildFbxBlendShapeSequence(
-            FbxMeshGeometry mesh,
-            out string[] blendShapeNames)
-        {
-            if (mesh == null)
-            {
-                blendShapeNames = System.Array.Empty<string>();
-                return System.Array.Empty<FbxBlendShapeData>();
-            }
-
-            var names = new List<string>();
-            var fbxBlendShapes = new List<FbxBlendShapeData>();
-
-            foreach (var deformer in mesh.BlendShapeDeformers)
-            {
-                foreach (var channel in deformer.Channels)
-                {
-                    if (channel == null || string.IsNullOrEmpty(channel.Name)) continue;
-
-                    var data = CreateFbxBlendShapeData(channel);
-                    if (!HasSamples(data) || !HasAnyDelta(data)) continue;
-
-                    names.Add(channel.Name);
-                    fbxBlendShapes.Add(data);
-                }
-            }
-
-            blendShapeNames = names.ToArray();
-            return fbxBlendShapes.ToArray();
-        }
-
         internal static FbxBlendShapeData[] BuildFbxBlendShapeSequence(
             UfbxMesh mesh,
             out string[] blendShapeNames)
@@ -358,18 +282,6 @@ namespace Triturbo.BlendShare.Core
         }
 
         // ─── FBX blendshape data construction ─────────────────────────────────────
-
-        internal static FbxBlendShapeData CreateFbxBlendShapeData(FbxBlendShapeChannel channel)
-        {
-            var channelFrames = channel?.Frames ?? System.Array.Empty<FbxShapeFrame>();
-            var frames = new FbxBlendShapeFrame[channelFrames.Count];
-            for (int i = 0; i < channelFrames.Count; i++)
-            {
-                frames[i] = CreateFbxBlendShapeFrame(channelFrames[i]);
-            }
-            return new FbxBlendShapeData(frames);
-        }
-
         internal static FbxBlendShapeData CreateFbxBlendShapeData(UfbxBlendChannel channel)
         {
             var shapes = channel?.BlendShapes ?? System.Array.Empty<UfbxBlendShape>();
@@ -396,24 +308,8 @@ namespace Triturbo.BlendShare.Core
                 return frame;
             }
 
-            var deltas = UfbxScene.ToVector3dArray(values);
+            var deltas = FbxArrayUtility.ToVector3dArray(values);
             int count = System.Math.Min(indices.Length, deltas.Length);
-            for (int i = 0; i < count; i++)
-            {
-                if (!deltas[i].IsZero())
-                {
-                    frame.AddDeltaControlPointAt(deltas[i], indices[i]);
-                }
-            }
-            return frame;
-        }
-
-        internal static FbxBlendShapeFrame CreateFbxBlendShapeFrame(FbxShapeFrame shapeFrame)
-        {
-            var frame = new FbxBlendShapeFrame();
-            var indices = shapeFrame?.ControlPointIndices ?? System.Array.Empty<int>();
-            var deltas = shapeFrame?.ControlPointDeltas ?? System.Array.Empty<Vector3d>();
-            int count = System.Math.Min(indices.Count, deltas.Count);
             for (int i = 0; i < count; i++)
             {
                 if (!deltas[i].IsZero())

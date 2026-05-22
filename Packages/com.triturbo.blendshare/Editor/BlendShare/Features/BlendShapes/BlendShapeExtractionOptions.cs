@@ -3,7 +3,7 @@ using System.Linq;
 using Triturbo.BlendShare.Core;
 using ReaderFbxMatrix = Triturbo.Fbx.FbxMatrix4x4;
 using ReaderFbxTransform = Triturbo.Fbx.FbxTransform;
-using ReaderUfbxTransform = Triturbo.Fbx.UfbxTransform;
+using ReaderUfbxTransform = Triturbo.Fbx.Ufbx.UfbxTransform;
 using ReaderVector3d = Triturbo.Fbx.Vector3d;
 
 #if ENABLE_FBX_SDK

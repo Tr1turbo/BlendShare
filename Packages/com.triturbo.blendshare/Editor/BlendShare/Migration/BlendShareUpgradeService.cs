@@ -7,6 +7,7 @@ using Triturbo.BlendShare.Persistence;
 using UnityEditor;
 using UnityEngine;
 using Triturbo.Fbx;
+using Triturbo.Fbx.Ufbx;
 using Triturbo.Fbx.Unity;
 
 namespace Triturbo.BlendShare.Migration

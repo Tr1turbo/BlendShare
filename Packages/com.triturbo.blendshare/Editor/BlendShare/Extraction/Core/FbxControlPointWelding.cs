@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using Triturbo.Fbx;
+using Triturbo.Fbx.Ufbx;
 using Debug = UnityEngine.Debug;
 
 #if ENABLE_FBX_SDK
@@ -31,50 +32,6 @@ namespace Triturbo.BlendShare.Core
                 .Where(group => group.Length > 1)
                 .ToArray() ?? System.Array.Empty<int[]>();
         }
-
-        public static FbxControlPointWelding FromReaderMesh(FbxMeshGeometry mesh)
-        {
-            if (mesh == null || mesh.ControlPoints.Count == 0)
-            {
-                return Empty;
-            }
-
-            var stopwatch = Stopwatch.StartNew();
-            var controlPointPosition = new Dictionary<Vector3d, List<int>>();
-
-            for (int i = 0; i < mesh.ControlPoints.Count; i++)
-            {
-                Vector3d position = mesh.ControlPoints[i];
-                if (!controlPointPosition.TryGetValue(position, out var indices))
-                {
-                    indices = new List<int>();
-                    controlPointPosition[position] = indices;
-                }
-
-                indices.Add(i);
-            }
-
-            var groups = controlPointPosition
-                .Where(kv => kv.Value.Count > 1)
-                .Select(kv => kv.Value)
-                .ToList();
-
-            foreach (var deformer in mesh.BlendShapeDeformers)
-            {
-                foreach (var channel in deformer.Channels)
-                {
-                    foreach (var frame in channel.Frames)
-                    {
-                        groups = GroupWithShape(groups, mesh.ControlPoints, frame);
-                    }
-                }
-            }
-
-            stopwatch.Stop();
-            Debug.Log($"[BlendShare] Build FBX reader welding groups: {groups.Count} groups in {stopwatch.ElapsedMilliseconds} ms");
-            return groups.Count > 0 ? new FbxControlPointWelding(groups.Select(group => group.ToArray())) : Empty;
-        }
-
         public static FbxControlPointWelding FromUfbxMesh(UfbxMesh mesh)
         {
             if (mesh == null || mesh.ControlPointCount == 0)
@@ -219,60 +176,6 @@ namespace Triturbo.BlendShare.Core
                 (accumulator, value) => accumulator.Add(value),
                 (accumulator, count) => accumulator.Average(count));
         }
-
-        private static List<List<int>> GroupWithShape(
-            List<List<int>> groups,
-            IReadOnlyList<Vector3d> basePositions,
-            FbxShapeFrame shapeFrame)
-        {
-            var newGroups = new List<List<int>>();
-            foreach (var group in groups)
-            {
-                var newGroup = new Dictionary<Vector3d, List<int>>();
-                foreach (int index in group)
-                {
-                    var vertex = GetTargetPosition(basePositions, shapeFrame, index);
-                    if (!newGroup.TryGetValue(vertex, out var indices))
-                    {
-                        indices = new List<int>();
-                        newGroup[vertex] = indices;
-                    }
-
-                    indices.Add(index);
-                }
-
-                newGroups.AddRange(newGroup
-                    .Where(kv => kv.Value.Count > 1)
-                    .Select(kv => kv.Value)
-                    .ToList());
-            }
-
-            return newGroups;
-        }
-
-        private static Vector3d GetTargetPosition(
-            IReadOnlyList<Vector3d> basePositions,
-            FbxShapeFrame shapeFrame,
-            int controlPointIndex)
-        {
-            var basePosition = controlPointIndex >= 0 && controlPointIndex < (basePositions?.Count ?? 0)
-                ? basePositions[controlPointIndex]
-                : Vector3d.zero;
-
-            var indices = shapeFrame?.ControlPointIndices ?? System.Array.Empty<int>();
-            var deltas = shapeFrame?.ControlPointDeltas ?? System.Array.Empty<Vector3d>();
-            int count = System.Math.Min(indices.Count, deltas.Count);
-            for (int i = 0; i < count; i++)
-            {
-                if (indices[i] == controlPointIndex)
-                {
-                    return basePosition + deltas[i];
-                }
-            }
-
-            return basePosition;
-        }
-
         private static List<List<int>> GroupWithShape(
             List<List<int>> groups,
             IReadOnlyList<Vector3d> basePositions,
@@ -296,7 +199,7 @@ namespace Triturbo.BlendShare.Core
                 var newGroup = new Dictionary<Vector3d, List<int>>();
                 foreach (int index in group)
                 {
-                    var vertex = GetTargetPosition(basePositions, indices, UfbxScene.ToVector3dArray(deltas), index);
+                    var vertex = GetTargetPosition(basePositions, indices, FbxArrayUtility.ToVector3dArray(deltas), index);
                     if (!newGroup.TryGetValue(vertex, out var groupedIndices))
                     {
                         groupedIndices = new List<int>();

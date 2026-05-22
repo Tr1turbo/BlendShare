@@ -3,6 +3,7 @@ using System.Linq;
 using Triturbo.BlendShapeShare;
 using Triturbo.BlendShare.Core;
 using Triturbo.Fbx;
+using Triturbo.Fbx.Ufbx;
 using UnityEditor;
 using UnityEngine;
 

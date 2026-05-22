@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.Features.BoneGraph;
 using Triturbo.Fbx;
+using Triturbo.Fbx.Ufbx;
 using Triturbo.Fbx.Unity;
 using UnityEngine;
 

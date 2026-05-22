@@ -6,6 +6,7 @@ using UnityEngine;
 using Stopwatch = System.Diagnostics.Stopwatch;
 
 using Triturbo.Fbx;
+using Triturbo.Fbx.Ufbx;
 using Triturbo.Fbx.Unity;
 
 namespace Triturbo.BlendShare.Core

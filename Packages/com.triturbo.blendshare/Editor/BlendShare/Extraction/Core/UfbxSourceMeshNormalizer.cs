@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using Triturbo.Fbx;
+using Triturbo.Fbx.Ufbx;
 
 namespace Triturbo.BlendShare.Core
 {
@@ -91,8 +92,8 @@ namespace Triturbo.BlendShare.Core
                 var normals = new double[source.OffsetCount * 3];
                 if (source.CopyOffsets(indices, positions, normals) != 0)
                 {
-                    CopyDense(indices, UfbxScene.ToVector3dArray(positions), positionDeltas);
-                    CopyDense(indices, UfbxScene.ToVector3dArray(normals), normalDeltas);
+                    CopyDense(indices, FbxArrayUtility.ToVector3dArray(positions), positionDeltas);
+                    CopyDense(indices, FbxArrayUtility.ToVector3dArray(normals), normalDeltas);
                 }
             }
 

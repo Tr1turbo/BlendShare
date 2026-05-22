@@ -8,12 +8,8 @@ namespace Triturbo.Fbx
     {
         Success,
         FileNotFound,
-        NotBinaryFbx,
-        UnsupportedVersion,
         ParseError,
         NodeNotFound,
-        MeshNotFound,
-        AmbiguousMesh,
         SectionUnavailable,
         InvalidArgument
     }
@@ -46,20 +42,17 @@ namespace Triturbo.Fbx
         public FbxReadStatus Status { get; }
         public string Message { get; }
         public IReadOnlyList<FbxDiagnostic> Diagnostics { get; }
-        public IReadOnlyList<FbxMeshGeometry> CandidateMeshes { get; }
 
         public FbxReadResult(
             FbxReadStatus status,
             T value,
             string message = null,
-            IEnumerable<FbxDiagnostic> diagnostics = null,
-            IEnumerable<FbxMeshGeometry> candidateMeshes = null)
+            IEnumerable<FbxDiagnostic> diagnostics = null)
         {
             Status = status;
             Value = value;
             Message = message ?? string.Empty;
             Diagnostics = FbxCollection.ToReadOnly(diagnostics);
-            CandidateMeshes = FbxCollection.ToReadOnly(candidateMeshes);
         }
 
         public static FbxReadResult<T> Succeeded(T value, IEnumerable<FbxDiagnostic> diagnostics = null)
@@ -70,10 +63,9 @@ namespace Triturbo.Fbx
         public static FbxReadResult<T> Failed(
             FbxReadStatus status,
             string message,
-            IEnumerable<FbxDiagnostic> diagnostics = null,
-            IEnumerable<FbxMeshGeometry> candidateMeshes = null)
+            IEnumerable<FbxDiagnostic> diagnostics = null)
         {
-            return new FbxReadResult<T>(status, default, message, diagnostics, candidateMeshes);
+            return new FbxReadResult<T>(status, default, message, diagnostics);
         }
     }
 

@@ -4,6 +4,7 @@ using System.Linq;
 using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Features.BoneGraph;
 using Triturbo.Fbx;
+using Triturbo.Fbx.Ufbx;
 using UnityEditor;
 using UnityEngine;
 #if ENABLE_FBX_SDK

@@ -22,59 +22,12 @@ namespace Triturbo.BlendShare.Features.SkinWeights
     }
 
     [System.Serializable]
-    public sealed class FbxMatrixData
-    {
-        public double[] m_RowMajor =
-        {
-            1d, 0d, 0d, 0d,
-            0d, 1d, 0d, 0d,
-            0d, 0d, 1d, 0d,
-            0d, 0d, 0d, 1d
-        };
-
-        public FbxMatrixData() { }
-
-        public FbxMatrixData(Triturbo.Fbx.FbxMatrix4x4 matrix)
-        {
-            m_RowMajor = matrix.ToRowMajorArray();
-        }
-
-        public Triturbo.Fbx.FbxMatrix4x4 ToFbxMatrix()
-        {
-            return Triturbo.Fbx.FbxMatrix4x4.FromRowMajor(m_RowMajor);
-        }
-
-        public Matrix4x4 ToUnityMatrix()
-        {
-            var matrix = ToFbxMatrix();
-            var result = new Matrix4x4();
-            for (int row = 0; row < 4; row++)
-            {
-                for (int column = 0; column < 4; column++)
-                {
-                    result[row, column] = (float)matrix[row, column];
-                }
-            }
-
-            return result;
-        }
-
-        public void Sanitize()
-        {
-            if (m_RowMajor == null || m_RowMajor.Length != 16)
-            {
-                m_RowMajor = new FbxMatrixData().m_RowMajor;
-            }
-        }
-    }
-
-    [System.Serializable]
     public sealed class SkinWeightExtraBoneBindPoseData
     {
         public string m_Path;
 
-        public FbxMatrixData m_FbxTransformMatrix = new();
-        public FbxMatrixData m_FbxTransformLinkMatrix = new();
+        public Triturbo.Fbx.FbxMatrix4x4 m_FbxTransformMatrix = Triturbo.Fbx.FbxMatrix4x4.Identity;
+        public Triturbo.Fbx.FbxMatrix4x4 m_FbxTransformLinkMatrix = Triturbo.Fbx.FbxMatrix4x4.Identity;
         public bool m_HasFbxClusterMatrices;
 
         public SkinWeightExtraBoneBindPoseData() { }
@@ -85,8 +38,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             Triturbo.Fbx.FbxMatrix4x4 fbxTransformLinkMatrix)
         {
             m_Path = MeshNodePath.Normalize(path);
-            m_FbxTransformMatrix = new FbxMatrixData(fbxTransformMatrix);
-            m_FbxTransformLinkMatrix = new FbxMatrixData(fbxTransformLinkMatrix);
+            m_FbxTransformMatrix = fbxTransformMatrix;
+            m_FbxTransformLinkMatrix = fbxTransformLinkMatrix;
             m_HasFbxClusterMatrices = true;
         }
     }
@@ -127,10 +80,6 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 .Select(bindPose =>
                 {
                     bindPose.m_Path = MeshNodePath.Normalize(bindPose.m_Path);
-                    bindPose.m_FbxTransformMatrix ??= new FbxMatrixData();
-                    bindPose.m_FbxTransformLinkMatrix ??= new FbxMatrixData();
-                    bindPose.m_FbxTransformMatrix.Sanitize();
-                    bindPose.m_FbxTransformLinkMatrix.Sanitize();
                     return bindPose;
                 })
                 .Where(bindPose => m_BonePaths.Contains(bindPose.m_Path))
@@ -193,12 +142,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             string normalized = MeshNodePath.Normalize(path);
             var entry = (m_ExtraBoneBindPoses ?? System.Array.Empty<SkinWeightExtraBoneBindPoseData>())
                 .FirstOrDefault(candidate => candidate != null && MeshNodePath.Normalize(candidate.m_Path) == normalized);
-            transformMatrix = entry != null && entry.m_FbxTransformMatrix != null
-                ? entry.m_FbxTransformMatrix.ToFbxMatrix()
-                : Triturbo.Fbx.FbxMatrix4x4.Identity;
-            transformLinkMatrix = entry != null && entry.m_FbxTransformLinkMatrix != null
-                ? entry.m_FbxTransformLinkMatrix.ToFbxMatrix()
-                : Triturbo.Fbx.FbxMatrix4x4.Identity;
+            transformMatrix = entry != null ? entry.m_FbxTransformMatrix : Triturbo.Fbx.FbxMatrix4x4.Identity;
+            transformLinkMatrix = entry != null ? entry.m_FbxTransformLinkMatrix : Triturbo.Fbx.FbxMatrix4x4.Identity;
             return entry != null && entry.m_HasFbxClusterMatrices;
         }
 

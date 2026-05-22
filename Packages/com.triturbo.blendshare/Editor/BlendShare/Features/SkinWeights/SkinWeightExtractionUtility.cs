@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.Core;
 using Triturbo.Fbx;
+using Triturbo.Fbx.Ufbx;
 using UnityEngine;
 
 namespace Triturbo.BlendShare.Features.SkinWeights

@@ -1,9 +1,10 @@
 using System;
+using UnityEngine;
 
 namespace Triturbo.Fbx
 {
     [Serializable]
-    public readonly struct FbxMatrix4x4 : IEquatable<FbxMatrix4x4>
+    public struct FbxMatrix4x4 : IEquatable<FbxMatrix4x4>
     {
         public static readonly FbxMatrix4x4 Identity = new FbxMatrix4x4(
             1, 0, 0, 0,
@@ -11,22 +12,22 @@ namespace Triturbo.Fbx
             0, 0, 1, 0,
             0, 0, 0, 1);
 
-        private readonly double m00;
-        private readonly double m01;
-        private readonly double m02;
-        private readonly double m03;
-        private readonly double m10;
-        private readonly double m11;
-        private readonly double m12;
-        private readonly double m13;
-        private readonly double m20;
-        private readonly double m21;
-        private readonly double m22;
-        private readonly double m23;
-        private readonly double m30;
-        private readonly double m31;
-        private readonly double m32;
-        private readonly double m33;
+        [SerializeField] private double m00;
+        [SerializeField] private double m01;
+        [SerializeField] private double m02;
+        [SerializeField] private double m03;
+        [SerializeField] private double m10;
+        [SerializeField] private double m11;
+        [SerializeField] private double m12;
+        [SerializeField] private double m13;
+        [SerializeField] private double m20;
+        [SerializeField] private double m21;
+        [SerializeField] private double m22;
+        [SerializeField] private double m23;
+        [SerializeField] private double m30;
+        [SerializeField] private double m31;
+        [SerializeField] private double m32;
+        [SerializeField] private double m33;
 
         public FbxMatrix4x4(
             double m00, double m01, double m02, double m03,
@@ -369,39 +370,48 @@ namespace Triturbo.Fbx
     }
 
     [Serializable]
-    public readonly struct FbxTransform
+    public struct FbxTransform
     {
         public static readonly FbxTransform Identity = new FbxTransform(Vector3d.zero, Vector3d.zero, Vector3d.one);
 
-        public Vector3d Translation { get; }
-        public Vector3d Rotation { get; }
-        public Vector3d Scale { get; }
+        [SerializeField] private Vector3d translation;
+        [SerializeField] private Vector3d rotation;
+        [SerializeField] private Vector3d scale;
+
+        public Vector3d Translation => translation;
+        public Vector3d Rotation => rotation;
+        public Vector3d Scale => scale;
         public FbxMatrix4x4 LocalMatrix => FbxMatrix4x4.FromTranslationRotationScale(Translation, Rotation, Scale);
 
         public FbxTransform(Vector3d translation, Vector3d rotation, Vector3d scale)
         {
-            Translation = translation;
-            Rotation = rotation;
-            Scale = scale;
+            this.translation = translation;
+            this.rotation = rotation;
+            this.scale = scale;
         }
     }
 
     [Serializable]
-    public readonly struct Quaterniond : IEquatable<Quaterniond>
+    public struct Quaterniond : IEquatable<Quaterniond>
     {
         public static readonly Quaterniond Identity = new Quaterniond(0d, 0d, 0d, 1d);
 
-        public double x { get; }
-        public double y { get; }
-        public double z { get; }
-        public double w { get; }
+        [SerializeField] private double m_X;
+        [SerializeField] private double m_Y;
+        [SerializeField] private double m_Z;
+        [SerializeField] private double m_W;
+
+        public double x => m_X;
+        public double y => m_Y;
+        public double z => m_Z;
+        public double w => m_W;
 
         public Quaterniond(double x, double y, double z, double w)
         {
-            this.x = x;
-            this.y = y;
-            this.z = z;
-            this.w = w;
+            m_X = x;
+            m_Y = y;
+            m_Z = z;
+            m_W = w;
         }
 
         public double magnitude => Math.Sqrt(x * x + y * y + z * z + w * w);
@@ -452,24 +462,6 @@ namespace Triturbo.Fbx
         public static Quaterniond operator /(Quaterniond quaternion, double scalar)
         {
             return new Quaterniond(quaternion.x / scalar, quaternion.y / scalar, quaternion.z / scalar, quaternion.w / scalar);
-        }
-    }
-
-    [Serializable]
-    public readonly struct UfbxTransform
-    {
-        public static readonly UfbxTransform Identity = new UfbxTransform(Vector3d.zero, Quaterniond.Identity, Vector3d.one);
-
-        public Vector3d Translation { get; }
-        public Quaterniond Rotation { get; }
-        public Vector3d Scale { get; }
-        public FbxMatrix4x4 LocalMatrix => FbxMatrix4x4.FromTranslationRotationScale(Translation, Rotation, Scale);
-
-        public UfbxTransform(Vector3d translation, Quaterniond rotation, Vector3d scale)
-        {
-            Translation = translation;
-            Rotation = rotation;
-            Scale = scale;
         }
     }
 }
