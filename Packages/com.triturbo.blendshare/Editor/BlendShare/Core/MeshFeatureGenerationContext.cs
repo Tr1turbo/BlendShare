@@ -19,6 +19,7 @@ namespace Triturbo.BlendShare.Core
     {
         private readonly List<Object> generatedObjects = new();
         private readonly Dictionary<string, Object> generatedObjectsByKey = new();
+        private readonly Dictionary<string, MeshFeatureSkinBindingOutput> skinBindingsByMeshKey = new();
         private readonly Dictionary<string, Transform> transformsByPath = new();
         private readonly HashSet<string> completedSteps = new();
 
@@ -26,6 +27,7 @@ namespace Triturbo.BlendShare.Core
         public IReadOnlyList<BlendShareObject> Shares { get; }
         public MeshFeatureTargetMeshLookup TargetMeshes { get; }
         public IReadOnlyList<Object> GeneratedObjects => generatedObjects;
+        public IReadOnlyDictionary<string, MeshFeatureSkinBindingOutput> SkinBindingsByMeshKey => skinBindingsByMeshKey;
 
         /// <summary>
         /// Creates a generation session for a target mesh container and a set of BlendShare assets.
@@ -106,6 +108,17 @@ namespace Triturbo.BlendShare.Core
             return !string.IsNullOrWhiteSpace(key) && completedSteps.Add(key);
         }
 
+        public void SetSkinBinding(string meshKey, string rootBonePath, IEnumerable<string> bonePaths)
+        {
+            string normalizedKey = MeshNodePath.Normalize(meshKey);
+            skinBindingsByMeshKey[normalizedKey] = new MeshFeatureSkinBindingOutput(rootBonePath, bonePaths);
+        }
+
+        public bool TryGetSkinBinding(string meshKey, out MeshFeatureSkinBindingOutput binding)
+        {
+            return skinBindingsByMeshKey.TryGetValue(MeshNodePath.Normalize(meshKey), out binding);
+        }
+
         /// <summary>
         /// Tracks an object produced by a generator. Persistence happens after the session completes.
         /// </summary>
@@ -181,6 +194,23 @@ namespace Triturbo.BlendShare.Core
             }
 
             return $"{type.FullName ?? type.Name}::{name}";
+        }
+    }
+
+    /// <summary>
+    /// Renderer skin binding generated alongside a Unity mesh.
+    /// </summary>
+    public sealed class MeshFeatureSkinBindingOutput
+    {
+        public string RootBonePath { get; }
+        public string[] BonePaths { get; }
+
+        public MeshFeatureSkinBindingOutput(string rootBonePath, IEnumerable<string> bonePaths)
+        {
+            RootBonePath = MeshNodePath.Normalize(rootBonePath);
+            BonePaths = bonePaths?
+                .Select(MeshNodePath.Normalize)
+                .ToArray() ?? System.Array.Empty<string>();
         }
     }
 

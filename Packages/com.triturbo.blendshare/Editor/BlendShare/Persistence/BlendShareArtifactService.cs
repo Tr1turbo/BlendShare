@@ -9,7 +9,6 @@ using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Features.BoneGraph;
 using Triturbo.BlendShare.Features.SkinWeights;
 using Triturbo.BlendShare.Migration;
-using Triturbo.BlendShare.Fbx.Unity;
 using UnityEditor;
 using UnityEngine;
 using Object = UnityEngine.Object;
@@ -35,9 +34,38 @@ namespace Triturbo.BlendShare.Persistence
             var pipeline = new MeshFeatureGenerationPipeline();
             var appliedBlendShares = GetAppliedBlendShares(targetMeshContainer, shares);
             GameObject targetFbx = GetTargetFbx(targetMeshContainer);
-            float importScale = GetImportScale(targetFbx);
+            BlendShareArtifact inMemoryArtifact = null;
+            Mesh[] unsavedMeshes = Array.Empty<Mesh>();
+            Object[] unsavedObjects = Array.Empty<Object>();
 
-            if (targetFbx != null && !pipeline.CanApplyToUnityMeshes(targetMeshContainer, shares))
+            if (targetFbx == null || pipeline.CanApplyToUnityMeshes(targetMeshContainer, shares))
+            {
+                inMemoryArtifact = CreateInMemoryArtifact(
+                    targetMeshContainer,
+                    shares,
+                    null,
+                    appliedBlendShares,
+                    out unsavedObjects);
+                if (inMemoryArtifact != null)
+                {
+                    unsavedMeshes = (inMemoryArtifact.m_Meshes ?? Array.Empty<BlendShareMeshDescriptor>())
+                        .Select(descriptor => descriptor?.m_Mesh)
+                        .Where(mesh => mesh != null)
+                        .ToArray();
+                    try
+                    {
+                        return SaveArtifactToAsset(inMemoryArtifact, path);
+                    }
+                    finally
+                    {
+                        RemoveGeneratedObjects(unsavedMeshes);
+                        RemoveGeneratedObjects(unsavedObjects);
+                        RemoveGeneratedObjects(new Object[] { inMemoryArtifact.m_Armature, inMemoryArtifact });
+                    }
+                }
+            }
+
+            if (targetFbx != null)
             {
 #if ENABLE_FBX_SDK
                 if (pipeline.CanApplyToFbx(appliedBlendShares))
@@ -56,7 +84,6 @@ namespace Triturbo.BlendShare.Persistence
                             targetFbx,
                             appliedBlendShares,
                             tempAssetPath,
-                            importScale,
                             path);
                     }
                     finally
@@ -67,41 +94,114 @@ namespace Triturbo.BlendShare.Persistence
 #endif
             }
 
+            return null;
+        }
+
+        public static BlendShareArtifact CreateInMemoryArtifact(
+            Object targetMeshContainer,
+            IEnumerable<BlendShareObject> blendShares,
+            Func<BlendShareObject, MeshDataObject, bool> shouldGenerateMesh = null)
+        {
+            var shares = blendShares?.Where(share => share != null).Distinct().ToList() ?? new List<BlendShareObject>();
+            if (targetMeshContainer == null || shares.Count == 0)
+            {
+                return null;
+            }
+
+            return CreateInMemoryArtifact(
+                targetMeshContainer,
+                shares,
+                shouldGenerateMesh,
+                GetAppliedBlendShares(targetMeshContainer, shares),
+                out _);
+        }
+
+        private static BlendShareArtifact CreateInMemoryArtifact(
+            Object targetMeshContainer,
+            IReadOnlyCollection<BlendShareObject> shares,
+            Func<BlendShareObject, MeshDataObject, bool> shouldGenerateMesh,
+            IReadOnlyCollection<BlendShareObject> appliedBlendShares,
+            out Object[] generatedObjects)
+        {
+            generatedObjects = Array.Empty<Object>();
+            var pipeline = new MeshFeatureGenerationPipeline();
             bool generationSucceeded = pipeline.TryGenerateUnityMeshes(
                 targetMeshContainer,
                 shares,
                 out var generatedMeshes,
-                out var generatedObjects);
+                out var sessionObjects,
+                out var skinBindingsByMeshKey,
+                shouldGenerateMesh);
+            generatedObjects = sessionObjects?.Where(obj => obj != null).ToArray() ?? Array.Empty<Object>();
             if (!generationSucceeded)
             {
                 RemoveGeneratedObjects(generatedObjects);
                 return null;
             }
 
-            try
-            {
-                return SaveArtifactToAsset(
-                    targetFbx != null ? targetFbx : targetMeshContainer,
-                    appliedBlendShares,
-                    generatedMeshes,
-                    targetMeshContainer,
-                    importScale,
-                    path);
-            }
-            finally
+            var targetSource = GetTargetFbx(targetMeshContainer) != null
+                ? GetTargetFbx(targetMeshContainer)
+                : targetMeshContainer;
+            var root = targetMeshContainer as GameObject;
+            var descriptors = (generatedMeshes ?? Enumerable.Empty<Mesh>())
+                .Where(mesh => mesh != null)
+                .Select(mesh =>
+                {
+                    string meshPath = MeshNodePath.Normalize(mesh.name);
+                    skinBindingsByMeshKey.TryGetValue(meshPath, out var generatedBinding);
+                    return new BlendShareMeshDescriptor
+                    {
+                        m_NodePath = meshPath,
+                        m_Mesh = mesh,
+                        m_SkinBinding = generatedBinding != null
+                            ? ToArtifactSkinBinding(generatedBinding)
+                            : BuildSkinBinding(root, meshPath)
+                    };
+                })
+                .GroupBy(descriptor => descriptor.m_NodePath)
+                .Select(group => group.First())
+                .ToArray();
+
+            if (descriptors.Length == 0)
             {
                 RemoveGeneratedObjects(generatedMeshes);
                 RemoveGeneratedObjects(generatedObjects);
+                return null;
             }
+
+            var artifact = ScriptableObject.CreateInstance<BlendShareArtifact>();
+            artifact.name = $"{targetMeshContainer.name}_BlendShareArtifact";
+            artifact.m_TargetSource = targetSource;
+            artifact.m_TargetSourceHash = CalculateHash(targetSource);
+            artifact.m_AppliedBlendShares = appliedBlendShares?.Where(share => share != null).Distinct().ToArray()
+                                            ?? Array.Empty<BlendShareObject>();
+            artifact.m_Meshes = descriptors;
+            artifact.m_Armature = BuildArmatureArtifact(appliedBlendShares, shouldGenerateMesh);
+            return artifact;
         }
 
         public static void ApplyArtifact(BlendShareArtifact artifact, Transform targetRoot)
         {
+            var result = ApplyArtifact(artifact, targetRoot, new BlendShareArtifactApplyOptions());
+            foreach (string diagnostic in result.Diagnostics)
+            {
+                Debug.LogError($"[BlendShare Artifact] {diagnostic}", targetRoot);
+            }
+        }
+
+        public static BlendShareArtifactApplyResult ApplyArtifact(
+            BlendShareArtifact artifact,
+            Transform targetRoot,
+            BlendShareArtifactApplyOptions options)
+        {
+            var result = new BlendShareArtifactApplyResult();
             if (artifact == null || targetRoot == null)
             {
-                return;
+                result.AddDiagnostic("Apply requires an artifact and target root.");
+                return result;
             }
 
+            options ??= new BlendShareArtifactApplyOptions();
             var renderersByPath = targetRoot
                 .GetComponentsInChildren<SkinnedMeshRenderer>(true)
                 .GroupBy(renderer => MeshNodePath.GetRelativePath(renderer.transform, targetRoot))
@@ -112,12 +212,18 @@ namespace Triturbo.BlendShare.Persistence
                 .GroupBy(transform => MeshNodePath.GetRelativePath(transform, targetRoot))
                 .ToDictionary(group => MeshNodePath.Normalize(group.Key), group => group.First());
 
-            int undoGroup = Undo.GetCurrentGroup();
-            Undo.SetCurrentGroupName($"[BlendShare] Apply Artifact to {targetRoot.name}");
+            int undoGroup = -1;
+            if (options.UseUndo)
+            {
+                undoGroup = Undo.GetCurrentGroup();
+                Undo.SetCurrentGroupName(string.IsNullOrWhiteSpace(options.UndoName)
+                    ? $"[BlendShare] Apply Artifact to {targetRoot.name}"
+                    : options.UndoName);
+            }
 
             try
             {
-                ResolveArmature(artifact.m_Armature, targetRoot, transformsByPath);
+                var applyState = new ApplyState();
 
                 foreach (var descriptor in artifact.m_Meshes ?? Array.Empty<BlendShareMeshDescriptor>())
                 {
@@ -129,32 +235,61 @@ namespace Triturbo.BlendShare.Persistence
                     string nodePath = MeshNodePath.Normalize(descriptor.m_NodePath);
                     if (!renderersByPath.TryGetValue(nodePath, out var renderer) || renderer == null)
                     {
-                        Debug.LogError($"[BlendShare Artifact] Renderer path '{nodePath}' not found in target '{targetRoot.name}'.", targetRoot);
+                        result.AddDiagnostic($"Renderer path '{nodePath}' not found in target '{targetRoot.name}'.");
                         continue;
                     }
 
-                    var marker = renderer.GetComponent<BlendShareDestructiveApplyMarker>();
-                    if (marker == null)
+                    BlendShareDestructiveApplyMarker marker = null;
+                    if (options.RecordDestructiveMarkers)
                     {
-                        marker = Undo.AddComponent<BlendShareDestructiveApplyMarker>(renderer.gameObject);
+                        marker = renderer.GetComponent<BlendShareDestructiveApplyMarker>();
+                        if (marker == null)
+                        {
+                            marker = options.UseUndo
+                                ? Undo.AddComponent<BlendShareDestructiveApplyMarker>(renderer.gameObject)
+                                : renderer.gameObject.AddComponent<BlendShareDestructiveApplyMarker>();
+                        }
+
+                        RecordObject(marker, "Record BlendShare Apply Marker", options);
+                        marker.CaptureBaseline(renderer, nodePath);
+                        marker.SetAppliedBlendShares(artifact.m_AppliedBlendShares);
                     }
 
-                    Undo.RecordObject(marker, "Record BlendShare Apply Marker");
-                    marker.CaptureBaseline(renderer, nodePath);
-                    marker.SetAppliedBlendShares(artifact.m_AppliedBlendShares);
-
-                    Undo.RecordObject(renderer, "Apply BlendShare Artifact");
+                    RecordObject(renderer, "Apply BlendShare Artifact", options);
+                    options.SaveGeneratedMesh?.Invoke(descriptor.m_Mesh);
                     renderer.sharedMesh = descriptor.m_Mesh;
-                    ApplySkinBinding(renderer, descriptor.m_SkinBinding, targetRoot, transformsByPath);
-                    marker.SetGeneratedBones(CollectExtraBones(marker.OriginalBones, renderer.bones));
-                    EditorUtility.SetDirty(marker);
-                    EditorUtility.SetDirty(renderer);
+                    if (!ApplySkinBinding(
+                            renderer,
+                            descriptor.m_SkinBinding,
+                            artifact.m_Armature,
+                            targetRoot,
+                            transformsByPath,
+                            applyState,
+                            result,
+                            options))
+                    {
+                        continue;
+                    }
+
+                    if (marker != null)
+                    {
+                        marker.SetGeneratedBones(CollectExtraBones(marker.OriginalBones, renderer.bones));
+                        MarkDirty(marker, options);
+                    }
+
+                    MarkDirty(renderer, options);
+                    result.AddAppliedRenderer(renderer);
                 }
             }
             finally
             {
-                Undo.CollapseUndoOperations(undoGroup);
+                if (options.UseUndo && undoGroup >= 0)
+                {
+                    Undo.CollapseUndoOperations(undoGroup);
+                }
             }
+
+            return result;
         }
 
         public static bool RevertAppliedRenderer(SkinnedMeshRenderer renderer)
@@ -215,7 +350,6 @@ namespace Triturbo.BlendShare.Persistence
             Object targetSource,
             IEnumerable<BlendShareObject> appliedBlendShares,
             string meshContainerAssetPath,
-            float importScale,
             string path)
         {
             Object[] allAssets = AssetDatabase.LoadAllAssetsAtPath(meshContainerAssetPath);
@@ -255,7 +389,7 @@ namespace Triturbo.BlendShare.Persistence
                 targetSource,
                 shares,
                 descriptors,
-                BuildArmatureArtifact(shares, importScale),
+                BuildArmatureArtifact(shares),
                 path);
         }
 
@@ -264,7 +398,6 @@ namespace Triturbo.BlendShare.Persistence
             IEnumerable<BlendShareObject> appliedBlendShares,
             IEnumerable<Mesh> meshes,
             Object bindingSource,
-            float importScale,
             string path)
         {
             var shares = appliedBlendShares?.Where(share => share != null).Distinct().ToArray()
@@ -290,7 +423,7 @@ namespace Triturbo.BlendShare.Persistence
                 targetSource,
                 shares,
                 descriptors,
-                BuildArmatureArtifact(shares, importScale),
+                BuildArmatureArtifact(shares),
                 path);
         }
 
@@ -405,93 +538,65 @@ namespace Triturbo.BlendShare.Persistence
             return artifact;
         }
 
-        private static void ResolveArmature(
-            BoneGraphObject armature,
-            Transform targetRoot,
-            Dictionary<string, Transform> transformsByPath)
+        private static BlendShareArtifact SaveArtifactToAsset(BlendShareArtifact artifact, string path)
         {
-            foreach (var bone in armature?.Bones ?? Array.Empty<BoneNodeData>())
+            if (artifact == null)
             {
-                if (bone == null)
-                {
-                    continue;
-                }
-
-                ResolveOrCreateBone(
-                    armature,
-                    targetRoot,
-                    transformsByPath,
-                    MeshNodePath.Normalize(bone.m_Path),
-                    new HashSet<string>());
+                return null;
             }
+
+            return SaveArtifactToAsset(
+                artifact.m_TargetSource,
+                artifact.m_AppliedBlendShares,
+                artifact.m_Meshes,
+                artifact.m_Armature,
+                path);
         }
 
-        private static Transform ResolveOrCreateBone(
+        private static bool ApplySkinBinding(
+            SkinnedMeshRenderer renderer,
+            BlendShareSkinBindingDescriptor skinBinding,
             BoneGraphObject armature,
             Transform targetRoot,
             Dictionary<string, Transform> transformsByPath,
-            string path,
-            HashSet<string> resolving)
-        {
-            path = MeshNodePath.Normalize(path);
-            if (path == MeshNodePath.Root)
-            {
-                return targetRoot;
-            }
-
-            if (transformsByPath.TryGetValue(path, out var existing) && existing != null)
-            {
-                return existing;
-            }
-
-            var bone = armature != null ? armature.GetBone(path) : null;
-            if (bone == null || !bone.m_CreateIfMissing)
-            {
-                Debug.LogError($"[BlendShare Artifact] Cannot resolve bone '{path}'.", targetRoot);
-                return null;
-            }
-
-            if (!resolving.Add(path))
-            {
-                Debug.LogError($"[BlendShare Artifact] Bone graph contains a parent cycle at '{path}'.", targetRoot);
-                return null;
-            }
-
-            string parentPath = MeshNodePath.Normalize(bone.m_ParentPath);
-            var parent = ResolveOrCreateBone(armature, targetRoot, transformsByPath, parentPath, resolving);
-            resolving.Remove(path);
-            if (parent == null)
-            {
-                return null;
-            }
-
-            var created = new GameObject(MeshNodePath.LeafName(path));
-            Undo.RegisterCreatedObjectUndo(created, "Create BlendShare Artifact Bone");
-            Undo.RecordObject(parent, "Create BlendShare Artifact Bone");
-            created.transform.SetParent(parent, false);
-            created.transform.localPosition = bone.m_FbxLocalTranslation;
-            created.transform.localRotation = Quaternion.Euler(bone.m_FbxLocalEulerRotation);
-            created.transform.localScale = bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale;
-            transformsByPath[path] = created.transform;
-            EditorUtility.SetDirty(parent);
-            return created.transform;
-        }
-
-        private static void ApplySkinBinding(
-            SkinnedMeshRenderer renderer,
-            BlendShareSkinBindingDescriptor skinBinding,
-            Transform targetRoot,
-            IReadOnlyDictionary<string, Transform> transformsByPath)
+            ApplyState applyState,
+            BlendShareArtifactApplyResult result,
+            BlendShareArtifactApplyOptions options)
         {
             if (skinBinding == null)
             {
-                return;
+                return true;
             }
 
-            renderer.bones = (skinBinding.m_BonePaths ?? Array.Empty<string>())
-                .Select(path => ResolveTransform(transformsByPath, targetRoot, path))
-                .ToArray();
-            renderer.rootBone = ResolveTransform(transformsByPath, targetRoot, skinBinding.m_RootBonePath) ?? targetRoot;
+            int diagnosticCountBefore = result.Diagnostics.Count;
+            var originalBonesByPath = BuildOriginalBonePathLookup(renderer, targetRoot);
+            var resolvedBones = new List<Transform>();
+            foreach (string bonePath in skinBinding.m_BonePaths ?? Array.Empty<string>())
+            {
+                var bone = ResolveBindingTransform(
+                    MeshNodePath.Normalize(bonePath),
+                    armature,
+                    targetRoot,
+                    transformsByPath,
+                    originalBonesByPath,
+                    applyState,
+                    result,
+                    options);
+                resolvedBones.Add(bone);
+            }
+
+            var rootBone = ResolveBindingTransform(
+                MeshNodePath.Normalize(skinBinding.m_RootBonePath),
+                armature,
+                targetRoot,
+                transformsByPath,
+                originalBonesByPath,
+                applyState,
+                result,
+                options);
+            renderer.bones = resolvedBones.ToArray();
+            renderer.rootBone = rootBone != null ? rootBone : targetRoot;
+            return result.Diagnostics.Count == diagnosticCountBefore;
         }
 
         private static Transform ResolveTransform(
@@ -508,27 +613,283 @@ namespace Triturbo.BlendShare.Persistence
             return transformsByPath.TryGetValue(normalized, out var transform) ? transform : null;
         }
 
-        private static BoneGraphObject BuildArmatureArtifact(IEnumerable<BlendShareObject> blendShares, float importScale)
+        private static Transform ResolveBindingTransform(
+            string path,
+            BoneGraphObject armature,
+            Transform targetRoot,
+            Dictionary<string, Transform> transformsByPath,
+            IReadOnlyDictionary<string, Transform> originalBonesByPath,
+            ApplyState applyState,
+            BlendShareArtifactApplyResult result,
+            BlendShareArtifactApplyOptions options)
         {
-            importScale = importScale == 0f ? 1f : importScale;
+            path = MeshNodePath.Normalize(path);
+            if (path == MeshNodePath.Root)
+            {
+                return targetRoot;
+            }
+
+            if (originalBonesByPath.TryGetValue(path, out var originalBone) && originalBone != null)
+            {
+                return originalBone;
+            }
+
+            var armatureBone = armature != null ? armature.GetBone(path) : null;
+            if (armatureBone != null)
+            {
+                return ResolveOrCreateGeneratedBone(
+                    path,
+                    armature,
+                    targetRoot,
+                    transformsByPath,
+                    originalBonesByPath,
+                    applyState,
+                    result,
+                    options,
+                    new HashSet<string>());
+            }
+
+            return ResolveTransform(transformsByPath, targetRoot, path);
+        }
+
+        private static Transform ResolveOrCreateGeneratedBone(
+            string path,
+            BoneGraphObject armature,
+            Transform targetRoot,
+            Dictionary<string, Transform> transformsByPath,
+            IReadOnlyDictionary<string, Transform> originalBonesByPath,
+            ApplyState applyState,
+            BlendShareArtifactApplyResult result,
+            BlendShareArtifactApplyOptions options,
+            HashSet<string> resolving)
+        {
+            path = MeshNodePath.Normalize(path);
+            if (path == MeshNodePath.Root)
+            {
+                return targetRoot;
+            }
+
+            if (originalBonesByPath.TryGetValue(path, out var originalBone) && originalBone != null)
+            {
+                return originalBone;
+            }
+
+            if (applyState.GeneratedBonesByArtifactPath.TryGetValue(path, out var generated) && generated != null)
+            {
+                return generated;
+            }
+
+            var bone = armature != null ? armature.GetBone(path) : null;
+            if (bone == null || !bone.m_CreateIfMissing)
+            {
+                result.AddDiagnostic($"Cannot resolve bone '{path}'.");
+                return null;
+            }
+
+            if (!resolving.Add(path))
+            {
+                result.AddDiagnostic($"Bone graph contains a parent cycle at '{path}'.");
+                return null;
+            }
+
+            string parentPath = MeshNodePath.Normalize(bone.m_ParentPath);
+            var parent = ResolveGeneratedBoneParent(
+                parentPath,
+                armature,
+                targetRoot,
+                transformsByPath,
+                originalBonesByPath,
+                applyState,
+                result,
+                options,
+                resolving);
+            resolving.Remove(path);
+            if (parent == null)
+            {
+                return null;
+            }
+
+            bool pathCollision = transformsByPath.TryGetValue(path, out var existingAtPath) && existingAtPath != null;
+            if (pathCollision && IsCompatibleGeneratedBone(existingAtPath, parent, bone))
+            {
+                applyState.GeneratedBonesByArtifactPath[path] = existingAtPath;
+                return existingAtPath;
+            }
+
+            string leafName = MeshNodePath.LeafName(path);
+            var created = new GameObject(pathCollision ? CreateUniqueChildName(parent, leafName) : leafName);
+            if (options.UseUndo)
+            {
+                Undo.RegisterCreatedObjectUndo(created, "Create BlendShare Artifact Bone");
+                Undo.RecordObject(parent, "Create BlendShare Artifact Bone");
+            }
+            created.transform.SetParent(parent, false);
+            created.transform.localPosition = bone.m_FbxLocalTranslation;
+            created.transform.localRotation = Quaternion.Euler(bone.m_FbxLocalEulerRotation);
+            created.transform.localScale = bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale;
+
+            string actualPath = MeshNodePath.GetRelativePath(created.transform, targetRoot);
+            transformsByPath[MeshNodePath.Normalize(actualPath)] = created.transform;
+            if (!pathCollision)
+            {
+                transformsByPath[path] = created.transform;
+            }
+            applyState.GeneratedBonesByArtifactPath[path] = created.transform;
+            MarkDirty(parent, options);
+            return created.transform;
+        }
+
+        private static Transform ResolveGeneratedBoneParent(
+            string parentPath,
+            BoneGraphObject armature,
+            Transform targetRoot,
+            Dictionary<string, Transform> transformsByPath,
+            IReadOnlyDictionary<string, Transform> originalBonesByPath,
+            ApplyState applyState,
+            BlendShareArtifactApplyResult result,
+            BlendShareArtifactApplyOptions options,
+            HashSet<string> resolving)
+        {
+            parentPath = MeshNodePath.Normalize(parentPath);
+            if (parentPath == MeshNodePath.Root)
+            {
+                return targetRoot;
+            }
+
+            if (originalBonesByPath.TryGetValue(parentPath, out var originalParent) && originalParent != null)
+            {
+                return originalParent;
+            }
+
+            if (armature != null && armature.HasBone(parentPath))
+            {
+                return ResolveOrCreateGeneratedBone(
+                    parentPath,
+                    armature,
+                    targetRoot,
+                    transformsByPath,
+                    originalBonesByPath,
+                    applyState,
+                    result,
+                    options,
+                    resolving);
+            }
+
+            return ResolveTransform(transformsByPath, targetRoot, parentPath) ?? targetRoot;
+        }
+
+        private static bool IsCompatibleGeneratedBone(Transform existing, Transform intendedParent, BoneNodeData bone)
+        {
+            if (existing == null || bone == null || existing.parent != intendedParent)
+            {
+                return false;
+            }
+
+            var intendedScale = bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale;
+            return Vector3.Distance(existing.localPosition, bone.m_FbxLocalTranslation) <= 0.0001f &&
+                   Quaternion.Angle(existing.localRotation, Quaternion.Euler(bone.m_FbxLocalEulerRotation)) <= 0.01f &&
+                   Vector3.Distance(existing.localScale, intendedScale) <= 0.0001f;
+        }
+
+        private static Dictionary<string, Transform> BuildOriginalBonePathLookup(
+            SkinnedMeshRenderer renderer,
+            Transform targetRoot)
+        {
+            var result = new Dictionary<string, Transform>();
+            foreach (var bone in renderer.bones ?? Array.Empty<Transform>())
+            {
+                if (bone == null)
+                {
+                    continue;
+                }
+
+                string path = MeshNodePath.Normalize(MeshNodePath.GetRelativePath(bone, targetRoot));
+                if (!result.ContainsKey(path))
+                {
+                    result.Add(path, bone);
+                }
+            }
+
+            return result;
+        }
+
+        private static string CreateUniqueChildName(Transform parent, string desiredName)
+        {
+            desiredName = string.IsNullOrWhiteSpace(desiredName) ? "BlendShareBone" : desiredName;
+            if (parent == null || parent.Find(desiredName) == null)
+            {
+                return desiredName;
+            }
+
+            string baseName = $"{desiredName} BlendShare";
+            if (parent.Find(baseName) == null)
+            {
+                return baseName;
+            }
+
+            for (int i = 1; i < 10000; i++)
+            {
+                string candidate = $"{baseName} {i}";
+                if (parent.Find(candidate) == null)
+                {
+                    return candidate;
+                }
+            }
+
+            return $"{baseName} {Guid.NewGuid():N}";
+        }
+
+        private static void RecordObject(Object obj, string name, BlendShareArtifactApplyOptions options)
+        {
+            if (obj != null && options.UseUndo)
+            {
+                Undo.RecordObject(obj, name);
+            }
+        }
+
+        private static void MarkDirty(Object obj, BlendShareArtifactApplyOptions options)
+        {
+            if (obj != null && options.MarkObjectsDirty)
+            {
+                EditorUtility.SetDirty(obj);
+            }
+        }
+
+        private sealed class ApplyState
+        {
+            public Dictionary<string, Transform> GeneratedBonesByArtifactPath { get; } = new();
+        }
+
+        private static BoneGraphObject BuildArmatureArtifact(
+            IEnumerable<BlendShareObject> blendShares,
+            Func<BlendShareObject, MeshDataObject, bool> shouldGenerateMesh = null)
+        {
             var artifact = ScriptableObject.CreateInstance<BoneGraphObject>();
             artifact.name = "Armature";
             artifact.SetBones((blendShares ?? Enumerable.Empty<BlendShareObject>())
                 .Where(share => share != null)
-                .SelectMany(share => share.Meshes ?? Array.Empty<MeshDataObject>())
-                .Where(meshData => meshData != null)
-                .Select(meshData => meshData.GetFeature<SkinWeightFeatureObject>())
-                .Where(feature => feature?.m_BoneGraph != null)
-                .SelectMany(feature => feature.m_BoneGraph.Bones ?? Array.Empty<BoneNodeData>())
-                .Where(bone => bone != null)
-                .GroupBy(bone => MeshNodePath.Normalize(bone.m_Path))
+                .SelectMany(share => (share.Meshes ?? Array.Empty<MeshDataObject>())
+                    .Where(meshData => meshData != null &&
+                                       (shouldGenerateMesh == null || shouldGenerateMesh(share, meshData)))
+                    .Select(meshData => new
+                    {
+                        Feature = meshData.GetFeature<SkinWeightFeatureObject>(),
+                        Scale = GetFbxToUnityScale(meshData)
+                    }))
+                .Where(item => item.Feature?.m_BoneGraph != null)
+                .SelectMany(item => (item.Feature.m_BoneGraph.Bones ?? Array.Empty<BoneNodeData>())
+                    .Where(bone => bone != null)
+                    .Select(bone => new { Bone = bone, item.Scale }))
+                .GroupBy(item => MeshNodePath.Normalize(item.Bone.m_Path))
                 .Select(group =>
                 {
-                    var bone = group.First();
+                    var item = group.First();
+                    var bone = item.Bone;
+                    float scale = item.Scale == 0f ? 1f : item.Scale;
                     return new BoneNodeData(
                         bone.m_Path,
                         bone.m_ParentPath,
-                        bone.m_FbxLocalTranslation * importScale,
+                        bone.m_FbxLocalTranslation * scale,
                         bone.m_FbxLocalEulerRotation,
                         bone.m_FbxLocalScale,
                         bone.m_CreateIfMissing);
@@ -536,10 +897,11 @@ namespace Triturbo.BlendShare.Persistence
             return artifact;
         }
 
-        private static float GetImportScale(GameObject targetFbx)
+        private static float GetFbxToUnityScale(MeshDataObject meshData)
         {
-            float importScale = targetFbx != null ? FbxUnityAssetReader.GetImportScale(targetFbx) : 1f;
-            return importScale == 0f ? 1f : importScale;
+            var mapping = (meshData?.m_Mappings ?? Array.Empty<UnityVertexMappingObject>())
+                .FirstOrDefault(candidate => candidate != null && candidate.m_IsValid);
+            return mapping != null ? mapping.FbxToUnityScale : 1f;
         }
 
         private static BlendShareSkinBindingDescriptor BuildSkinBinding(GameObject root, string rendererPath)
@@ -576,6 +938,22 @@ namespace Triturbo.BlendShare.Persistence
             {
                 m_RootBonePath = MeshNodePath.Normalize(rootBonePath),
                 m_BonePaths = bonePaths
+            };
+        }
+
+        private static BlendShareSkinBindingDescriptor ToArtifactSkinBinding(MeshFeatureSkinBindingOutput binding)
+        {
+            if (binding == null)
+            {
+                return null;
+            }
+
+            return new BlendShareSkinBindingDescriptor
+            {
+                m_RootBonePath = MeshNodePath.Normalize(binding.RootBonePath),
+                m_BonePaths = (binding.BonePaths ?? Array.Empty<string>())
+                    .Select(MeshNodePath.Normalize)
+                    .ToArray()
             };
         }
 

@@ -5,6 +5,7 @@ using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Features.BoneGraph;
 using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Fbx.Ufbx;
+using Unity.Collections;
 using UnityEditor;
 using UnityEngine;
 #if ENABLE_FBX_SDK
@@ -28,8 +29,20 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             MeshFeatureUnityGenerationContext context,
             SkinWeightFeatureObject feature)
         {
-            return MeshFeatureGenerationResult.FailedResult(
-                "Skin weight generation is only supported through FBX generation in this version.");
+            if (context.MeshData == null || context.WorkingMesh == null)
+            {
+                return MeshFeatureGenerationResult.FailedResult("Skin weight generation requires mesh data and a target mesh.");
+            }
+
+            if (context.TargetRenderer == null || context.TargetRootTransform == null)
+            {
+                return MeshFeatureGenerationResult.FailedResult("Skin weight generation requires a SkinnedMeshRenderer target hierarchy.");
+            }
+
+            feature.Sanitize(context.MeshData);
+            return context.MeshData.IsValidTarget(context.WorkingMesh)
+                ? MeshFeatureGenerationResult.Success(false)
+                : MeshFeatureGenerationResult.FailedResult("Target mesh does not match any stored Unity vertex mapping.");
         }
 
         protected override MeshFeatureGenerationResult ApplyToUnityMesh(
@@ -49,39 +62,28 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return MeshFeatureGenerationResult.FailedResult("Target mesh does not match any stored Unity vertex mapping.");
             }
 
-            string graphStepKey = feature.m_BoneGraph != null
-                ? $"skin-bone-graph::{feature.m_BoneGraph.GetInstanceID()}"
-                : null;
-            if (feature.m_BoneGraph != null &&
-                context.MarkStepOnce(graphStepKey) &&
-                !ApplyBoneGraphTransforms(context, feature.m_BoneGraph, out string graphError))
-            {
-                return MeshFeatureGenerationResult.FailedResult(graphError);
-            }
-
             var mesh = context.WorkingMesh;
-            var boneTable = BuildBoneTable(context, feature, mesh, out string boneError);
+            var boneTable = BuildBoneTable(context, feature, mesh, mapping.FbxToUnityScale, out string boneError);
             if (boneTable == null)
             {
                 return MeshFeatureGenerationResult.FailedResult(boneError);
             }
 
-            var boneWeights = BuildUnityBoneWeights(feature, mapping, mesh, boneTable, out string weightError);
-            if (boneWeights == null)
+            if (!BuildUnityBoneWeights(feature, mapping, mesh, boneTable, out string weightError))
             {
                 return MeshFeatureGenerationResult.FailedResult(weightError);
             }
 
             mesh.bindposes = boneTable.BindPoses.ToArray();
-            mesh.boneWeights = boneWeights;
             mesh.RecalculateBounds();
 
-            context.TargetRenderer.bones = boneTable.Bones.ToArray();
-            context.TargetRenderer.rootBone = ResolveRootBone(context, feature);
+            context.Session?.SetSkinBinding(
+                context.MeshKey,
+                ResolveRootBonePath(context, feature),
+                boneTable.BonePaths);
             context.WorkingMesh = mesh;
 
             EditorUtility.SetDirty(mesh);
-            EditorUtility.SetDirty(context.TargetRenderer);
             return MeshFeatureGenerationResult.Success();
         }
 
@@ -315,14 +317,13 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 ? SdkSkeleton.EType.eRoot
                 : SdkSkeleton.EType.eLimbNode);
             created.SetNodeAttribute(skeleton);
-            SetLocalTransform(created, bone, context.Session != null ? context.Session.ImportScale : 1f);
+            SetLocalTransform(created, bone);
             parent.AddChild(created);
             return created;
         }
 
-        private static void SetLocalTransform(FbxNode node, BoneNodeData bone, float importScale)
+        private static void SetLocalTransform(FbxNode node, BoneNodeData bone)
         {
-            importScale = importScale == 0f ? 1f : importScale;
             var localPosition = bone.m_FbxLocalTranslation;
             var localRotation = bone.m_FbxLocalEulerRotation;
             var localScale = bone.m_FbxLocalScale;
@@ -886,91 +887,11 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 #endif
 
-        private static bool ApplyBoneGraphTransforms(
-            MeshFeatureUnityGenerationContext context,
-            BoneGraphObject boneGraph,
-            out string error)
-        {
-            error = null;
-            foreach (var bone in boneGraph?.Bones ?? Array.Empty<BoneNodeData>())
-            {
-                if (bone == null)
-                {
-                    continue;
-                }
-
-                var transform = ResolveOrCreateBone(context, boneGraph, MeshNodePath.Normalize(bone.m_Path), new HashSet<string>(), out error);
-                if (transform == null)
-                {
-                    return false;
-                }
-
-            }
-
-            return true;
-        }
-
-        private static Transform ResolveOrCreateBone(
-            MeshFeatureUnityGenerationContext context,
-            BoneGraphObject boneGraph,
-            string path,
-            HashSet<string> resolving,
-            out string error)
-        {
-            error = null;
-            path = MeshNodePath.Normalize(path);
-            if (path == MeshNodePath.Root)
-            {
-                return context.TargetRootTransform;
-            }
-
-            var existing = context.ResolveTransform(path);
-            if (existing != null)
-            {
-                return existing;
-            }
-
-            var bone = boneGraph.GetBone(path);
-            if (bone == null || !bone.m_CreateIfMissing)
-            {
-                error = $"Cannot resolve skin bone '{path}'.";
-                return null;
-            }
-
-            if (!resolving.Add(path))
-            {
-                error = $"Bone graph contains a parent cycle at '{path}'.";
-                return null;
-            }
-
-            string parentPath = MeshNodePath.Normalize(bone.m_ParentPath);
-            var parent = context.ResolveTransform(parentPath);
-            if (parent == null)
-            {
-                parent = ResolveOrCreateBone(context, boneGraph, parentPath, resolving, out error);
-            }
-
-            resolving.Remove(path);
-            if (parent == null)
-            {
-                return null;
-            }
-
-            var created = new GameObject(MeshNodePath.LeafName(path));
-            created.transform.SetParent(parent, false);
-            created.transform.localPosition = bone.m_FbxLocalTranslation;
-            created.transform.localRotation = Quaternion.Euler(bone.m_FbxLocalEulerRotation);
-            created.transform.localScale = bone.m_FbxLocalScale;
-            context.CacheTransform(path, created.transform);
-            EditorUtility.SetDirty(created);
-            EditorUtility.SetDirty(parent);
-            return created.transform;
-        }
-
         private static BoneTable BuildBoneTable(
             MeshFeatureUnityGenerationContext context,
             SkinWeightFeatureObject feature,
             Mesh mesh,
+            float fbxToUnityScale,
             out string error)
         {
             error = null;
@@ -984,91 +905,167 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 var bindPose = i < existingBindPoses.Length ? existingBindPoses[i] : Matrix4x4.identity;
                 if (bone == null)
                 {
-                    table.AddSynthetic($".__missing_bone_{i}", null, bindPose);
+                    table.AddSynthetic($".__missing_bone_{i}", bindPose);
                     continue;
                 }
 
                 string path = MeshNodePath.GetRelativePath(bone, context.TargetRootTransform);
-                table.Add(path, bone, bindPose);
+                table.Add(path, bindPose);
             }
 
-            foreach (string path in GetMeshNeededBonePaths(feature))
+            foreach (string path in GetMeshNeededBonePathsInGraphOrder(feature))
             {
                 if (table.HasPath(path))
                 {
                     continue;
                 }
 
-                var transform = context.ResolveTransform(path);
-                if (transform == null)
+                if (!TryResolveExtraBoneBindPose(context, feature.m_BoneGraph, path, fbxToUnityScale, out var bindPose, out error))
                 {
-                    var graphBone = feature.m_BoneGraph != null ? feature.m_BoneGraph.GetBone(path) : null;
-                    if (graphBone == null || !graphBone.m_CreateIfMissing)
-                    {
-                        error = $"Cannot resolve needed skin bone '{path}'.";
-                        return null;
-                    }
-
-                    transform = ResolveOrCreateBone(context, feature.m_BoneGraph, path, new HashSet<string>(), out error);
-                    if (transform == null)
-                    {
-                        return null;
-                    }
+                    return null;
                 }
 
-                table.Add(path, transform, ResolveExtraBoneBindPose(context, transform));
+                table.Add(path, bindPose);
             }
 
             return table;
         }
 
-        private static IEnumerable<string> GetMeshNeededBonePaths(SkinWeightFeatureObject feature)
+        private static IEnumerable<string> GetMeshNeededBonePathsInGraphOrder(SkinWeightFeatureObject feature)
         {
-            var indices = new HashSet<int>();
+            var needed = new HashSet<string>();
             foreach (var weights in feature.ControlPointWeights ?? Array.Empty<SkinWeightControlPointData>())
             {
                 foreach (var influence in weights?.m_Influences ?? Array.Empty<SkinWeightInfluenceData>())
                 {
-                    if (influence != null && Mathf.Abs(influence.m_Weight) > WeightEpsilon)
+                    if (influence == null ||
+                        Mathf.Abs(influence.m_Weight) <= WeightEpsilon ||
+                        influence.m_BoneIndex < 0 ||
+                        feature.m_BonePaths == null ||
+                        influence.m_BoneIndex >= feature.m_BonePaths.Length)
                     {
-                        indices.Add(influence.m_BoneIndex);
+                        continue;
                     }
+
+                    needed.Add(MeshNodePath.Normalize(feature.m_BonePaths[influence.m_BoneIndex]));
                 }
             }
 
-            foreach (int index in indices.OrderBy(index => index))
+            foreach (var bone in feature.m_BoneGraph?.Bones ?? Array.Empty<BoneNodeData>())
             {
-                if (feature.m_BonePaths != null && index >= 0 && index < feature.m_BonePaths.Length)
+                string path = MeshNodePath.Normalize(bone?.m_Path);
+                if (needed.Remove(path))
                 {
-                    yield return MeshNodePath.Normalize(feature.m_BonePaths[index]);
+                    yield return path;
                 }
             }
+
+            foreach (string path in needed.OrderBy(path => Array.IndexOf(feature.m_BonePaths, path)))
+            {
+                yield return path;
+            }
         }
 
-        private static Matrix4x4 ResolveExtraBoneBindPose(
+        private static bool TryResolveExtraBoneBindPose(
             MeshFeatureUnityGenerationContext context,
-            Transform bone)
+            BoneGraphObject boneGraph,
+            string path,
+            float fbxToUnityScale,
+            out Matrix4x4 bindPose,
+            out string error)
         {
-            if (bone == null || context?.TargetRenderer == null)
+            bindPose = Matrix4x4.identity;
+            if (!TryResolveBoneLocalToWorld(context, boneGraph, path, fbxToUnityScale, new HashSet<string>(), out var localToWorld, out error))
             {
-                return Matrix4x4.identity;
+                return false;
             }
 
-            // Do not use the reader-derived bind pose here. It depends on the same raw
-            // cluster Transform that can disagree with SDK/global node evaluation.
-            return bone.worldToLocalMatrix * context.TargetRenderer.transform.localToWorldMatrix;
+            bindPose = localToWorld.inverse * context.TargetRenderer.transform.localToWorldMatrix;
+            return true;
         }
 
-        private static Transform ResolveRootBone(
+        private static bool TryResolveBoneLocalToWorld(
+            MeshFeatureUnityGenerationContext context,
+            BoneGraphObject boneGraph,
+            string path,
+            float fbxToUnityScale,
+            HashSet<string> resolving,
+            out Matrix4x4 localToWorld,
+            out string error)
+        {
+            error = null;
+            path = MeshNodePath.Normalize(path);
+            if (path == MeshNodePath.Root)
+            {
+                localToWorld = context.TargetRootTransform != null
+                    ? context.TargetRootTransform.localToWorldMatrix
+                    : Matrix4x4.identity;
+                return true;
+            }
+
+            var graphBone = boneGraph != null ? boneGraph.GetBone(path) : null;
+            if (graphBone == null)
+            {
+                var existing = context.ResolveTransform(path);
+                if (existing != null)
+                {
+                    localToWorld = existing.localToWorldMatrix;
+                    return true;
+                }
+
+                localToWorld = Matrix4x4.identity;
+                error = $"Cannot resolve needed skin bone '{path}'.";
+                return false;
+            }
+
+            if (!graphBone.m_CreateIfMissing)
+            {
+                localToWorld = Matrix4x4.identity;
+                error = $"Cannot resolve needed skin bone '{path}'.";
+                return false;
+            }
+
+            if (!resolving.Add(path))
+            {
+                localToWorld = Matrix4x4.identity;
+                error = $"Bone graph contains a parent cycle at '{path}'.";
+                return false;
+            }
+
+            string parentPath = MeshNodePath.Normalize(graphBone.m_ParentPath);
+            if (!TryResolveBoneLocalToWorld(context, boneGraph, parentPath, fbxToUnityScale, resolving, out var parentLocalToWorld, out error))
+            {
+                resolving.Remove(path);
+                localToWorld = Matrix4x4.identity;
+                return false;
+            }
+
+            resolving.Remove(path);
+            fbxToUnityScale = fbxToUnityScale == 0f ? 1f : fbxToUnityScale;
+            var scale = graphBone.m_FbxLocalScale == Vector3.zero ? Vector3.one : graphBone.m_FbxLocalScale;
+            localToWorld = parentLocalToWorld * Matrix4x4.TRS(
+                graphBone.m_FbxLocalTranslation * fbxToUnityScale,
+                Quaternion.Euler(graphBone.m_FbxLocalEulerRotation),
+                scale);
+            return true;
+        }
+
+        private static string ResolveRootBonePath(
             MeshFeatureUnityGenerationContext context,
             SkinWeightFeatureObject feature)
         {
             string rootBonePath = MeshNodePath.Normalize(feature.m_RootBonePath);
-            var rootBone = context.ResolveTransform(rootBonePath);
-            return rootBone != null ? rootBone : context.TargetRootTransform;
+            if (rootBonePath != MeshNodePath.Root)
+            {
+                return rootBonePath;
+            }
+
+            return context.TargetRenderer.rootBone != null
+                ? MeshNodePath.Normalize(MeshNodePath.GetRelativePath(context.TargetRenderer.rootBone, context.TargetRootTransform))
+                : MeshNodePath.Root;
         }
 
-        private static BoneWeight[] BuildUnityBoneWeights(
+        private static bool BuildUnityBoneWeights(
             SkinWeightFeatureObject feature,
             UnityVertexMappingObject mapping,
             Mesh mesh,
@@ -1080,22 +1077,42 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 .Where(weights => weights != null)
                 .ToDictionary(weights => weights.m_ControlPointIndex, weights => weights);
 
-            var targetWeights = mesh.boneWeights ?? Array.Empty<BoneWeight>();
-            var unityWeights = new BoneWeight[mesh.vertexCount];
+            using var targetWeights = mesh.GetAllBoneWeights();
+            using var targetCounts = mesh.GetBonesPerVertex();
+            using var outputWeights = new NativeList<BoneWeight1>(Allocator.Temp);
+            using var outputCounts = new NativeList<byte>(Allocator.Temp);
+            int targetWeightIndex = 0;
             for (int unityIndex = 0; unityIndex < mesh.vertexCount; unityIndex++)
             {
                 if (!mapping.TryGetFbxGroup(unityIndex, out var group))
                 {
                     error = $"Cannot map Unity vertex {unityIndex} to FBX control points.";
-                    return null;
+                    return false;
                 }
 
-                var aggregate = FromBoneWeight(unityIndex < targetWeights.Length ? targetWeights[unityIndex] : default);
+                var aggregate = new Dictionary<int, float>();
+                int targetCount = unityIndex < targetCounts.Length ? targetCounts[unityIndex] : 0;
+                for (int i = 0; i < targetCount; i++)
+                {
+                    var weight = targetWeights[targetWeightIndex + i];
+                    AddInfluence(aggregate, weight.boneIndex, weight.weight);
+                }
+
+                targetWeightIndex += targetCount;
                 ApplyDeltas(aggregate, group, deltaWeightsByControlPoint, feature, boneTable);
-                unityWeights[unityIndex] = ToBoneWeight(aggregate);
+                var normalized = NormalizeWeights(aggregate);
+                foreach (var weight in normalized)
+                {
+                    outputWeights.Add(new BoneWeight1 { boneIndex = weight.index, weight = weight.weight });
+                }
+
+                outputCounts.Add((byte)normalized.Count);
             }
 
-            return unityWeights;
+            using var outputWeightArray = outputWeights.ToArray(Allocator.Temp);
+            using var outputCountArray = outputCounts.ToArray(Allocator.Temp);
+            mesh.SetBoneWeights(outputCountArray, outputWeightArray);
+            return true;
         }
 
         private static void ApplyDeltas(
@@ -1181,57 +1198,32 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             weights[boneIndex] = existing + weight;
         }
 
-        private static BoneWeight ToBoneWeight(Dictionary<int, float> aggregate)
+        private static List<(int index, float weight)> NormalizeWeights(Dictionary<int, float> aggregate)
         {
-            var top = (aggregate ?? new Dictionary<int, float>())
+            var weights = (aggregate ?? new Dictionary<int, float>())
                 .Where(pair => pair.Value > WeightEpsilon)
                 .OrderByDescending(pair => pair.Value)
-                .Take(4)
-                .ToArray();
+                .Select(pair => (pair.Key, pair.Value))
+                .ToList();
+            if (weights.Count == 0)
+            {
+                weights.Add((0, 1f));
+            }
 
-            float total = top.Sum(pair => pair.Value);
+            float total = weights.Sum(pair => pair.Value);
             if (total <= WeightEpsilon)
             {
-                return default;
+                return new List<(int index, float weight)> { (weights[0].Key, 1f) };
             }
 
-            var boneWeight = new BoneWeight();
-            for (int i = 0; i < top.Length; i++)
-            {
-                SetInfluence(ref boneWeight, i, top[i].Key, top[i].Value / total);
-            }
-
-            return boneWeight;
-        }
-
-        private static void SetInfluence(ref BoneWeight boneWeight, int slot, int boneIndex, float weight)
-        {
-            switch (slot)
-            {
-                case 0:
-                    boneWeight.boneIndex0 = boneIndex;
-                    boneWeight.weight0 = weight;
-                    break;
-                case 1:
-                    boneWeight.boneIndex1 = boneIndex;
-                    boneWeight.weight1 = weight;
-                    break;
-                case 2:
-                    boneWeight.boneIndex2 = boneIndex;
-                    boneWeight.weight2 = weight;
-                    break;
-                case 3:
-                    boneWeight.boneIndex3 = boneIndex;
-                    boneWeight.weight3 = weight;
-                    break;
-            }
+            return weights.Select(pair => (pair.Key, pair.Value / total)).ToList();
         }
 
         private sealed class BoneTable
         {
             private readonly Dictionary<string, int> indexByPath = new();
 
-            public List<Transform> Bones { get; } = new();
+            public List<string> BonePaths { get; } = new();
             public List<Matrix4x4> BindPoses { get; } = new();
 
             public bool HasPath(string path)
@@ -1259,7 +1251,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 }
             }
 
-            public int Add(string path, Transform bone, Matrix4x4 bindPose)
+            public int Add(string path, Matrix4x4 bindPose)
             {
                 string normalized = MeshNodePath.Normalize(path);
                 if (indexByPath.TryGetValue(normalized, out int existing))
@@ -1267,14 +1259,14 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     return existing;
                 }
 
-                return AddSynthetic(normalized, bone, bindPose);
+                return AddSynthetic(normalized, bindPose);
             }
 
-            public int AddSynthetic(string key, Transform bone, Matrix4x4 bindPose)
+            public int AddSynthetic(string key, Matrix4x4 bindPose)
             {
-                int index = Bones.Count;
+                int index = BonePaths.Count;
                 indexByPath[key] = index;
-                Bones.Add(bone);
+                BonePaths.Add(key);
                 BindPoses.Add(bindPose);
                 return index;
             }

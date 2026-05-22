@@ -1,4 +1,3 @@
-using Triturbo.BlendShare.Core;
 using UnityEngine;
 using UnityEngine.Animations;
 
@@ -12,13 +11,7 @@ namespace Triturbo.BlendShare.Components
         private BlendShareApplierComponent m_Owner;
 
         [SerializeField, NotKeyable]
-        private string m_BonePath;
-
-        [SerializeField, NotKeyable]
-        private Transform m_TargetParent;
-
-        [SerializeField, NotKeyable]
-        private string m_TargetParentPath;
+        private AvatarObjectReference<Transform> m_TargetParentReference = new();
 
         [SerializeField, NotKeyable]
         private Vector3 m_LocalPosition;
@@ -35,22 +28,12 @@ namespace Triturbo.BlendShare.Components
             set => m_Owner = value;
         }
 
-        public string BonePath
-        {
-            get => MeshNodePath.Normalize(m_BonePath);
-            set => m_BonePath = MeshNodePath.Normalize(value);
-        }
-
         public Transform TargetParent
         {
-            get => m_TargetParent;
-            set => m_TargetParent = value;
-        }
-
-        public string TargetParentPath
-        {
-            get => MeshNodePath.Normalize(m_TargetParentPath);
-            set => m_TargetParentPath = MeshNodePath.Normalize(value);
+            get => m_TargetParentReference != null && m_TargetParentReference.IsConfigured
+                ? m_TargetParentReference.Get(this)
+                : null;
+            set => EnsureTargetParentReferenceInitialized().Set(value);
         }
 
         public Vector3 LocalPosition
@@ -78,12 +61,21 @@ namespace Triturbo.BlendShare.Components
                 m_Owner = GetComponentInParent<BlendShareApplierComponent>(true);
             }
 
-            m_BonePath = MeshNodePath.Normalize(m_BonePath);
-            m_TargetParentPath = MeshNodePath.Normalize(m_TargetParentPath);
+            EnsureTargetParentReferenceInitialized();
             if (m_LocalScale == Vector3.zero)
             {
                 m_LocalScale = Vector3.one;
             }
+        }
+
+        private AvatarObjectReference<Transform> EnsureTargetParentReferenceInitialized()
+        {
+            if (m_TargetParentReference == null)
+            {
+                m_TargetParentReference = new AvatarObjectReference<Transform>();
+            }
+
+            return m_TargetParentReference;
         }
     }
 }

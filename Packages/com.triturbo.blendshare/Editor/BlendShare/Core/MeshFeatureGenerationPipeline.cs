@@ -6,7 +6,6 @@ using Object = UnityEngine.Object;
 
 #if ENABLE_FBX_SDK
 using Autodesk.Fbx;
-using Triturbo.BlendShare.Fbx.Unity;
 using UfbxScene = Triturbo.BlendShare.Fbx.Ufbx.UfbxScene;
 #endif
 
@@ -60,8 +59,25 @@ namespace Triturbo.BlendShare.Core
             out List<Mesh> generatedMeshes,
             out List<Object> generatedObjects)
         {
+            return TryGenerateUnityMeshes(
+                targetMeshContainer,
+                blendShares,
+                out generatedMeshes,
+                out generatedObjects,
+                out _);
+        }
+
+        public bool TryGenerateUnityMeshes(
+            Object targetMeshContainer,
+            IEnumerable<BlendShareObject> blendShares,
+            out List<Mesh> generatedMeshes,
+            out List<Object> generatedObjects,
+            out IReadOnlyDictionary<string, MeshFeatureSkinBindingOutput> skinBindingsByMeshKey,
+            System.Func<BlendShareObject, MeshDataObject, bool> shouldGenerateMesh = null)
+        {
             generatedMeshes = new List<Mesh>();
             generatedObjects = new List<Object>();
+            skinBindingsByMeshKey = new Dictionary<string, MeshFeatureSkinBindingOutput>();
 
             var shares = blendShares?.Where(share => share != null).Distinct().ToArray() ??
                          System.Array.Empty<BlendShareObject>();
@@ -79,6 +95,11 @@ namespace Triturbo.BlendShare.Core
                 foreach (var meshData in share.Meshes ?? System.Array.Empty<MeshDataObject>())
                 {
                     if (meshData == null)
+                    {
+                        continue;
+                    }
+
+                    if (shouldGenerateMesh != null && !shouldGenerateMesh(share, meshData))
                     {
                         continue;
                     }
@@ -160,6 +181,7 @@ namespace Triturbo.BlendShare.Core
 
             generatedMeshes.AddRange(generatedByMeshKey.Values.Where(mesh => mesh != null));
             generatedObjects.AddRange(session.GeneratedObjects.Where(obj => obj != null));
+            skinBindingsByMeshKey = session.SkinBindingsByMeshKey;
             return generatedMeshes.Count > 0;
         }
 
@@ -361,7 +383,7 @@ namespace Triturbo.BlendShare.Core
                 var sourceRootNode = scene.GetRootNode();
                 var generationSession = new MeshFeatureFbxGenerationSession(
                     sourceRootNode,
-                    FbxUnityAssetReader.GetImportScale(source),
+                    GetBlendShareMappingScale(shares),
                     readerScene);
                 var modifiedNodes = new HashSet<FbxNode>();
                 // modifiedNodes drives onlyNecessary export pruning and must include every node touched by a generator.
@@ -642,5 +664,18 @@ namespace Triturbo.BlendShare.Core
 
             return MeshNodePath.Normalize(meshData.m_Path);
         }
+
+#if ENABLE_FBX_SDK
+        private static float GetBlendShareMappingScale(IEnumerable<BlendShareObject> shares)
+        {
+            var mapping = (shares ?? Enumerable.Empty<BlendShareObject>())
+                .Where(share => share != null)
+                .SelectMany(share => share.Meshes ?? System.Array.Empty<MeshDataObject>())
+                .Where(meshData => meshData != null)
+                .SelectMany(meshData => meshData.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
+                .FirstOrDefault(candidate => candidate != null && candidate.m_IsValid);
+            return mapping != null ? mapping.FbxToUnityScale : 1f;
+        }
+#endif
     }
 }

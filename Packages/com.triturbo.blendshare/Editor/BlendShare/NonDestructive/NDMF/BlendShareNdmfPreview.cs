@@ -3,6 +3,8 @@ using System.Collections.Immutable;
 using System.Linq;
 using System.Threading.Tasks;
 using Triturbo.BlendShare.Components;
+using Triturbo.BlendShare.Core;
+using Triturbo.BlendShare.Persistence;
 using nadena.dev.ndmf.preview;
 using UnityEngine;
 using Object = UnityEngine.Object;
@@ -97,19 +99,35 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
                     return;
                 }
 
-                var owners = appliers.Select(applier => meshContext.Observe(applier, item => item.Owner)).Where(owner => owner != null).Distinct().ToArray();
-                var targetRoot = owners.FirstOrDefault(owner => meshContext.Observe(owner, item => item.TargetRoot) != null)?.TargetRoot ?? originalRenderer.transform.root;
-                var proxies = owners
-                    .SelectMany(owner => owner.GetComponentsInChildren<BlendShareBoneProxyComponent>(true))
+                var owners = appliers
+                    .Select(applier => meshContext.Observe(applier, item => item.Owner))
+                    .Where(owner => owner != null)
+                    .Distinct()
                     .ToArray();
-                var result = BlendShareSkinBindingProcessor.Process(new BlendShareSkinBindingProcessor.Request
+                var enabledMeshData = new HashSet<MeshDataObject>(appliers
+                    .Where(applier => meshContext.Observe(applier, item => item.EnabledForBuild))
+                    .Select(applier => meshContext.Observe(applier, item => item.MeshData))
+                    .Where(meshData => meshData != null));
+                var proxyRoot = proxyRenderer.transform.root;
+                var artifact = BlendShareArtifactService.CreateInMemoryArtifact(
+                    proxyRoot.gameObject,
+                    owners.SelectMany(owner => owner.BlendShares).Where(share => share != null).Distinct(),
+                    (share, meshData) => enabledMeshData.Contains(meshData));
+                if (artifact == null)
                 {
-                    Renderer = proxyRenderer,
-                    TargetRoot = targetRoot,
-                    MeshAppliers = appliers,
-                    BoneProxies = proxies,
-                    CreateBone = (path, bone) => null
-                });
+                    Debug.LogWarning("[BlendShare Preview] Failed to generate BlendShare artifact.", original);
+                    return;
+                }
+
+                var result = BlendShareArtifactService.ApplyArtifact(
+                    artifact,
+                    proxyRoot,
+                    new BlendShareArtifactApplyOptions
+                    {
+                        UseUndo = false,
+                        RecordDestructiveMarkers = false,
+                        MarkObjectsDirty = false
+                    });
 
                 if (!result.Success)
                 {
@@ -120,9 +138,9 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
                     return;
                 }
 
-                mesh = result.Mesh;
-                bones = result.Bones;
-                rootBone = result.RootBone;
+                mesh = proxyRenderer.sharedMesh;
+                bones = proxyRenderer.bones;
+                rootBone = proxyRenderer.rootBone;
                 meshContext.Observe(originalRenderer, renderer => renderer.sharedMesh);
                 meshContext.Observe(originalRenderer, renderer => renderer.bones);
                 meshContext.Observe(originalRenderer, renderer => renderer.rootBone);

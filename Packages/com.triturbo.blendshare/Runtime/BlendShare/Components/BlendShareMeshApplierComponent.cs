@@ -12,7 +12,7 @@ namespace Triturbo.BlendShare.Components
         private BlendShareApplierComponent m_Owner;
 
         [SerializeField, NotKeyable]
-        private SkinnedMeshRenderer m_TargetRenderer;
+        private AvatarObjectReference<SkinnedMeshRenderer> m_TargetRendererReference = new();
 
         [SerializeField, NotKeyable]
         private MeshDataObject m_MeshData;
@@ -31,8 +31,10 @@ namespace Triturbo.BlendShare.Components
 
         public SkinnedMeshRenderer TargetRenderer
         {
-            get => m_TargetRenderer;
-            set => m_TargetRenderer = value;
+            get => m_TargetRendererReference != null && m_TargetRendererReference.IsConfigured
+                ? m_TargetRendererReference.Get(this)
+                : null;
+            set => EnsureTargetRendererReferenceInitialized().Set(value);
         }
 
         public MeshDataObject MeshData
@@ -60,12 +62,27 @@ namespace Triturbo.BlendShare.Components
                 m_Owner = GetComponentInParent<BlendShareApplierComponent>(true);
             }
 
-            if (m_TargetRenderer == null)
+            EnsureTargetRendererReferenceInitialized();
+            if (!m_TargetRendererReference.IsConfigured)
             {
-                m_TargetRenderer = GetComponent<SkinnedMeshRenderer>();
+                var renderer = GetComponent<SkinnedMeshRenderer>();
+                if (renderer != null)
+                {
+                    m_TargetRendererReference.Set(renderer);
+                }
             }
 
             m_RendererNodePath = MeshNodePath.Normalize(m_RendererNodePath);
+        }
+
+        private AvatarObjectReference<SkinnedMeshRenderer> EnsureTargetRendererReferenceInitialized()
+        {
+            if (m_TargetRendererReference == null)
+            {
+                m_TargetRendererReference = new AvatarObjectReference<SkinnedMeshRenderer>();
+            }
+
+            return m_TargetRendererReference;
         }
     }
 }

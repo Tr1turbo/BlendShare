@@ -1,9 +1,8 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.Components;
 using Triturbo.BlendShare.Core;
-using Triturbo.BlendShare.Features.BoneGraph;
+using Triturbo.BlendShare.Persistence;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
@@ -29,38 +28,55 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
                 PlaceProxyInBuildHierarchy(proxy, context.AvatarRootTransform);
             }
 
-            foreach (var group in meshAppliers
-                         .Where(applier => applier != null && applier.EnabledForBuild && applier.Owner != null && applier.TargetRenderer != null)
-                         .OrderBy(applier => GetHierarchyOrder(applier.transform))
-                         .GroupBy(applier => applier.TargetRenderer))
-            {
-                var renderer = group.Key;
-                var ordered = group.ToArray();
-                var owners = ordered.Select(applier => applier.Owner).Distinct().ToArray();
-                var request = new BlendShareSkinBindingProcessor.Request
-                {
-                    Renderer = renderer,
-                    TargetRoot = owners.FirstOrDefault(owner => owner != null && owner.TargetRoot != null)?.TargetRoot ?? context.AvatarRootTransform,
-                    MeshAppliers = ordered,
-                    BoneProxies = boneProxies.Where(proxy => proxy != null && owners.Contains(proxy.Owner)).ToArray(),
-                    CreateBone = (path, bone) => CreateBuildBone(context.AvatarRootTransform, path, bone)
-                };
+            var orderedMeshAppliers = meshAppliers
+                .Where(applier => applier != null &&
+                                  applier.EnabledForBuild &&
+                                  applier.Owner != null &&
+                                  applier.TargetRenderer != null &&
+                                  applier.MeshData != null)
+                .OrderBy(applier => GetHierarchyOrder(applier.Owner.transform))
+                .ThenBy(applier => GetHierarchyOrder(applier.transform))
+                .ToArray();
 
-                var result = BlendShareSkinBindingProcessor.Process(request);
+            foreach (var ownerGroup in orderedMeshAppliers.GroupBy(applier => applier.Owner))
+            {
+                var owner = ownerGroup.Key;
+                if (owner == null)
+                {
+                    continue;
+                }
+
+                var targetRoot = owner.TargetRoot != null ? owner.TargetRoot : context.AvatarRootTransform;
+                var enabledMeshData = new HashSet<MeshDataObject>(ownerGroup
+                    .Select(applier => applier.MeshData)
+                    .Where(meshData => meshData != null));
+                var artifact = BlendShareArtifactService.CreateInMemoryArtifact(
+                    targetRoot.gameObject,
+                    owner.BlendShares,
+                    (share, meshData) => enabledMeshData.Contains(meshData));
+                if (artifact == null)
+                {
+                    Debug.LogError($"[BlendShare NDMF] Failed to generate BlendShare artifact for '{owner.name}'.", owner);
+                    continue;
+                }
+
+                var result = BlendShareArtifactService.ApplyArtifact(
+                    artifact,
+                    targetRoot,
+                    new BlendShareArtifactApplyOptions
+                    {
+                        UseUndo = false,
+                        RecordDestructiveMarkers = false,
+                        MarkObjectsDirty = false,
+                        SaveGeneratedMesh = mesh => context.AssetSaver.SaveAsset(mesh)
+                    });
                 if (!result.Success)
                 {
                     foreach (string diagnostic in result.Diagnostics)
                     {
-                        Debug.LogError($"[BlendShare NDMF] {diagnostic}", renderer);
+                        Debug.LogError($"[BlendShare NDMF] {diagnostic}", owner);
                     }
-
-                    continue;
                 }
-
-                context.AssetSaver.SaveAsset(result.Mesh);
-                renderer.sharedMesh = result.Mesh;
-                renderer.rootBone = result.RootBone;
-                renderer.bones = result.Bones;
             }
 
             foreach (var component in context.AvatarRootObject.GetComponentsInChildren<BlendShareMeshApplierComponent>(true))
@@ -79,19 +95,6 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
             }
         }
 
-        private static Transform CreateBuildBone(Transform targetRoot, string path, BoneNodeData bone)
-        {
-            string normalized = MeshNodePath.Normalize(path);
-            string parentPath = MeshNodePath.Normalize(bone.m_ParentPath);
-            var parent = MeshNodePath.FindRelativeTransform(targetRoot, parentPath) ?? targetRoot;
-            var created = new GameObject(MeshNodePath.LeafName(normalized));
-            created.transform.SetParent(parent, false);
-            created.transform.localPosition = bone.m_FbxLocalTranslation;
-            created.transform.localRotation = Quaternion.Euler(bone.m_FbxLocalEulerRotation);
-            created.transform.localScale = bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale;
-            return created.transform;
-        }
-
         private static void PlaceProxyInBuildHierarchy(BlendShareBoneProxyComponent proxy, Transform fallbackRoot)
         {
             if (proxy == null)
@@ -101,8 +104,12 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
 
             var parent = proxy.TargetParent != null
                 ? proxy.TargetParent
-                : MeshNodePath.FindRelativeTransform(fallbackRoot, proxy.TargetParentPath);
+                : proxy.transform.parent;
             if (parent == null)
+            {
+                parent = fallbackRoot;
+            }
+            else if (fallbackRoot != null && parent != fallbackRoot && !parent.IsChildOf(fallbackRoot))
             {
                 parent = fallbackRoot;
             }
