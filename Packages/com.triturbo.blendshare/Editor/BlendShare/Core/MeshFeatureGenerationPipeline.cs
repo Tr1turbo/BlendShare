@@ -6,8 +6,8 @@ using Object = UnityEngine.Object;
 
 #if ENABLE_FBX_SDK
 using Autodesk.Fbx;
-using Triturbo.Fbx.Unity;
-using UfbxScene = Triturbo.Fbx.Ufbx.UfbxScene;
+using Triturbo.BlendShare.Fbx.Unity;
+using UfbxScene = Triturbo.BlendShare.Fbx.Ufbx.UfbxScene;
 #endif
 
 namespace Triturbo.BlendShare.Core

@@ -3,7 +3,7 @@ using System.Linq;
 using Triturbo.BlendShapeShare.BlendShapeData;
 using Triturbo.BlendShare.Core;
 using UnityEngine;
-using Vector3d = Triturbo.Fbx.Vector3d;
+using Vector3d = Triturbo.BlendShare.Fbx.Vector3d;
 
 #if ENABLE_FBX_SDK
 using Autodesk.Fbx;

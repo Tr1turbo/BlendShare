@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
-using Triturbo.Fbx;
-using Triturbo.Fbx.Ufbx;
+using Triturbo.BlendShare.Fbx;
+using Triturbo.BlendShare.Fbx.Ufbx;
 
 namespace Triturbo.BlendShare.Core
 {

@@ -1,8 +1,8 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Triturbo.BlendShapeShare.BlendShapeData;
-using Triturbo.Fbx;
-using Triturbo.Fbx.Ufbx;
+using Triturbo.BlendShare.Fbx;
+using Triturbo.BlendShare.Fbx.Ufbx;
 using UnityEngine;
 
 namespace Triturbo.BlendShare.Core

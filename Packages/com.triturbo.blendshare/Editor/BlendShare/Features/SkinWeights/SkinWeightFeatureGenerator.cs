@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Features.BoneGraph;
-using Triturbo.Fbx;
-using Triturbo.Fbx.Ufbx;
+using Triturbo.BlendShare.Fbx;
+using Triturbo.BlendShare.Fbx.Ufbx;
 using UnityEditor;
 using UnityEngine;
 #if ENABLE_FBX_SDK
@@ -648,7 +648,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return result;
         }
 
-        private static FbxAMatrix ToFbxAMatrix(Triturbo.Fbx.FbxMatrix4x4 matrix)
+        private static FbxAMatrix ToFbxAMatrix(Triturbo.BlendShare.Fbx.FbxMatrix4x4 matrix)
         {
             var result = new FbxAMatrix();
             for (int row = 0; row < 4; row++)

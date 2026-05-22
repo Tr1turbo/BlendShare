@@ -1,11 +1,11 @@
 using Triturbo.BlendShapeShare.BlendShapeData;
-using Triturbo.Fbx;
+using Triturbo.BlendShare.Fbx;
 using Debug = UnityEngine.Debug;
-using FbxReaderMatrix = Triturbo.Fbx.FbxMatrix4x4;
-using UfbxBlendChannel = Triturbo.Fbx.Ufbx.UfbxBlendChannel;
-using UfbxBlendShape = Triturbo.Fbx.Ufbx.UfbxBlendShape;
-using UfbxMesh = Triturbo.Fbx.Ufbx.UfbxMesh;
-using Vector3d = Triturbo.Fbx.Vector3d;
+using FbxReaderMatrix = Triturbo.BlendShare.Fbx.FbxMatrix4x4;
+using UfbxBlendChannel = Triturbo.BlendShare.Fbx.Ufbx.UfbxBlendChannel;
+using UfbxBlendShape = Triturbo.BlendShare.Fbx.Ufbx.UfbxBlendShape;
+using UfbxMesh = Triturbo.BlendShare.Fbx.Ufbx.UfbxMesh;
+using Vector3d = Triturbo.BlendShare.Fbx.Vector3d;
 
 namespace Triturbo.BlendShare.Features.BlendShapes
 {

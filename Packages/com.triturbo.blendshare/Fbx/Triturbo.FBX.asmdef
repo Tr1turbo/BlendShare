@@ -1,0 +1,18 @@
+{
+    "name": "Triturbo.FBX",
+    "rootNamespace": "",
+    "references": [
+        "GUID:518a499d71b640be98077a0a1d0eb856"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

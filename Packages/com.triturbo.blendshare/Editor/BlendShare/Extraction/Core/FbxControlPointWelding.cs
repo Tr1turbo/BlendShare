@@ -1,8 +1,8 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using Triturbo.Fbx;
-using Triturbo.Fbx.Ufbx;
+using Triturbo.BlendShare.Fbx;
+using Triturbo.BlendShare.Fbx.Ufbx;
 using Debug = UnityEngine.Debug;
 
 #if ENABLE_FBX_SDK

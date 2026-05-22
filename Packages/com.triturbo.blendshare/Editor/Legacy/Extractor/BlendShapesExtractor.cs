@@ -12,7 +12,7 @@ using Debug = UnityEngine.Debug;
 using System.Threading.Tasks;
 
 
-using Vector3d = Triturbo.Fbx.Vector3d;
+using Vector3d = Triturbo.BlendShare.Fbx.Vector3d;
 
 
 #if ENABLE_FBX_SDK

@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using Triturbo.BlendShare.Core;
 using UnityEngine;
-using UfbxReaderTransform = Triturbo.Fbx.Ufbx.UfbxTransform;
+using UfbxReaderTransform = Triturbo.BlendShare.Fbx.Ufbx.UfbxTransform;
 
 namespace Triturbo.BlendShare.Features.BlendShapes
 {

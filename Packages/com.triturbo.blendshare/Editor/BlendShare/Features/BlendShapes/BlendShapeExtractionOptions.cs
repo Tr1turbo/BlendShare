@@ -1,10 +1,10 @@
 using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.Core;
-using ReaderFbxMatrix = Triturbo.Fbx.FbxMatrix4x4;
-using ReaderFbxTransform = Triturbo.Fbx.FbxTransform;
-using ReaderUfbxTransform = Triturbo.Fbx.Ufbx.UfbxTransform;
-using ReaderVector3d = Triturbo.Fbx.Vector3d;
+using ReaderFbxMatrix = Triturbo.BlendShare.Fbx.FbxMatrix4x4;
+using ReaderFbxTransform = Triturbo.BlendShare.Fbx.FbxTransform;
+using ReaderUfbxTransform = Triturbo.BlendShare.Fbx.Ufbx.UfbxTransform;
+using ReaderVector3d = Triturbo.BlendShare.Fbx.Vector3d;
 
 #if ENABLE_FBX_SDK
 using Autodesk.Fbx;

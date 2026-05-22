@@ -1,8 +1,8 @@
 using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.Core;
-using Triturbo.Fbx;
-using Triturbo.Fbx.Ufbx;
+using Triturbo.BlendShare.Fbx;
+using Triturbo.BlendShare.Fbx.Ufbx;
 using UnityEngine;
 
 namespace Triturbo.BlendShare.Features.SkinWeights

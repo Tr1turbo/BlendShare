@@ -6,9 +6,9 @@ using Triturbo.BlendShare.Features.BlendShapes;
 using Triturbo.BlendShare.Persistence;
 using UnityEditor;
 using UnityEngine;
-using Triturbo.Fbx;
-using Triturbo.Fbx.Ufbx;
-using Triturbo.Fbx.Unity;
+using Triturbo.BlendShare.Fbx;
+using Triturbo.BlendShare.Fbx.Ufbx;
+using Triturbo.BlendShare.Fbx.Unity;
 
 namespace Triturbo.BlendShare.Migration
 {

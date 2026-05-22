@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.Features.BoneGraph;
-using Triturbo.Fbx;
-using Triturbo.Fbx.Ufbx;
-using Triturbo.Fbx.Unity;
+using Triturbo.BlendShare.Fbx;
+using Triturbo.BlendShare.Fbx.Ufbx;
+using Triturbo.BlendShare.Fbx.Unity;
 using UnityEngine;
 
 #if ENABLE_FBX_SDK
