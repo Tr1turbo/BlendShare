@@ -387,6 +387,10 @@ namespace Triturbo.Fbx
 
     public sealed class UfbxMesh : UfbxElement
     {
+        private readonly Vector3d[] snapshotVertices;
+        private readonly Vector3d[] snapshotNormals;
+        private readonly Vector3d[] snapshotTangents;
+        private IReadOnlyList<UfbxDeformer> snapshotDeformers;
         private IReadOnlyList<UfbxDeformer> deformers;
         private IReadOnlyList<UfbxSkinDeformer> skinDeformers;
         private IReadOnlyList<UfbxBlendDeformer> blendDeformers;
@@ -408,46 +412,103 @@ namespace Triturbo.Fbx
             BlendDeformerCount = Math.Max(0, blendDeformerCount);
         }
 
+        internal UfbxMesh(
+            UfbxMesh source,
+            Vector3d[] vertices,
+            Vector3d[] normals,
+            Vector3d[] tangents)
+            : this(
+                source?.Scene ?? throw new ArgumentNullException(nameof(source)),
+                source.Index,
+                source.Id,
+                source.Name,
+                source.OwnerNode,
+                source.ControlPointCount,
+                source.SkinCount,
+                source.BlendDeformerCount)
+        {
+            snapshotVertices = Copy(vertices);
+            snapshotNormals = Copy(normals);
+            snapshotTangents = Copy(tangents);
+        }
+
         public UfbxNode OwnerNode { get; }
         public int ControlPointCount { get; }
         public int SkinCount { get; }
         public int BlendDeformerCount { get; }
-        public IReadOnlyList<UfbxDeformer> Deformers => deformers ??= BuildDeformers();
+        public IReadOnlyList<UfbxDeformer> Deformers => snapshotDeformers ?? (deformers ??= BuildDeformers());
         public IReadOnlyList<UfbxSkinDeformer> SkinDeformers => skinDeformers ??= FbxCollection.ToReadOnly(Deformers.OfType<UfbxSkinDeformer>());
         public IReadOnlyList<UfbxBlendDeformer> BlendDeformers => blendDeformers ??= FbxCollection.ToReadOnly(Deformers.OfType<UfbxBlendDeformer>());
 
+        internal void SetSnapshotDeformers(IEnumerable<UfbxDeformer> deformers)
+        {
+            snapshotDeformers = FbxCollection.ToReadOnly(deformers);
+            skinDeformers = null;
+            blendDeformers = null;
+        }
+
         public int CopyVertices(double[] destination)
         {
+            if (snapshotVertices != null)
+            {
+                return CopyVector3dArray(snapshotVertices, destination, GetVectorCapacity(destination));
+            }
+
             EnsureAlive();
             return UfbxNative.CopyControlPoints(Scene.Handle, Index, destination, GetVectorCapacity(destination));
         }
 
         public int CopyNormals(double[] destination)
         {
+            if (snapshotNormals != null)
+            {
+                return CopyVector3dArray(snapshotNormals, destination, GetVectorCapacity(destination));
+            }
+
             EnsureAlive();
             return UfbxNative.CopyControlPointNormals(Scene.Handle, Index, destination, GetVectorCapacity(destination));
         }
 
         public int CopyTangents(double[] destination)
         {
+            if (snapshotTangents != null)
+            {
+                return CopyVector3dArray(snapshotTangents, destination, GetVectorCapacity(destination));
+            }
+
             EnsureAlive();
             return UfbxNative.CopyControlPointTangents(Scene.Handle, Index, destination, GetVectorCapacity(destination));
         }
 
         public Vector3d[] GetVertices()
         {
+            if (snapshotVertices != null)
+            {
+                return Copy(snapshotVertices);
+            }
+
             var values = new double[ControlPointCount * 3];
             return CopyVertices(values) != 0 ? UfbxScene.ToVector3dArray(values) : Array.Empty<Vector3d>();
         }
 
         public Vector3d[] GetNormals()
         {
+            if (snapshotNormals != null)
+            {
+                return Copy(snapshotNormals);
+            }
+
             var values = new double[ControlPointCount * 3];
             return CopyNormals(values) != 0 ? UfbxScene.ToVector3dArray(values) : Array.Empty<Vector3d>();
         }
 
         public Vector3d[] GetTangents()
         {
+            if (snapshotTangents != null)
+            {
+                return Copy(snapshotTangents);
+            }
+
             var values = new double[ControlPointCount * 3];
             return CopyTangents(values) != 0 ? UfbxScene.ToVector3dArray(values) : Array.Empty<Vector3d>();
         }
@@ -485,6 +546,29 @@ namespace Triturbo.Fbx
         {
             return destination?.Length / 3 ?? 0;
         }
+
+        internal static Vector3d[] Copy(IReadOnlyList<Vector3d> values)
+        {
+            return values?.ToArray() ?? Array.Empty<Vector3d>();
+        }
+
+        private static int CopyVector3dArray(IReadOnlyList<Vector3d> source, double[] destination, int destinationCount)
+        {
+            if (source == null || destination == null || destinationCount < source.Count ||
+                (source.Count == 0 && destinationCount > 0))
+            {
+                return 0;
+            }
+
+            for (int i = 0; i < source.Count; i++)
+            {
+                destination[i * 3] = source[i].x;
+                destination[i * 3 + 1] = source[i].y;
+                destination[i * 3 + 2] = source[i].z;
+            }
+
+            return 1;
+        }
     }
 
     public abstract class UfbxDeformer : UfbxElement
@@ -500,6 +584,7 @@ namespace Triturbo.Fbx
 
     public sealed class UfbxSkinDeformer : UfbxDeformer
     {
+        private IReadOnlyList<UfbxSkinCluster> snapshotClusters;
         private IReadOnlyList<UfbxSkinCluster> clusters;
 
         internal UfbxSkinDeformer(UfbxScene scene, UfbxMesh ownerMesh, int skinIndex, long id, string name, int clusterCount)
@@ -508,8 +593,21 @@ namespace Triturbo.Fbx
             ClusterCount = Math.Max(0, clusterCount);
         }
 
+        internal UfbxSkinDeformer(
+            UfbxSkinDeformer source,
+            UfbxMesh ownerMesh)
+            : base(source.Scene, UfbxElementType.SkinDeformer, ownerMesh, source.Index, source.Id, source.Name)
+        {
+            ClusterCount = source.ClusterCount;
+        }
+
         public int ClusterCount { get; }
-        public IReadOnlyList<UfbxSkinCluster> Clusters => clusters ??= BuildClusters();
+        public IReadOnlyList<UfbxSkinCluster> Clusters => snapshotClusters ?? (clusters ??= BuildClusters());
+
+        internal void SetSnapshotClusters(IEnumerable<UfbxSkinCluster> clusters)
+        {
+            snapshotClusters = FbxCollection.ToReadOnly(clusters);
+        }
 
         private IReadOnlyList<UfbxSkinCluster> BuildClusters()
         {
@@ -533,6 +631,9 @@ namespace Triturbo.Fbx
 
     public sealed class UfbxSkinCluster : UfbxElement
     {
+        private readonly int[] snapshotIndices;
+        private readonly double[] snapshotWeights;
+
         internal UfbxSkinCluster(
             UfbxScene scene,
             UfbxMesh ownerMesh,
@@ -554,6 +655,26 @@ namespace Triturbo.Fbx
             GeometryToBone = UfbxScene.ToMatrix(info.GeometryToBone);
         }
 
+        internal UfbxSkinCluster(
+            UfbxSkinCluster source,
+            UfbxMesh ownerMesh,
+            UfbxSkinDeformer ownerSkin,
+            int[] indices,
+            double[] weights)
+            : base(source.Scene, UfbxElementType.SkinCluster, source.Index, source.Id, source.Name)
+        {
+            OwnerMesh = ownerMesh;
+            OwnerSkin = ownerSkin;
+            BoneNode = source.BoneNode;
+            snapshotIndices = indices?.ToArray() ?? Array.Empty<int>();
+            snapshotWeights = weights?.ToArray() ?? Array.Empty<double>();
+            WeightCount = Math.Min(snapshotIndices.Length, snapshotWeights.Length);
+            MeshBindWorld = source.MeshBindWorld;
+            BindToWorld = source.BindToWorld;
+            MeshNodeToBone = source.MeshNodeToBone;
+            GeometryToBone = source.GeometryToBone;
+        }
+
         public UfbxMesh OwnerMesh { get; }
         public UfbxSkinDeformer OwnerSkin { get; }
         public UfbxNode BoneNode { get; }
@@ -565,6 +686,11 @@ namespace Triturbo.Fbx
 
         public int CopyIndices(int[] destination)
         {
+            if (snapshotIndices != null)
+            {
+                return CopyIntArray(snapshotIndices, destination, WeightCount);
+            }
+
             EnsureAlive();
             return UfbxNative.CopyClusterIndices(Scene.Handle, OwnerMesh.Index, OwnerSkin.Index, Index, destination, destination?.Length ?? 0);
         }
@@ -576,6 +702,11 @@ namespace Triturbo.Fbx
 
         public int CopyWeights(double[] destination)
         {
+            if (snapshotWeights != null)
+            {
+                return CopyDoubleArray(snapshotWeights, destination, WeightCount);
+            }
+
             EnsureAlive();
             return UfbxNative.CopyClusterWeights(Scene.Handle, OwnerMesh.Index, OwnerSkin.Index, Index, destination, destination?.Length ?? 0);
         }
@@ -596,10 +727,41 @@ namespace Triturbo.Fbx
             var values = new double[WeightCount];
             return CopyWeights(values) != 0 ? values : Array.Empty<double>();
         }
+
+        private static int CopyIntArray(IReadOnlyList<int> source, int[] destination, int count)
+        {
+            if (source == null || destination == null || destination.Length < count || source.Count < count)
+            {
+                return 0;
+            }
+
+            for (int i = 0; i < count; i++)
+            {
+                destination[i] = source[i];
+            }
+
+            return 1;
+        }
+
+        private static int CopyDoubleArray(IReadOnlyList<double> source, double[] destination, int count)
+        {
+            if (source == null || destination == null || destination.Length < count || source.Count < count)
+            {
+                return 0;
+            }
+
+            for (int i = 0; i < count; i++)
+            {
+                destination[i] = source[i];
+            }
+
+            return 1;
+        }
     }
 
     public sealed class UfbxBlendDeformer : UfbxDeformer
     {
+        private IReadOnlyList<UfbxBlendChannel> snapshotChannels;
         private IReadOnlyList<UfbxBlendChannel> channels;
 
         internal UfbxBlendDeformer(UfbxScene scene, UfbxMesh ownerMesh, int deformerIndex, long id, string name, int channelCount)
@@ -608,8 +770,21 @@ namespace Triturbo.Fbx
             ChannelCount = Math.Max(0, channelCount);
         }
 
+        internal UfbxBlendDeformer(
+            UfbxBlendDeformer source,
+            UfbxMesh ownerMesh)
+            : base(source.Scene, UfbxElementType.BlendDeformer, ownerMesh, source.Index, source.Id, source.Name)
+        {
+            ChannelCount = source.ChannelCount;
+        }
+
         public int ChannelCount { get; }
-        public IReadOnlyList<UfbxBlendChannel> Channels => channels ??= BuildChannels();
+        public IReadOnlyList<UfbxBlendChannel> Channels => snapshotChannels ?? (channels ??= BuildChannels());
+
+        internal void SetSnapshotChannels(IEnumerable<UfbxBlendChannel> channels)
+        {
+            snapshotChannels = FbxCollection.ToReadOnly(channels);
+        }
 
         private IReadOnlyList<UfbxBlendChannel> BuildChannels()
         {
@@ -632,6 +807,7 @@ namespace Triturbo.Fbx
 
     public sealed class UfbxBlendChannel : UfbxElement
     {
+        private IReadOnlyList<UfbxBlendShape> snapshotBlendShapes;
         private IReadOnlyList<UfbxBlendShape> blendShapes;
 
         internal UfbxBlendChannel(
@@ -649,10 +825,26 @@ namespace Triturbo.Fbx
             BlendShapeCount = Math.Max(0, blendShapeCount);
         }
 
+        internal UfbxBlendChannel(
+            UfbxBlendChannel source,
+            UfbxMesh ownerMesh,
+            UfbxBlendDeformer ownerDeformer)
+            : base(source.Scene, UfbxElementType.BlendChannel, source.Index, source.Id, source.Name)
+        {
+            OwnerMesh = ownerMesh;
+            OwnerDeformer = ownerDeformer;
+            BlendShapeCount = source.BlendShapeCount;
+        }
+
         public UfbxMesh OwnerMesh { get; }
         public UfbxBlendDeformer OwnerDeformer { get; }
         public int BlendShapeCount { get; }
-        public IReadOnlyList<UfbxBlendShape> BlendShapes => blendShapes ??= BuildBlendShapes();
+        public IReadOnlyList<UfbxBlendShape> BlendShapes => snapshotBlendShapes ?? (blendShapes ??= BuildBlendShapes());
+
+        internal void SetSnapshotBlendShapes(IEnumerable<UfbxBlendShape> blendShapes)
+        {
+            snapshotBlendShapes = FbxCollection.ToReadOnly(blendShapes);
+        }
 
         private IReadOnlyList<UfbxBlendShape> BuildBlendShapes()
         {
@@ -675,6 +867,10 @@ namespace Triturbo.Fbx
 
     public sealed class UfbxBlendShape : UfbxElement
     {
+        private readonly int[] snapshotIndices;
+        private readonly Vector3d[] snapshotPositions;
+        private readonly Vector3d[] snapshotNormals;
+
         internal UfbxBlendShape(
             UfbxScene scene,
             UfbxMesh ownerMesh,
@@ -694,6 +890,26 @@ namespace Triturbo.Fbx
             OffsetCount = Math.Max(0, offsetCount);
         }
 
+        internal UfbxBlendShape(
+            UfbxBlendShape source,
+            UfbxMesh ownerMesh,
+            UfbxBlendDeformer ownerDeformer,
+            UfbxBlendChannel ownerChannel,
+            int[] indices,
+            Vector3d[] positions,
+            Vector3d[] normals)
+            : base(source.Scene, UfbxElementType.BlendShape, source.Index, source.Id, source.Name)
+        {
+            OwnerMesh = ownerMesh;
+            OwnerDeformer = ownerDeformer;
+            OwnerChannel = ownerChannel;
+            Weight = source.Weight;
+            snapshotIndices = indices?.ToArray() ?? Array.Empty<int>();
+            snapshotPositions = UfbxMesh.Copy(positions);
+            snapshotNormals = UfbxMesh.Copy(normals);
+            OffsetCount = Math.Min(snapshotIndices.Length, snapshotPositions.Length);
+        }
+
         public UfbxMesh OwnerMesh { get; }
         public UfbxBlendDeformer OwnerDeformer { get; }
         public UfbxBlendChannel OwnerChannel { get; }
@@ -702,6 +918,11 @@ namespace Triturbo.Fbx
 
         public int CopyOffsets(int[] destinationIndices, double[] destinationPositions, double[] destinationNormals)
         {
+            if (snapshotIndices != null)
+            {
+                return CopySnapshotOffsets(destinationIndices, destinationPositions, destinationNormals);
+            }
+
             EnsureAlive();
             int destinationCount = Math.Min(
                 destinationIndices?.Length ?? 0,
@@ -721,6 +942,37 @@ namespace Triturbo.Fbx
                 destinationPositions,
                 destinationNormals,
                 destinationCount);
+        }
+
+        private int CopySnapshotOffsets(int[] destinationIndices, double[] destinationPositions, double[] destinationNormals)
+        {
+            int destinationCount = Math.Min(destinationIndices?.Length ?? 0, destinationPositions?.Length / 3 ?? 0);
+            if (destinationNormals != null)
+            {
+                destinationCount = Math.Min(destinationCount, destinationNormals.Length / 3);
+            }
+
+            if (destinationIndices == null || destinationPositions == null || destinationCount < OffsetCount)
+            {
+                return 0;
+            }
+
+            for (int i = 0; i < OffsetCount; i++)
+            {
+                destinationIndices[i] = snapshotIndices[i];
+                destinationPositions[i * 3] = snapshotPositions[i].x;
+                destinationPositions[i * 3 + 1] = snapshotPositions[i].y;
+                destinationPositions[i * 3 + 2] = snapshotPositions[i].z;
+                if (destinationNormals != null)
+                {
+                    var normal = i < snapshotNormals.Length ? snapshotNormals[i] : Vector3d.zero;
+                    destinationNormals[i * 3] = normal.x;
+                    destinationNormals[i * 3 + 1] = normal.y;
+                    destinationNormals[i * 3 + 2] = normal.z;
+                }
+            }
+
+            return 1;
         }
     }
 }

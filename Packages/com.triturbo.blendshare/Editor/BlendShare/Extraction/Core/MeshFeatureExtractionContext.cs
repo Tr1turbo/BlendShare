@@ -47,6 +47,7 @@ namespace Triturbo.BlendShare.Core
         private readonly UnityMeshExtractionSource originUnityMeshes;
         private readonly Dictionary<string, Transform> sourceTransformsByPath = new();
         private readonly Dictionary<string, Transform> originTransformsByPath = new();
+        private readonly Dictionary<string, UfbxMesh> normalizedSourceMeshesByPath = new();
         private BoneGraphObject boneGraph;
 
 #if ENABLE_FBX_SDK
@@ -153,12 +154,31 @@ namespace Triturbo.BlendShare.Core
 
         internal UfbxMesh GetSourceFbxMesh(string path)
         {
-            return GetFbxMesh(SourceScene, path);
+            string key = BuildMeshKey(path);
+            if (normalizedSourceMeshesByPath.TryGetValue(key, out var normalized))
+            {
+                return normalized;
+            }
+
+            var sourceMesh = GetRawSourceFbxMesh(path);
+            if (sourceMesh == null)
+            {
+                return null;
+            }
+
+            normalized = UfbxSourceMeshNormalizer.Normalize(sourceMesh, GetFbxControlPointWelding(path));
+            normalizedSourceMeshesByPath[key] = normalized;
+            return normalized;
         }
 
         internal UfbxMesh GetOriginFbxMesh(string path)
         {
             return GetFbxMesh(OriginScene, path);
+        }
+
+        internal UfbxMesh GetRawSourceFbxMesh(string path)
+        {
+            return GetFbxMesh(SourceScene, path);
         }
 
         internal Mesh GetSourceUnityMesh(string path)
