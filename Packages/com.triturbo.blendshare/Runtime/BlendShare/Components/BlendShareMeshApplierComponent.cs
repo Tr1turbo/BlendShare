@@ -1,9 +1,55 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using Triturbo.BlendShare.Core;
+using Triturbo.BlendShare.Features.BoneGraph;
 using UnityEngine;
 using UnityEngine.Animations;
 
 namespace Triturbo.BlendShare.Components
 {
+    [Serializable]
+    public sealed class BlendShareBoneProxyBinding
+    {
+        [SerializeField, NotKeyable]
+        private BoneGraphObject m_BoneGraph;
+
+        [SerializeField, NotKeyable]
+        private string m_SourceBonePath;
+
+        [SerializeField, NotKeyable]
+        private BlendShareBoneProxyComponent m_Proxy;
+
+        public BoneGraphObject BoneGraph
+        {
+            get => m_BoneGraph;
+            set => m_BoneGraph = value;
+        }
+
+        public string SourceBonePath
+        {
+            get => MeshNodePath.Normalize(m_SourceBonePath);
+            set => m_SourceBonePath = MeshNodePath.Normalize(value);
+        }
+
+        public BlendShareBoneProxyComponent Proxy
+        {
+            get => m_Proxy;
+            set => m_Proxy = value;
+        }
+
+        public bool Matches(BoneGraphObject boneGraph, string sourceBonePath)
+        {
+            return m_BoneGraph == boneGraph &&
+                   SourceBonePath == MeshNodePath.Normalize(sourceBonePath);
+        }
+
+        public void Sanitize()
+        {
+            m_SourceBonePath = MeshNodePath.Normalize(m_SourceBonePath);
+        }
+    }
+
     [DisallowMultipleComponent]
     [AddComponentMenu("BlendShare/BlendShare Mesh Applier")]
     public sealed class BlendShareMeshApplierComponent : MonoBehaviour
@@ -28,6 +74,9 @@ namespace Triturbo.BlendShare.Components
 
         [SerializeField, NotKeyable]
         private string m_DiagnosticMessage;
+
+        [SerializeField, NotKeyable]
+        private List<BlendShareBoneProxyBinding> m_BoneProxyBindings = new();
 
         public BlendShareApplierComponent Owner
         {
@@ -73,10 +122,40 @@ namespace Triturbo.BlendShare.Components
             set => m_DiagnosticMessage = value;
         }
 
+        public IReadOnlyList<BlendShareBoneProxyBinding> BoneProxyBindings =>
+            m_BoneProxyBindings ??= new List<BlendShareBoneProxyBinding>();
+
         public void SetDiagnostic(bool isStale, string message)
         {
             m_IsStale = isStale;
             m_DiagnosticMessage = message;
+        }
+
+        public void SetBoneProxyBindings(IEnumerable<BlendShareBoneProxyBinding> bindings)
+        {
+            m_BoneProxyBindings = (bindings ?? Enumerable.Empty<BlendShareBoneProxyBinding>())
+                .Where(binding => binding != null && binding.BoneGraph != null && !string.IsNullOrWhiteSpace(binding.SourceBonePath))
+                .Select(binding =>
+                {
+                    binding.Sanitize();
+                    return binding;
+                })
+                .GroupBy(binding => $"{binding.BoneGraph.GetInstanceID()}:{binding.SourceBonePath}")
+                .Select(group => group.First())
+                .ToList();
+        }
+
+        public bool TryGetBoneProxyBinding(
+            BoneGraphObject boneGraph,
+            string sourceBonePath,
+            out BlendShareBoneProxyBinding binding)
+        {
+            string normalizedPath = MeshNodePath.Normalize(sourceBonePath);
+            binding = BoneProxyBindings.FirstOrDefault(item =>
+                item != null &&
+                item.BoneGraph == boneGraph &&
+                item.SourceBonePath == normalizedPath);
+            return binding != null;
         }
 
         private void OnValidate()
@@ -98,6 +177,7 @@ namespace Triturbo.BlendShare.Components
 
             m_RendererNodePath = MeshNodePath.Normalize(m_RendererNodePath);
             m_DiagnosticMessage ??= string.Empty;
+            SetBoneProxyBindings(m_BoneProxyBindings);
         }
 
         private AvatarObjectReference<SkinnedMeshRenderer> EnsureTargetRendererReferenceInitialized()

@@ -45,25 +45,23 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
                 .ThenBy(applier => GetHierarchyOrder(applier.transform))
                 .ToArray();
 
-            foreach (var ownerGroup in orderedMeshAppliers.GroupBy(applier => applier.Owner))
+            foreach (var rootGroup in orderedMeshAppliers.GroupBy(applier =>
+                         BlendShareApplierSetupService.ResolveTargetRoot(applier.Owner) ?? context.AvatarRootTransform))
             {
-                var owner = ownerGroup.Key;
-                if (owner == null)
+                var targetRoot = rootGroup.Key;
+                if (targetRoot == null)
                 {
                     continue;
                 }
 
-                var targetRoot = owner.TargetRoot != null ? owner.TargetRoot : context.AvatarRootTransform;
-                var enabledRendererPaths = new HashSet<string>(ownerGroup
-                    .Select(applier => applier.RendererNodePath)
-                    .Where(path => !string.IsNullOrWhiteSpace(path)));
-                var artifact = BlendShareArtifactService.CreateInMemoryArtifact(
+                var source = new BlendShareComponentGenerationSource(
                     targetRoot.gameObject,
-                    owner.BlendShares,
-                    (share, meshData) => meshData != null && enabledRendererPaths.Contains(MeshNodePath.Normalize(meshData.m_Path)));
+                    rootGroup,
+                    boneProxies);
+                var artifact = BlendShareArtifactService.CreateInMemoryArtifact(source);
                 if (artifact == null)
                 {
-                    Debug.LogError($"[BlendShare NDMF] Failed to generate BlendShare artifact for '{owner.name}'.", owner);
+                    Debug.LogError($"[BlendShare NDMF] Failed to generate BlendShare artifact for '{targetRoot.name}'.", targetRoot);
                     continue;
                 }
 
@@ -81,7 +79,7 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
                 {
                     foreach (string diagnostic in result.Diagnostics)
                     {
-                        Debug.LogError($"[BlendShare NDMF] {diagnostic}", owner);
+                        Debug.LogError($"[BlendShare NDMF] {diagnostic}", targetRoot);
                     }
                 }
             }
@@ -121,10 +119,7 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
                 parent = fallbackRoot;
             }
 
-            proxy.transform.SetParent(parent, false);
-            proxy.transform.localPosition = proxy.LocalPosition;
-            proxy.transform.localRotation = Quaternion.Euler(proxy.LocalEulerRotation);
-            proxy.transform.localScale = proxy.LocalScale;
+            proxy.transform.SetParent(parent, true);
         }
 
         private static string GetHierarchyOrder(Transform transform)

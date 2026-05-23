@@ -74,6 +74,26 @@ namespace Triturbo.BlendShare.Components
             return true;
         }
 
+        public bool TryGetCurrentLocalTransform(
+            out Vector3 position,
+            out Vector3 eulerRotation,
+            out Vector3 scale)
+        {
+            var parent = TargetParent;
+            if (parent == null)
+            {
+                position = default;
+                eulerRotation = default;
+                scale = default;
+                return false;
+            }
+
+            position = parent.InverseTransformPoint(transform.position);
+            eulerRotation = (Quaternion.Inverse(parent.rotation) * transform.rotation).eulerAngles;
+            scale = CalculateLocalScaleForWorldScale(parent, transform.lossyScale);
+            return true;
+        }
+
         public void ResetTransformToBindPose()
         {
             if (!TryGetBindPoseWorldTransform(out Vector3 position, out Quaternion rotation, out Vector3 scale))

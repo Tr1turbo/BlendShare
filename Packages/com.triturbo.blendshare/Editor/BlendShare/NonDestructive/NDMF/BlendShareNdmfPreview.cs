@@ -101,21 +101,27 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
                     return;
                 }
 
-                var owners = appliers
+                var enabledAppliers = appliers
+                    .Where(applier => meshContext.Observe(applier, item => item.EnabledForBuild) &&
+                                      !meshContext.Observe(applier, item => item.IsStale))
+                    .ToArray();
+                var owners = enabledAppliers
                     .Select(applier => meshContext.Observe(applier, item => item.Owner))
                     .Where(owner => owner != null)
                     .Distinct()
                     .ToArray();
-                var enabledRendererPaths = new HashSet<string>(appliers
-                    .Where(applier => meshContext.Observe(applier, item => item.EnabledForBuild) &&
-                                      !meshContext.Observe(applier, item => item.IsStale))
-                    .Select(applier => meshContext.Observe(applier, item => item.RendererNodePath))
-                    .Where(path => !string.IsNullOrWhiteSpace(path)));
+                var sourceRoot = owners
+                    .Select(BlendShareApplierSetupService.ResolveTargetRoot)
+                    .FirstOrDefault(root => root != null) ?? originalRenderer.transform.root;
+                var boneProxies = sourceRoot != null
+                    ? sourceRoot.GetComponentsInChildren<BlendShareBoneProxyComponent>(true)
+                    : System.Array.Empty<BlendShareBoneProxyComponent>();
                 var proxyRoot = proxyRenderer.transform.root;
-                var artifact = BlendShareArtifactService.CreateInMemoryArtifact(
-                    proxyRoot.gameObject,
-                    owners.SelectMany(owner => owner.BlendShares).Where(share => share != null).Distinct(),
-                    (share, meshData) => meshData != null && enabledRendererPaths.Contains(MeshNodePath.Normalize(meshData.m_Path)));
+                var source = new BlendShareComponentGenerationSource(
+                    sourceRoot != null ? sourceRoot.gameObject : originalRenderer.transform.root.gameObject,
+                    enabledAppliers,
+                    boneProxies);
+                var artifact = BlendShareArtifactService.CreateInMemoryArtifact(source);
                 if (artifact == null)
                 {
                     Debug.LogWarning("[BlendShare Preview] Failed to generate BlendShare artifact.", original);

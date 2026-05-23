@@ -915,8 +915,16 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
             foreach (string path in GetMeshNeededBonePathsInGraphOrder(feature))
             {
-                if (table.HasPath(path))
+                string finalPath = path;
+                BlendShareGenerationBoneOverride boneOverride = null;
+                if (context.Request != null && context.Request.TryGetBoneOverride(path, out boneOverride))
                 {
+                    finalPath = boneOverride.FinalBonePath;
+                }
+
+                if (table.HasPath(finalPath))
+                {
+                    table.AddAlias(path, finalPath);
                     continue;
                 }
 
@@ -925,7 +933,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     return null;
                 }
 
-                table.Add(path, bindPose);
+                table.Add(finalPath, bindPose);
+                table.AddAlias(path, finalPath);
             }
 
             return table;
@@ -1000,6 +1009,13 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 localToWorld = context.TargetRootTransform != null
                     ? context.TargetRootTransform.localToWorldMatrix
                     : Matrix4x4.identity;
+                return true;
+            }
+
+            if (context.Request != null &&
+                context.Request.TryGetBoneOverride(path, out var boneOverride) &&
+                boneOverride.TryGetLocalToWorld(context.TargetRootTransform, out localToWorld))
+            {
                 return true;
             }
 
@@ -1260,6 +1276,16 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 }
 
                 return AddSynthetic(normalized, bindPose);
+            }
+
+            public void AddAlias(string sourcePath, string targetPath)
+            {
+                string normalizedSource = MeshNodePath.Normalize(sourcePath);
+                string normalizedTarget = MeshNodePath.Normalize(targetPath);
+                if (indexByPath.TryGetValue(normalizedTarget, out int targetIndex))
+                {
+                    indexByPath[normalizedSource] = targetIndex;
+                }
             }
 
             public int AddSynthetic(string key, Matrix4x4 bindPose)

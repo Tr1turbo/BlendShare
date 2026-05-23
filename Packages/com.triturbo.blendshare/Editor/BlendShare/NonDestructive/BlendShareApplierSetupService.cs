@@ -114,57 +114,76 @@ namespace Triturbo.BlendShare.NonDestructive
                          .Where(applier => applier != null && applier.EnabledForBuild && !applier.IsStale))
             {
                 var renderer = meshApplier.TargetRenderer;
-                var skin = meshApplier.MeshData != null ? meshApplier.MeshData.GetFeature<SkinWeightFeatureObject>() : null;
-                if (renderer == null || skin?.m_BoneGraph == null)
+                if (renderer == null)
                 {
                     continue;
                 }
 
-                float fbxToUnityScale = GetFbxToUnityScale(meshApplier.MeshData);
-
                 var existingRendererBonePaths = new HashSet<string>((renderer.bones ?? Array.Empty<Transform>())
                     .Where(bone => bone != null)
                     .Select(bone => MeshNodePath.Normalize(MeshNodePath.GetRelativePath(bone, targetRoot))));
+                var bindings = new List<BlendShareBoneProxyBinding>();
 
-                foreach (string bonePath in GetNeededBonePathsInGraphOrder(skin))
+                foreach (var meshData in GetMeshDataForApplier(meshApplier))
                 {
-                    if (existingRendererBonePaths.Contains(bonePath))
+                    var skin = meshData != null ? meshData.GetFeature<SkinWeightFeatureObject>() : null;
+                    if (skin?.m_BoneGraph == null)
                     {
                         continue;
                     }
 
-                    var bone = skin.m_BoneGraph.GetBone(bonePath);
-                    if (bone == null || !bone.m_CreateIfMissing)
-                    {
-                        result.AddDiagnostic($"Bone '{bonePath}' is required but cannot be auto-created.");
-                        continue;
-                    }
+                    float fbxToUnityScale = GetFbxToUnityScale(meshData);
 
-                    var parent = ResolveProxyParent(bone, skin.m_BoneGraph, targetRoot, transformsByPath, proxiesByBonePath);
-                    var localScale = bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale;
-                    var localPosition = bone.m_FbxLocalTranslation * fbxToUnityScale;
-                    string key = BuildProxyKey(parent, localPosition, bone.m_FbxLocalEulerRotation, localScale);
-                    string desiredName = MeshNodePath.LeafName(bonePath);
-                    if (!updatedProxiesByKey.TryGetValue(key, out var proxy) &&
-                        !TryTakeProxy(proxiesByKey, key, usedProxies, out proxy) &&
-                        !TryTakeProxy(proxiesByName, desiredName, usedProxies, out proxy))
+                    foreach (string bonePath in GetNeededBonePathsInGraphOrder(skin))
                     {
-                        proxy = CreateBoneProxy(owner, bonePath, parent);
-                    }
+                        if (existingRendererBonePaths.Contains(bonePath))
+                        {
+                            continue;
+                        }
 
-                    updatedProxiesByKey[key] = proxy;
-                    usedProxies.Add(proxy);
-                    Undo.RecordObject(proxy, "Rebuild BlendShare Bone Proxy");
-                    proxy.Owner = owner;
-                    proxy.TargetParent = parent;
-                    proxy.LocalPosition = localPosition;
-                    proxy.LocalEulerRotation = bone.m_FbxLocalEulerRotation;
-                    proxy.LocalScale = localScale;
-                    proxy.ResetTransformToBindPose();
-                    EditorUtility.SetDirty(proxy);
-                    result.AddBoneProxy(proxy);
-                    proxiesByBonePath[bonePath] = proxy;
+                        var bone = skin.m_BoneGraph.GetBone(bonePath);
+                        if (bone == null || !bone.m_CreateIfMissing)
+                        {
+                            result.AddDiagnostic($"Bone '{bonePath}' is required but cannot be auto-created.");
+                            continue;
+                        }
+
+                        var parent = ResolveProxyParent(bone, skin.m_BoneGraph, targetRoot, transformsByPath, proxiesByBonePath);
+                        var localScale = bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale;
+                        var localPosition = bone.m_FbxLocalTranslation * fbxToUnityScale;
+                        string key = BuildProxyKey(parent, localPosition, bone.m_FbxLocalEulerRotation, localScale);
+                        string desiredName = MeshNodePath.LeafName(bonePath);
+                        if (!updatedProxiesByKey.TryGetValue(key, out var proxy) &&
+                            !TryTakeProxy(proxiesByKey, key, usedProxies, out proxy) &&
+                            !TryTakeProxy(proxiesByName, desiredName, usedProxies, out proxy))
+                        {
+                            proxy = CreateBoneProxy(owner, bonePath, parent);
+                        }
+
+                        updatedProxiesByKey[key] = proxy;
+                        usedProxies.Add(proxy);
+                        Undo.RecordObject(proxy, "Rebuild BlendShare Bone Proxy");
+                        proxy.Owner = owner;
+                        proxy.TargetParent = parent;
+                        proxy.LocalPosition = localPosition;
+                        proxy.LocalEulerRotation = bone.m_FbxLocalEulerRotation;
+                        proxy.LocalScale = localScale;
+                        proxy.ResetTransformToBindPose();
+                        EditorUtility.SetDirty(proxy);
+                        result.AddBoneProxy(proxy);
+                        proxiesByBonePath[BuildBoneProxyBindingKey(skin.m_BoneGraph, bonePath)] = proxy;
+                        bindings.Add(new BlendShareBoneProxyBinding
+                        {
+                            BoneGraph = skin.m_BoneGraph,
+                            SourceBonePath = bonePath,
+                            Proxy = proxy
+                        });
+                    }
                 }
+
+                Undo.RecordObject(meshApplier, "Rebuild BlendShare Bone Proxy Bindings");
+                meshApplier.SetBoneProxyBindings(bindings);
+                EditorUtility.SetDirty(meshApplier);
             }
 
             return result;
@@ -203,6 +222,29 @@ namespace Triturbo.BlendShare.NonDestructive
             var mapping = (meshData?.m_Mappings ?? Array.Empty<UnityVertexMappingObject>())
                 .FirstOrDefault(candidate => candidate != null && candidate.m_IsValid);
             return mapping != null ? mapping.FbxToUnityScale : 1f;
+        }
+
+        private static IEnumerable<MeshDataObject> GetMeshDataForApplier(BlendShareMeshApplierComponent meshApplier)
+        {
+            if (meshApplier?.Owner == null)
+            {
+                yield break;
+            }
+
+            string rendererPath = MeshNodePath.Normalize(meshApplier.RendererNodePath);
+            var seen = new HashSet<MeshDataObject>();
+            foreach (var share in meshApplier.Owner.BlendShares ?? Array.Empty<BlendShareObject>())
+            {
+                foreach (var meshData in share?.Meshes ?? Array.Empty<MeshDataObject>())
+                {
+                    if (meshData != null &&
+                        MeshNodePath.Normalize(meshData.m_Path) == rendererPath &&
+                        seen.Add(meshData))
+                    {
+                        yield return meshData;
+                    }
+                }
+            }
         }
 
         public static bool ValidateMeshApplierForBuild(
@@ -355,6 +397,11 @@ namespace Triturbo.BlendShare.NonDestructive
                     return proxyParent.transform;
                 }
 
+                if (proxiesByBonePath.TryGetValue(BuildBoneProxyBindingKey(graph, parentPath), out proxyParent) && proxyParent != null)
+                {
+                    return proxyParent.transform;
+                }
+
                 if (transformsByPath.TryGetValue(parentPath, out var parent) && parent != null)
                 {
                     return parent;
@@ -370,6 +417,11 @@ namespace Triturbo.BlendShare.NonDestructive
             }
 
             return targetRoot;
+        }
+
+        private static string BuildBoneProxyBindingKey(BoneGraphObject graph, string sourceBonePath)
+        {
+            return $"{(graph != null ? graph.GetInstanceID() : 0)}:{MeshNodePath.Normalize(sourceBonePath)}";
         }
 
         private static string BuildProxyKey(Transform parent, Vector3 localPosition, Vector3 localEulerRotation, Vector3 localScale)

@@ -21,6 +21,7 @@ namespace Triturbo.BlendShare.Inspector
             EditorGUILayout.Space();
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_IsStale"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_DiagnosticMessage"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_BoneProxyBindings"), true);
 
             var applier = (BlendShareMeshApplierComponent)target;
             if (applier.IsStale && !string.IsNullOrWhiteSpace(applier.DiagnosticMessage))

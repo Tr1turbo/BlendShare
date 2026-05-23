@@ -75,107 +75,125 @@ namespace Triturbo.BlendShare.Core
             out IReadOnlyDictionary<string, MeshFeatureSkinBindingOutput> skinBindingsByMeshKey,
             System.Func<BlendShareObject, MeshDataObject, bool> shouldGenerateMesh = null)
         {
+            return TryGenerateUnityMeshes(
+                new BlendShareObjectGenerationSource(targetMeshContainer, blendShares, shouldGenerateMesh),
+                out generatedMeshes,
+                out generatedObjects,
+                out skinBindingsByMeshKey);
+        }
+
+        public bool TryGenerateUnityMeshes(
+            IBlendShareGenerationSource source,
+            out List<Mesh> generatedMeshes,
+            out List<Object> generatedObjects,
+            out IReadOnlyDictionary<string, MeshFeatureSkinBindingOutput> skinBindingsByMeshKey)
+        {
             generatedMeshes = new List<Mesh>();
             generatedObjects = new List<Object>();
             skinBindingsByMeshKey = new Dictionary<string, MeshFeatureSkinBindingOutput>();
 
-            var shares = blendShares?.Where(share => share != null).Distinct().ToArray() ??
-                         System.Array.Empty<BlendShareObject>();
-            var targetLookup = MeshFeatureTargetMeshLookup.Create(targetMeshContainer);
-            if (targetMeshContainer == null || shares.Length == 0 || targetLookup == null)
+            if (source == null)
             {
                 return false;
             }
 
-            var session = new MeshFeatureGenerationSession(targetMeshContainer, shares, targetLookup);
+            foreach (string diagnostic in source.Diagnostics ?? System.Array.Empty<string>())
+            {
+                if (!string.IsNullOrWhiteSpace(diagnostic))
+                {
+                    Debug.LogError($"[BlendShare] {diagnostic}");
+                }
+            }
+
+            var requests = source.Requests?.Where(request => request?.MeshData != null && request.Share != null)
+                .OrderBy(request => request.Order)
+                .ToArray() ?? System.Array.Empty<BlendShareGenerationRequest>();
+            var targetLookup = MeshFeatureTargetMeshLookup.Create(source.TargetMeshContainer);
+            if (source.TargetMeshContainer == null || requests.Length == 0 || targetLookup == null)
+            {
+                return false;
+            }
+
+            var session = new MeshFeatureGenerationSession(source, targetLookup);
             var generatedByMeshKey = new Dictionary<string, Mesh>();
 
-            foreach (var share in shares)
+            foreach (var request in requests)
             {
-                foreach (var meshData in share.Meshes ?? System.Array.Empty<MeshDataObject>())
+                var share = request.Share;
+                var meshData = request.MeshData;
+                string meshKey = MeshFeatureGenerationSession.BuildMeshKey(meshData);
+                bool createdForThisMeshData = false;
+                // Generated meshes are reused by mesh key so later BlendShare assets stack on prior feature output.
+                if (!generatedByMeshKey.TryGetValue(meshKey, out var workingMesh))
                 {
-                    if (meshData == null)
+                    if (!targetLookup.TryGetMesh(meshData, out var targetMesh))
                     {
+                        Debug.LogError($"[BlendShare] Target mesh '{FormatMesh(meshData)}' was not found in '{session.FormatTargetName()}': {targetLookup.GetResolutionError(meshData)}");
                         continue;
                     }
 
-                    if (shouldGenerateMesh != null && !shouldGenerateMesh(share, meshData))
+                    workingMesh = Object.Instantiate(targetMesh);
+                    workingMesh.name = MeshNodePath.Normalize(meshData.m_Path);
+                    generatedByMeshKey.Add(meshKey, workingMesh);
+                    createdForThisMeshData = true;
+                }
+
+                bool failed = false;
+                bool generatedFeature = false;
+                targetLookup.TryGetRenderer(meshData, out var targetRenderer);
+                targetRenderer = request.TargetRenderer != null ? request.TargetRenderer : targetRenderer;
+                var context = new MeshFeatureUnityGenerationContext(
+                    session,
+                    share,
+                    meshData,
+                    workingMesh,
+                    workingMesh,
+                    targetRenderer,
+                    source.TargetRoot ?? targetLookup.RootTransform,
+                    request);
+
+                foreach (var generator in FeatureGenerators)
+                {
+                    var canApply = generator.CanApplyToUnityMesh(context);
+                    if (canApply.Failed)
                     {
-                        continue;
-                    }
-
-                    string meshKey = MeshFeatureGenerationSession.BuildMeshKey(meshData);
-                    bool createdForThisMeshData = false;
-                    // Generated meshes are reused by mesh key so later BlendShare assets stack on prior feature output.
-                    if (!generatedByMeshKey.TryGetValue(meshKey, out var workingMesh))
-                    {
-                        if (!targetLookup.TryGetMesh(meshData, out var targetMesh))
-                        {
-                            Debug.LogError($"[BlendShare] Target mesh '{FormatMesh(meshData)}' was not found in '{session.FormatTargetName()}': {targetLookup.GetResolutionError(meshData)}");
-                            continue;
-                        }
-
-                        workingMesh = Object.Instantiate(targetMesh);
-                        workingMesh.name = MeshNodePath.Normalize(meshData.m_Path);
-                        generatedByMeshKey.Add(meshKey, workingMesh);
-                        createdForThisMeshData = true;
-                    }
-
-                    bool failed = false;
-                    bool generatedFeature = false;
-                    targetLookup.TryGetRenderer(meshData, out var targetRenderer);
-                    var context = new MeshFeatureUnityGenerationContext(
-                        session,
-                        share,
-                        meshData,
-                        workingMesh,
-                        workingMesh,
-                        targetRenderer,
-                        targetLookup.RootTransform);
-
-                    foreach (var generator in FeatureGenerators)
-                    {
-                        var canApply = generator.CanApplyToUnityMesh(context);
-                        if (canApply.Failed)
-                        {
-                            LogFeatureFailure("validate", generator, meshData, canApply);
-                            failed = true;
-                            break;
-                        }
-
-                        if (canApply.Status == MeshFeatureGenerationStatus.Skipped)
-                        {
-                            continue;
-                        }
-
-                        var result = generator.ApplyToUnityMesh(context);
-                        if (result.Failed)
-                        {
-                            LogFeatureFailure("apply", generator, meshData, result);
-                            failed = true;
-                            break;
-                        }
-
-                        if (result.Status == MeshFeatureGenerationStatus.Skipped)
-                        {
-                            continue;
-                        }
-
-                        generatedFeature = true;
-                        workingMesh = context.WorkingMesh;
-                        generatedByMeshKey[meshKey] = workingMesh;
-                    }
-
-                    if (!failed && context.HasUnhandledFeatures)
-                    {
-                        LogUnhandledFeatures("apply", meshData, context.GetUnhandledFeatures());
+                        LogFeatureFailure("validate", generator, meshData, canApply);
                         failed = true;
+                        break;
                     }
 
-                    if ((failed || !generatedFeature) && createdForThisMeshData)
+                    if (canApply.Status == MeshFeatureGenerationStatus.Skipped)
                     {
-                        generatedByMeshKey.Remove(meshKey);
+                        continue;
                     }
+
+                    var result = generator.ApplyToUnityMesh(context);
+                    if (result.Failed)
+                    {
+                        LogFeatureFailure("apply", generator, meshData, result);
+                        failed = true;
+                        break;
+                    }
+
+                    if (result.Status == MeshFeatureGenerationStatus.Skipped)
+                    {
+                        continue;
+                    }
+
+                    generatedFeature = true;
+                    workingMesh = context.WorkingMesh;
+                    generatedByMeshKey[meshKey] = workingMesh;
+                }
+
+                if (!failed && context.HasUnhandledFeatures)
+                {
+                    LogUnhandledFeatures("apply", meshData, context.GetUnhandledFeatures());
+                    failed = true;
+                }
+
+                if ((failed || !generatedFeature) && createdForThisMeshData)
+                {
+                    generatedByMeshKey.Remove(meshKey);
                 }
             }
 

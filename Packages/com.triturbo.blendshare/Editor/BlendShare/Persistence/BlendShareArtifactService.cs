@@ -102,17 +102,28 @@ namespace Triturbo.BlendShare.Persistence
             IEnumerable<BlendShareObject> blendShares,
             Func<BlendShareObject, MeshDataObject, bool> shouldGenerateMesh = null)
         {
-            var shares = blendShares?.Where(share => share != null).Distinct().ToList() ?? new List<BlendShareObject>();
-            if (targetMeshContainer == null || shares.Count == 0)
+            var source = new BlendShareObjectGenerationSource(targetMeshContainer, blendShares, shouldGenerateMesh);
+            if (targetMeshContainer == null || source.BlendShares.Count == 0)
             {
                 return null;
             }
 
             return CreateInMemoryArtifact(
-                targetMeshContainer,
-                shares,
-                shouldGenerateMesh,
-                GetAppliedBlendShares(targetMeshContainer, shares),
+                source,
+                GetAppliedBlendShares(targetMeshContainer, source.BlendShares),
+                out _);
+        }
+
+        public static BlendShareArtifact CreateInMemoryArtifact(IBlendShareGenerationSource source)
+        {
+            if (source == null || source.TargetMeshContainer == null || source.BlendShares.Count == 0)
+            {
+                return null;
+            }
+
+            return CreateInMemoryArtifact(
+                source,
+                GetAppliedBlendShares(source.TargetMeshContainer, source.BlendShares),
                 out _);
         }
 
@@ -123,15 +134,24 @@ namespace Triturbo.BlendShare.Persistence
             IReadOnlyCollection<BlendShareObject> appliedBlendShares,
             out Object[] generatedObjects)
         {
+            return CreateInMemoryArtifact(
+                new BlendShareObjectGenerationSource(targetMeshContainer, shares, shouldGenerateMesh),
+                appliedBlendShares,
+                out generatedObjects);
+        }
+
+        private static BlendShareArtifact CreateInMemoryArtifact(
+            IBlendShareGenerationSource source,
+            IReadOnlyCollection<BlendShareObject> appliedBlendShares,
+            out Object[] generatedObjects)
+        {
             generatedObjects = Array.Empty<Object>();
             var pipeline = new MeshFeatureGenerationPipeline();
             bool generationSucceeded = pipeline.TryGenerateUnityMeshes(
-                targetMeshContainer,
-                shares,
+                source,
                 out var generatedMeshes,
                 out var sessionObjects,
-                out var skinBindingsByMeshKey,
-                shouldGenerateMesh);
+                out var skinBindingsByMeshKey);
             generatedObjects = sessionObjects?.Where(obj => obj != null).ToArray() ?? Array.Empty<Object>();
             if (!generationSucceeded)
             {
@@ -139,10 +159,10 @@ namespace Triturbo.BlendShare.Persistence
                 return null;
             }
 
-            var targetSource = GetTargetFbx(targetMeshContainer) != null
-                ? GetTargetFbx(targetMeshContainer)
-                : targetMeshContainer;
-            var root = targetMeshContainer as GameObject;
+            var targetSource = GetTargetFbx(source.TargetMeshContainer) != null
+                ? GetTargetFbx(source.TargetMeshContainer)
+                : source.TargetMeshContainer;
+            var root = source.TargetMeshContainer as GameObject;
             var descriptors = (generatedMeshes ?? Enumerable.Empty<Mesh>())
                 .Where(mesh => mesh != null)
                 .Select(mesh =>
@@ -170,13 +190,13 @@ namespace Triturbo.BlendShare.Persistence
             }
 
             var artifact = ScriptableObject.CreateInstance<BlendShareArtifact>();
-            artifact.name = $"{targetMeshContainer.name}_BlendShareArtifact";
+            artifact.name = $"{source.TargetMeshContainer.name}_BlendShareArtifact";
             artifact.m_TargetSource = targetSource;
             artifact.m_TargetSourceHash = CalculateHash(targetSource);
             artifact.m_AppliedBlendShares = appliedBlendShares?.Where(share => share != null).Distinct().ToArray()
                                             ?? Array.Empty<BlendShareObject>();
             artifact.m_Meshes = descriptors;
-            artifact.m_Armature = BuildArmatureArtifact(appliedBlendShares, shouldGenerateMesh);
+            artifact.m_Armature = BuildArmatureArtifact(source);
             return artifact;
         }
 
@@ -885,6 +905,62 @@ namespace Triturbo.BlendShare.Persistence
                 {
                     var item = group.First();
                     var bone = item.Bone;
+                    float scale = item.Scale == 0f ? 1f : item.Scale;
+                    return new BoneNodeData(
+                        bone.m_Path,
+                        bone.m_ParentPath,
+                        bone.m_FbxLocalTranslation * scale,
+                        bone.m_FbxLocalEulerRotation,
+                        bone.m_FbxLocalScale,
+                        bone.m_CreateIfMissing);
+            }));
+            return artifact;
+        }
+
+        private static BoneGraphObject BuildArmatureArtifact(IBlendShareGenerationSource source)
+        {
+            if (source == null)
+            {
+                return BuildArmatureArtifact(Enumerable.Empty<BlendShareObject>());
+            }
+
+            var artifact = ScriptableObject.CreateInstance<BoneGraphObject>();
+            artifact.name = "Armature";
+            artifact.SetBones((source.Requests ?? Array.Empty<BlendShareGenerationRequest>())
+                .Where(request => request?.MeshData != null)
+                .Select(request => new
+                {
+                    Request = request,
+                    Feature = request.MeshData.GetFeature<SkinWeightFeatureObject>(),
+                    Scale = GetFbxToUnityScale(request.MeshData)
+                })
+                .Where(item => item.Feature?.m_BoneGraph != null)
+                .SelectMany(item => (item.Feature.m_BoneGraph.Bones ?? Array.Empty<BoneNodeData>())
+                    .Where(bone => bone != null)
+                    .Select(bone => new { item.Request, Bone = bone, item.Scale }))
+                .GroupBy(item =>
+                {
+                    string sourceBonePath = MeshNodePath.Normalize(item.Bone.m_Path);
+                    return item.Request.TryGetBoneOverride(sourceBonePath, out var boneOverride)
+                        ? boneOverride.FinalBonePath
+                        : sourceBonePath;
+                })
+                .Select(group =>
+                {
+                    var item = group.First();
+                    var bone = item.Bone;
+                    string sourceBonePath = MeshNodePath.Normalize(bone.m_Path);
+                    if (item.Request.TryGetBoneOverride(sourceBonePath, out var boneOverride))
+                    {
+                        return new BoneNodeData(
+                            boneOverride.FinalBonePath,
+                            boneOverride.ParentPath,
+                            boneOverride.GeneratedLocalPosition,
+                            boneOverride.GeneratedLocalEulerRotation,
+                            boneOverride.GeneratedLocalScale,
+                            true);
+                    }
+
                     float scale = item.Scale == 0f ? 1f : item.Scale;
                     return new BoneNodeData(
                         bone.m_Path,

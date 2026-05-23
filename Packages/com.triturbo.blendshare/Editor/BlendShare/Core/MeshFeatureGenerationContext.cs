@@ -24,6 +24,7 @@ namespace Triturbo.BlendShare.Core
         private readonly HashSet<string> completedSteps = new();
 
         public Object TargetMeshContainer { get; }
+        public IBlendShareGenerationSource Source { get; }
         public IReadOnlyList<BlendShareObject> Shares { get; }
         public MeshFeatureTargetMeshLookup TargetMeshes { get; }
         public IReadOnlyList<Object> GeneratedObjects => generatedObjects;
@@ -41,7 +42,19 @@ namespace Triturbo.BlendShare.Core
             MeshFeatureTargetMeshLookup targetMeshes)
         {
             TargetMeshContainer = targetMeshContainer;
+            Source = null;
             Shares = shares?.Where(share => share != null).Distinct().ToArray() ??
+                     System.Array.Empty<BlendShareObject>();
+            TargetMeshes = targetMeshes;
+        }
+
+        public MeshFeatureGenerationSession(
+            IBlendShareGenerationSource source,
+            MeshFeatureTargetMeshLookup targetMeshes)
+        {
+            TargetMeshContainer = source?.TargetMeshContainer;
+            Source = source;
+            Shares = source?.BlendShares?.Where(share => share != null).ToArray() ??
                      System.Array.Empty<BlendShareObject>();
             TargetMeshes = targetMeshes;
         }
@@ -228,6 +241,7 @@ namespace Triturbo.BlendShare.Core
         public Mesh WorkingMesh { get; set; }
         public SkinnedMeshRenderer TargetRenderer { get; }
         public Transform TargetRootTransform { get; }
+        public BlendShareGenerationRequest Request { get; }
         public IReadOnlyList<MeshFeatureObject> Features =>
             MeshData != null ? MeshData.Features : System.Array.Empty<MeshFeatureObject>();
         public bool HasUnhandledFeatures => Features.Any(feature => feature != null && !handledFeatures.Contains(feature));
@@ -250,7 +264,8 @@ namespace Triturbo.BlendShare.Core
             Mesh originalMesh,
             Mesh workingMesh,
             SkinnedMeshRenderer targetRenderer = null,
-            Transform targetRootTransform = null)
+            Transform targetRootTransform = null,
+            BlendShareGenerationRequest request = null)
         {
             Session = session;
             Share = share;
@@ -259,6 +274,7 @@ namespace Triturbo.BlendShare.Core
             WorkingMesh = workingMesh;
             TargetRenderer = targetRenderer;
             TargetRootTransform = targetRootTransform ?? session?.TargetMeshes?.RootTransform;
+            Request = request;
         }
 
         /// <summary>
