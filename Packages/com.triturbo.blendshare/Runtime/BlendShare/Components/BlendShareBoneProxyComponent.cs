@@ -54,6 +54,43 @@ namespace Triturbo.BlendShare.Components
             set => m_LocalScale = value == Vector3.zero ? Vector3.one : value;
         }
 
+        public bool TryGetBindPoseWorldTransform(
+            out Vector3 position,
+            out Quaternion rotation,
+            out Vector3 scale)
+        {
+            var parent = TargetParent;
+            if (parent == null)
+            {
+                position = default;
+                rotation = default;
+                scale = default;
+                return false;
+            }
+
+            position = parent.TransformPoint(LocalPosition);
+            rotation = parent.rotation * Quaternion.Euler(LocalEulerRotation);
+            scale = Vector3.Scale(parent.lossyScale, LocalScale);
+            return true;
+        }
+
+        public void ResetTransformToBindPose()
+        {
+            if (!TryGetBindPoseWorldTransform(out Vector3 position, out Quaternion rotation, out Vector3 scale))
+            {
+                return;
+            }
+
+            transform.SetPositionAndRotation(position, rotation);
+            transform.localScale = CalculateLocalScaleForWorldScale(transform.parent, scale);
+        }
+
+        public bool IsTransformAtBindPosition(float tolerance = 0.0001f)
+        {
+            return TryGetBindPoseWorldTransform(out Vector3 position, out _, out _) &&
+                   Vector3.Distance(transform.position, position) <= tolerance;
+        }
+
         private void OnValidate()
         {
             if (m_Owner == null)
@@ -76,6 +113,25 @@ namespace Triturbo.BlendShare.Components
             }
 
             return m_TargetParentReference;
+        }
+
+        private static Vector3 CalculateLocalScaleForWorldScale(Transform parent, Vector3 worldScale)
+        {
+            if (parent == null)
+            {
+                return worldScale;
+            }
+
+            Vector3 parentScale = parent.lossyScale;
+            return new Vector3(
+                SafeDivide(worldScale.x, parentScale.x),
+                SafeDivide(worldScale.y, parentScale.y),
+                SafeDivide(worldScale.z, parentScale.z));
+        }
+
+        private static float SafeDivide(float value, float divisor)
+        {
+            return Mathf.Abs(divisor) > 0.000001f ? value / divisor : value;
         }
     }
 }

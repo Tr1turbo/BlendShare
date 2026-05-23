@@ -28,12 +28,19 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
                 PlaceProxyInBuildHierarchy(proxy, context.AvatarRootTransform);
             }
 
-            var orderedMeshAppliers = meshAppliers
-                .Where(applier => applier != null &&
-                                  applier.EnabledForBuild &&
-                                  applier.Owner != null &&
-                                  applier.TargetRenderer != null &&
-                                  applier.MeshData != null)
+            var validMeshAppliers = new List<BlendShareMeshApplierComponent>();
+            foreach (var applier in meshAppliers.Where(applier => applier != null && applier.EnabledForBuild))
+            {
+                if (!BlendShareApplierSetupService.ValidateMeshApplierForBuild(applier, out string diagnostic))
+                {
+                    Debug.LogError($"[BlendShare NDMF] {diagnostic}", applier);
+                    continue;
+                }
+
+                validMeshAppliers.Add(applier);
+            }
+
+            var orderedMeshAppliers = validMeshAppliers
                 .OrderBy(applier => GetHierarchyOrder(applier.Owner.transform))
                 .ThenBy(applier => GetHierarchyOrder(applier.transform))
                 .ToArray();
@@ -47,13 +54,13 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
                 }
 
                 var targetRoot = owner.TargetRoot != null ? owner.TargetRoot : context.AvatarRootTransform;
-                var enabledMeshData = new HashSet<MeshDataObject>(ownerGroup
-                    .Select(applier => applier.MeshData)
-                    .Where(meshData => meshData != null));
+                var enabledRendererPaths = new HashSet<string>(ownerGroup
+                    .Select(applier => applier.RendererNodePath)
+                    .Where(path => !string.IsNullOrWhiteSpace(path)));
                 var artifact = BlendShareArtifactService.CreateInMemoryArtifact(
                     targetRoot.gameObject,
                     owner.BlendShares,
-                    (share, meshData) => enabledMeshData.Contains(meshData));
+                    (share, meshData) => meshData != null && enabledRendererPaths.Contains(MeshNodePath.Normalize(meshData.m_Path)));
                 if (artifact == null)
                 {
                     Debug.LogError($"[BlendShare NDMF] Failed to generate BlendShare artifact for '{owner.name}'.", owner);

@@ -29,7 +29,9 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
         public ImmutableList<RenderGroup> GetTargetGroups(ComputeContext context)
         {
             return context.GetComponentsByType<BlendShareMeshApplierComponent>()
-                .Where(applier => context.Observe(applier, item => item.EnabledForBuild) && context.Observe(applier, item => item.TargetRenderer) != null)
+                .Where(applier => context.Observe(applier, item => item.EnabledForBuild) &&
+                                  !context.Observe(applier, item => item.IsStale) &&
+                                  context.Observe(applier, item => item.TargetRenderer) != null)
                 .GroupBy(applier => context.Observe(applier, item => item.TargetRenderer))
                 .Select(group => RenderGroup.For(group.Key).WithData(group.ToArray(), Enumerable.SequenceEqual))
                 .ToImmutableList();
@@ -104,15 +106,16 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
                     .Where(owner => owner != null)
                     .Distinct()
                     .ToArray();
-                var enabledMeshData = new HashSet<MeshDataObject>(appliers
-                    .Where(applier => meshContext.Observe(applier, item => item.EnabledForBuild))
-                    .Select(applier => meshContext.Observe(applier, item => item.MeshData))
-                    .Where(meshData => meshData != null));
+                var enabledRendererPaths = new HashSet<string>(appliers
+                    .Where(applier => meshContext.Observe(applier, item => item.EnabledForBuild) &&
+                                      !meshContext.Observe(applier, item => item.IsStale))
+                    .Select(applier => meshContext.Observe(applier, item => item.RendererNodePath))
+                    .Where(path => !string.IsNullOrWhiteSpace(path)));
                 var proxyRoot = proxyRenderer.transform.root;
                 var artifact = BlendShareArtifactService.CreateInMemoryArtifact(
                     proxyRoot.gameObject,
                     owners.SelectMany(owner => owner.BlendShares).Where(share => share != null).Distinct(),
-                    (share, meshData) => enabledMeshData.Contains(meshData));
+                    (share, meshData) => meshData != null && enabledRendererPaths.Contains(MeshNodePath.Normalize(meshData.m_Path)));
                 if (artifact == null)
                 {
                     Debug.LogWarning("[BlendShare Preview] Failed to generate BlendShare artifact.", original);

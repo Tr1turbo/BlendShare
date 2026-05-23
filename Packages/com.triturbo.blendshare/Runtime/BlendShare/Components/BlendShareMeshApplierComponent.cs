@@ -23,6 +23,12 @@ namespace Triturbo.BlendShare.Components
         [SerializeField, NotKeyable]
         private bool m_EnabledForBuild = true;
 
+        [SerializeField, NotKeyable]
+        private bool m_IsStale;
+
+        [SerializeField, NotKeyable]
+        private string m_DiagnosticMessage;
+
         public BlendShareApplierComponent Owner
         {
             get => m_Owner;
@@ -55,6 +61,24 @@ namespace Triturbo.BlendShare.Components
             set => m_EnabledForBuild = value;
         }
 
+        public bool IsStale
+        {
+            get => m_IsStale;
+            set => m_IsStale = value;
+        }
+
+        public string DiagnosticMessage
+        {
+            get => m_DiagnosticMessage;
+            set => m_DiagnosticMessage = value;
+        }
+
+        public void SetDiagnostic(bool isStale, string message)
+        {
+            m_IsStale = isStale;
+            m_DiagnosticMessage = message;
+        }
+
         private void OnValidate()
         {
             if (m_Owner == null)
@@ -73,6 +97,7 @@ namespace Triturbo.BlendShare.Components
             }
 
             m_RendererNodePath = MeshNodePath.Normalize(m_RendererNodePath);
+            m_DiagnosticMessage ??= string.Empty;
         }
 
         private AvatarObjectReference<SkinnedMeshRenderer> EnsureTargetRendererReferenceInitialized()
