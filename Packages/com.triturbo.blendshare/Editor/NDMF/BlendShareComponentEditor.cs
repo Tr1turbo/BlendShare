@@ -1,14 +1,13 @@
 using System.Linq;
 using Triturbo.BlendShapeShare.BlendShapeData;
 using Triturbo.BlendShare.Components;
-using Triturbo.BlendShare.NonDestructive;
 using UnityEditor;
 using UnityEngine;
 
-namespace Triturbo.BlendShare.Inspector
+namespace Triturbo.BlendShare.NDMF
 {
-    [CustomEditor(typeof(BlendShareApplierComponent))]
-    public sealed class BlendShareApplierComponentEditor : UnityEditor.Editor
+    [CustomEditor(typeof(BlendShareComponent))]
+    public sealed class BlendShareComponentEditor : UnityEditor.Editor
     {
         public override void OnInspectorGUI()
         {
@@ -19,12 +18,12 @@ namespace Triturbo.BlendShare.Inspector
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_BlendShares"), new GUIContent("BlendShare Objects"), true);
             serializedObject.ApplyModifiedProperties();
 
-            var owner = (BlendShareApplierComponent)target;
+            var owner = (BlendShareComponent)target;
             DrawSummary(owner);
             DrawActions(owner);
         }
 
-        private static void DrawSummary(BlendShareApplierComponent owner)
+        private static void DrawSummary(BlendShareComponent owner)
         {
             var meshAppliers = BlendShareApplierSetupService.FindOwnedMeshAppliers(owner);
             var proxies = BlendShareApplierSetupService.FindOwnedBoneProxies(owner);
@@ -53,7 +52,7 @@ namespace Triturbo.BlendShare.Inspector
             }
         }
 
-        private static void DrawActions(BlendShareApplierComponent owner)
+        private static void DrawActions(BlendShareComponent owner)
         {
             EditorGUILayout.Space();
             using (new EditorGUILayout.HorizontalScope())

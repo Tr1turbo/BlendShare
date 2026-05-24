@@ -1,12 +1,11 @@
 using Triturbo.BlendShare.Components;
-using Triturbo.BlendShare.NonDestructive;
 using UnityEditor;
 using UnityEngine;
 
-namespace Triturbo.BlendShare.Inspector
+namespace Triturbo.BlendShare.NDMF
 {
-    [CustomEditor(typeof(BlendShareMeshApplierComponent))]
-    public sealed class BlendShareMeshApplierComponentEditor : UnityEditor.Editor
+    [CustomEditor(typeof(BlendShareMeshComponent))]
+    public sealed class BlendShareMeshComponentEditor : UnityEditor.Editor
     {
         public override void OnInspectorGUI()
         {
@@ -24,7 +23,7 @@ namespace Triturbo.BlendShare.Inspector
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_DiagnosticMessage"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_BoneProxyBindings"), true);
 
-            var applier = (BlendShareMeshApplierComponent)target;
+            var applier = (BlendShareMeshComponent)target;
             if (applier.IsStale && !string.IsNullOrWhiteSpace(applier.DiagnosticMessage))
             {
                 EditorGUILayout.HelpBox(applier.DiagnosticMessage, MessageType.Warning);

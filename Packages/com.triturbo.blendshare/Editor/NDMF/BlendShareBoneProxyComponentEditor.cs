@@ -1,11 +1,11 @@
+using System.Linq;
 using Triturbo.BlendShare.Components;
 using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Features.SkinWeights;
-using Triturbo.BlendShare.NonDestructive;
 using UnityEditor;
 using UnityEngine;
 
-namespace Triturbo.BlendShare.Inspector
+namespace Triturbo.BlendShare.NDMF
 {
     [CustomEditor(typeof(BlendShareBoneProxyComponent))]
     public sealed class BlendShareBoneProxyComponentEditor : UnityEditor.Editor
@@ -141,7 +141,7 @@ namespace Triturbo.BlendShare.Inspector
                     continue;
                 }
 
-                float fbxToUnityScale = GetFbxToUnityScale(meshApplier.MeshData);
+                float fbxToUnityScale = GetFbxToUnityScale(meshApplier);
                 foreach (var binding in meshApplier.BoneProxyBindings)
                 {
                     if (binding?.Proxy != proxy || binding.BoneGraph == null)
@@ -186,12 +186,29 @@ namespace Triturbo.BlendShare.Inspector
             return true;
         }
 
-        private static float GetFbxToUnityScale(MeshDataObject meshData)
+        private static float GetFbxToUnityScale(BlendShareMeshComponent meshApplier)
         {
-            var mapping = meshData != null
-                ? System.Linq.Enumerable.FirstOrDefault(meshData.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>(), item => item != null && item.m_IsValid)
-                : null;
+            var meshData = meshApplier?.MeshData;
+            var targetMesh = meshApplier?.TargetRenderer != null ? meshApplier.TargetRenderer.sharedMesh : null;
+            var mapping = targetMesh != null
+                ? System.Linq.Enumerable.FirstOrDefault(meshData?.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>(), item => item != null && item.IsCompatibleWith(meshData, targetMesh))
+                : System.Linq.Enumerable.FirstOrDefault(meshData?.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>(), item => item != null && item.m_IsValid);
+            if (mapping == null && meshApplier != null && targetMesh != null)
+            {
+                BlendShareVertexMappingCacheService.TryGet(
+                    FindBlendShareForMeshData(meshApplier.Owner, meshData),
+                    meshData,
+                    targetMesh,
+                    out mapping);
+            }
+
             return mapping != null ? mapping.FbxToUnityScale : 1f;
+        }
+
+        private static BlendShareObject FindBlendShareForMeshData(BlendShareComponent owner, MeshDataObject meshData)
+        {
+            return (owner?.BlendShares ?? System.Array.Empty<BlendShareObject>())
+                .FirstOrDefault(share => share != null && (share.Meshes ?? System.Array.Empty<MeshDataObject>()).Contains(meshData));
         }
 
         [DrawGizmo(GizmoType.Selected | GizmoType.NonSelected | GizmoType.Active)]

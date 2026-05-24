@@ -41,7 +41,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             }
 
             feature.Sanitize(context.MeshData);
-            return context.MeshData.IsValidTarget(context.WorkingMesh)
+            return context.GetMappingFor(context.WorkingMesh) != null
                 ? MeshFeatureGenerationResult.Success(false)
                 : MeshFeatureGenerationResult.FailedResult("Target mesh does not match any stored Unity vertex mapping.");
         }
@@ -56,8 +56,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return canApply;
             }
 
-            var mapping = (context.MeshData.m_Mappings ?? Array.Empty<UnityVertexMappingObject>())
-                .FirstOrDefault(candidate => candidate != null && candidate.IsValidFor(context.WorkingMesh));
+            var mapping = context.GetMappingFor(context.WorkingMesh);
             if (mapping == null)
             {
                 return MeshFeatureGenerationResult.FailedResult("Target mesh does not match any stored Unity vertex mapping.");

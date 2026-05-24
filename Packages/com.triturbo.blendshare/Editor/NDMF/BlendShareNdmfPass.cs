@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using Triturbo.BlendShare.Components;
 using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Persistence;
@@ -8,7 +9,7 @@ using nadena.dev.ndmf.animator;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
-namespace Triturbo.BlendShare.NonDestructive.NDMF
+namespace Triturbo.BlendShare.NDMF
 {
     [DependsOnContext(typeof(AnimatorServicesContext))]
     internal sealed class BlendShareNdmfPass : nadena.dev.ndmf.Pass<BlendShareNdmfPass>
@@ -18,13 +19,13 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
 
         protected override void Execute(nadena.dev.ndmf.BuildContext context)
         {
-            var appliers = context.AvatarRootObject.GetComponentsInChildren<BlendShareApplierComponent>(true);
+            var appliers = context.AvatarRootObject.GetComponentsInChildren<BlendShareComponent>(true);
             if (appliers.Length == 0)
             {
                 return;
             }
 
-            var meshAppliers = context.AvatarRootObject.GetComponentsInChildren<BlendShareMeshApplierComponent>(true);
+            var meshAppliers = context.AvatarRootObject.GetComponentsInChildren<BlendShareMeshComponent>(true);
             var boneProxies = context.AvatarRootObject.GetComponentsInChildren<BlendShareBoneProxyComponent>(true);
             ObjectPathRemapper pathRemapper;
             try
@@ -42,7 +43,7 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
                 PlaceProxyInBuildHierarchy(proxy, context.AvatarRootTransform, pathRemapper);
             }
 
-            var validMeshAppliers = new List<BlendShareMeshApplierComponent>();
+            var validMeshAppliers = new List<BlendShareMeshComponent>();
             foreach (var applier in meshAppliers.Where(applier => applier != null && applier.EnabledForBuild && applier.Owner != null && applier.Owner.enabled))
             {
                 if (!BlendShareApplierSetupService.ValidateMeshApplierForBuild(applier, out string diagnostic))
@@ -51,7 +52,19 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
                     continue;
                 }
 
+                if (!BlendShareApplierSetupService.ValidateMeshApplierMapping(applier, out _) &&
+                    !BlendShareApplierSetupService.EnsureMeshApplierMappingCache(applier, out string mappingDiagnostic))
+                {
+                    ReportMappingFailure(applier, mappingDiagnostic);
+                    continue;
+                }
+
                 validMeshAppliers.Add(applier);
+            }
+
+            if (context.ErrorReport.Errors.Any(error => error.TheError is BlendShareNdmfError))
+            {
+                return;
             }
 
             var orderedMeshAppliers = validMeshAppliers
@@ -98,7 +111,7 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
                 }
             }
 
-            foreach (var component in context.AvatarRootObject.GetComponentsInChildren<BlendShareMeshApplierComponent>(true))
+            foreach (var component in context.AvatarRootObject.GetComponentsInChildren<BlendShareMeshComponent>(true))
             {
                 Object.DestroyImmediate(component);
             }
@@ -108,9 +121,93 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
                 Object.DestroyImmediate(component);
             }
 
-            foreach (var component in context.AvatarRootObject.GetComponentsInChildren<BlendShareApplierComponent>(true))
+            foreach (var component in context.AvatarRootObject.GetComponentsInChildren<BlendShareComponent>(true))
             {
                 Object.DestroyImmediate(component);
+            }
+        }
+
+        private static void ReportMappingFailure(BlendShareMeshComponent applier, string diagnostic)
+        {
+            var details = BuildMappingFailureDetails(applier, diagnostic);
+            ErrorReport.ReportError(new BlendShareNdmfError(
+                "BlendShare mapping recovery failed.",
+                details,
+                applier));
+            Debug.LogError($"[BlendShare NDMF] {details}", applier);
+        }
+
+        private static string BuildMappingFailureDetails(BlendShareMeshComponent applier, string diagnostic)
+        {
+            string rendererPath = applier != null ? applier.RendererNodePath : MeshNodePath.Root;
+            var builder = new StringBuilder();
+            builder.AppendLine(string.IsNullOrWhiteSpace(diagnostic)
+                ? "BlendShare could not create a compatible Unity vertex mapping."
+                : diagnostic);
+            builder.AppendLine($"Renderer path: {rendererPath}");
+
+            bool addedPair = false;
+            foreach (var share in applier?.Owner?.BlendShares ?? System.Array.Empty<BlendShareObject>())
+            {
+                foreach (var meshData in share?.Meshes ?? System.Array.Empty<MeshDataObject>())
+                {
+                    if (share == null || meshData == null || MeshNodePath.Normalize(meshData.m_Path) != rendererPath)
+                    {
+                        continue;
+                    }
+
+                    builder.AppendLine($"BlendShare asset: {share.name}");
+                    builder.AppendLine($"Mesh path: {meshData.m_Path}");
+                    addedPair = true;
+                }
+            }
+
+            if (!addedPair)
+            {
+                builder.AppendLine("BlendShare asset: <not resolved>");
+                builder.AppendLine("Mesh path: <not resolved>");
+            }
+
+            return builder.ToString().TrimEnd();
+        }
+
+        private sealed class BlendShareNdmfError : IError
+        {
+            private readonly string title;
+            private readonly string details;
+            private readonly List<ObjectReference> references = new();
+
+            public BlendShareNdmfError(string title, string details, Object context)
+            {
+                this.title = title;
+                this.details = details;
+                if (context != null)
+                {
+                    references.Add(ObjectRegistry.GetReference(context));
+                }
+            }
+
+            public ErrorSeverity Severity => ErrorSeverity.Error;
+
+            public UnityEngine.UIElements.VisualElement CreateVisualElement(ErrorReport report)
+            {
+                var container = new UnityEngine.UIElements.VisualElement();
+                container.Add(new UnityEngine.UIElements.Label(title));
+                container.Add(new UnityEngine.UIElements.Label(details));
+                return container;
+            }
+
+            public string ToMessage()
+            {
+                return $"{title}\n\n{details}";
+            }
+
+            public void AddReference(ObjectReference obj)
+            {
+                if (obj != null && !references.Contains(obj))
+                {
+                    references.Add(obj);
+                }
             }
         }
 

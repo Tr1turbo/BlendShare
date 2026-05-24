@@ -9,7 +9,7 @@ namespace Triturbo.BlendShare.Components
     public sealed class BlendShareBoneProxyComponent : MonoBehaviour
     {
         [SerializeField, NotKeyable]
-        private BlendShareApplierComponent m_Owner;
+        private BlendShareComponent m_Owner;
 
         [SerializeField, NotKeyable]
         private AvatarObjectReference<Transform> m_TargetParentReference = new();
@@ -56,7 +56,7 @@ namespace Triturbo.BlendShare.Components
         [System.NonSerialized]
         private bool m_IsApplyingParentingTransform;
 
-        public BlendShareApplierComponent Owner
+        public BlendShareComponent Owner
         {
             get => m_Owner;
             set => m_Owner = value;
@@ -174,7 +174,7 @@ namespace Triturbo.BlendShare.Components
         {
             if (m_Owner == null)
             {
-                m_Owner = GetComponentInParent<BlendShareApplierComponent>(true);
+                m_Owner = GetComponentInParent<BlendShareComponent>(true);
             }
 
             EnsureTargetParentReferenceInitialized();

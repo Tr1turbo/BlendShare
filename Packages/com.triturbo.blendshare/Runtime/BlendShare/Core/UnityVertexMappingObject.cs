@@ -1,21 +1,10 @@
+using System.Linq;
 using UnityEngine;
 using UnityEngine.Scripting.APIUpdating;
 
 
 namespace Triturbo.BlendShare.Core
 {
-    /// <summary>
-    /// Describes how a Unity-to-FBX vertex mapping was produced.
-    /// </summary>
-    [MovedFrom(true, "Triturbo.BlendShapeShare.BlendShapeData", "Triturbo.BlendShapeShare.Data.Editor")]
-    public enum UnityFbxMappingBuildMode
-    {
-        Unknown,
-        Extraction,
-        LegacyUpgrade,
-        FbxAsset
-    }
-
     /// <summary>
     /// Stores the FBX control-point indices that correspond to one Unity vertex.
     /// </summary>
@@ -32,17 +21,17 @@ namespace Triturbo.BlendShare.Core
     [MovedFrom(true, "Triturbo.BlendShapeShare.BlendShapeData", "Triturbo.BlendShapeShare.Data.Editor")]
     public class UnityVertexMappingObject : ScriptableObject
     {
+        public string m_UnityVertexHash;
+
         public Mesh m_UnityMesh;
         public int m_UnityVertexCount;
 
-        public string m_UnityVertexHash;
         public float m_FbxToUnityScale = 1f;
         public int[] m_Indices;
         public FbxIndexGroup[] m_IndexGroups;
 
         public bool m_IsValid;
         public string m_InvalidReason;
-        public UnityFbxMappingBuildMode m_BuildMode;
         public float FbxToUnityScale => m_FbxToUnityScale == 0f ? 1f : m_FbxToUnityScale;
         public string UnityVerticesHashShort
         {
@@ -96,6 +85,28 @@ namespace Triturbo.BlendShare.Core
         public bool IsValidFor(Mesh targetMesh)
         {
             return m_IsValid && MatchesUnityMesh(targetMesh);
+        }
+
+        public bool IsCompatibleWith(MeshDataObject meshData, Mesh targetMesh)
+        {
+            return IsValidFor(targetMesh) && MatchesFbxControlPointCount(meshData?.m_FbxControlPointCount ?? -1);
+        }
+
+        public bool MatchesFbxControlPointCount(int fbxControlPointCount)
+        {
+            if (fbxControlPointCount <= 0)
+            {
+                return true;
+            }
+
+            if (m_IndexGroups != null)
+            {
+                return m_IndexGroups.All(group =>
+                    group.m_Indices == null ||
+                    group.m_Indices.All(index => index < 0 || index < fbxControlPointCount));
+            }
+
+            return m_Indices == null || m_Indices.All(index => index < 0 || index < fbxControlPointCount);
         }
 
         public bool MatchesUnityMesh(Mesh targetMesh)

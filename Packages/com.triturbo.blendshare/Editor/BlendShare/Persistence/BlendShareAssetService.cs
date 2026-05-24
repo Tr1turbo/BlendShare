@@ -236,14 +236,14 @@ namespace Triturbo.BlendShare.Persistence
             return $"Mesh_{SanitizeName(mesh.m_Path)}";
         }
 
-        private static string GetMappingSubAssetName(MeshDataObject mesh, UnityVertexMappingObject mapping)
-        {
-            return $"Mapping_{SanitizeName(mesh.m_Path)}_{mapping.UnityVerticesHashShort}";
-        }
-
         private static string GetFeatureSubAssetName(MeshDataObject mesh, MeshFeatureObject feature)
         {
             return $"Feature::{feature.FeatureId}@{mesh.m_Path}";
+        }
+
+        private static string GetMappingSubAssetName(MeshDataObject mesh, UnityVertexMappingObject mapping)
+        {
+            return $"Mapping_{SanitizeName(mesh.m_Path)}_{mapping.UnityVerticesHashShort}";
         }
 
         private static string GetPresetSubAssetName(BlendShapePresetObject preset)

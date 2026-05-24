@@ -2,9 +2,9 @@ using nadena.dev.ndmf;
 using nadena.dev.ndmf.animator;
 using nadena.dev.ndmf.fluent;
 
-[assembly: ExportsPlugin(typeof(Triturbo.BlendShare.NonDestructive.NDMF.BlendShareNdmfPlugin))]
+[assembly: ExportsPlugin(typeof(Triturbo.BlendShare.NDMF.BlendShareNdmfPlugin))]
 
-namespace Triturbo.BlendShare.NonDestructive.NDMF
+namespace Triturbo.BlendShare.NDMF
 {
     [RunsOnAllPlatforms]
     internal sealed class BlendShareNdmfPlugin : Plugin<BlendShareNdmfPlugin>

@@ -990,7 +990,7 @@ namespace Triturbo.BlendShare.Persistence
                 {
                     Request = request,
                     Feature = request.MeshData.GetFeature<SkinWeightFeatureObject>(),
-                    Scale = GetFbxToUnityScale(request.MeshData)
+                    Scale = GetFbxToUnityScale(request)
                 })
                 .Where(item => item.Feature?.m_BoneGraph != null)
                 .SelectMany(item => (item.Feature.m_BoneGraph.Bones ?? Array.Empty<BoneNodeData>())
@@ -1036,6 +1036,12 @@ namespace Triturbo.BlendShare.Persistence
             var mapping = (meshData?.m_Mappings ?? Array.Empty<UnityVertexMappingObject>())
                 .FirstOrDefault(candidate => candidate != null && candidate.m_IsValid);
             return mapping != null ? mapping.FbxToUnityScale : 1f;
+        }
+
+        private static float GetFbxToUnityScale(BlendShareGenerationRequest request)
+        {
+            var mapping = request?.GetMappingFor(request.TargetRenderer != null ? request.TargetRenderer.sharedMesh : null);
+            return mapping != null ? mapping.FbxToUnityScale : GetFbxToUnityScale(request?.MeshData);
         }
 
         private static BlendShareSkinBindingDescriptor BuildSkinBinding(GameObject root, string rendererPath)

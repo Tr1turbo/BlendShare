@@ -8,16 +8,16 @@ using Triturbo.BlendShare.Features.SkinWeights;
 using UnityEditor;
 using UnityEngine;
 
-namespace Triturbo.BlendShare.NonDestructive
+namespace Triturbo.BlendShare.NDMF
 {
     public static class BlendShareApplierSetupService
     {
-        public static RebuildMeshBindingsResult RebuildMeshBindings(BlendShareApplierComponent owner)
+        public static RebuildMeshBindingsResult RebuildMeshBindings(BlendShareComponent owner)
         {
             var result = new RebuildMeshBindingsResult();
             if (owner == null)
             {
-                result.AddDiagnostic("BlendShare applier is missing.");
+                result.AddDiagnostic("BlendShare Core is missing.");
                 return result;
             }
 
@@ -79,7 +79,7 @@ namespace Triturbo.BlendShare.NonDestructive
             return result;
         }
 
-        public static RebuildBoneProxiesResult RebuildBoneProxies(BlendShareApplierComponent owner)
+        public static RebuildBoneProxiesResult RebuildBoneProxies(BlendShareComponent owner)
         {
             var result = new RebuildBoneProxiesResult();
             if (owner == null)
@@ -132,7 +132,7 @@ namespace Triturbo.BlendShare.NonDestructive
                         continue;
                     }
 
-                    float fbxToUnityScale = GetFbxToUnityScale(meshData);
+                    float fbxToUnityScale = GetFbxToUnityScale(meshApplier, meshData);
 
                     foreach (string bonePath in GetNeededBonePathsInGraphOrder(skin))
                     {
@@ -212,7 +212,7 @@ namespace Triturbo.BlendShare.NonDestructive
             return proxy != null;
         }
 
-        public static Transform ResolveTargetRoot(BlendShareApplierComponent owner)
+        public static Transform ResolveTargetRoot(BlendShareComponent owner)
         {
             if (owner == null)
             {
@@ -222,14 +222,27 @@ namespace Triturbo.BlendShare.NonDestructive
             return owner.TargetRoot != null ? owner.TargetRoot : owner.transform;
         }
 
-        private static float GetFbxToUnityScale(MeshDataObject meshData)
+        private static float GetFbxToUnityScale(BlendShareMeshComponent meshApplier, MeshDataObject meshData)
         {
-            var mapping = (meshData?.m_Mappings ?? Array.Empty<UnityVertexMappingObject>())
-                .FirstOrDefault(candidate => candidate != null && candidate.m_IsValid);
+            var targetMesh = meshApplier?.TargetRenderer != null ? meshApplier.TargetRenderer.sharedMesh : null;
+            var mapping = targetMesh != null
+                ? (meshData?.m_Mappings ?? Array.Empty<UnityVertexMappingObject>())
+                    .FirstOrDefault(candidate => candidate != null && candidate.IsCompatibleWith(meshData, targetMesh))
+                : (meshData?.m_Mappings ?? Array.Empty<UnityVertexMappingObject>())
+                    .FirstOrDefault(candidate => candidate != null && candidate.m_IsValid);
+            if (mapping == null && meshApplier != null && targetMesh != null)
+            {
+                BlendShareVertexMappingCacheService.TryGet(
+                    FindBlendShareForMeshData(meshApplier.Owner, meshData),
+                    meshData,
+                    targetMesh,
+                    out mapping);
+            }
+
             return mapping != null ? mapping.FbxToUnityScale : 1f;
         }
 
-        private static IEnumerable<MeshDataObject> GetMeshDataForApplier(BlendShareMeshApplierComponent meshApplier)
+        private static IEnumerable<MeshDataObject> GetMeshDataForApplier(BlendShareMeshComponent meshApplier)
         {
             if (meshApplier?.Owner == null)
             {
@@ -253,7 +266,7 @@ namespace Triturbo.BlendShare.NonDestructive
         }
 
         public static bool ValidateMeshApplierForBuild(
-            BlendShareMeshApplierComponent applier,
+            BlendShareMeshComponent applier,
             out string diagnostic)
         {
             diagnostic = null;
@@ -301,7 +314,7 @@ namespace Triturbo.BlendShare.NonDestructive
         }
 
         public static bool ValidateMeshApplierMapping(
-            BlendShareMeshApplierComponent applier,
+            BlendShareMeshComponent applier,
             out string diagnostic)
         {
             diagnostic = null;
@@ -311,7 +324,7 @@ namespace Triturbo.BlendShare.NonDestructive
             }
 
             var renderer = applier.TargetRenderer;
-            if (renderer == null || applier.MeshData == null)
+            if (renderer == null || applier.Owner == null)
             {
                 return true;
             }
@@ -323,32 +336,156 @@ namespace Triturbo.BlendShare.NonDestructive
                 return false;
             }
 
-            bool hasValidMapping = (applier.MeshData.m_Mappings ?? Array.Empty<UnityVertexMappingObject>())
-                .Any(mapping => mapping != null && mapping.IsValidFor(targetMesh));
-            if (hasValidMapping)
+            var missing = GetBlendShareMeshPairsForApplier(applier)
+                .Where(pair => !HasValidMapping(pair.Share, pair.MeshData, targetMesh))
+                .ToArray();
+            if (missing.Length == 0)
             {
                 return true;
             }
 
-            diagnostic = $"BlendShare mesh applier '{applier.name}' does not have a valid Unity vertex mapping for renderer path '{applier.RendererNodePath}'. ND build/preview may fail or require a slow FBX fallback.";
+            diagnostic = $"BlendShare mesh applier '{applier.name}' does not have valid Unity vertex mappings for {missing.Length} BlendShare mesh request(s) at renderer path '{applier.RendererNodePath}'. ND build/preview may fail or require a slow FBX fallback.";
             return false;
         }
 
-        public static BlendShareMeshApplierComponent[] FindOwnedMeshAppliers(BlendShareApplierComponent owner)
+        public static bool EnsureMeshApplierMappingCache(
+            BlendShareMeshComponent applier,
+            out string diagnostic)
+        {
+            diagnostic = null;
+            if (applier == null || applier.TargetRenderer == null)
+            {
+                return false;
+            }
+
+            var targetMesh = applier.TargetRenderer.sharedMesh;
+            if (targetMesh == null)
+            {
+                diagnostic = $"BlendShare mesh applier '{applier.name}' target renderer has no mesh.";
+                return false;
+            }
+
+            var sourceFbx = ResolveSourceFbx(applier.Owner, targetMesh);
+            if (sourceFbx == null)
+            {
+                diagnostic = $"BlendShare mesh applier '{applier.name}' cannot create a mapping because no source FBX is available.";
+                return false;
+            }
+
+            var failures = new List<string>();
+            bool createdOrFoundAll = true;
+            foreach (var pair in GetBlendShareMeshPairsForApplier(applier))
+            {
+                if (HasValidMapping(pair.Share, pair.MeshData, targetMesh))
+                {
+                    continue;
+                }
+
+                var mapping = UnityFbxVertexMappingBuilder.BuildFromFbx(pair.MeshData.m_Path, targetMesh, sourceFbx);
+                if (mapping == null || !mapping.m_IsValid)
+                {
+                    createdOrFoundAll = false;
+                    failures.Add($"{pair.Share.name}/{pair.MeshData.m_Path}: {mapping?.m_InvalidReason ?? "mapping generation failed"}");
+                    DestroyTransientMapping(mapping);
+                    continue;
+                }
+
+                BlendShareVertexMappingCacheService.Store(pair.Share, pair.MeshData, mapping);
+                DestroyTransientMapping(mapping);
+            }
+
+            if (!createdOrFoundAll)
+            {
+                diagnostic = $"BlendShare mesh applier '{applier.name}' failed to create mapping cache for '{applier.RendererNodePath}': {string.Join("; ", failures)}";
+            }
+
+            return createdOrFoundAll;
+        }
+
+        private static void DestroyTransientMapping(UnityVertexMappingObject mapping)
+        {
+            if (mapping != null && !AssetDatabase.Contains(mapping))
+            {
+                UnityEngine.Object.DestroyImmediate(mapping);
+            }
+        }
+
+        private static bool HasValidMapping(BlendShareObject blendShare, MeshDataObject meshData, Mesh targetMesh)
+        {
+            return (meshData?.m_Mappings ?? Array.Empty<UnityVertexMappingObject>())
+                   .Any(mapping => mapping != null && mapping.IsCompatibleWith(meshData, targetMesh)) ||
+                   BlendShareVertexMappingCacheService.ContainsCompatible(blendShare, meshData, targetMesh);
+        }
+
+        private static IEnumerable<(BlendShareObject Share, MeshDataObject MeshData)> GetBlendShareMeshPairsForApplier(
+            BlendShareMeshComponent applier)
+        {
+            if (applier?.Owner == null)
+            {
+                yield break;
+            }
+
+            string rendererPath = MeshNodePath.Normalize(applier.RendererNodePath);
+            foreach (var share in applier.Owner.BlendShares ?? Array.Empty<BlendShareObject>())
+            {
+                foreach (var meshData in share?.Meshes ?? Array.Empty<MeshDataObject>())
+                {
+                    if (share != null && meshData != null && MeshNodePath.Normalize(meshData.m_Path) == rendererPath)
+                    {
+                        yield return (share, meshData);
+                    }
+                }
+            }
+        }
+
+        private static BlendShareObject FindBlendShareForMeshData(BlendShareComponent owner, MeshDataObject meshData)
+        {
+            return (owner?.BlendShares ?? Array.Empty<BlendShareObject>())
+                .Where(share => share != null)
+                .FirstOrDefault(share => (share.Meshes ?? Array.Empty<MeshDataObject>()).Contains(meshData));
+        }
+
+        private static GameObject ResolveSourceFbx(BlendShareComponent owner, Mesh targetMesh)
+        {
+            if (targetMesh != null)
+            {
+                string meshPath = AssetDatabase.GetAssetPath(targetMesh);
+                if (!string.IsNullOrEmpty(meshPath))
+                {
+                    var targetAssetRoot = AssetDatabase.LoadMainAssetAtPath(meshPath) as GameObject;
+                    if (targetAssetRoot != null)
+                    {
+                        return targetAssetRoot;
+                    }
+                }
+            }
+
+            return ResolveOriginalFbx(owner);
+        }
+
+        private static GameObject ResolveOriginalFbx(BlendShareComponent owner)
+        {
+            return (owner?.BlendShares ?? Array.Empty<BlendShareObject>())
+                .Where(share => share != null)
+                .Select(share => share.m_Original)
+                .FirstOrDefault(original => original != null);
+        }
+
+        public static BlendShareMeshComponent[] FindOwnedMeshAppliers(BlendShareComponent owner)
         {
             if (owner == null)
             {
-                return Array.Empty<BlendShareMeshApplierComponent>();
+                return Array.Empty<BlendShareMeshComponent>();
             }
 
-            return UnityEngine.Object.FindObjectsOfType<BlendShareMeshApplierComponent>(true)
+            return UnityEngine.Object.FindObjectsOfType<BlendShareMeshComponent>(true)
                 .Where(applier => applier != null &&
                                   applier.Owner == owner &&
                                   applier.gameObject.scene == owner.gameObject.scene)
                 .ToArray();
         }
 
-        public static BlendShareBoneProxyComponent[] FindOwnedBoneProxies(BlendShareApplierComponent owner)
+        public static BlendShareBoneProxyComponent[] FindOwnedBoneProxies(BlendShareComponent owner)
         {
             if (owner == null)
             {
@@ -362,8 +499,8 @@ namespace Triturbo.BlendShare.NonDestructive
                 .ToArray();
         }
 
-        private static BlendShareMeshApplierComponent CreateMeshApplier(
-            BlendShareApplierComponent owner,
+        private static BlendShareMeshComponent CreateMeshApplier(
+            BlendShareComponent owner,
             SkinnedMeshRenderer renderer,
             string rendererPath)
         {
@@ -374,23 +511,23 @@ namespace Triturbo.BlendShare.NonDestructive
             }
             else
             {
-                host = new GameObject($"BlendShareMeshApplier: {MeshNodePath.LeafName(rendererPath)}");
+                host = new GameObject($"{MeshNodePath.LeafName(rendererPath)}");
                 Undo.RegisterCreatedObjectUndo(host, "Create BlendShare Mesh Binding");
                 host.transform.SetParent(owner.transform, false);
             }
 
-            var applier = host.GetComponents<BlendShareMeshApplierComponent>()
+            var applier = host.GetComponents<BlendShareMeshComponent>()
                 .FirstOrDefault(component => component.Owner == owner || component.Owner == null);
             if (applier == null)
             {
-                applier = Undo.AddComponent<BlendShareMeshApplierComponent>(host);
+                applier = Undo.AddComponent<BlendShareMeshComponent>(host);
             }
 
             return applier;
         }
 
         private static BlendShareBoneProxyComponent CreateBoneProxy(
-            BlendShareApplierComponent owner,
+            BlendShareComponent owner,
             string sourceBonePath,
             Transform parent)
         {
@@ -473,7 +610,7 @@ namespace Triturbo.BlendShare.NonDestructive
                 Quantize(localScale.x), Quantize(localScale.y), Quantize(localScale.z));
         }
 
-        private static BlendShareMeshApplierComponent TakeFirst(List<BlendShareMeshApplierComponent> appliers)
+        private static BlendShareMeshComponent TakeFirst(List<BlendShareMeshComponent> appliers)
         {
             var first = appliers.FirstOrDefault();
             if (first != null)
@@ -521,12 +658,12 @@ namespace Triturbo.BlendShare.NonDestructive
     public sealed class RebuildMeshBindingsResult
     {
         private readonly List<string> diagnostics = new();
-        private readonly List<BlendShareMeshApplierComponent> meshAppliers = new();
-        private readonly List<BlendShareMeshApplierComponent> staleMeshAppliers = new();
+        private readonly List<BlendShareMeshComponent> meshAppliers = new();
+        private readonly List<BlendShareMeshComponent> staleMeshAppliers = new();
 
         public IReadOnlyList<string> Diagnostics => diagnostics;
-        public IReadOnlyList<BlendShareMeshApplierComponent> MeshAppliers => meshAppliers;
-        public IReadOnlyList<BlendShareMeshApplierComponent> StaleMeshAppliers => staleMeshAppliers;
+        public IReadOnlyList<BlendShareMeshComponent> MeshAppliers => meshAppliers;
+        public IReadOnlyList<BlendShareMeshComponent> StaleMeshAppliers => staleMeshAppliers;
         public bool Success => diagnostics.Count == 0;
 
         internal void AddDiagnostic(string diagnostic)
@@ -537,7 +674,7 @@ namespace Triturbo.BlendShare.NonDestructive
             }
         }
 
-        internal void AddMeshApplier(BlendShareMeshApplierComponent applier)
+        internal void AddMeshApplier(BlendShareMeshComponent applier)
         {
             if (applier != null && !meshAppliers.Contains(applier))
             {
@@ -545,7 +682,7 @@ namespace Triturbo.BlendShare.NonDestructive
             }
         }
 
-        internal void AddStaleMeshApplier(BlendShareMeshApplierComponent applier)
+        internal void AddStaleMeshApplier(BlendShareMeshComponent applier)
         {
             if (applier != null && !staleMeshAppliers.Contains(applier))
             {

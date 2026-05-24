@@ -81,7 +81,6 @@ namespace Triturbo.BlendShare.Core
             mapping.m_UnityVertexCount = unityMesh != null ? unityMesh.vertexCount : 0;
             mapping.m_UnityVertexHash = UnityVertexPositionHash.Calculate(unityMesh);
             mapping.m_FbxToUnityScale = importScale == 0f ? 1f : importScale;
-            mapping.m_BuildMode = UnityFbxMappingBuildMode.FbxAsset;
             mapping.m_IndexGroups = CreateEmptyGroups(Mathf.Max(0, mapping.m_UnityVertexCount));
             LogTiming("FbxAsset", nodePath, "Create mapping object", stopwatch, ref lastLogMs,
                 $"unityVertices={mapping.m_IndexGroups.Length}");

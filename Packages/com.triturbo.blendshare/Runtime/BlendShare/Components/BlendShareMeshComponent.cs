@@ -5,6 +5,7 @@ using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Features.BoneGraph;
 using UnityEngine;
 using UnityEngine.Animations;
+using UnityEngine.Scripting.APIUpdating;
 
 namespace Triturbo.BlendShare.Components
 {
@@ -51,11 +52,12 @@ namespace Triturbo.BlendShare.Components
     }
 
     [DisallowMultipleComponent]
-    [AddComponentMenu("BlendShare/BlendShare Mesh Applier")]
-    public sealed class BlendShareMeshApplierComponent : MonoBehaviour
+    [AddComponentMenu("BlendShare/BlendShare Mesh")]
+    [MovedFrom(true, null, null, "BlendShareMeshApplierComponent")]
+    public sealed class BlendShareMeshComponent : MonoBehaviour
     {
         [SerializeField, NotKeyable]
-        private BlendShareApplierComponent m_Owner;
+        private BlendShareComponent m_Owner;
 
         [SerializeField, NotKeyable]
         private AvatarObjectReference<SkinnedMeshRenderer> m_TargetRendererReference = new();
@@ -78,7 +80,7 @@ namespace Triturbo.BlendShare.Components
         [SerializeField, NotKeyable]
         private List<BlendShareBoneProxyBinding> m_BoneProxyBindings = new();
 
-        public BlendShareApplierComponent Owner
+        public BlendShareComponent Owner
         {
             get => m_Owner;
             set => m_Owner = value;
@@ -162,7 +164,7 @@ namespace Triturbo.BlendShare.Components
         {
             if (m_Owner == null)
             {
-                m_Owner = GetComponentInParent<BlendShareApplierComponent>(true);
+                m_Owner = GetComponentInParent<BlendShareComponent>(true);
             }
 
             EnsureTargetRendererReferenceInitialized();

@@ -380,7 +380,7 @@ namespace Triturbo.BlendShare.Inspector
                 }
 
                 bool hasValidMapping = (mesh.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
-                    .Any(mapping => mapping != null && mapping.IsValidFor(targetMesh));
+                    .Any(mapping => mapping != null && mapping.IsCompatibleWith(mesh, targetMesh));
                 if (!hasValidMapping)
                 {
                     invalidCount++;
@@ -438,7 +438,7 @@ namespace Triturbo.BlendShare.Inspector
                 }
 
                 if ((mesh.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
-                    .Any(mapping => mapping != null && mapping.IsValidFor(targetMesh)))
+                    .Any(mapping => mapping != null && mapping.IsCompatibleWith(mesh, targetMesh)))
                 {
                     continue;
                 }
@@ -447,10 +447,6 @@ namespace Triturbo.BlendShare.Inspector
                 if (mapping == null || !mapping.m_IsValid)
                 {
                     failures.Add($"{mesh.m_Path}: {mapping?.m_InvalidReason ?? "mapping generation failed"}");
-                    if (mapping != null && !AssetDatabase.Contains(mapping))
-                    {
-                        Object.DestroyImmediate(mapping);
-                    }
                     continue;
                 }
 

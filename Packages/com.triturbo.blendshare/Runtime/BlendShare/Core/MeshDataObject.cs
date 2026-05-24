@@ -21,7 +21,8 @@ namespace Triturbo.BlendShare.Core
         [SerializeField]
         private List<MeshFeatureObject> m_Features = new();
 
-        public UnityVertexMappingObject[] m_Mappings;
+        [SerializeField, NonReorderable]
+        public UnityVertexMappingObject[] m_Mappings = System.Array.Empty<UnityVertexMappingObject>();
 
         public IReadOnlyList<MeshFeatureObject> Features =>
             m_Features != null ? m_Features : System.Array.Empty<MeshFeatureObject>();
@@ -113,7 +114,7 @@ namespace Triturbo.BlendShare.Core
         {
             return targetMesh != null &&
                    (m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
-                   .Any(mapping => mapping != null && mapping.IsValidFor(targetMesh));
+                   .Any(mapping => mapping != null && mapping.IsCompatibleWith(this, targetMesh));
         }
     }
 }

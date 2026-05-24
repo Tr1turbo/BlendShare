@@ -10,7 +10,7 @@ using nadena.dev.ndmf.preview;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
-namespace Triturbo.BlendShare.NonDestructive.NDMF
+namespace Triturbo.BlendShare.NDMF
 {
     internal sealed class BlendShareNdmfPreview : IRenderFilter
     {
@@ -29,7 +29,7 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
 
         public ImmutableList<RenderGroup> GetTargetGroups(ComputeContext context)
         {
-            return context.GetComponentsByType<BlendShareMeshApplierComponent>()
+            return context.GetComponentsByType<BlendShareMeshComponent>()
                 .Where(applier => context.Observe(applier, item => item.EnabledForBuild) &&
                                   !context.Observe(applier, item => item.IsStale) &&
                                   IsOwnerEnabled(applier, context) &&
@@ -45,7 +45,7 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
             return Task.FromResult<IRenderFilterNode>(node);
         }
 
-        private static bool IsOwnerEnabled(BlendShareMeshApplierComponent applier, ComputeContext context)
+        private static bool IsOwnerEnabled(BlendShareMeshComponent applier, ComputeContext context)
         {
             if (applier == null)
             {
@@ -151,6 +151,11 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
                 foreach (var applier in enabledAppliers)
                 {
                     ObserveMeshApplier(applier, context);
+                    if (!BlendShareApplierSetupService.ValidateMeshApplierMapping(applier, out _) &&
+                        !BlendShareApplierSetupService.EnsureMeshApplierMappingCache(applier, out string mappingDiagnostic))
+                    {
+                        Debug.LogWarning($"[BlendShare Preview] {mappingDiagnostic}", originalRenderer);
+                    }
                 }
 
                 var owners = enabledAppliers
@@ -279,16 +284,16 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
                     .Append(value.z.ToString("R"));
             }
 
-            private static IEnumerable<BlendShareMeshApplierComponent> FindMeshAppliersForRenderer(
+            private static IEnumerable<BlendShareMeshComponent> FindMeshAppliersForRenderer(
                 SkinnedMeshRenderer renderer,
                 ComputeContext context)
             {
                 if (renderer == null)
                 {
-                    return System.Array.Empty<BlendShareMeshApplierComponent>();
+                    return System.Array.Empty<BlendShareMeshComponent>();
                 }
 
-                return context.GetComponentsByType<BlendShareMeshApplierComponent>()
+                return context.GetComponentsByType<BlendShareMeshComponent>()
                     .Where(applier => applier != null &&
                                       context.Observe(applier, item => item.EnabledForBuild) &&
                                       !context.Observe(applier, item => item.IsStale) &&
@@ -342,7 +347,7 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
                 return overrides;
             }
 
-            private static void ObserveMeshApplier(BlendShareMeshApplierComponent applier, ComputeContext context)
+            private static void ObserveMeshApplier(BlendShareMeshComponent applier, ComputeContext context)
             {
                 if (applier == null)
                 {

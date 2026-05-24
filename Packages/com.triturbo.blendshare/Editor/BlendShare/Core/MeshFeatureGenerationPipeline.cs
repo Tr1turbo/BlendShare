@@ -140,6 +140,13 @@ namespace Triturbo.BlendShare.Core
 
                 bool failed = false;
                 bool generatedFeature = false;
+                Mesh requestBaseline = null;
+                if (!createdForThisMeshData && workingMesh != null)
+                {
+                    requestBaseline = Object.Instantiate(workingMesh);
+                    requestBaseline.name = workingMesh.name;
+                }
+
                 targetLookup.TryGetRenderer(meshData, out var targetRenderer);
                 targetRenderer = request.TargetRenderer != null ? request.TargetRenderer : targetRenderer;
                 var context = new MeshFeatureUnityGenerationContext(
@@ -194,6 +201,22 @@ namespace Triturbo.BlendShare.Core
                 if ((failed || !generatedFeature) && createdForThisMeshData)
                 {
                     generatedByMeshKey.Remove(meshKey);
+                    DestroyGeneratedObject(requestBaseline);
+                    DestroyGeneratedObject(workingMesh);
+                }
+                else if (failed && !createdForThisMeshData)
+                {
+                    if (requestBaseline != null)
+                    {
+                        generatedByMeshKey[meshKey] = requestBaseline;
+                        DestroyGeneratedObject(workingMesh);
+                    }
+
+                    Debug.LogWarning($"[BlendShare] Skipped BlendShare asset '{share.name}' for mesh '{FormatMesh(meshData)}'. Earlier accumulated output for this mesh will be kept.");
+                }
+                else
+                {
+                    DestroyGeneratedObject(requestBaseline);
                 }
             }
 
@@ -681,6 +704,16 @@ namespace Triturbo.BlendShare.Core
             }
 
             return MeshNodePath.Normalize(meshData.m_Path);
+        }
+
+        private static void DestroyGeneratedObject(Object obj)
+        {
+            if (obj == null || AssetDatabase.Contains(obj))
+            {
+                return;
+            }
+
+            Object.DestroyImmediate(obj);
         }
 
 #if ENABLE_FBX_SDK

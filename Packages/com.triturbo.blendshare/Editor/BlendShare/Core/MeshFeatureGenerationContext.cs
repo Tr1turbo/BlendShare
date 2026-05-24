@@ -336,6 +336,13 @@ namespace Triturbo.BlendShare.Core
             Session?.AddObject(key, obj);
         }
 
+        public UnityVertexMappingObject GetMappingFor(Mesh targetMesh)
+        {
+            return Request?.GetMappingFor(targetMesh) ??
+                   (MeshData?.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
+                   .FirstOrDefault(mapping => mapping != null && mapping.IsCompatibleWith(MeshData, targetMesh));
+        }
+
     }
 
     /// <summary>

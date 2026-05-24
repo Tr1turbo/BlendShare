@@ -27,7 +27,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                 return MeshFeatureGenerationResult.FailedResult("Blendshape generation requires mesh data and a target mesh.");
             }
 
-            return context.MeshData.IsValidTarget(context.WorkingMesh)
+            return context.GetMappingFor(context.WorkingMesh) != null
                 ? MeshFeatureGenerationResult.Success(false)
                 : MeshFeatureGenerationResult.FailedResult("Target mesh does not match any stored Unity vertex mapping.");
         }
@@ -41,7 +41,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                 return MeshFeatureGenerationResult.FailedResult("Blendshape generation requires mesh data and a target mesh.");
             }
 
-            if (!context.MeshData.IsValidTarget(context.WorkingMesh))
+            if (context.GetMappingFor(context.WorkingMesh) == null)
             {
                 return MeshFeatureGenerationResult.FailedResult("Target mesh does not match any stored Unity vertex mapping.");
             }
@@ -63,7 +63,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
 
             foreach (var blendShape in activeBlendShapes)
             {
-                var unityData = CreateUnityBlendShapeData(context.MeshData, blendShape, mesh);
+                var unityData = CreateUnityBlendShapeData(context, blendShape, mesh);
                 if (unityData == null)
                 {
                     Debug.LogError($"[BlendShare] Cannot generate Unity blendshape '{blendShape.m_Name}' for mesh '{context.MeshData.m_Path}'.");
@@ -92,12 +92,11 @@ namespace Triturbo.BlendShare.Features.BlendShapes
         }
 
         private static UnityBlendShapeData CreateUnityBlendShapeData(
-            MeshDataObject meshData,
+            MeshFeatureUnityGenerationContext context,
             BlendShapeRecord blendShape,
             Mesh targetMesh)
         {
-            var mapping = (meshData.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
-                .FirstOrDefault(candidate => candidate != null && candidate.IsValidFor(targetMesh));
+            var mapping = context.GetMappingFor(targetMesh);
 
             if (mapping != null)
             {

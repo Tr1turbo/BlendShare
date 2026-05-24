@@ -2,12 +2,14 @@ using System.Collections.Generic;
 using Triturbo.BlendShare.Core;
 using UnityEngine;
 using UnityEngine.Animations;
+using UnityEngine.Scripting.APIUpdating;
 
 namespace Triturbo.BlendShare.Components
 {
     [DisallowMultipleComponent]
-    [AddComponentMenu("BlendShare/BlendShare Applier")]
-    public sealed class BlendShareApplierComponent : MonoBehaviour
+    [AddComponentMenu("BlendShare/BlendShare Core")]
+    [MovedFrom(true, null, null, "BlendShareApplierComponent")]
+    public sealed class BlendShareComponent : MonoBehaviour
     {
         [SerializeField, NotKeyable]
         private AvatarObjectReference<Transform> m_TargetRootReference = new();
