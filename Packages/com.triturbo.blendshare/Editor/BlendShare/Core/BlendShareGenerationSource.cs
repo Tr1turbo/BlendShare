@@ -70,6 +70,7 @@ namespace Triturbo.BlendShare.Core
         public Vector3 GeneratedLocalPosition { get; }
         public Vector3 GeneratedLocalEulerRotation { get; }
         public Vector3 GeneratedLocalScale { get; }
+        public bool RecalculateBindpose { get; }
 
         public BlendShareGenerationBoneOverride(
             string sourceBonePath,
@@ -83,7 +84,8 @@ namespace Triturbo.BlendShare.Core
             Vector3 localScale,
             Vector3 generatedLocalPosition,
             Vector3 generatedLocalEulerRotation,
-            Vector3 generatedLocalScale)
+            Vector3 generatedLocalScale,
+            bool recalculateBindpose)
         {
             SourceBonePath = MeshNodePath.Normalize(sourceBonePath);
             FinalBonePath = MeshNodePath.Normalize(finalBonePath);
@@ -97,6 +99,7 @@ namespace Triturbo.BlendShare.Core
             GeneratedLocalPosition = generatedLocalPosition;
             GeneratedLocalEulerRotation = generatedLocalEulerRotation;
             GeneratedLocalScale = generatedLocalScale == Vector3.zero ? Vector3.one : generatedLocalScale;
+            RecalculateBindpose = recalculateBindpose;
         }
 
         public bool TryGetLocalToWorld(Transform fallbackRoot, out Matrix4x4 localToWorld)
@@ -330,7 +333,8 @@ namespace Triturbo.BlendShare.Core
                     proxy.LocalScale,
                     localPosition,
                     localEulerRotation,
-                    localScale);
+                    localScale,
+                    proxy.RecalculateBindpose);
             }
         }
 

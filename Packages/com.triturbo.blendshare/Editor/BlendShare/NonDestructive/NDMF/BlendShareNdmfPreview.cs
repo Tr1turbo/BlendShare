@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using Triturbo.BlendShare.Components;
 using Triturbo.BlendShare.Core;
@@ -14,7 +15,7 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
     internal sealed class BlendShareNdmfPreview : IRenderFilter
     {
         public static readonly TogglablePreviewNode PreviewNode =
-            TogglablePreviewNode.Create(() => "BlendShare", "com.triturbo.blendshare", false);
+            TogglablePreviewNode.Create(() => "BlendShare", "com.triturbo.blendshare/BlendSharePreview", true);
 
         public bool IsEnabled(ComputeContext context)
         {
@@ -31,50 +32,87 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
             return context.GetComponentsByType<BlendShareMeshApplierComponent>()
                 .Where(applier => context.Observe(applier, item => item.EnabledForBuild) &&
                                   !context.Observe(applier, item => item.IsStale) &&
+                                  IsOwnerEnabled(applier, context) &&
                                   context.Observe(applier, item => item.TargetRenderer) != null)
                 .GroupBy(applier => context.Observe(applier, item => item.TargetRenderer))
-                .Select(group => RenderGroup.For(group.Key).WithData(group.ToArray(), Enumerable.SequenceEqual))
+                .Select(group => RenderGroup.For(group.Key))
                 .ToImmutableList();
         }
 
         public Task<IRenderFilterNode> Instantiate(RenderGroup group, IEnumerable<(Renderer, Renderer)> pairs, ComputeContext context)
         {
-            var node = new Node(group.GetData<BlendShareMeshApplierComponent[]>(), pairs, context);
+            var node = new Node(pairs, context);
             return Task.FromResult<IRenderFilterNode>(node);
+        }
+
+        private static bool IsOwnerEnabled(BlendShareMeshApplierComponent applier, ComputeContext context)
+        {
+            if (applier == null)
+            {
+                return false;
+            }
+
+            var owner = context.Observe(applier, item => item.Owner);
+            return owner != null && context.Observe(owner, item => item.enabled);
         }
 
         private sealed class Node : IRenderFilterNode
         {
-            private readonly ComputeContext meshContext = new("BlendShare.NDMFPreview.MeshContext");
-            private readonly BlendShareMeshApplierComponent[] appliers;
             private Mesh mesh;
             private Transform[] bones = System.Array.Empty<Transform>();
             private Transform rootBone;
+            private SkinnedMeshRenderer originalRenderer;
+            private SkinnedMeshRenderer proxyRenderer;
+            private string generationSignature;
+            private bool hasPreviewOutput;
 
             public RenderAspects WhatChanged { get; private set; } = RenderAspects.Mesh | RenderAspects.Shapes;
 
-            public Node(BlendShareMeshApplierComponent[] appliers, IEnumerable<(Renderer, Renderer)> pairs, ComputeContext context)
+            public Node(IEnumerable<(Renderer, Renderer)> pairs, ComputeContext context)
             {
-                this.appliers = appliers;
                 Process(pairs, context);
             }
 
             public Task<IRenderFilterNode> Refresh(IEnumerable<(Renderer, Renderer)> pairs, ComputeContext context, RenderAspects aspects)
             {
-                if (meshContext.IsInvalidated || aspects.HasFlag(RenderAspects.Mesh) || aspects.HasFlag(RenderAspects.Shapes))
+                bool matchesPair = MatchesProxyPair(pairs);
+                string currentSignature = matchesPair
+                    ? BuildGenerationSignature(originalRenderer, context)
+                    : null;
+                if (aspects.HasFlag(RenderAspects.Mesh) ||
+                    aspects.HasFlag(RenderAspects.Shapes) ||
+                    !matchesPair ||
+                    currentSignature != generationSignature)
                 {
                     Dispose();
-                    var node = new Node(appliers, pairs, context);
+                    var node = new Node(pairs, context);
                     return Task.FromResult<IRenderFilterNode>(node);
                 }
 
                 WhatChanged = 0;
-                meshContext.Invalidates(context);
                 return Task.FromResult<IRenderFilterNode>(this);
+            }
+
+            private bool MatchesProxyPair(IEnumerable<(Renderer, Renderer)> pairs)
+            {
+                if (pairs == null)
+                {
+                    return false;
+                }
+
+                var pairArray = pairs.ToArray();
+                return pairArray.Length == 1 &&
+                       pairArray[0].Item1 == originalRenderer &&
+                       pairArray[0].Item2 == proxyRenderer;
             }
 
             public void OnFrame(Renderer original, Renderer proxy)
             {
+                if (!hasPreviewOutput)
+                {
+                    return;
+                }
+
                 if (proxy is SkinnedMeshRenderer skinnedMeshRenderer)
                 {
                     skinnedMeshRenderer.sharedMesh = mesh;
@@ -85,12 +123,15 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
 
             public void Dispose()
             {
-                meshContext.Invalidate();
-                if (mesh != null)
+                if (mesh != null && !UnityEditor.AssetDatabase.Contains(mesh))
                 {
                     Object.DestroyImmediate(mesh);
-                    mesh = null;
                 }
+
+                mesh = null;
+                bones = System.Array.Empty<Transform>();
+                rootBone = null;
+                hasPreviewOutput = false;
             }
 
             private void Process(IEnumerable<(Renderer, Renderer)> pairs, ComputeContext context)
@@ -101,12 +142,19 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
                     return;
                 }
 
-                var enabledAppliers = appliers
-                    .Where(applier => meshContext.Observe(applier, item => item.EnabledForBuild) &&
-                                      !meshContext.Observe(applier, item => item.IsStale))
+                this.originalRenderer = originalRenderer;
+                this.proxyRenderer = proxyRenderer;
+                generationSignature = BuildGenerationSignature(originalRenderer, context);
+
+                var enabledAppliers = FindMeshAppliersForRenderer(originalRenderer, context)
                     .ToArray();
+                foreach (var applier in enabledAppliers)
+                {
+                    ObserveMeshApplier(applier, context);
+                }
+
                 var owners = enabledAppliers
-                    .Select(applier => meshContext.Observe(applier, item => item.Owner))
+                    .Select(applier => context.Observe(applier, item => item.Owner))
                     .Where(owner => owner != null)
                     .Distinct()
                     .ToArray();
@@ -116,17 +164,21 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
                 var boneProxies = sourceRoot != null
                     ? sourceRoot.GetComponentsInChildren<BlendShareBoneProxyComponent>(true)
                     : System.Array.Empty<BlendShareBoneProxyComponent>();
-                var proxyRoot = proxyRenderer.transform.root;
                 var source = new BlendShareComponentGenerationSource(
                     sourceRoot != null ? sourceRoot.gameObject : originalRenderer.transform.root.gameObject,
                     enabledAppliers,
                     boneProxies);
+                ObserveProxyInputs(source, boneProxies, context);
                 var artifact = BlendShareArtifactService.CreateInMemoryArtifact(source);
                 if (artifact == null)
                 {
                     Debug.LogWarning("[BlendShare Preview] Failed to generate BlendShare artifact.", original);
                     return;
                 }
+
+                var proxyRoot = proxyRenderer.transform.root;
+                RetargetArtifactRendererPathForPreview(artifact, proxyRenderer, proxyRoot);
+                var proxyBoneOverrides = BuildProxyBoneOverrides(source);
 
                 var result = BlendShareArtifactService.ApplyArtifact(
                     artifact,
@@ -135,7 +187,9 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
                     {
                         UseUndo = false,
                         RecordDestructiveMarkers = false,
-                        MarkObjectsDirty = false
+                        MarkObjectsDirty = false,
+                        BonePathRoot = sourceRoot,
+                        BoneTransformOverrides = proxyBoneOverrides
                     });
 
                 if (!result.Success)
@@ -150,11 +204,248 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
                 mesh = proxyRenderer.sharedMesh;
                 bones = proxyRenderer.bones;
                 rootBone = proxyRenderer.rootBone;
-                meshContext.Observe(originalRenderer, renderer => renderer.sharedMesh);
-                meshContext.Observe(originalRenderer, renderer => renderer.bones);
-                meshContext.Observe(originalRenderer, renderer => renderer.rootBone);
-                meshContext.Invalidates(context);
+                hasPreviewOutput = mesh != null;
+
+                context.Observe(originalRenderer, renderer => renderer.sharedMesh);
+                context.Observe(originalRenderer, renderer => renderer.bones);
+                context.Observe(originalRenderer, renderer => renderer.rootBone);
+            }
+
+            private string BuildGenerationSignature(SkinnedMeshRenderer renderer, ComputeContext context)
+            {
+                if (renderer == null)
+                {
+                    return string.Empty;
+                }
+
+                var builder = new StringBuilder();
+                builder.Append("renderer:").Append(renderer.GetInstanceID());
+                AppendObject(builder, ":mesh:", context.Observe(renderer, item => item.sharedMesh));
+                AppendObject(builder, ":rootBone:", context.Observe(renderer, item => item.rootBone));
+                foreach (var bone in context.Observe(renderer, item => item.bones, Enumerable.SequenceEqual) ?? System.Array.Empty<Transform>())
+                {
+                    AppendObject(builder, ":bone:", bone);
+                }
+
+                var enabledAppliers = FindMeshAppliersForRenderer(renderer, context).ToArray();
+                foreach (var applier in enabledAppliers)
+                {
+                    ObserveMeshApplier(applier, context);
+                    builder.Append("|applier:").Append(applier != null ? applier.GetInstanceID() : 0);
+                    AppendObject(builder, ":owner:", context.Observe(applier, item => item.Owner));
+                    AppendObject(builder, ":meshData:", context.Observe(applier, item => item.MeshData));
+                    builder.Append(":path:").Append(context.Observe(applier, item => item.RendererNodePath));
+                    foreach (var binding in applier?.BoneProxyBindings ?? System.Array.Empty<BlendShareBoneProxyBinding>())
+                    {
+                        AppendObject(builder, ":bindingGraph:", binding?.BoneGraph);
+                        builder.Append(":bindingPath:").Append(binding?.SourceBonePath);
+                        AppendObject(builder, ":bindingProxy:", binding?.Proxy);
+                        AppendProxyState(builder, binding?.Proxy, context);
+                    }
+                }
+
+                return builder.ToString();
+            }
+
+            private static void AppendProxyState(StringBuilder builder, BlendShareBoneProxyComponent proxy, ComputeContext context)
+            {
+                if (proxy == null)
+                {
+                    builder.Append(":proxyState:null");
+                    return;
+                }
+
+                builder.Append(":proxyState:").Append(proxy.GetInstanceID());
+                builder.Append(":name:").Append(context.Observe(proxy.gameObject, item => item.name));
+                AppendObject(builder, ":targetParent:", context.Observe(proxy, item => item.TargetParent));
+                builder.Append(":recalc:").Append(context.Observe(proxy, item => item.RecalculateBindpose));
+                AppendVector(builder, ":bindP:", context.Observe(proxy, item => item.LocalPosition));
+                AppendVector(builder, ":bindR:", context.Observe(proxy, item => item.LocalEulerRotation));
+                AppendVector(builder, ":bindS:", context.Observe(proxy, item => item.LocalScale));
+            }
+
+            private static void AppendObject(StringBuilder builder, string label, Object value)
+            {
+                builder.Append(label).Append(value != null ? value.GetInstanceID() : 0);
+            }
+
+            private static void AppendVector(StringBuilder builder, string label, Vector3 value)
+            {
+                builder.Append(label)
+                    .Append(value.x.ToString("R"))
+                    .Append(',')
+                    .Append(value.y.ToString("R"))
+                    .Append(',')
+                    .Append(value.z.ToString("R"));
+            }
+
+            private static IEnumerable<BlendShareMeshApplierComponent> FindMeshAppliersForRenderer(
+                SkinnedMeshRenderer renderer,
+                ComputeContext context)
+            {
+                if (renderer == null)
+                {
+                    return System.Array.Empty<BlendShareMeshApplierComponent>();
+                }
+
+                return context.GetComponentsByType<BlendShareMeshApplierComponent>()
+                    .Where(applier => applier != null &&
+                                      context.Observe(applier, item => item.EnabledForBuild) &&
+                                      !context.Observe(applier, item => item.IsStale) &&
+                                      IsOwnerEnabled(applier, context) &&
+                                      context.Observe(applier, item => item.TargetRenderer) == renderer)
+                    .OrderBy(applier => GetHierarchyOrder(applier.Owner != null ? applier.Owner.transform : null))
+                    .ThenBy(applier => GetHierarchyOrder(applier.transform));
+            }
+
+            private static void RetargetArtifactRendererPathForPreview(
+                BlendShareArtifact artifact,
+                SkinnedMeshRenderer proxyRenderer,
+                Transform proxyRoot)
+            {
+                if (artifact == null || proxyRenderer == null || proxyRoot == null)
+                {
+                    return;
+                }
+
+                string proxyRendererPath = MeshNodePath.Normalize(MeshNodePath.GetRelativePath(proxyRenderer.transform, proxyRoot));
+                foreach (var descriptor in artifact.m_Meshes ?? System.Array.Empty<BlendShareMeshDescriptor>())
+                {
+                    if (descriptor != null)
+                    {
+                        descriptor.m_NodePath = proxyRendererPath;
+                    }
+                }
+            }
+
+            private static IReadOnlyDictionary<string, Transform> BuildProxyBoneOverrides(
+                BlendShareComponentGenerationSource source)
+            {
+                var overrides = new Dictionary<string, Transform>();
+                foreach (var request in source.Requests ?? System.Array.Empty<BlendShareGenerationRequest>())
+                {
+                    foreach (var boneOverride in request.BoneOverrides ?? System.Array.Empty<BlendShareGenerationBoneOverride>())
+                    {
+                        if (boneOverride.ProxyTransform == null || string.IsNullOrWhiteSpace(boneOverride.FinalBonePath))
+                        {
+                            continue;
+                        }
+
+                        string finalPath = MeshNodePath.Normalize(boneOverride.FinalBonePath);
+                        if (!overrides.ContainsKey(finalPath))
+                        {
+                            overrides.Add(finalPath, boneOverride.ProxyTransform);
+                        }
+                    }
+                }
+
+                return overrides;
+            }
+
+            private static void ObserveMeshApplier(BlendShareMeshApplierComponent applier, ComputeContext context)
+            {
+                if (applier == null)
+                {
+                    return;
+                }
+
+                context.Observe(applier);
+                context.Observe(applier, item => item.Owner);
+                context.Observe(applier, item => item.TargetRenderer);
+                context.Observe(applier, item => item.MeshData);
+                context.Observe(applier, item => item.RendererNodePath);
+                context.Observe(applier, item => item.BoneProxyBindings.Count);
+                foreach (var binding in applier.BoneProxyBindings)
+                {
+                    if (binding == null)
+                    {
+                        continue;
+                    }
+
+                    context.Observe(binding.BoneGraph);
+                    context.Observe(binding.Proxy);
+                }
+            }
+
+            private void ObserveProxyInputs(
+                BlendShareComponentGenerationSource source,
+                IEnumerable<BlendShareBoneProxyComponent> boneProxies,
+                ComputeContext context)
+            {
+                foreach (var request in source.Requests ?? System.Array.Empty<BlendShareGenerationRequest>())
+                {
+                    if (request.TargetRenderer != null)
+                    {
+                        context.Observe(request.TargetRenderer, renderer => renderer.bones, Enumerable.SequenceEqual);
+                    }
+
+                    foreach (var boneOverride in request.BoneOverrides ?? System.Array.Empty<BlendShareGenerationBoneOverride>())
+                    {
+                        var proxy = boneOverride.ProxyTransform != null
+                            ? boneOverride.ProxyTransform.GetComponent<BlendShareBoneProxyComponent>()
+                            : null;
+                        ObserveProxy(proxy, context);
+                    }
+                }
+
+                foreach (var proxy in boneProxies ?? System.Array.Empty<BlendShareBoneProxyComponent>())
+                {
+                    ObserveProxy(proxy, context);
+                }
+            }
+
+            private static void ObserveProxy(BlendShareBoneProxyComponent proxy, ComputeContext context)
+            {
+                if (proxy == null)
+                {
+                    return;
+                }
+
+                context.Observe(proxy, item => item.Owner);
+                context.Observe(proxy, item => item.TargetParent);
+                context.Observe(proxy, item => item.RecalculateBindpose);
+                context.Observe(proxy, item => item.LocalPosition);
+                context.Observe(proxy, item => item.LocalEulerRotation);
+                context.Observe(proxy, item => item.LocalScale);
+                context.Observe(proxy.gameObject, item => item.name);
+                ObserveTransformPath(proxy.transform, context);
+                if (proxy.TargetParent != null)
+                {
+                    ObserveTransformPath(proxy.TargetParent, context);
+                }
+            }
+
+            private static void ObserveTransformPath(Transform transform, ComputeContext context)
+            {
+                if (transform == null)
+                {
+                    return;
+                }
+
+                foreach (var node in context.ObservePath(transform))
+                {
+                    context.Observe(node.gameObject, item => item.name);
+                }
+            }
+
+            private static string GetHierarchyOrder(Transform transform)
+            {
+                if (transform == null)
+                {
+                    return string.Empty;
+                }
+
+                var indices = new Stack<string>();
+                var current = transform;
+                while (current != null)
+                {
+                    indices.Push(current.GetSiblingIndex().ToString("D8"));
+                    current = current.parent;
+                }
+
+                return string.Join("/", indices);
             }
         }
+
     }
 }

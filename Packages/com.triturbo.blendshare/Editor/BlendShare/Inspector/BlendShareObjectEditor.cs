@@ -242,6 +242,7 @@ namespace Triturbo.BlendShare.Inspector
         private void DrawActions(BlendShareObject blendShare)
         {
             bool hasOriginal = blendShare.m_Original != null;
+            var artifactMappingStatus = GetArtifactMappingStatus(blendShare);
 
 #if !ENABLE_FBX_SDK
             EditorGUILayout.HelpBox(Localization.S("data.fbx_sdk_missing"), MessageType.Warning);
@@ -303,24 +304,41 @@ namespace Triturbo.BlendShare.Inspector
                 }
             }
 
-            if (GUILayout.Button(Localization.G("data.create_artifact")))
+            if (!artifactMappingStatus.CanGenerateArtifact)
             {
-                if (blendShare.m_Original == null)
-                {
-                    Localization.DisplayDialog("data.dialog.fbx_missing", Localization.S("data.dialog.ok"));
-                    return;
-                }
+                EditorGUILayout.HelpBox(artifactMappingStatus.Message, MessageType.Warning);
+            }
 
-                string folderPath = Path.GetDirectoryName(AssetDatabase.GetAssetPath(blendShare));
-                string path = EditorUtility.SaveFilePanelInProject(
-                    Localization.S("data.save_artifact.title"),
-                    $"{blendShare.DefaultMeshAssetName}_Artifact",
-                    "asset",
-                    Localization.S("data.save_file.message"),
-                    folderPath);
-                if (!string.IsNullOrEmpty(path))
+            if (artifactMappingStatus.CanCreateMappings)
+            {
+                if (GUILayout.Button(Localization.G("data.create_mappings")))
                 {
-                    BlendShareArtifactService.CreateArtifact(blendShare.m_Original, new[] { blendShare }, path);
+                    CreateMappingsForOriginal(blendShare);
+                    artifactMappingStatus = GetArtifactMappingStatus(blendShare);
+                }
+            }
+
+            using (new EditorGUI.DisabledScope(!artifactMappingStatus.CanGenerateArtifact))
+            {
+                if (GUILayout.Button(Localization.G("data.create_artifact")))
+                {
+                    if (blendShare.m_Original == null)
+                    {
+                        Localization.DisplayDialog("data.dialog.fbx_missing", Localization.S("data.dialog.ok"));
+                        return;
+                    }
+
+                    string folderPath = Path.GetDirectoryName(AssetDatabase.GetAssetPath(blendShare));
+                    string path = EditorUtility.SaveFilePanelInProject(
+                        Localization.S("data.save_artifact.title"),
+                        $"{blendShare.DefaultMeshAssetName}_Artifact",
+                        "asset",
+                        Localization.S("data.save_file.message"),
+                        folderPath);
+                    if (!string.IsNullOrEmpty(path))
+                    {
+                        BlendShareArtifactService.CreateArtifact(blendShare.m_Original, new[] { blendShare }, path);
+                    }
                 }
             }
 
@@ -330,6 +348,160 @@ namespace Triturbo.BlendShare.Inspector
                 window.blendShapeList.Add(blendShare);
                 window.TargetMeshContainer = blendShare.m_Original;
                 window.Focus();
+            }
+        }
+
+        private static ArtifactMappingStatus GetArtifactMappingStatus(BlendShareObject blendShare)
+        {
+            if (blendShare == null || blendShare.m_Original == null)
+            {
+                return ArtifactMappingStatus.Blocked(Localization.S("data.artifact_mapping.original_missing"), false);
+            }
+
+            var targetLookup = MeshFeatureTargetMeshLookup.Create(blendShare.m_Original);
+            if (targetLookup == null)
+            {
+                return ArtifactMappingStatus.Blocked(Localization.S("data.artifact_mapping.target_unreadable"), false);
+            }
+
+            int invalidCount = 0;
+            int missingMeshCount = 0;
+            foreach (var mesh in blendShare.Meshes ?? System.Array.Empty<MeshDataObject>())
+            {
+                if (mesh == null)
+                {
+                    continue;
+                }
+
+                if (!targetLookup.TryGetMesh(mesh, out var targetMesh))
+                {
+                    missingMeshCount++;
+                    continue;
+                }
+
+                bool hasValidMapping = (mesh.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
+                    .Any(mapping => mapping != null && mapping.IsValidFor(targetMesh));
+                if (!hasValidMapping)
+                {
+                    invalidCount++;
+                }
+            }
+
+            if (missingMeshCount > 0)
+            {
+                return ArtifactMappingStatus.Blocked(
+                    string.Format(Localization.S("data.artifact_mapping.mesh_missing"), missingMeshCount),
+                    false);
+            }
+
+            if (invalidCount > 0)
+            {
+                return ArtifactMappingStatus.Blocked(
+                    string.Format(Localization.S("data.artifact_mapping.invalid"), invalidCount),
+                    true);
+            }
+
+            return ArtifactMappingStatus.Ready();
+        }
+
+        private static void CreateMappingsForOriginal(BlendShareObject blendShare)
+        {
+            if (blendShare == null || blendShare.m_Original == null)
+            {
+                Localization.DisplayDialog("data.dialog.fbx_missing", Localization.S("data.dialog.ok"));
+                return;
+            }
+
+            var targetLookup = MeshFeatureTargetMeshLookup.Create(blendShare.m_Original);
+            if (targetLookup == null)
+            {
+                EditorUtility.DisplayDialog(
+                    Localization.S("data.create_mappings.failed.title"),
+                    Localization.S("data.artifact_mapping.target_unreadable"),
+                    Localization.S("data.dialog.ok"));
+                return;
+            }
+
+            var createdMappings = new List<UnityVertexMappingObject>();
+            var failures = new List<string>();
+            foreach (var mesh in blendShare.Meshes ?? System.Array.Empty<MeshDataObject>())
+            {
+                if (mesh == null)
+                {
+                    continue;
+                }
+
+                if (!targetLookup.TryGetMesh(mesh, out var targetMesh))
+                {
+                    failures.Add($"{mesh.m_Path}: {targetLookup.GetResolutionError(mesh)}");
+                    continue;
+                }
+
+                if ((mesh.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
+                    .Any(mapping => mapping != null && mapping.IsValidFor(targetMesh)))
+                {
+                    continue;
+                }
+
+                var mapping = UnityFbxVertexMappingBuilder.BuildFromFbx(mesh.m_Path, targetMesh, blendShare.m_Original);
+                if (mapping == null || !mapping.m_IsValid)
+                {
+                    failures.Add($"{mesh.m_Path}: {mapping?.m_InvalidReason ?? "mapping generation failed"}");
+                    if (mapping != null && !AssetDatabase.Contains(mapping))
+                    {
+                        Object.DestroyImmediate(mapping);
+                    }
+                    continue;
+                }
+
+                mesh.m_Mappings = (mesh.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
+                    .Where(existing => existing != null)
+                    .Concat(new[] { mapping })
+                    .ToArray();
+                createdMappings.Add(mapping);
+            }
+
+            if (createdMappings.Count > 0)
+            {
+                BlendShareAssetService.SaveMappings(blendShare);
+            }
+
+            if (failures.Count > 0)
+            {
+                EditorUtility.DisplayDialog(
+                    Localization.S("data.create_mappings.failed.title"),
+                    string.Join("\n", failures),
+                    Localization.S("data.dialog.ok"));
+                return;
+            }
+
+            EditorUtility.DisplayDialog(
+                Localization.S("data.create_mappings.success.title"),
+                string.Format(Localization.S("data.create_mappings.success.message"), createdMappings.Count),
+                Localization.S("data.dialog.ok"));
+        }
+
+        private readonly struct ArtifactMappingStatus
+        {
+            public bool CanGenerateArtifact { get; }
+            public bool CanCreateMappings { get; }
+            public string Message { get; }
+
+            private ArtifactMappingStatus(bool canGenerateArtifact, bool canCreateMappings, string message)
+            {
+                CanGenerateArtifact = canGenerateArtifact;
+                CanCreateMappings = canCreateMappings;
+                Message = message;
+            }
+
+            public static ArtifactMappingStatus Ready()
+            {
+                return new ArtifactMappingStatus(true, false, string.Empty);
+            }
+
+            public static ArtifactMappingStatus Blocked(string message, bool canCreateMappings)
+            {
+                return new ArtifactMappingStatus(false, canCreateMappings, message);
             }
         }
     }

@@ -45,6 +45,11 @@ namespace Triturbo.BlendShare.Inspector
                 {
                     EditorGUILayout.HelpBox(applier.DiagnosticMessage, applier.IsStale ? MessageType.Warning : MessageType.Info);
                 }
+
+                if (!BlendShareApplierSetupService.ValidateMeshApplierMapping(applier, out string mappingDiagnostic))
+                {
+                    EditorGUILayout.HelpBox(mappingDiagnostic, MessageType.Warning);
+                }
             }
         }
 

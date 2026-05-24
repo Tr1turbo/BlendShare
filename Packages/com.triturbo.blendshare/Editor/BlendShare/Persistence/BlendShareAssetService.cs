@@ -117,6 +117,56 @@ namespace Triturbo.BlendShare.Persistence
                 .ToList();
         }
 
+        public static void SaveMappings(BlendShareObject asset)
+        {
+            if (asset == null)
+            {
+                return;
+            }
+
+            string path = AssetDatabase.GetAssetPath(asset);
+            if (string.IsNullOrEmpty(path))
+            {
+                return;
+            }
+
+            try
+            {
+                AssetDatabase.StartAssetEditing();
+                AssetDatabase.DisallowAutoRefresh();
+
+                foreach (var mesh in asset.Meshes ?? System.Array.Empty<MeshDataObject>())
+                {
+                    if (mesh == null)
+                    {
+                        continue;
+                    }
+
+                    foreach (var mapping in mesh.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
+                    {
+                        if (mapping == null)
+                        {
+                            continue;
+                        }
+
+                        mapping.name = GetMappingSubAssetName(mesh, mapping);
+                        AddHiddenSubAsset(mapping, asset);
+                    }
+
+                    EditorUtility.SetDirty(mesh);
+                }
+
+                EditorUtility.SetDirty(asset);
+            }
+            finally
+            {
+                AssetDatabase.StopAssetEditing();
+                AssetDatabase.AllowAutoRefresh();
+                AssetDatabase.SaveAssets();
+                AssetDatabase.Refresh();
+            }
+        }
+
         public static string GetUniqueSideBySidePath(Object sourceAsset, string suffix = "_v2")
         {
             string sourcePath = AssetDatabase.GetAssetPath(sourceAsset);

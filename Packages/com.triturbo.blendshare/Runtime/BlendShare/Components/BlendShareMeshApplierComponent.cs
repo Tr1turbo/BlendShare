@@ -12,10 +12,10 @@ namespace Triturbo.BlendShare.Components
     public sealed class BlendShareBoneProxyBinding
     {
         [SerializeField, NotKeyable]
-        private BoneGraphObject m_BoneGraph;
+        private string m_SourceBonePath;
 
         [SerializeField, NotKeyable]
-        private string m_SourceBonePath;
+        private BoneGraphObject m_BoneGraph;
 
         [SerializeField, NotKeyable]
         private BlendShareBoneProxyComponent m_Proxy;

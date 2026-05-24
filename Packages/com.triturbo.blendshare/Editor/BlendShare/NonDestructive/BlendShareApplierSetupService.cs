@@ -153,11 +153,13 @@ namespace Triturbo.BlendShare.NonDestructive
                         var localPosition = bone.m_FbxLocalTranslation * fbxToUnityScale;
                         string key = BuildProxyKey(parent, localPosition, bone.m_FbxLocalEulerRotation, localScale);
                         string desiredName = MeshNodePath.LeafName(bonePath);
+                        bool createdProxy = false;
                         if (!updatedProxiesByKey.TryGetValue(key, out var proxy) &&
                             !TryTakeProxy(proxiesByKey, key, usedProxies, out proxy) &&
                             !TryTakeProxy(proxiesByName, desiredName, usedProxies, out proxy))
                         {
                             proxy = CreateBoneProxy(owner, bonePath, parent);
+                            createdProxy = true;
                         }
 
                         updatedProxiesByKey[key] = proxy;
@@ -165,9 +167,12 @@ namespace Triturbo.BlendShare.NonDestructive
                         Undo.RecordObject(proxy, "Rebuild BlendShare Bone Proxy");
                         proxy.Owner = owner;
                         proxy.TargetParent = parent;
-                        proxy.LocalPosition = localPosition;
-                        proxy.LocalEulerRotation = bone.m_FbxLocalEulerRotation;
-                        proxy.LocalScale = localScale;
+                        if (createdProxy || !proxy.RecalculateBindpose)
+                        {
+                            proxy.LocalPosition = localPosition;
+                            proxy.LocalEulerRotation = bone.m_FbxLocalEulerRotation;
+                            proxy.LocalScale = localScale;
+                        }
                         proxy.ResetTransformToBindPose();
                         EditorUtility.SetDirty(proxy);
                         result.AddBoneProxy(proxy);
@@ -293,6 +298,40 @@ namespace Triturbo.BlendShare.NonDestructive
             }
 
             return true;
+        }
+
+        public static bool ValidateMeshApplierMapping(
+            BlendShareMeshApplierComponent applier,
+            out string diagnostic)
+        {
+            diagnostic = null;
+            if (applier == null || !applier.EnabledForBuild || applier.IsStale)
+            {
+                return true;
+            }
+
+            var renderer = applier.TargetRenderer;
+            if (renderer == null || applier.MeshData == null)
+            {
+                return true;
+            }
+
+            var targetMesh = renderer.sharedMesh;
+            if (targetMesh == null)
+            {
+                diagnostic = $"BlendShare mesh applier '{applier.name}' target renderer has no mesh for mapping compatibility check.";
+                return false;
+            }
+
+            bool hasValidMapping = (applier.MeshData.m_Mappings ?? Array.Empty<UnityVertexMappingObject>())
+                .Any(mapping => mapping != null && mapping.IsValidFor(targetMesh));
+            if (hasValidMapping)
+            {
+                return true;
+            }
+
+            diagnostic = $"BlendShare mesh applier '{applier.name}' does not have a valid Unity vertex mapping for renderer path '{applier.RendererNodePath}'. ND build/preview may fail or require a slow FBX fallback.";
+            return false;
         }
 
         public static BlendShareMeshApplierComponent[] FindOwnedMeshAppliers(BlendShareApplierComponent owner)

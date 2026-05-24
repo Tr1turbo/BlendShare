@@ -3,11 +3,14 @@ using System.Linq;
 using Triturbo.BlendShare.Components;
 using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Persistence;
+using nadena.dev.ndmf;
+using nadena.dev.ndmf.animator;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
 namespace Triturbo.BlendShare.NonDestructive.NDMF
 {
+    [DependsOnContext(typeof(AnimatorServicesContext))]
     internal sealed class BlendShareNdmfPass : nadena.dev.ndmf.Pass<BlendShareNdmfPass>
     {
         public override string QualifiedName => "com.triturbo.blendshare.apply";
@@ -23,13 +26,24 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
 
             var meshAppliers = context.AvatarRootObject.GetComponentsInChildren<BlendShareMeshApplierComponent>(true);
             var boneProxies = context.AvatarRootObject.GetComponentsInChildren<BlendShareBoneProxyComponent>(true);
-            foreach (var proxy in boneProxies)
+            ObjectPathRemapper pathRemapper;
+            try
             {
-                PlaceProxyInBuildHierarchy(proxy, context.AvatarRootTransform);
+                pathRemapper = context.Extension<AnimatorServicesContext>().ObjectPathRemapper;
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogError($"[BlendShare NDMF] AnimatorServicesContext is required for BlendShare proxy bone retargeting: {ex.Message}", context.AvatarRootObject);
+                return;
+            }
+
+            foreach (var proxy in boneProxies.Where(proxy => proxy != null && proxy.Owner != null && proxy.Owner.enabled))
+            {
+                PlaceProxyInBuildHierarchy(proxy, context.AvatarRootTransform, pathRemapper);
             }
 
             var validMeshAppliers = new List<BlendShareMeshApplierComponent>();
-            foreach (var applier in meshAppliers.Where(applier => applier != null && applier.EnabledForBuild))
+            foreach (var applier in meshAppliers.Where(applier => applier != null && applier.EnabledForBuild && applier.Owner != null && applier.Owner.enabled))
             {
                 if (!BlendShareApplierSetupService.ValidateMeshApplierForBuild(applier, out string diagnostic))
                 {
@@ -100,12 +114,18 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
             }
         }
 
-        private static void PlaceProxyInBuildHierarchy(BlendShareBoneProxyComponent proxy, Transform fallbackRoot)
+        private static void PlaceProxyInBuildHierarchy(
+            BlendShareBoneProxyComponent proxy,
+            Transform fallbackRoot,
+            ObjectPathRemapper pathRemapper)
         {
             if (proxy == null)
             {
                 return;
             }
+
+            pathRemapper?.RecordObjectTree(proxy.transform);
+            pathRemapper?.GetVirtualPathForObject(proxy.gameObject);
 
             var parent = proxy.TargetParent != null
                 ? proxy.TargetParent
@@ -120,6 +140,7 @@ namespace Triturbo.BlendShare.NonDestructive.NDMF
             }
 
             proxy.transform.SetParent(parent, true);
+            pathRemapper?.ClearCache();
         }
 
         private static string GetHierarchyOrder(Transform transform)

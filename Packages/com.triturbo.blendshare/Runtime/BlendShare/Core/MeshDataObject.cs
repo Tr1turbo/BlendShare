@@ -113,7 +113,7 @@ namespace Triturbo.BlendShare.Core
         {
             return targetMesh != null &&
                    (m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
-                   .Any(mapping => mapping != null && mapping.MatchesUnityMesh(targetMesh));
+                   .Any(mapping => mapping != null && mapping.IsValidFor(targetMesh));
         }
     }
 }

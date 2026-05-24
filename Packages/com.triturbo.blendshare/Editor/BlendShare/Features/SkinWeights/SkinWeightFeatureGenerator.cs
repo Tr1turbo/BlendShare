@@ -4,6 +4,7 @@ using System.Linq;
 using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Features.BoneGraph;
 using Triturbo.BlendShare.Fbx;
+using Triturbo.BlendShare.Fbx.Unity;
 using Triturbo.BlendShare.Fbx.Ufbx;
 using Unity.Collections;
 using UnityEditor;
@@ -928,7 +929,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     continue;
                 }
 
-                if (!TryResolveExtraBoneBindPose(context, feature.m_BoneGraph, path, fbxToUnityScale, out var bindPose, out error))
+                if (!TryResolveExtraBoneBindPose(context, feature, path, fbxToUnityScale, out var bindPose, out error))
                 {
                     return null;
                 }
@@ -977,14 +978,38 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
         private static bool TryResolveExtraBoneBindPose(
             MeshFeatureUnityGenerationContext context,
-            BoneGraphObject boneGraph,
+            SkinWeightFeatureObject feature,
             string path,
             float fbxToUnityScale,
             out Matrix4x4 bindPose,
             out string error)
         {
             bindPose = Matrix4x4.identity;
-            if (!TryResolveBoneLocalToWorld(context, boneGraph, path, fbxToUnityScale, new HashSet<string>(), out var localToWorld, out error))
+            if (context.Request != null &&
+                context.Request.TryGetBoneOverride(path, out var boneOverride) &&
+                boneOverride.RecalculateBindpose &&
+                boneOverride.TryGetLocalToWorld(context.TargetRootTransform, out var overrideLocalToWorld))
+            {
+                bindPose = overrideLocalToWorld.inverse * context.TargetRenderer.transform.localToWorldMatrix;
+                error = null;
+                return true;
+            }
+
+            if (feature != null &&
+                feature.TryGetExtraBoneFbxClusterMatrices(path, out var fbxTransformMatrix, out var fbxTransformLinkMatrix))
+            {
+                if (!fbxTransformLinkMatrix.TryInverse(out var inverseTransformLinkMatrix))
+                {
+                    error = $"Cannot calculate bindpose for extra bone '{path}' because its FBX TransformLink matrix is singular.";
+                    return false;
+                }
+
+                bindPose = FbxUnitySkinning.ToUnityMatrix(fbxTransformMatrix * inverseTransformLinkMatrix, fbxToUnityScale);
+                error = null;
+                return true;
+            }
+
+            if (!TryResolveBoneLocalToWorld(context, feature?.m_BoneGraph, path, fbxToUnityScale, new HashSet<string>(), out var localToWorld, out error))
             {
                 return false;
             }
@@ -1014,6 +1039,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
             if (context.Request != null &&
                 context.Request.TryGetBoneOverride(path, out var boneOverride) &&
+                boneOverride.RecalculateBindpose &&
                 boneOverride.TryGetLocalToWorld(context.TargetRootTransform, out localToWorld))
             {
                 return true;

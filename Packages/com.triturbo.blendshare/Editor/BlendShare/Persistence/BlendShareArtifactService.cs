@@ -222,6 +222,8 @@ namespace Triturbo.BlendShare.Persistence
             }
 
             options ??= new BlendShareArtifactApplyOptions();
+            Transform bonePathRoot = options.BonePathRoot != null ? options.BonePathRoot : targetRoot;
+            var boneTransformOverrides = BuildBoneTransformOverrideLookup(options.BoneTransformOverrides);
             var renderersByPath = targetRoot
                 .GetComponentsInChildren<SkinnedMeshRenderer>(true)
                 .GroupBy(renderer => MeshNodePath.GetRelativePath(renderer.transform, targetRoot))
@@ -283,7 +285,9 @@ namespace Triturbo.BlendShare.Persistence
                             descriptor.m_SkinBinding,
                             artifact.m_Armature,
                             targetRoot,
+                            bonePathRoot,
                             transformsByPath,
+                            boneTransformOverrides,
                             applyState,
                             result,
                             options))
@@ -578,7 +582,9 @@ namespace Triturbo.BlendShare.Persistence
             BlendShareSkinBindingDescriptor skinBinding,
             BoneGraphObject armature,
             Transform targetRoot,
+            Transform bonePathRoot,
             Dictionary<string, Transform> transformsByPath,
+            IReadOnlyDictionary<string, Transform> boneTransformOverrides,
             ApplyState applyState,
             BlendShareArtifactApplyResult result,
             BlendShareArtifactApplyOptions options)
@@ -589,7 +595,7 @@ namespace Triturbo.BlendShare.Persistence
             }
 
             int diagnosticCountBefore = result.Diagnostics.Count;
-            var originalBonesByPath = BuildOriginalBonePathLookup(renderer, targetRoot);
+            var originalBonesByPath = BuildOriginalBonePathLookup(renderer, bonePathRoot != null ? bonePathRoot : targetRoot);
             var resolvedBones = new List<Transform>();
             foreach (string bonePath in skinBinding.m_BonePaths ?? Array.Empty<string>())
             {
@@ -599,6 +605,7 @@ namespace Triturbo.BlendShare.Persistence
                     targetRoot,
                     transformsByPath,
                     originalBonesByPath,
+                    boneTransformOverrides,
                     applyState,
                     result,
                     options);
@@ -611,6 +618,7 @@ namespace Triturbo.BlendShare.Persistence
                 targetRoot,
                 transformsByPath,
                 originalBonesByPath,
+                boneTransformOverrides,
                 applyState,
                 result,
                 options);
@@ -639,6 +647,7 @@ namespace Triturbo.BlendShare.Persistence
             Transform targetRoot,
             Dictionary<string, Transform> transformsByPath,
             IReadOnlyDictionary<string, Transform> originalBonesByPath,
+            IReadOnlyDictionary<string, Transform> boneTransformOverrides,
             ApplyState applyState,
             BlendShareArtifactApplyResult result,
             BlendShareArtifactApplyOptions options)
@@ -647,6 +656,15 @@ namespace Triturbo.BlendShare.Persistence
             if (path == MeshNodePath.Root)
             {
                 return targetRoot;
+            }
+
+            if (boneTransformOverrides != null &&
+                boneTransformOverrides.TryGetValue(path, out var overrideTransform) &&
+                overrideTransform != null)
+            {
+                applyState.GeneratedBonesByArtifactPath[path] = overrideTransform;
+                result.AddGeneratedBone(path, overrideTransform, false);
+                return overrideTransform;
             }
 
             if (originalBonesByPath.TryGetValue(path, out var originalBone) && originalBone != null)
@@ -663,6 +681,7 @@ namespace Triturbo.BlendShare.Persistence
                     targetRoot,
                     transformsByPath,
                     originalBonesByPath,
+                    boneTransformOverrides,
                     applyState,
                     result,
                     options,
@@ -678,6 +697,7 @@ namespace Triturbo.BlendShare.Persistence
             Transform targetRoot,
             Dictionary<string, Transform> transformsByPath,
             IReadOnlyDictionary<string, Transform> originalBonesByPath,
+            IReadOnlyDictionary<string, Transform> boneTransformOverrides,
             ApplyState applyState,
             BlendShareArtifactApplyResult result,
             BlendShareArtifactApplyOptions options,
@@ -689,6 +709,15 @@ namespace Triturbo.BlendShare.Persistence
                 return targetRoot;
             }
 
+            if (boneTransformOverrides != null &&
+                boneTransformOverrides.TryGetValue(path, out var overrideTransform) &&
+                overrideTransform != null)
+            {
+                applyState.GeneratedBonesByArtifactPath[path] = overrideTransform;
+                result.AddGeneratedBone(path, overrideTransform, false);
+                return overrideTransform;
+            }
+
             if (originalBonesByPath.TryGetValue(path, out var originalBone) && originalBone != null)
             {
                 return originalBone;
@@ -696,6 +725,7 @@ namespace Triturbo.BlendShare.Persistence
 
             if (applyState.GeneratedBonesByArtifactPath.TryGetValue(path, out var generated) && generated != null)
             {
+                result.AddGeneratedBone(path, generated, false);
                 return generated;
             }
 
@@ -719,6 +749,7 @@ namespace Triturbo.BlendShare.Persistence
                 targetRoot,
                 transformsByPath,
                 originalBonesByPath,
+                boneTransformOverrides,
                 applyState,
                 result,
                 options,
@@ -733,6 +764,7 @@ namespace Triturbo.BlendShare.Persistence
             if (pathCollision && IsCompatibleGeneratedBone(existingAtPath, parent, bone))
             {
                 applyState.GeneratedBonesByArtifactPath[path] = existingAtPath;
+                result.AddGeneratedBone(path, existingAtPath, false);
                 return existingAtPath;
             }
 
@@ -755,6 +787,7 @@ namespace Triturbo.BlendShare.Persistence
                 transformsByPath[path] = created.transform;
             }
             applyState.GeneratedBonesByArtifactPath[path] = created.transform;
+            result.AddGeneratedBone(path, created.transform, true);
             MarkDirty(parent, options);
             return created.transform;
         }
@@ -765,6 +798,7 @@ namespace Triturbo.BlendShare.Persistence
             Transform targetRoot,
             Dictionary<string, Transform> transformsByPath,
             IReadOnlyDictionary<string, Transform> originalBonesByPath,
+            IReadOnlyDictionary<string, Transform> boneTransformOverrides,
             ApplyState applyState,
             BlendShareArtifactApplyResult result,
             BlendShareArtifactApplyOptions options,
@@ -789,6 +823,7 @@ namespace Triturbo.BlendShare.Persistence
                     targetRoot,
                     transformsByPath,
                     originalBonesByPath,
+                    boneTransformOverrides,
                     applyState,
                     result,
                     options,
@@ -830,7 +865,30 @@ namespace Triturbo.BlendShare.Persistence
                 }
             }
 
+            if (renderer.rootBone != null)
+            {
+                string rootBonePath = MeshNodePath.Normalize(MeshNodePath.GetRelativePath(renderer.rootBone, targetRoot));
+                if (!result.ContainsKey(rootBonePath))
+                {
+                    result.Add(rootBonePath, renderer.rootBone);
+                }
+            }
+
             return result;
+        }
+
+        private static IReadOnlyDictionary<string, Transform> BuildBoneTransformOverrideLookup(
+            IReadOnlyDictionary<string, Transform> overrides)
+        {
+            if (overrides == null || overrides.Count == 0)
+            {
+                return null;
+            }
+
+            return overrides
+                .Where(pair => !string.IsNullOrWhiteSpace(pair.Key) && pair.Value != null)
+                .GroupBy(pair => MeshNodePath.Normalize(pair.Key))
+                .ToDictionary(group => group.Key, group => group.First().Value);
         }
 
         private static string CreateUniqueChildName(Transform parent, string desiredName)

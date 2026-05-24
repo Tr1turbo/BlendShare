@@ -1,4 +1,5 @@
 using Triturbo.BlendShare.Components;
+using Triturbo.BlendShare.NonDestructive;
 using UnityEditor;
 using UnityEngine;
 
@@ -27,6 +28,11 @@ namespace Triturbo.BlendShare.Inspector
             if (applier.IsStale && !string.IsNullOrWhiteSpace(applier.DiagnosticMessage))
             {
                 EditorGUILayout.HelpBox(applier.DiagnosticMessage, MessageType.Warning);
+            }
+
+            if (!BlendShareApplierSetupService.ValidateMeshApplierMapping(applier, out string mappingDiagnostic))
+            {
+                EditorGUILayout.HelpBox(mappingDiagnostic, MessageType.Warning);
             }
 
             serializedObject.ApplyModifiedProperties();
