@@ -126,7 +126,8 @@ namespace Triturbo.BlendShare.NDMF
                 yield break;
             }
 
-            if (BlendShareVertexMappingCacheService.TryGet(share, meshData, targetMesh, out var mapping))
+            var sourceFbx = BlendShareComponentSetupService.ResolveSourceFbx(meshApplier.Owner, targetMesh);
+            if (BlendShareVertexMappingCacheService.TryGet(sourceFbx, meshData, targetMesh, out var mapping))
             {
                 yield return mapping;
             }

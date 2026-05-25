@@ -221,8 +221,9 @@ namespace Triturbo.BlendShare.NDMF
                     .FirstOrDefault(candidate => candidate != null && candidate.m_IsValid);
             if (mapping == null && meshApplier != null && targetMesh != null)
             {
+                var sourceFbx = ResolveSourceFbx(meshApplier.Owner, targetMesh);
                 BlendShareVertexMappingCacheService.TryGet(
-                    FindBlendShareForMeshData(meshApplier.Owner, meshData),
+                    sourceFbx,
                     meshData,
                     targetMesh,
                     out mapping);
@@ -311,8 +312,10 @@ namespace Triturbo.BlendShare.NDMF
                 return false;
             }
 
+            var sourceFbx = ResolveSourceFbx(applier.Owner, targetMesh);
+
             var missing = GetBlendShareMeshPairsForApplier(applier)
-                .Where(pair => !HasValidMapping(pair.Share, pair.MeshData, targetMesh))
+                .Where(pair => !HasValidMapping(sourceFbx, pair.MeshData, targetMesh))
                 .ToArray();
             if (missing.Length == 0 && FindBlendShareForMeshData(applier.Owner, applier.MeshData) == null)
             {
@@ -345,14 +348,14 @@ namespace Triturbo.BlendShare.NDMF
                 return false;
             }
 
-            var share = FindBlendShareForMeshData(applier.Owner, applier.MeshData);
-            if (share == null)
+            var sourceFbx = ResolveSourceFbx(applier.Owner, targetMesh);
+            if (sourceFbx == null)
             {
                 return false;
             }
 
             return BlendShareVertexMappingCacheService.TryGetInvalidDiagnostic(
-                share,
+                sourceFbx,
                 applier.MeshData,
                 targetMesh,
                 out diagnostic);
@@ -393,13 +396,13 @@ namespace Triturbo.BlendShare.NDMF
 
             foreach (var pair in pairs)
             {
-                if (HasValidMapping(pair.Share, pair.MeshData, targetMesh))
+                if (HasValidMapping(sourceFbx, pair.MeshData, targetMesh))
                 {
                     continue;
                 }
 
                 if (BlendShareVertexMappingCacheService.TryGetInvalidDiagnostic(
-                        pair.Share,
+                        sourceFbx,
                         pair.MeshData,
                         targetMesh,
                         out string cachedInvalidDiagnostic))
@@ -417,18 +420,18 @@ namespace Triturbo.BlendShare.NDMF
                     failures.Add($"{pair.Share.name}/{pair.MeshData.m_Path}: {invalidReason}");
                     if (mapping != null)
                     {
-                        BlendShareVertexMappingCacheService.Store(pair.Share, pair.MeshData, mapping);
+                        BlendShareVertexMappingCacheService.Store(sourceFbx, pair.MeshData, targetMesh, mapping);
                     }
                     else
                     {
-                        BlendShareVertexMappingCacheService.StoreInvalid(pair.Share, pair.MeshData, targetMesh, invalidReason);
+                        BlendShareVertexMappingCacheService.StoreInvalid(sourceFbx, pair.MeshData, targetMesh, invalidReason);
                     }
 
                     DestroyTransientMapping(mapping);
                     continue;
                 }
 
-                BlendShareVertexMappingCacheService.Store(pair.Share, pair.MeshData, mapping);
+                BlendShareVertexMappingCacheService.Store(sourceFbx, pair.MeshData, targetMesh, mapping);
                 DestroyTransientMapping(mapping);
             }
 
@@ -448,11 +451,11 @@ namespace Triturbo.BlendShare.NDMF
             }
         }
 
-        private static bool HasValidMapping(BlendShareObject blendShare, MeshDataObject meshData, Mesh targetMesh)
+        private static bool HasValidMapping(GameObject sourceFbx, MeshDataObject meshData, Mesh targetMesh)
         {
             return (meshData?.m_Mappings ?? Array.Empty<UnityVertexMappingObject>())
                    .Any(mapping => mapping != null && mapping.IsCompatibleWith(meshData, targetMesh)) ||
-                   BlendShareVertexMappingCacheService.ContainsCompatible(blendShare, meshData, targetMesh);
+                   BlendShareVertexMappingCacheService.ContainsCompatible(sourceFbx, meshData, targetMesh);
         }
 
         private static IEnumerable<(BlendShareObject Share, MeshDataObject MeshData)> GetBlendShareMeshPairsForApplier(
@@ -477,7 +480,7 @@ namespace Triturbo.BlendShare.NDMF
                 .FirstOrDefault(share => (share.Meshes ?? Array.Empty<MeshDataObject>()).Contains(meshData));
         }
 
-        private static GameObject ResolveSourceFbx(BlendShareComponent owner, Mesh targetMesh)
+        public static GameObject ResolveSourceFbx(BlendShareComponent owner, Mesh targetMesh)
         {
             if (targetMesh != null)
             {

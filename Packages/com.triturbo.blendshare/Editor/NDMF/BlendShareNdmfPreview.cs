@@ -65,7 +65,7 @@ namespace Triturbo.BlendShare.NDMF
             private string generationSignature;
             private bool hasPreviewOutput;
 
-            public RenderAspects WhatChanged { get; private set; } = RenderAspects.Mesh | RenderAspects.Shapes;
+            public RenderAspects WhatChanged { get; private set; } = RenderAspects.Mesh;
 
             public Node(IEnumerable<(Renderer, Renderer)> pairs, ComputeContext context)
             {

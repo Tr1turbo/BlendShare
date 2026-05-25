@@ -195,8 +195,9 @@ namespace Triturbo.BlendShare.NDMF
                 : System.Linq.Enumerable.FirstOrDefault(meshData?.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>(), item => item != null && item.m_IsValid);
             if (mapping == null && meshApplier != null && targetMesh != null)
             {
+                var sourceFbx = BlendShareComponentSetupService.ResolveSourceFbx(meshApplier.Owner, targetMesh);
                 BlendShareVertexMappingCacheService.TryGet(
-                    FindBlendShareForMeshData(meshApplier.Owner, meshData),
+                    sourceFbx,
                     meshData,
                     targetMesh,
                     out mapping);

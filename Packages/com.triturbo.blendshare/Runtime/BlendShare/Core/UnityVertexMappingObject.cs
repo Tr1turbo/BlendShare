@@ -121,6 +121,11 @@ namespace Triturbo.BlendShare.Core
                 return false;
             }
 
+            if (m_UnityMesh == targetMesh)
+            {
+                return true;
+            }
+
             if (!string.IsNullOrEmpty(m_UnityVertexHash))
             {
                 return m_UnityVertexHash == UnityVertexPositionHash.Calculate(targetMesh);
