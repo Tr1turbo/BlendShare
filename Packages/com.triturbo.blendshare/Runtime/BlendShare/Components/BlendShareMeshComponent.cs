@@ -53,7 +53,6 @@ namespace Triturbo.BlendShare.Components
 
     [DisallowMultipleComponent]
     [AddComponentMenu("BlendShare/BlendShare Mesh")]
-    [MovedFrom(true, null, null, "BlendShareMeshApplierComponent")]
     public sealed class BlendShareMeshComponent : MonoBehaviour
     {
         [SerializeField, NotKeyable]
@@ -70,9 +69,6 @@ namespace Triturbo.BlendShare.Components
 
         [SerializeField, NotKeyable]
         private bool m_EnabledForBuild = true;
-
-        [SerializeField, NotKeyable]
-        private bool m_IsStale;
 
         [SerializeField, NotKeyable]
         private string m_DiagnosticMessage;
@@ -112,12 +108,6 @@ namespace Triturbo.BlendShare.Components
             set => m_EnabledForBuild = value;
         }
 
-        public bool IsStale
-        {
-            get => m_IsStale;
-            set => m_IsStale = value;
-        }
-
         public string DiagnosticMessage
         {
             get => m_DiagnosticMessage;
@@ -126,12 +116,6 @@ namespace Triturbo.BlendShare.Components
 
         public IReadOnlyList<BlendShareBoneProxyBinding> BoneProxyBindings =>
             m_BoneProxyBindings ??= new List<BlendShareBoneProxyBinding>();
-
-        public void SetDiagnostic(bool isStale, string message)
-        {
-            m_IsStale = isStale;
-            m_DiagnosticMessage = message;
-        }
 
         public void SetBoneProxyBindings(IEnumerable<BlendShareBoneProxyBinding> bindings)
         {

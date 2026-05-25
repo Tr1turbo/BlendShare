@@ -121,19 +121,20 @@ namespace Triturbo.BlendShare.Core
             {
                 var share = request.Share;
                 var meshData = request.MeshData;
-                string meshKey = MeshFeatureGenerationSession.BuildMeshKey(meshData);
+                string meshKey = MeshFeatureGenerationSession.BuildMeshKey(request);
                 bool createdForThisMeshData = false;
                 // Generated meshes are reused by mesh key so later BlendShare assets stack on prior feature output.
                 if (!generatedByMeshKey.TryGetValue(meshKey, out var workingMesh))
                 {
-                    if (!targetLookup.TryGetMesh(meshData, out var targetMesh))
+                    var targetMesh = request.TargetMesh;
+                    if (targetMesh == null && !targetLookup.TryGetMesh(meshData, out targetMesh))
                     {
                         Debug.LogError($"[BlendShare] Target mesh '{FormatMesh(meshData)}' was not found in '{session.FormatTargetName()}': {targetLookup.GetResolutionError(meshData)}");
                         continue;
                     }
 
                     workingMesh = Object.Instantiate(targetMesh);
-                    workingMesh.name = MeshNodePath.Normalize(meshData.m_Path);
+                    workingMesh.name = meshKey;
                     generatedByMeshKey.Add(meshKey, workingMesh);
                     createdForThisMeshData = true;
                 }

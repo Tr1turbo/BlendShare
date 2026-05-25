@@ -134,7 +134,7 @@ namespace Triturbo.BlendShare.NDMF
             }
 
             var matches = new System.Collections.Generic.List<(Vector3 Position, Vector3 Rotation, Vector3 Scale)>();
-            foreach (var meshApplier in BlendShareApplierSetupService.FindOwnedMeshAppliers(proxy.Owner))
+            foreach (var meshApplier in BlendShareComponentSetupService.FindOwnedMeshAppliers(proxy.Owner))
             {
                 if (meshApplier == null || meshApplier.MeshData == null)
                 {

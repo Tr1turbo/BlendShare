@@ -24,6 +24,7 @@ namespace Triturbo.BlendShare.Core
         public MeshDataObject MeshData { get; }
         public string RendererNodePath { get; }
         public SkinnedMeshRenderer TargetRenderer { get; }
+        public Mesh TargetMesh { get; }
         public IReadOnlyList<BlendShareGenerationBoneOverride> BoneOverrides { get; }
         public IReadOnlyList<UnityVertexMappingObject> MappingOverrides { get; }
 
@@ -33,6 +34,7 @@ namespace Triturbo.BlendShare.Core
             MeshDataObject meshData,
             string rendererNodePath = null,
             SkinnedMeshRenderer targetRenderer = null,
+            Mesh targetMesh = null,
             IEnumerable<BlendShareGenerationBoneOverride> boneOverrides = null,
             IEnumerable<UnityVertexMappingObject> mappingOverrides = null)
         {
@@ -41,6 +43,7 @@ namespace Triturbo.BlendShare.Core
             MeshData = meshData;
             RendererNodePath = MeshNodePath.Normalize(rendererNodePath ?? meshData?.m_Path);
             TargetRenderer = targetRenderer;
+            TargetMesh = targetMesh;
             BoneOverrides = (boneOverrides ?? Enumerable.Empty<BlendShareGenerationBoneOverride>())
                 .Where(item => item != null && !string.IsNullOrWhiteSpace(item.SourceBonePath))
                 .GroupBy(item => item.SourceBonePath)

@@ -76,6 +76,40 @@ namespace Triturbo.BlendShare.NDMF
                 MatchesFbxControlPointCount(candidate, meshData.m_FbxControlPointCount));
         }
 
+        public static bool TryGetInvalidDiagnostic(
+            BlendShareObject blendShare,
+            MeshDataObject meshData,
+            Mesh targetMesh,
+            out string diagnostic)
+        {
+            diagnostic = null;
+            if (blendShare == null || meshData == null || targetMesh == null)
+            {
+                return false;
+            }
+
+            var cache = LoadCache();
+            string blendShareId = GetGlobalId(blendShare);
+            string meshDataId = GetGlobalId(meshData);
+            string targetHash = UnityVertexPositionHash.Calculate(targetMesh);
+            var entry = (cache.entries ?? Array.Empty<Entry>()).FirstOrDefault(candidate =>
+                candidate != null &&
+                candidate.blendShareGlobalId == blendShareId &&
+                candidate.meshDataGlobalId == meshDataId &&
+                !candidate.isValid &&
+                candidate.unityVertexCount == targetMesh.vertexCount &&
+                candidate.unityVertexHash == targetHash);
+            if (entry == null)
+            {
+                return false;
+            }
+
+            diagnostic = string.IsNullOrWhiteSpace(entry.invalidReason)
+                ? "cached mapping generation failed"
+                : entry.invalidReason;
+            return true;
+        }
+
         public static void Store(
             BlendShareObject blendShare,
             MeshDataObject meshData,
@@ -90,14 +124,43 @@ namespace Triturbo.BlendShare.NDMF
             string blendShareId = GetGlobalId(blendShare);
             string meshDataId = GetGlobalId(meshData);
             string vertexHash = mapping.m_UnityVertexHash ?? string.Empty;
+            int vertexCount = mapping.m_UnityVertexCount;
             cache.entries = (cache.entries ?? Array.Empty<Entry>())
                 .Where(entry => entry != null &&
                                 !(entry.blendShareGlobalId == blendShareId &&
                                   entry.meshDataGlobalId == meshDataId &&
-                                  entry.unityVertexHash == vertexHash))
+                                  entry.unityVertexHash == vertexHash &&
+                                  entry.unityVertexCount == vertexCount))
                 .Concat(new[] { CreateEntry(blendShareId, meshDataId, mapping) })
                 .ToArray();
             SaveCache(cache);
+        }
+
+        public static void StoreInvalid(
+            BlendShareObject blendShare,
+            MeshDataObject meshData,
+            Mesh targetMesh,
+            string invalidReason)
+        {
+            if (blendShare == null || meshData == null || targetMesh == null)
+            {
+                return;
+            }
+
+            var mapping = ScriptableObject.CreateInstance<UnityVertexMappingObject>();
+            mapping.m_UnityMesh = targetMesh;
+            mapping.m_UnityVertexCount = targetMesh.vertexCount;
+            mapping.m_UnityVertexHash = UnityVertexPositionHash.Calculate(targetMesh);
+            mapping.m_FbxToUnityScale = 1f;
+            mapping.m_IndexGroups = Array.Empty<FbxIndexGroup>();
+            mapping.m_Indices = Array.Empty<int>();
+            mapping.m_IsValid = false;
+            mapping.m_InvalidReason = string.IsNullOrWhiteSpace(invalidReason)
+                ? "mapping generation failed"
+                : invalidReason;
+            mapping.hideFlags = HideFlags.HideAndDontSave;
+            Store(blendShare, meshData, mapping);
+            UnityEngine.Object.DestroyImmediate(mapping);
         }
 
         private static Entry CreateEntry(

@@ -17,6 +17,8 @@ namespace Triturbo.BlendShare.Core
     public static class UnityFbxVertexMappingBuilder
     {
         private const float FingerprintEpsilon = 1e-6f;
+        private const double MaxAverageMappedBaseOffset = 1e-4d;
+        private const double MaxAverageMappedBaseSqrOffset = MaxAverageMappedBaseOffset * MaxAverageMappedBaseOffset;
         private const int ParallelMatchThreshold = 1024;
         private const string LogPrefix = "[BlendShare Vertex Mapping]";
 
@@ -141,10 +143,25 @@ namespace Triturbo.BlendShare.Core
             LogTiming("FbxGo", nodePath, "Match Unity vertices to FBX control points", stopwatch, ref lastLogMs,
                 $"unresolved={unresolved}");
 
-            mapping.m_IsValid = unresolved == 0;
+            if (unresolved != 0)
+            {
+                mapping.m_IsValid = false;
+                mapping.m_InvalidReason = $"FBX asset mapping has {unresolved} Unity vertices without matching FBX control point positions.";
+                LogCompletion("FbxAsset", nodePath, stopwatch, mapping.m_IsValid, mapping.m_InvalidReason);
+                return mapping;
+            }
+
+            double averageBaseSqrOffset = CalculateAverageMappedBaseSqrOffset(
+                mapping.m_IndexGroups,
+                pair.UnityFingerprints,
+                pair.FbxFingerprints);
+            LogTiming("FbxAsset", nodePath, "Validate mapped base position offsets", stopwatch, ref lastLogMs,
+                $"averageSqrOffset={averageBaseSqrOffset:0.##########}, rmsOffset={System.Math.Sqrt(averageBaseSqrOffset):0.##########}");
+
+            mapping.m_IsValid = averageBaseSqrOffset <= MaxAverageMappedBaseSqrOffset;
             mapping.m_InvalidReason = mapping.m_IsValid
                 ? string.Empty
-                : $"FBX asset mapping has {unresolved} Unity vertices without matching FBX control point positions.";
+                : $"FBX asset mapping average vertex offset is too large. Average squared offset: {averageBaseSqrOffset:0.##########}, RMS offset: {System.Math.Sqrt(averageBaseSqrOffset):0.##########}.";
 
             LogCompletion("FbxAsset", nodePath, stopwatch, mapping.m_IsValid, mapping.m_InvalidReason);
             return mapping;
@@ -222,6 +239,68 @@ namespace Triturbo.BlendShare.Core
             candidateIndex.LogStats(LogPrefix);
 
             return unresolved;
+        }
+
+        private static double CalculateAverageMappedBaseSqrOffset(
+            IReadOnlyList<FbxIndexGroup> mappingGroups,
+            IReadOnlyList<PositionFingerprint> unityFingerprints,
+            IReadOnlyList<PositionFingerprint> fbxFingerprints)
+        {
+            if (mappingGroups == null || unityFingerprints == null || fbxFingerprints == null)
+            {
+                return double.PositiveInfinity;
+            }
+
+            if (mappingGroups.Count != unityFingerprints.Count)
+            {
+                return double.PositiveInfinity;
+            }
+
+            double total = 0d;
+            int count = unityFingerprints.Count;
+            for (int unityIndex = 0; unityIndex < count; unityIndex++)
+            {
+                var indices = mappingGroups[unityIndex].m_Indices;
+                if (indices == null || indices.Length == 0)
+                {
+                    return double.PositiveInfinity;
+                }
+
+                total += CalculateGroupBaseSqrOffset(
+                    unityFingerprints[unityIndex],
+                    indices,
+                    fbxFingerprints);
+            }
+
+            return count > 0 ? total / count : double.PositiveInfinity;
+        }
+
+        private static double CalculateGroupBaseSqrOffset(
+            PositionFingerprint unityFingerprint,
+            IReadOnlyList<int> fbxIndices,
+            IReadOnlyList<PositionFingerprint> fbxFingerprints)
+        {
+            if (unityFingerprint == null || fbxIndices == null || fbxIndices.Count == 0 || fbxFingerprints == null)
+            {
+                return double.PositiveInfinity;
+            }
+
+            double total = 0d;
+            int count = 0;
+            for (int i = 0; i < fbxIndices.Count; i++)
+            {
+                int fbxIndex = fbxIndices[i];
+                if (fbxIndex < 0 || fbxIndex >= fbxFingerprints.Count || fbxFingerprints[fbxIndex] == null)
+                {
+                    return double.PositiveInfinity;
+                }
+
+                Vector3 delta = unityFingerprint.BasePosition - fbxFingerprints[fbxIndex].BasePosition;
+                total += delta.sqrMagnitude;
+                count++;
+            }
+
+            return count > 0 ? total / count : double.PositiveInfinity;
         }
 
         // ─── Helpers ───────────────────────────────────────────────────────────────

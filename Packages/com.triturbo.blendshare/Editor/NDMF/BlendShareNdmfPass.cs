@@ -46,14 +46,14 @@ namespace Triturbo.BlendShare.NDMF
             var validMeshAppliers = new List<BlendShareMeshComponent>();
             foreach (var applier in meshAppliers.Where(applier => applier != null && applier.EnabledForBuild && applier.Owner != null && applier.Owner.enabled))
             {
-                if (!BlendShareApplierSetupService.ValidateMeshApplierForBuild(applier, out string diagnostic))
+                if (!BlendShareComponentSetupService.ValidateMeshApplierForBuild(applier, out string diagnostic))
                 {
                     Debug.LogError($"[BlendShare NDMF] {diagnostic}", applier);
                     continue;
                 }
 
-                if (!BlendShareApplierSetupService.ValidateMeshApplierMapping(applier, out _) &&
-                    !BlendShareApplierSetupService.EnsureMeshApplierMappingCache(applier, out string mappingDiagnostic))
+                if (!BlendShareComponentSetupService.ValidateMeshApplierMapping(applier, out _) &&
+                    !BlendShareComponentSetupService.EnsureMeshApplierMappingCache(applier, out string mappingDiagnostic))
                 {
                     ReportMappingFailure(applier, mappingDiagnostic);
                     continue;
@@ -73,7 +73,7 @@ namespace Triturbo.BlendShare.NDMF
                 .ToArray();
 
             foreach (var rootGroup in orderedMeshAppliers.GroupBy(applier =>
-                         BlendShareApplierSetupService.ResolveTargetRoot(applier.Owner) ?? context.AvatarRootTransform))
+                         BlendShareComponentSetupService.ResolveTargetRoot(applier.Owner) ?? context.AvatarRootTransform))
             {
                 var targetRoot = rootGroup.Key;
                 if (targetRoot == null)
@@ -139,7 +139,11 @@ namespace Triturbo.BlendShare.NDMF
 
         private static string BuildMappingFailureDetails(BlendShareMeshComponent applier, string diagnostic)
         {
-            string rendererPath = applier != null ? applier.RendererNodePath : MeshNodePath.Root;
+            string rendererPath = applier?.TargetRenderer != null
+                ? MeshNodePath.Normalize(MeshNodePath.GetRelativePath(
+                    applier.TargetRenderer.transform,
+                    BlendShareComponentSetupService.ResolveTargetRoot(applier.Owner)))
+                : applier != null ? applier.RendererNodePath : MeshNodePath.Root;
             var builder = new StringBuilder();
             builder.AppendLine(string.IsNullOrWhiteSpace(diagnostic)
                 ? "BlendShare could not create a compatible Unity vertex mapping."
@@ -149,17 +153,16 @@ namespace Triturbo.BlendShare.NDMF
             bool addedPair = false;
             foreach (var share in applier?.Owner?.BlendShares ?? System.Array.Empty<BlendShareObject>())
             {
-                foreach (var meshData in share?.Meshes ?? System.Array.Empty<MeshDataObject>())
+                if (share == null || applier?.MeshData == null ||
+                    !(share.Meshes ?? System.Array.Empty<MeshDataObject>()).Contains(applier.MeshData))
                 {
-                    if (share == null || meshData == null || MeshNodePath.Normalize(meshData.m_Path) != rendererPath)
-                    {
-                        continue;
-                    }
-
-                    builder.AppendLine($"BlendShare asset: {share.name}");
-                    builder.AppendLine($"Mesh path: {meshData.m_Path}");
-                    addedPair = true;
+                    continue;
                 }
+
+                builder.AppendLine($"BlendShare asset: {share.name}");
+                builder.AppendLine($"Mesh path: {applier.MeshData.m_Path}");
+                addedPair = true;
+                break;
             }
 
             if (!addedPair)

@@ -68,38 +68,51 @@ namespace Triturbo.BlendShare.NDMF
                     diagnostics.Add(FormatSkippedMeshApplier(skipped));
                 }
 
-                foreach (var share in DedupBlendShares(owner.BlendShares))
+                foreach (var meshApplier in meshAppliers)
                 {
-                    foreach (var meshApplier in meshAppliers)
+                    var share = FindBlendShareForMeshData(owner, meshApplier.MeshData);
+                    if (share == null)
                     {
-                        string rendererPath = MeshNodePath.Normalize(meshApplier.RendererNodePath);
-                        foreach (var meshData in share.Meshes ?? Array.Empty<MeshDataObject>())
-                        {
-                            if (meshData == null || MeshNodePath.Normalize(meshData.m_Path) != rendererPath)
-                            {
-                                continue;
-                            }
-
-                            string requestKey = $"{share.GetInstanceID()}:{meshData.GetInstanceID()}:{rendererPath}";
-                            if (!emittedRequestKeys.Add(requestKey))
-                            {
-                                continue;
-                            }
-
-                            var overrides = BuildBoneOverrides(meshApplier, meshData);
-                            var mappingOverrides = BuildMappingOverrides(share, meshApplier, meshData);
-                            yield return new BlendShareGenerationRequest(
-                                order++,
-                                share,
-                                meshData,
-                                rendererPath,
-                                meshApplier.TargetRenderer,
-                                overrides,
-                                mappingOverrides);
-                        }
+                        diagnostics.Add($"BlendShare mesh applier '{meshApplier.name}' references mesh data that is not present in its owner BlendShare list.");
+                        continue;
                     }
+
+                    var renderer = meshApplier.TargetRenderer;
+                    var targetMesh = renderer != null ? renderer.sharedMesh : null;
+                    var targetRoot = TargetRoot != null ? TargetRoot : ResolveOwnerRoot(owner);
+                    string rendererPath = renderer != null && targetRoot != null
+                        ? MeshNodePath.Normalize(MeshNodePath.GetRelativePath(renderer.transform, targetRoot))
+                        : meshApplier.RendererNodePath;
+                    string requestKey = $"{share.GetInstanceID()}:{meshApplier.MeshData.GetInstanceID()}:{rendererPath}";
+                    if (!emittedRequestKeys.Add(requestKey))
+                    {
+                        continue;
+                    }
+
+                    var overrides = BuildBoneOverrides(meshApplier, meshApplier.MeshData);
+                    var mappingOverrides = BuildMappingOverrides(share, meshApplier, meshApplier.MeshData);
+                    yield return new BlendShareGenerationRequest(
+                        order++,
+                        share,
+                        meshApplier.MeshData,
+                        rendererPath,
+                        renderer,
+                        targetMesh,
+                        overrides,
+                        mappingOverrides);
                 }
             }
+        }
+
+        private static BlendShareObject FindBlendShareForMeshData(BlendShareComponent owner, MeshDataObject meshData)
+        {
+            if (owner == null || meshData == null)
+            {
+                return null;
+            }
+
+            return DedupBlendShares(owner.BlendShares)
+                .FirstOrDefault(share => (share.Meshes ?? Array.Empty<MeshDataObject>()).Contains(meshData));
         }
 
         private static IEnumerable<UnityVertexMappingObject> BuildMappingOverrides(
@@ -199,11 +212,10 @@ namespace Triturbo.BlendShare.NDMF
         {
             return applier != null &&
                    applier.EnabledForBuild &&
-                   !applier.IsStale &&
                    applier.Owner != null &&
                    applier.TargetRenderer != null &&
-                   applier.MeshData != null &&
-                   !string.IsNullOrWhiteSpace(applier.RendererNodePath);
+                   applier.TargetRenderer.sharedMesh != null &&
+                   applier.MeshData != null;
         }
 
         private static string FormatSkippedMeshApplier(BlendShareMeshComponent applier)
@@ -218,13 +230,6 @@ namespace Triturbo.BlendShare.NDMF
                 return $"BlendShare mesh applier '{applier.name}' is disabled.";
             }
 
-            if (applier.IsStale)
-            {
-                return string.IsNullOrWhiteSpace(applier.DiagnosticMessage)
-                    ? $"BlendShare mesh applier '{applier.name}' is stale."
-                    : applier.DiagnosticMessage;
-            }
-
             if (applier.Owner == null)
             {
                 return $"BlendShare mesh applier '{applier.name}' has no owner.";
@@ -233,6 +238,11 @@ namespace Triturbo.BlendShare.NDMF
             if (applier.TargetRenderer == null)
             {
                 return $"BlendShare mesh applier '{applier.name}' has no target renderer.";
+            }
+
+            if (applier.TargetRenderer.sharedMesh == null)
+            {
+                return $"BlendShare mesh applier '{applier.name}' target renderer has no mesh.";
             }
 
             return $"BlendShare mesh applier '{applier.name}' is invalid.";

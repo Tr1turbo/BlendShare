@@ -1,6 +1,7 @@
 using System.Linq;
 using Triturbo.BlendShapeShare.BlendShapeData;
 using Triturbo.BlendShare.Components;
+using Triturbo.BlendShare.Core;
 using UnityEditor;
 using UnityEngine;
 
@@ -25,31 +26,57 @@ namespace Triturbo.BlendShare.NDMF
 
         private static void DrawSummary(BlendShareComponent owner)
         {
-            var meshAppliers = BlendShareApplierSetupService.FindOwnedMeshAppliers(owner);
-            var proxies = BlendShareApplierSetupService.FindOwnedBoneProxies(owner);
-            int staleCount = meshAppliers.Count(applier => applier != null && applier.IsStale);
+            var meshAppliers = BlendShareComponentSetupService.FindOwnedMeshAppliers(owner);
+            var proxies = BlendShareComponentSetupService.FindOwnedBoneProxies(owner);
 
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Bindings", EditorStyles.boldLabel);
-            EditorGUILayout.LabelField("Target Root", FormatObject(BlendShareApplierSetupService.ResolveTargetRoot(owner)));
+            EditorGUILayout.LabelField("Target Root", FormatObject(BlendShareComponentSetupService.ResolveTargetRoot(owner)));
             EditorGUILayout.LabelField("Mesh Appliers", meshAppliers.Length.ToString());
-            EditorGUILayout.LabelField("Stale Mesh Appliers", staleCount.ToString());
             EditorGUILayout.LabelField("Bone Proxies", proxies.Length.ToString());
 
-            foreach (var applier in meshAppliers.Where(applier => applier != null).OrderBy(applier => applier.RendererNodePath))
+            foreach (var applier in meshAppliers.Where(applier => applier != null).OrderBy(GetRendererPath))
             {
-                string status = applier.IsStale ? "Stale" : applier.EnabledForBuild ? "Enabled" : "Disabled";
-                EditorGUILayout.LabelField(applier.RendererNodePath, status);
+                string status = applier.EnabledForBuild ? "Enabled" : "Disabled";
+                EditorGUILayout.LabelField(GetRendererPath(applier), status);
                 if (!string.IsNullOrWhiteSpace(applier.DiagnosticMessage))
                 {
-                    EditorGUILayout.HelpBox(applier.DiagnosticMessage, applier.IsStale ? MessageType.Warning : MessageType.Info);
+                    EditorGUILayout.HelpBox(applier.DiagnosticMessage, MessageType.Info);
                 }
 
-                if (!BlendShareApplierSetupService.ValidateMeshApplierMapping(applier, out string mappingDiagnostic))
+                if (!BlendShareComponentSetupService.ValidateMeshApplierMapping(applier, out string mappingDiagnostic))
                 {
-                    EditorGUILayout.HelpBox(mappingDiagnostic, MessageType.Warning);
+                    if (BlendShareComponentSetupService.TryGetCachedInvalidMappingDiagnostic(applier, out string cachedDiagnostic))
+                    {
+                        mappingDiagnostic = cachedDiagnostic;
+                    }
+                    else if (BlendShareComponentSetupService.EnsureMeshApplierMappingCache(applier, out string createdDiagnostic))
+                    {
+                        continue;
+                    }
+                    else if (BlendShareComponentSetupService.TryGetCachedInvalidMappingDiagnostic(applier, out cachedDiagnostic))
+                    {
+                        mappingDiagnostic = cachedDiagnostic;
+                    }
+                    else
+                    {
+                        mappingDiagnostic = createdDiagnostic;
+                    }
+
+                    EditorGUILayout.HelpBox(mappingDiagnostic, MessageType.Error);
                 }
             }
+        }
+
+        private static string GetRendererPath(BlendShareMeshComponent applier)
+        {
+            if (applier?.TargetRenderer == null)
+            {
+                return "<missing renderer>";
+            }
+
+            var targetRoot = BlendShareComponentSetupService.ResolveTargetRoot(applier.Owner);
+            return MeshNodePath.Normalize(MeshNodePath.GetRelativePath(applier.TargetRenderer.transform, targetRoot));
         }
 
         private static void DrawActions(BlendShareComponent owner)
@@ -59,13 +86,13 @@ namespace Triturbo.BlendShare.NDMF
             {
                 if (GUILayout.Button("Rebuild Mesh Bindings"))
                 {
-                    var result = BlendShareApplierSetupService.RebuildMeshBindings(owner);
+                    var result = BlendShareComponentSetupService.RebuildMeshBindings(owner);
                     ReportDiagnostics(result.Diagnostics, owner);
                 }
 
                 if (GUILayout.Button("Rebuild Bone Proxies"))
                 {
-                    var result = BlendShareApplierSetupService.RebuildBoneProxies(owner);
+                    var result = BlendShareComponentSetupService.RebuildBoneProxies(owner);
                     ReportDiagnostics(result.Diagnostics, owner);
                 }
             }

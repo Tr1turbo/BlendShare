@@ -31,7 +31,6 @@ namespace Triturbo.BlendShare.NDMF
         {
             return context.GetComponentsByType<BlendShareMeshComponent>()
                 .Where(applier => context.Observe(applier, item => item.EnabledForBuild) &&
-                                  !context.Observe(applier, item => item.IsStale) &&
                                   IsOwnerEnabled(applier, context) &&
                                   context.Observe(applier, item => item.TargetRenderer) != null)
                 .GroupBy(applier => context.Observe(applier, item => item.TargetRenderer))
@@ -80,7 +79,6 @@ namespace Triturbo.BlendShare.NDMF
                     ? BuildGenerationSignature(originalRenderer, context)
                     : null;
                 if (aspects.HasFlag(RenderAspects.Mesh) ||
-                    aspects.HasFlag(RenderAspects.Shapes) ||
                     !matchesPair ||
                     currentSignature != generationSignature)
                 {
@@ -146,16 +144,23 @@ namespace Triturbo.BlendShare.NDMF
                 this.proxyRenderer = proxyRenderer;
                 generationSignature = BuildGenerationSignature(originalRenderer, context);
 
-                var enabledAppliers = FindMeshAppliersForRenderer(originalRenderer, context)
-                    .ToArray();
-                foreach (var applier in enabledAppliers)
+                var enabledAppliers = new List<BlendShareMeshComponent>();
+                foreach (var applier in FindMeshAppliersForRenderer(originalRenderer, context))
                 {
                     ObserveMeshApplier(applier, context);
-                    if (!BlendShareApplierSetupService.ValidateMeshApplierMapping(applier, out _) &&
-                        !BlendShareApplierSetupService.EnsureMeshApplierMappingCache(applier, out string mappingDiagnostic))
+                    if (!BlendShareComponentSetupService.ValidateMeshApplierMapping(applier, out _) &&
+                        !BlendShareComponentSetupService.EnsureMeshApplierMappingCache(applier, out string mappingDiagnostic))
                     {
                         Debug.LogWarning($"[BlendShare Preview] {mappingDiagnostic}", originalRenderer);
+                        continue;
                     }
+
+                    enabledAppliers.Add(applier);
+                }
+
+                if (enabledAppliers.Count == 0)
+                {
+                    return;
                 }
 
                 var owners = enabledAppliers
@@ -164,7 +169,7 @@ namespace Triturbo.BlendShare.NDMF
                     .Distinct()
                     .ToArray();
                 var sourceRoot = owners
-                    .Select(BlendShareApplierSetupService.ResolveTargetRoot)
+                    .Select(BlendShareComponentSetupService.ResolveTargetRoot)
                     .FirstOrDefault(root => root != null) ?? originalRenderer.transform.root;
                 var boneProxies = sourceRoot != null
                     ? sourceRoot.GetComponentsInChildren<BlendShareBoneProxyComponent>(true)
@@ -227,6 +232,7 @@ namespace Triturbo.BlendShare.NDMF
                 builder.Append("renderer:").Append(renderer.GetInstanceID());
                 AppendObject(builder, ":mesh:", context.Observe(renderer, item => item.sharedMesh));
                 AppendObject(builder, ":rootBone:", context.Observe(renderer, item => item.rootBone));
+                AppendTransformPath(builder, ":rendererPath:", renderer.transform, context);
                 foreach (var bone in context.Observe(renderer, item => item.bones, Enumerable.SequenceEqual) ?? System.Array.Empty<Transform>())
                 {
                     AppendObject(builder, ":bone:", bone);
@@ -239,7 +245,6 @@ namespace Triturbo.BlendShare.NDMF
                     builder.Append("|applier:").Append(applier != null ? applier.GetInstanceID() : 0);
                     AppendObject(builder, ":owner:", context.Observe(applier, item => item.Owner));
                     AppendObject(builder, ":meshData:", context.Observe(applier, item => item.MeshData));
-                    builder.Append(":path:").Append(context.Observe(applier, item => item.RendererNodePath));
                     foreach (var binding in applier?.BoneProxyBindings ?? System.Array.Empty<BlendShareBoneProxyBinding>())
                     {
                         AppendObject(builder, ":bindingGraph:", binding?.BoneGraph);
@@ -284,6 +289,28 @@ namespace Triturbo.BlendShare.NDMF
                     .Append(value.z.ToString("R"));
             }
 
+            private static void AppendTransformPath(StringBuilder builder, string label, Transform transform, ComputeContext context)
+            {
+                builder.Append(label);
+                if (transform == null)
+                {
+                    builder.Append("<null>");
+                    return;
+                }
+
+                bool first = true;
+                foreach (var node in context.ObservePath(transform))
+                {
+                    if (!first)
+                    {
+                        builder.Append('/');
+                    }
+
+                    builder.Append(context.Observe(node.gameObject, item => item.name));
+                    first = false;
+                }
+            }
+
             private static IEnumerable<BlendShareMeshComponent> FindMeshAppliersForRenderer(
                 SkinnedMeshRenderer renderer,
                 ComputeContext context)
@@ -296,7 +323,6 @@ namespace Triturbo.BlendShare.NDMF
                 return context.GetComponentsByType<BlendShareMeshComponent>()
                     .Where(applier => applier != null &&
                                       context.Observe(applier, item => item.EnabledForBuild) &&
-                                      !context.Observe(applier, item => item.IsStale) &&
                                       IsOwnerEnabled(applier, context) &&
                                       context.Observe(applier, item => item.TargetRenderer) == renderer)
                     .OrderBy(applier => GetHierarchyOrder(applier.Owner != null ? applier.Owner.transform : null))
@@ -358,7 +384,6 @@ namespace Triturbo.BlendShare.NDMF
                 context.Observe(applier, item => item.Owner);
                 context.Observe(applier, item => item.TargetRenderer);
                 context.Observe(applier, item => item.MeshData);
-                context.Observe(applier, item => item.RendererNodePath);
                 context.Observe(applier, item => item.BoneProxyBindings.Count);
                 foreach (var binding in applier.BoneProxyBindings)
                 {

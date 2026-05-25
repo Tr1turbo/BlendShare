@@ -8,7 +8,6 @@ namespace Triturbo.BlendShare.Components
 {
     [DisallowMultipleComponent]
     [AddComponentMenu("BlendShare/BlendShare Core")]
-    [MovedFrom(true, null, null, "BlendShareApplierComponent")]
     public sealed class BlendShareComponent : MonoBehaviour
     {
         [SerializeField, NotKeyable]

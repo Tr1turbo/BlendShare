@@ -15,23 +15,37 @@ namespace Triturbo.BlendShare.NDMF
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_Owner"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_TargetRendererReference"), new GUIContent("Target Renderer"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_MeshData"));
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_RendererNodePath"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_EnabledForBuild"));
 
             EditorGUILayout.Space();
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_IsStale"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_DiagnosticMessage"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_BoneProxyBindings"), true);
 
             var applier = (BlendShareMeshComponent)target;
-            if (applier.IsStale && !string.IsNullOrWhiteSpace(applier.DiagnosticMessage))
+            if (!BlendShareComponentSetupService.ValidateMeshApplierMapping(applier, out string mappingDiagnostic))
             {
-                EditorGUILayout.HelpBox(applier.DiagnosticMessage, MessageType.Warning);
-            }
+                bool showMappingError = true;
+                if (BlendShareComponentSetupService.TryGetCachedInvalidMappingDiagnostic(applier, out string cachedDiagnostic))
+                {
+                    mappingDiagnostic = cachedDiagnostic;
+                }
+                else if (BlendShareComponentSetupService.EnsureMeshApplierMappingCache(applier, out string createdDiagnostic))
+                {
+                    showMappingError = false;
+                }
+                else if (BlendShareComponentSetupService.TryGetCachedInvalidMappingDiagnostic(applier, out cachedDiagnostic))
+                {
+                    mappingDiagnostic = cachedDiagnostic;
+                }
+                else
+                {
+                    mappingDiagnostic = createdDiagnostic;
+                }
 
-            if (!BlendShareApplierSetupService.ValidateMeshApplierMapping(applier, out string mappingDiagnostic))
-            {
-                EditorGUILayout.HelpBox(mappingDiagnostic, MessageType.Warning);
+                if (showMappingError)
+                {
+                    EditorGUILayout.HelpBox(mappingDiagnostic, MessageType.Error);
+                }
             }
 
             serializedObject.ApplyModifiedProperties();

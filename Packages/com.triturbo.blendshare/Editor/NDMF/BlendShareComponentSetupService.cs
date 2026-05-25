@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace Triturbo.BlendShare.NDMF
 {
-    public static class BlendShareApplierSetupService
+    public static class BlendShareComponentSetupService
     {
         public static RebuildMeshBindingsResult RebuildMeshBindings(BlendShareComponent owner)
         {
@@ -35,7 +35,6 @@ namespace Triturbo.BlendShare.NDMF
             var existingByPath = FindOwnedMeshAppliers(owner)
                 .GroupBy(applier => MeshNodePath.Normalize(applier.RendererNodePath))
                 .ToDictionary(group => group.Key, group => group.ToList());
-            var matchedPaths = new HashSet<string>();
             var desiredMeshes = owner.BlendShares
                 .Where(share => share != null)
                 .SelectMany(share => share.Meshes.Where(mesh => mesh != null))
@@ -51,7 +50,6 @@ namespace Triturbo.BlendShare.NDMF
                     continue;
                 }
 
-                matchedPaths.Add(path);
                 var applier = existingByPath.TryGetValue(path, out var current) && current.Count > 0
                     ? TakeFirst(current)
                     : CreateMeshApplier(owner, renderer, path);
@@ -62,18 +60,9 @@ namespace Triturbo.BlendShare.NDMF
                 applier.MeshData = meshData;
                 applier.RendererNodePath = path;
                 applier.EnabledForBuild = true;
-                applier.SetDiagnostic(false, string.Empty);
+                applier.DiagnosticMessage = string.Empty;
                 EditorUtility.SetDirty(applier);
                 result.AddMeshApplier(applier);
-            }
-
-            foreach (var stale in existingByPath.SelectMany(pair => pair.Value)
-                         .Where(applier => applier != null && !matchedPaths.Contains(applier.RendererNodePath)))
-            {
-                Undo.RecordObject(stale, "Mark BlendShare Mesh Binding Stale");
-                stale.SetDiagnostic(true, "This binding no longer matches the current target root and BlendShare object list.");
-                EditorUtility.SetDirty(stale);
-                result.AddStaleMeshApplier(stale);
             }
 
             return result;
@@ -111,7 +100,7 @@ namespace Triturbo.BlendShare.NDMF
             var proxiesByBonePath = new Dictionary<string, BlendShareBoneProxyComponent>();
 
             foreach (var meshApplier in FindOwnedMeshAppliers(owner)
-                         .Where(applier => applier != null && applier.EnabledForBuild && !applier.IsStale))
+                         .Where(applier => applier != null && applier.EnabledForBuild))
             {
                 var renderer = meshApplier.TargetRenderer;
                 if (renderer == null)
@@ -244,24 +233,14 @@ namespace Triturbo.BlendShare.NDMF
 
         private static IEnumerable<MeshDataObject> GetMeshDataForApplier(BlendShareMeshComponent meshApplier)
         {
-            if (meshApplier?.Owner == null)
+            if (meshApplier?.Owner == null || meshApplier.MeshData == null)
             {
                 yield break;
             }
 
-            string rendererPath = MeshNodePath.Normalize(meshApplier.RendererNodePath);
-            var seen = new HashSet<MeshDataObject>();
-            foreach (var share in meshApplier.Owner.BlendShares ?? Array.Empty<BlendShareObject>())
+            if (FindBlendShareForMeshData(meshApplier.Owner, meshApplier.MeshData) != null)
             {
-                foreach (var meshData in share?.Meshes ?? Array.Empty<MeshDataObject>())
-                {
-                    if (meshData != null &&
-                        MeshNodePath.Normalize(meshData.m_Path) == rendererPath &&
-                        seen.Add(meshData))
-                    {
-                        yield return meshData;
-                    }
-                }
+                yield return meshApplier.MeshData;
             }
         }
 
@@ -273,14 +252,6 @@ namespace Triturbo.BlendShare.NDMF
             if (applier == null)
             {
                 diagnostic = "BlendShare mesh applier is missing.";
-                return false;
-            }
-
-            if (applier.IsStale)
-            {
-                diagnostic = string.IsNullOrWhiteSpace(applier.DiagnosticMessage)
-                    ? $"BlendShare mesh applier '{applier.name}' is stale."
-                    : applier.DiagnosticMessage;
                 return false;
             }
 
@@ -302,11 +273,15 @@ namespace Triturbo.BlendShare.NDMF
                 return false;
             }
 
-            Transform targetRoot = ResolveTargetRoot(applier.Owner);
-            string actualPath = MeshNodePath.Normalize(MeshNodePath.GetRelativePath(applier.TargetRenderer.transform, targetRoot));
-            if (actualPath != applier.RendererNodePath)
+            if (FindBlendShareForMeshData(applier.Owner, applier.MeshData) == null)
             {
-                diagnostic = $"BlendShare mesh applier '{applier.name}' targets renderer path '{actualPath}', expected '{applier.RendererNodePath}'.";
+                diagnostic = $"BlendShare mesh applier '{applier.name}' references mesh data that is not present in its owner BlendShare list.";
+                return false;
+            }
+
+            if (applier.TargetRenderer.sharedMesh == null)
+            {
+                diagnostic = $"BlendShare mesh applier '{applier.name}' target renderer has no mesh.";
                 return false;
             }
 
@@ -318,7 +293,7 @@ namespace Triturbo.BlendShare.NDMF
             out string diagnostic)
         {
             diagnostic = null;
-            if (applier == null || !applier.EnabledForBuild || applier.IsStale)
+            if (applier == null || !applier.EnabledForBuild)
             {
                 return true;
             }
@@ -339,13 +314,48 @@ namespace Triturbo.BlendShare.NDMF
             var missing = GetBlendShareMeshPairsForApplier(applier)
                 .Where(pair => !HasValidMapping(pair.Share, pair.MeshData, targetMesh))
                 .ToArray();
+            if (missing.Length == 0 && FindBlendShareForMeshData(applier.Owner, applier.MeshData) == null)
+            {
+                diagnostic = $"BlendShare mesh applier '{applier.name}' references mesh data that is not present in its owner BlendShare list.";
+                return false;
+            }
+
             if (missing.Length == 0)
             {
                 return true;
             }
 
-            diagnostic = $"BlendShare mesh applier '{applier.name}' does not have valid Unity vertex mappings for {missing.Length} BlendShare mesh request(s) at renderer path '{applier.RendererNodePath}'. ND build/preview may fail or require a slow FBX fallback.";
+            diagnostic = $"BlendShare mesh applier '{applier.name}' does not have valid Unity vertex mappings for {missing.Length} BlendShare mesh request(s).";
             return false;
+        }
+
+        public static bool TryGetCachedInvalidMappingDiagnostic(
+            BlendShareMeshComponent applier,
+            out string diagnostic)
+        {
+            diagnostic = null;
+            if (applier == null || applier.Owner == null || applier.MeshData == null || applier.TargetRenderer == null)
+            {
+                return false;
+            }
+
+            var targetMesh = applier.TargetRenderer.sharedMesh;
+            if (targetMesh == null)
+            {
+                return false;
+            }
+
+            var share = FindBlendShareForMeshData(applier.Owner, applier.MeshData);
+            if (share == null)
+            {
+                return false;
+            }
+
+            return BlendShareVertexMappingCacheService.TryGetInvalidDiagnostic(
+                share,
+                applier.MeshData,
+                targetMesh,
+                out diagnostic);
         }
 
         public static bool EnsureMeshApplierMappingCache(
@@ -374,10 +384,28 @@ namespace Triturbo.BlendShare.NDMF
 
             var failures = new List<string>();
             bool createdOrFoundAll = true;
-            foreach (var pair in GetBlendShareMeshPairsForApplier(applier))
+            var pairs = GetBlendShareMeshPairsForApplier(applier).ToArray();
+            if (pairs.Length == 0)
+            {
+                diagnostic = $"BlendShare mesh applier '{applier.name}' references mesh data that is not present in its owner BlendShare list.";
+                return false;
+            }
+
+            foreach (var pair in pairs)
             {
                 if (HasValidMapping(pair.Share, pair.MeshData, targetMesh))
                 {
+                    continue;
+                }
+
+                if (BlendShareVertexMappingCacheService.TryGetInvalidDiagnostic(
+                        pair.Share,
+                        pair.MeshData,
+                        targetMesh,
+                        out string cachedInvalidDiagnostic))
+                {
+                    createdOrFoundAll = false;
+                    failures.Add($"{pair.Share.name}/{pair.MeshData.m_Path}: {cachedInvalidDiagnostic}");
                     continue;
                 }
 
@@ -385,7 +413,17 @@ namespace Triturbo.BlendShare.NDMF
                 if (mapping == null || !mapping.m_IsValid)
                 {
                     createdOrFoundAll = false;
-                    failures.Add($"{pair.Share.name}/{pair.MeshData.m_Path}: {mapping?.m_InvalidReason ?? "mapping generation failed"}");
+                    string invalidReason = mapping?.m_InvalidReason ?? "mapping generation failed";
+                    failures.Add($"{pair.Share.name}/{pair.MeshData.m_Path}: {invalidReason}");
+                    if (mapping != null)
+                    {
+                        BlendShareVertexMappingCacheService.Store(pair.Share, pair.MeshData, mapping);
+                    }
+                    else
+                    {
+                        BlendShareVertexMappingCacheService.StoreInvalid(pair.Share, pair.MeshData, targetMesh, invalidReason);
+                    }
+
                     DestroyTransientMapping(mapping);
                     continue;
                 }
@@ -396,7 +434,7 @@ namespace Triturbo.BlendShare.NDMF
 
             if (!createdOrFoundAll)
             {
-                diagnostic = $"BlendShare mesh applier '{applier.name}' failed to create mapping cache for '{applier.RendererNodePath}': {string.Join("; ", failures)}";
+                diagnostic = $"BlendShare mesh applier '{applier.name}' failed to create mapping cache: {string.Join("; ", failures)}";
             }
 
             return createdOrFoundAll;
@@ -420,21 +458,15 @@ namespace Triturbo.BlendShare.NDMF
         private static IEnumerable<(BlendShareObject Share, MeshDataObject MeshData)> GetBlendShareMeshPairsForApplier(
             BlendShareMeshComponent applier)
         {
-            if (applier?.Owner == null)
+            if (applier?.Owner == null || applier.MeshData == null)
             {
                 yield break;
             }
 
-            string rendererPath = MeshNodePath.Normalize(applier.RendererNodePath);
-            foreach (var share in applier.Owner.BlendShares ?? Array.Empty<BlendShareObject>())
+            var share = FindBlendShareForMeshData(applier.Owner, applier.MeshData);
+            if (share != null)
             {
-                foreach (var meshData in share?.Meshes ?? Array.Empty<MeshDataObject>())
-                {
-                    if (share != null && meshData != null && MeshNodePath.Normalize(meshData.m_Path) == rendererPath)
-                    {
-                        yield return (share, meshData);
-                    }
-                }
+                yield return (share, applier.MeshData);
             }
         }
 
@@ -659,11 +691,9 @@ namespace Triturbo.BlendShare.NDMF
     {
         private readonly List<string> diagnostics = new();
         private readonly List<BlendShareMeshComponent> meshAppliers = new();
-        private readonly List<BlendShareMeshComponent> staleMeshAppliers = new();
 
         public IReadOnlyList<string> Diagnostics => diagnostics;
         public IReadOnlyList<BlendShareMeshComponent> MeshAppliers => meshAppliers;
-        public IReadOnlyList<BlendShareMeshComponent> StaleMeshAppliers => staleMeshAppliers;
         public bool Success => diagnostics.Count == 0;
 
         internal void AddDiagnostic(string diagnostic)
@@ -679,14 +709,6 @@ namespace Triturbo.BlendShare.NDMF
             if (applier != null && !meshAppliers.Contains(applier))
             {
                 meshAppliers.Add(applier);
-            }
-        }
-
-        internal void AddStaleMeshApplier(BlendShareMeshComponent applier)
-        {
-            if (applier != null && !staleMeshAppliers.Contains(applier))
-            {
-                staleMeshAppliers.Add(applier);
             }
         }
     }

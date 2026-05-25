@@ -74,6 +74,13 @@ namespace Triturbo.BlendShare.Core
             return MeshNodePath.Normalize(meshData.m_Path);
         }
 
+        public static string BuildMeshKey(BlendShareGenerationRequest request)
+        {
+            return !string.IsNullOrWhiteSpace(request?.RendererNodePath)
+                ? MeshNodePath.Normalize(request.RendererNodePath)
+                : BuildMeshKey(request?.MeshData);
+        }
+
         /// <summary>
         /// Formats the target object name for diagnostics.
         /// </summary>
@@ -245,7 +252,9 @@ namespace Triturbo.BlendShare.Core
         public IReadOnlyList<MeshFeatureObject> Features =>
             MeshData != null ? MeshData.Features : System.Array.Empty<MeshFeatureObject>();
         public bool HasUnhandledFeatures => Features.Any(feature => feature != null && !handledFeatures.Contains(feature));
-        public string MeshKey => MeshFeatureGenerationSession.BuildMeshKey(MeshData);
+        public string MeshKey => Request != null
+            ? MeshFeatureGenerationSession.BuildMeshKey(Request)
+            : MeshFeatureGenerationSession.BuildMeshKey(MeshData);
 
         /// <summary>
         /// Creates a Unity mesh generation context.
