@@ -206,6 +206,33 @@ namespace Triturbo.BlendShare.Fbx
             };
         }
 
+        public FbxMatrix4x4 Transpose()
+        {
+            return new FbxMatrix4x4(
+                m00, m10, m20, m30,
+                m01, m11, m21, m31,
+                m02, m12, m22, m32,
+                m03, m13, m23, m33);
+        }
+
+        public Matrix4x4 ToUnityColumnMatrix()
+        {
+            var transposed = Transpose();
+            var result = new Matrix4x4();
+            for (int row = 0; row < 4; row++)
+            {
+                for (int column = 0; column < 4; column++)
+                {
+                    result[row, column] = (float)transposed[row, column];
+                }
+            }
+
+            return result;
+        }
+
+        public static implicit operator Matrix4x4(FbxMatrix4x4 m) => m.ToUnityColumnMatrix();
+
+
         public bool TryInverse(out FbxMatrix4x4 inverse)
         {
             var a = new double[4, 8];
@@ -372,7 +399,6 @@ namespace Triturbo.BlendShare.Fbx
     }
 
     [Serializable]
-    [MovedFrom(true, "Triturbo.Fbx", "Triturbo.FBX")]
     public struct FbxTransform
     {
         public static readonly FbxTransform Identity = new FbxTransform(Vector3d.zero, Vector3d.zero, Vector3d.one);
@@ -395,7 +421,6 @@ namespace Triturbo.BlendShare.Fbx
     }
 
     [Serializable]
-    [MovedFrom(true, "Triturbo.Fbx", "Triturbo.FBX")]
     public struct Quaterniond : IEquatable<Quaterniond>
     {
         public static readonly Quaterniond Identity = new Quaterniond(0d, 0d, 0d, 1d);

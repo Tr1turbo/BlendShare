@@ -63,7 +63,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             }
 
             var mesh = context.WorkingMesh;
-            var boneTable = BuildBoneTable(context, feature, mesh, mapping.FbxToUnityScale, out string boneError);
+            var boneTable = BuildBoneTable(context, feature, mesh, mapping, out string boneError);
             if (boneTable == null)
             {
                 return MeshFeatureGenerationResult.FailedResult(boneError);
@@ -891,7 +891,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             MeshFeatureUnityGenerationContext context,
             SkinWeightFeatureObject feature,
             Mesh mesh,
-            float fbxToUnityScale,
+            UnityVertexMappingObject mapping,
             out string error)
         {
             error = null;
@@ -928,7 +928,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     continue;
                 }
 
-                if (!TryResolveExtraBoneBindPose(context, feature, path, fbxToUnityScale, out var bindPose, out error))
+                if (!TryResolveExtraBoneBindPose(context, feature, path, mapping, out var bindPose, out error))
                 {
                     return null;
                 }
@@ -979,7 +979,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             MeshFeatureUnityGenerationContext context,
             SkinWeightFeatureObject feature,
             string path,
-            float fbxToUnityScale,
+            UnityVertexMappingObject mapping,
             out Matrix4x4 bindPose,
             out string error)
         {
@@ -1003,12 +1003,12 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     return false;
                 }
 
-                bindPose = FbxUnitySkinning.ToUnityMatrix(fbxTransformMatrix * inverseTransformLinkMatrix, fbxToUnityScale);
+                bindPose = mapping.ConvertFbxMatrixToUnity(fbxTransformMatrix * inverseTransformLinkMatrix);
                 error = null;
                 return true;
             }
 
-            if (!TryResolveBoneLocalToWorld(context, feature?.m_BoneGraph, path, fbxToUnityScale, new HashSet<string>(), out var localToWorld, out error))
+            if (!TryResolveBoneLocalToWorld(context, feature?.m_BoneGraph, path, mapping, new HashSet<string>(), out var localToWorld, out error))
             {
                 return false;
             }
@@ -1021,7 +1021,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             MeshFeatureUnityGenerationContext context,
             BoneGraphObject boneGraph,
             string path,
-            float fbxToUnityScale,
+            UnityVertexMappingObject mapping,
             HashSet<string> resolving,
             out Matrix4x4 localToWorld,
             out string error)
@@ -1074,7 +1074,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             }
 
             string parentPath = MeshNodePath.Normalize(graphBone.m_ParentPath);
-            if (!TryResolveBoneLocalToWorld(context, boneGraph, parentPath, fbxToUnityScale, resolving, out var parentLocalToWorld, out error))
+            if (!TryResolveBoneLocalToWorld(context, boneGraph, parentPath, mapping, resolving, out var parentLocalToWorld, out error))
             {
                 resolving.Remove(path);
                 localToWorld = Matrix4x4.identity;
@@ -1082,10 +1082,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             }
 
             resolving.Remove(path);
-            fbxToUnityScale = fbxToUnityScale == 0f ? 1f : fbxToUnityScale;
             var scale = graphBone.m_FbxLocalScale == Vector3.zero ? Vector3.one : graphBone.m_FbxLocalScale;
             localToWorld = parentLocalToWorld * Matrix4x4.TRS(
-                graphBone.m_FbxLocalTranslation * fbxToUnityScale,
+                mapping != null ? mapping.ConvertFbxVectorToUnity(graphBone.m_FbxLocalTranslation) : graphBone.m_FbxLocalTranslation,
                 Quaternion.Euler(graphBone.m_FbxLocalEulerRotation),
                 scale);
             return true;

@@ -5,7 +5,6 @@ using UnityEngine.Scripting.APIUpdating;
 namespace Triturbo.BlendShare.Fbx
 {
     [Serializable]
-    [MovedFrom(true, "Triturbo.Fbx", "Triturbo.FBX")]
     public struct Vector3d : IEquatable<Vector3d>
     {
         public const double Epsilon = 1e-10;

@@ -132,8 +132,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                     }
 
                     var delta = GetDeltaFromGroup(frames[frameIndex], group);
-                    deltaVertices[unityIndex] = new Vector3((float)delta.x, (float)delta.y, (float)delta.z) *
-                                                mapping.FbxToUnityScale;
+                    deltaVertices[unityIndex] = mapping.ConvertFbxVectorToUnity(new Vector3((float)delta.x, (float)delta.y, (float)delta.z));
                 }
 
                 float weight = 100f * (frameIndex + 1) / frames.Length;

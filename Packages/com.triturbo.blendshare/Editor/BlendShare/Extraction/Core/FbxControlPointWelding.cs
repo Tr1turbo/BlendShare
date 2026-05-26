@@ -23,6 +23,7 @@ namespace Triturbo.BlendShare.Core
 
         public int GroupCount => groups.Length;
         public bool HasGroups => groups.Length > 0;
+        public IReadOnlyList<int[]> Groups => groups;
 
         private FbxControlPointWelding(IEnumerable<int[]> groups)
         {
@@ -166,6 +167,68 @@ namespace Triturbo.BlendShare.Core
             }
 
             return true;
+        }
+
+        public FbxIndexGroup[] CreateIndexGroups(int controlPointCount)
+        {
+            var result = new FbxIndexGroup[System.Math.Max(0, controlPointCount)];
+            for (int i = 0; i < result.Length; i++)
+            {
+                result[i] = new FbxIndexGroup { m_Indices = new[] { i } };
+            }
+
+            foreach (var group in groups)
+            {
+                if (group == null || group.Length == 0)
+                {
+                    continue;
+                }
+
+                var normalized = group
+                    .Where(index => index >= 0 && index < result.Length)
+                    .Distinct()
+                    .OrderBy(index => index)
+                    .ToArray();
+                foreach (int index in normalized)
+                {
+                    result[index] = new FbxIndexGroup { m_Indices = normalized };
+                }
+            }
+
+            return result;
+        }
+
+        public int[] CreateControlPointGroupIds(int controlPointCount)
+        {
+            var ids = new int[System.Math.Max(0, controlPointCount)];
+            for (int i = 0; i < ids.Length; i++)
+            {
+                ids[i] = i;
+            }
+
+            foreach (var group in groups)
+            {
+                if (group == null || group.Length == 0)
+                {
+                    continue;
+                }
+
+                int groupId = group.Where(index => index >= 0 && index < ids.Length).DefaultIfEmpty(-1).Min();
+                if (groupId < 0)
+                {
+                    continue;
+                }
+
+                foreach (int index in group)
+                {
+                    if (index >= 0 && index < ids.Length)
+                    {
+                        ids[index] = groupId;
+                    }
+                }
+            }
+
+            return ids;
         }
 
         public bool ApplyAverage(Vector3d[] values)

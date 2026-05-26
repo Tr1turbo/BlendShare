@@ -14,7 +14,7 @@ namespace Triturbo.BlendShare.NDMF
     {
         private const string CacheDirectory = "Library/BlendShare/VertexMappingCache/v1";
         private const string PayloadMagic = "BSMP";
-        private const int CacheVersion = 1;
+        private const int CacheVersion = 2;
 
         public static bool TryGet(
             GameObject sourceFbx,
@@ -98,7 +98,7 @@ namespace Triturbo.BlendShare.NDMF
 
             if (!mapping.m_IsValid)
             {
-                StoreInvalid(sourceFbx, meshData, targetMesh, mapping.m_InvalidReason);
+                StoreInvalid(sourceFbx, meshData, targetMesh, mapping.m_Report);
                 return;
             }
 
@@ -123,6 +123,7 @@ namespace Triturbo.BlendShare.NDMF
                 unityVertexHash = unityVertexHash,
                 unityVertexCount = unityVertexCount,
                 fbxToUnityScale = mapping.FbxToUnityScale,
+                bakeAxisConversion = mapping.m_BakeAxisConversion,
                 indices = mapping.m_Indices ?? Array.Empty<int>(),
                 indexGroups = mapping.m_IndexGroups ?? Array.Empty<FbxIndexGroup>()
             };
@@ -135,7 +136,7 @@ namespace Triturbo.BlendShare.NDMF
                 unityVertexHash = unityVertexHash,
                 unityVertexCount = unityVertexCount,
                 isValid = mapping.m_IsValid,
-                invalidReason = mapping.m_InvalidReason ?? string.Empty
+                invalidReason = mapping.m_Report ?? string.Empty
             });
         }
 
@@ -264,10 +265,11 @@ namespace Triturbo.BlendShare.NDMF
             mapping.m_UnityVertexHash = payload.unityVertexHash ?? string.Empty;
             mapping.m_UnityVertexCount = payload.unityVertexCount;
             mapping.m_FbxToUnityScale = payload.fbxToUnityScale == 0f ? 1f : payload.fbxToUnityScale;
+            mapping.m_BakeAxisConversion = payload.bakeAxisConversion;
             mapping.m_Indices = payload.indices ?? Array.Empty<int>();
             mapping.m_IndexGroups = payload.indexGroups ?? Array.Empty<FbxIndexGroup>();
             mapping.m_IsValid = true;
-            mapping.m_InvalidReason = string.Empty;
+            mapping.m_Report = "Cached mapping valid.";
             mapping.hideFlags = HideFlags.HideAndDontSave;
             return mapping;
         }
@@ -416,6 +418,7 @@ namespace Triturbo.BlendShare.NDMF
                     unityVertexHash = reader.ReadString(),
                     unityVertexCount = reader.ReadInt32(),
                     fbxToUnityScale = reader.ReadSingle(),
+                    bakeAxisConversion = reader.ReadBoolean(),
                     indices = ReadIntArray(reader),
                     indexGroups = ReadIndexGroups(reader)
                 };
@@ -448,6 +451,7 @@ namespace Triturbo.BlendShare.NDMF
                 writer.Write(payload.unityVertexHash ?? string.Empty);
                 writer.Write(payload.unityVertexCount);
                 writer.Write(payload.fbxToUnityScale == 0f ? 1f : payload.fbxToUnityScale);
+                writer.Write(payload.bakeAxisConversion);
                 WriteIntArray(writer, payload.indices ?? Array.Empty<int>());
                 WriteIndexGroups(writer, payload.indexGroups ?? Array.Empty<FbxIndexGroup>());
             }
@@ -649,6 +653,7 @@ namespace Triturbo.BlendShare.NDMF
             public string unityVertexHash;
             public int unityVertexCount;
             public float fbxToUnityScale = 1f;
+            public bool bakeAxisConversion;
             public int[] indices = Array.Empty<int>();
             public FbxIndexGroup[] indexGroups = Array.Empty<FbxIndexGroup>();
         }

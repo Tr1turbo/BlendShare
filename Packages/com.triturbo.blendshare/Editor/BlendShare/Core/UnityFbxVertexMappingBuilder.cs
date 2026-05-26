@@ -17,7 +17,7 @@ namespace Triturbo.BlendShare.Core
     public static class UnityFbxVertexMappingBuilder
     {
         private const float FingerprintEpsilon = 1e-6f;
-        private const double MaxAverageMappedBaseOffset = 1e-4d;
+        private const double MaxAverageMappedBaseOffset = 0.02d;
         private const double MaxAverageMappedBaseSqrOffset = MaxAverageMappedBaseOffset * MaxAverageMappedBaseOffset;
         private const int ParallelMatchThreshold = 1024;
         private const string LogPrefix = "[BlendShare Vertex Mapping]";
@@ -54,6 +54,8 @@ namespace Triturbo.BlendShare.Core
                     unityMesh,
                     scene,
                     FbxUnityAssetReader.GetImportScale(fbxGo),
+                    FbxUnityAssetReader.GetBakeAxisConversion(fbxGo),
+                    FbxUnityAssetReader.GetImporterSpaceTransform(fbxGo),
                     out fbxMesh);
             }
             finally
@@ -67,6 +69,25 @@ namespace Triturbo.BlendShare.Core
             Mesh unityMesh,
             UfbxScene fbxScene,
             float importScale,
+            out UfbxMesh fbxMesh)
+        {
+            return BuildFromFbx(
+                unityRendererPath,
+                unityMesh,
+                fbxScene,
+                importScale,
+                false,
+                Matrix4x4.Scale(Vector3.one * (importScale == 0f ? 1f : importScale)),
+                out fbxMesh);
+        }
+
+        public static UnityVertexMappingObject BuildFromFbx(
+            string unityRendererPath,
+            Mesh unityMesh,
+            UfbxScene fbxScene,
+            float importScale,
+            bool bakeAxisConversion,
+            Matrix4x4 fbxToUnity,
             out UfbxMesh fbxMesh)
         {
             var stopwatch = Stopwatch.StartNew();
@@ -83,51 +104,48 @@ namespace Triturbo.BlendShare.Core
             mapping.m_UnityVertexCount = unityMesh != null ? unityMesh.vertexCount : 0;
             mapping.m_UnityVertexHash = UnityVertexPositionHash.Calculate(unityMesh);
             mapping.m_FbxToUnityScale = importScale == 0f ? 1f : importScale;
+            mapping.m_BakeAxisConversion = bakeAxisConversion;
             mapping.m_IndexGroups = CreateEmptyGroups(Mathf.Max(0, mapping.m_UnityVertexCount));
+            InitializeReport(mapping);
             LogTiming("FbxAsset", nodePath, "Create mapping object", stopwatch, ref lastLogMs,
                 $"unityVertices={mapping.m_IndexGroups.Length}");
 
             if (unityMesh == null)
             {
-                mapping.m_IsValid = false;
-                mapping.m_InvalidReason = "FBX asset mapping requires a Unity mesh asset.";
-                LogCompletion("FbxAsset", nodePath, stopwatch, mapping.m_IsValid, mapping.m_InvalidReason);
+                SetMappingStatus(mapping, false, "FBX asset mapping requires a Unity mesh asset.");
+                LogCompletion("FbxAsset", nodePath, stopwatch, mapping);
                 return mapping;
             }
 
             if (fbxScene == null)
             {
-                mapping.m_IsValid = false;
-                mapping.m_InvalidReason = "FBX asset mapping requires an open ufbx scene.";
-                LogCompletion("FbxAsset", nodePath, stopwatch, mapping.m_IsValid, mapping.m_InvalidReason);
+                SetMappingStatus(mapping, false, "FBX asset mapping requires an open ufbx scene.");
+                LogCompletion("FbxAsset", nodePath, stopwatch, mapping);
                 return mapping;
             }
 
             if (fbxMesh == null || fbxMesh.ControlPointCount == 0)
             {
-                mapping.m_IsValid = false;
-                mapping.m_InvalidReason = "FBX asset mapping could not read matching FBX control point positions.";
-                LogCompletion("FbxAsset", nodePath, stopwatch, mapping.m_IsValid, mapping.m_InvalidReason);
+                SetMappingStatus(mapping, false, "FBX asset mapping could not read matching FBX control point positions.");
+                LogCompletion("FbxAsset", nodePath, stopwatch, mapping);
                 return mapping;
             }
 
             if (mapping.m_UnityVertexCount <= 0)
             {
-                mapping.m_IsValid = false;
-                mapping.m_InvalidReason = "FBX asset mapping requires a Unity mesh with vertices.";
-                LogCompletion("FbxAsset", nodePath, stopwatch, mapping.m_IsValid, mapping.m_InvalidReason);
+                SetMappingStatus(mapping, false, "FBX asset mapping requires a Unity mesh with vertices.");
+                LogCompletion("FbxAsset", nodePath, stopwatch, mapping);
                 return mapping;
             }
 
-            var pair = PositionFingerprintFactory.CreatePair(fbxMesh, unityMesh, mapping.m_FbxToUnityScale);
+            var pair = PositionFingerprintFactory.CreatePair(fbxMesh, unityMesh, fbxToUnity);
             LogTiming("FbxAsset", nodePath, "CreatePair", stopwatch, ref lastLogMs,
                 $"usableBlendShapes={pair.BlendShapeNames?.Length ?? 0}");
 
             if (!pair.IsValid)
             {
-                mapping.m_IsValid = false;
-                mapping.m_InvalidReason = "FBX asset mapping requires matching FBX and Unity mesh blendshapes, or no usable blendshapes on either mesh for position-only matching.";
-                LogCompletion("FbxAsset", nodePath, stopwatch, mapping.m_IsValid, mapping.m_InvalidReason);
+                SetMappingStatus(mapping, false, "FBX asset mapping requires matching FBX and Unity mesh blendshapes, or no usable blendshapes on either mesh for position-only matching.");
+                LogCompletion("FbxAsset", nodePath, stopwatch, mapping);
                 return mapping;
             }
 
@@ -145,9 +163,8 @@ namespace Triturbo.BlendShare.Core
 
             if (unresolved != 0)
             {
-                mapping.m_IsValid = false;
-                mapping.m_InvalidReason = $"FBX asset mapping has {unresolved} Unity vertices without matching FBX control point positions.";
-                LogCompletion("FbxAsset", nodePath, stopwatch, mapping.m_IsValid, mapping.m_InvalidReason);
+                SetMappingStatus(mapping, false, $"FBX asset mapping has {unresolved} Unity vertices without matching FBX control point positions.");
+                LogCompletion("FbxAsset", nodePath, stopwatch, mapping);
                 return mapping;
             }
 
@@ -158,12 +175,13 @@ namespace Triturbo.BlendShare.Core
             LogTiming("FbxAsset", nodePath, "Validate mapped base position offsets", stopwatch, ref lastLogMs,
                 $"averageSqrOffset={averageBaseSqrOffset:0.##########}, rmsOffset={System.Math.Sqrt(averageBaseSqrOffset):0.##########}");
 
-            mapping.m_IsValid = averageBaseSqrOffset <= MaxAverageMappedBaseSqrOffset;
-            mapping.m_InvalidReason = mapping.m_IsValid
+            bool isValid = averageBaseSqrOffset <= MaxAverageMappedBaseSqrOffset;
+            string summary = isValid
                 ? string.Empty
                 : $"FBX asset mapping average vertex offset is too large. Average squared offset: {averageBaseSqrOffset:0.##########}, RMS offset: {System.Math.Sqrt(averageBaseSqrOffset):0.##########}.";
+            SetMappingStatus(mapping, isValid, summary);
 
-            LogCompletion("FbxAsset", nodePath, stopwatch, mapping.m_IsValid, mapping.m_InvalidReason);
+            LogCompletion("FbxAsset", nodePath, stopwatch, mapping);
             return mapping;
         }
 
@@ -303,6 +321,41 @@ namespace Triturbo.BlendShare.Core
             return count > 0 ? total / count : double.PositiveInfinity;
         }
 
+        private static float CalculateMaxMappedBaseOffset(
+            IReadOnlyList<FbxIndexGroup> mappingGroups,
+            IReadOnlyList<PositionFingerprint> unityFingerprints,
+            IReadOnlyList<PositionFingerprint> fbxFingerprints)
+        {
+            if (mappingGroups == null || unityFingerprints == null || fbxFingerprints == null ||
+                mappingGroups.Count != unityFingerprints.Count)
+            {
+                return float.PositiveInfinity;
+            }
+
+            float max = 0f;
+            for (int unityIndex = 0; unityIndex < unityFingerprints.Count; unityIndex++)
+            {
+                var indices = mappingGroups[unityIndex].m_Indices;
+                if (indices == null)
+                {
+                    return float.PositiveInfinity;
+                }
+
+                for (int i = 0; i < indices.Length; i++)
+                {
+                    int fbxIndex = indices[i];
+                    if (fbxIndex < 0 || fbxIndex >= fbxFingerprints.Count || fbxFingerprints[fbxIndex] == null)
+                    {
+                        return float.PositiveInfinity;
+                    }
+
+                    max = Mathf.Max(max, (unityFingerprints[unityIndex].BasePosition - fbxFingerprints[fbxIndex].BasePosition).magnitude);
+                }
+            }
+
+            return max;
+        }
+
         // ─── Helpers ───────────────────────────────────────────────────────────────
 
         private static FbxIndexGroup[] CreateEmptyGroups(int count)
@@ -318,6 +371,17 @@ namespace Triturbo.BlendShare.Core
         private static int CountBlendShapeChannels(UfbxMesh mesh)
         {
             return mesh?.BlendDeformers.Sum(deformer => deformer.Channels.Count) ?? 0;
+        }
+
+        private static void InitializeReport(UnityVertexMappingObject mapping)
+        {
+            mapping.m_Report = string.Empty;
+        }
+
+        private static void SetMappingStatus(UnityVertexMappingObject mapping, bool isValid, string summary)
+        {
+            mapping.m_IsValid = isValid;
+            mapping.m_Report = summary ?? string.Empty;
         }
 
         // ─── Logging ───────────────────────────────────────────────────────────────
@@ -341,10 +405,11 @@ namespace Triturbo.BlendShare.Core
             string buildMode,
             string unityRendererPath,
             Stopwatch stopwatch,
-            bool isValid,
-            string invalidReason)
+            UnityVertexMappingObject mapping)
         {
-            string status = isValid ? "valid" : $"invalid: {invalidReason}";
+            string status = mapping != null && mapping.m_IsValid
+                ? "valid"
+                : $"invalid: {mapping?.m_Report}";
             Debug.Log(
                 $"{LogPrefix} {buildMode} '{FormatLogTarget(unityRendererPath)}': Finished in {stopwatch.Elapsed.TotalMilliseconds:0.###} ms ({status})");
         }

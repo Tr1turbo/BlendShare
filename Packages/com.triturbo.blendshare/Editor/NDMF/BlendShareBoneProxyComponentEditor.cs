@@ -141,7 +141,7 @@ namespace Triturbo.BlendShare.NDMF
                     continue;
                 }
 
-                float fbxToUnityScale = GetFbxToUnityScale(meshApplier);
+                var mapping = GetFbxToUnityMapping(meshApplier);
                 foreach (var binding in meshApplier.BoneProxyBindings)
                 {
                     if (binding?.Proxy != proxy || binding.BoneGraph == null)
@@ -156,7 +156,7 @@ namespace Triturbo.BlendShare.NDMF
                     }
 
                     matches.Add((
-                        bone.m_FbxLocalTranslation * fbxToUnityScale,
+                        mapping != null ? mapping.ConvertFbxVectorToUnity(bone.m_FbxLocalTranslation) : bone.m_FbxLocalTranslation,
                         bone.m_FbxLocalEulerRotation,
                         bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale));
                 }
@@ -186,7 +186,7 @@ namespace Triturbo.BlendShare.NDMF
             return true;
         }
 
-        private static float GetFbxToUnityScale(BlendShareMeshComponent meshApplier)
+        private static UnityVertexMappingObject GetFbxToUnityMapping(BlendShareMeshComponent meshApplier)
         {
             var meshData = meshApplier?.MeshData;
             var targetMesh = meshApplier?.TargetRenderer != null ? meshApplier.TargetRenderer.sharedMesh : null;
@@ -203,7 +203,7 @@ namespace Triturbo.BlendShare.NDMF
                     out mapping);
             }
 
-            return mapping != null ? mapping.FbxToUnityScale : 1f;
+            return mapping;
         }
 
         private static BlendShareObject FindBlendShareForMeshData(BlendShareComponent owner, MeshDataObject meshData)

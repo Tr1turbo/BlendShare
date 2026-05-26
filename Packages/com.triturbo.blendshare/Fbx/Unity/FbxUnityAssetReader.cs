@@ -51,5 +51,30 @@ namespace Triturbo.BlendShare.Fbx.Unity
         {
             return FbxGo != null ? GetImportScale(AssetDatabase.GetAssetPath(FbxGo)) : 1f;
         }
+
+        public static bool GetBakeAxisConversion(string assetPath)
+        {
+            var importer = AssetImporter.GetAtPath(assetPath) as ModelImporter;
+            return importer != null && importer.bakeAxisConversion;
+        }
+
+        public static bool GetBakeAxisConversion(GameObject FbxGo)
+        {
+            return FbxGo != null && GetBakeAxisConversion(AssetDatabase.GetAssetPath(FbxGo));
+        }
+
+        public static Matrix4x4 GetImporterSpaceTransform(string assetPath)
+        {
+            float scale = GetImportScale(assetPath);
+            bool bakeAxisConversion = GetBakeAxisConversion(assetPath);
+            return bakeAxisConversion
+                ? Matrix4x4.Scale(new Vector3(scale, scale, -scale))
+                : Matrix4x4.Scale(new Vector3(-scale, scale, scale));
+        }
+
+        public static Matrix4x4 GetImporterSpaceTransform(GameObject FbxGo)
+        {
+            return FbxGo != null ? GetImporterSpaceTransform(AssetDatabase.GetAssetPath(FbxGo)) : Matrix4x4.identity;
+        }
     }
 }

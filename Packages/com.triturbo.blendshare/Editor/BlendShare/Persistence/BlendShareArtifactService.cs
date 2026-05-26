@@ -952,22 +952,21 @@ namespace Triturbo.BlendShare.Persistence
                     .Select(meshData => new
                     {
                         Feature = meshData.GetFeature<SkinWeightFeatureObject>(),
-                        Scale = GetFbxToUnityScale(meshData)
+                        Mapping = GetFbxToUnityMapping(meshData)
                     }))
                 .Where(item => item.Feature?.m_BoneGraph != null)
                 .SelectMany(item => (item.Feature.m_BoneGraph.Bones ?? Array.Empty<BoneNodeData>())
                     .Where(bone => bone != null)
-                    .Select(bone => new { Bone = bone, item.Scale }))
+                    .Select(bone => new { Bone = bone, item.Mapping }))
                 .GroupBy(item => MeshNodePath.Normalize(item.Bone.m_Path))
                 .Select(group =>
                 {
                     var item = group.First();
                     var bone = item.Bone;
-                    float scale = item.Scale == 0f ? 1f : item.Scale;
                     return new BoneNodeData(
                         bone.m_Path,
                         bone.m_ParentPath,
-                        bone.m_FbxLocalTranslation * scale,
+                        item.Mapping != null ? item.Mapping.ConvertFbxVectorToUnity(bone.m_FbxLocalTranslation) : bone.m_FbxLocalTranslation,
                         bone.m_FbxLocalEulerRotation,
                         bone.m_FbxLocalScale,
                         bone.m_CreateIfMissing);
@@ -990,12 +989,12 @@ namespace Triturbo.BlendShare.Persistence
                 {
                     Request = request,
                     Feature = request.MeshData.GetFeature<SkinWeightFeatureObject>(),
-                    Scale = GetFbxToUnityScale(request)
+                    Mapping = GetFbxToUnityMapping(request)
                 })
                 .Where(item => item.Feature?.m_BoneGraph != null)
                 .SelectMany(item => (item.Feature.m_BoneGraph.Bones ?? Array.Empty<BoneNodeData>())
                     .Where(bone => bone != null)
-                    .Select(bone => new { item.Request, Bone = bone, item.Scale }))
+                    .Select(bone => new { item.Request, Bone = bone, item.Mapping }))
                 .GroupBy(item =>
                 {
                     string sourceBonePath = MeshNodePath.Normalize(item.Bone.m_Path);
@@ -1019,11 +1018,10 @@ namespace Triturbo.BlendShare.Persistence
                             true);
                     }
 
-                    float scale = item.Scale == 0f ? 1f : item.Scale;
                     return new BoneNodeData(
                         bone.m_Path,
                         bone.m_ParentPath,
-                        bone.m_FbxLocalTranslation * scale,
+                        item.Mapping != null ? item.Mapping.ConvertFbxVectorToUnity(bone.m_FbxLocalTranslation) : bone.m_FbxLocalTranslation,
                         bone.m_FbxLocalEulerRotation,
                         bone.m_FbxLocalScale,
                         bone.m_CreateIfMissing);
@@ -1031,17 +1029,17 @@ namespace Triturbo.BlendShare.Persistence
             return artifact;
         }
 
-        private static float GetFbxToUnityScale(MeshDataObject meshData)
+        private static UnityVertexMappingObject GetFbxToUnityMapping(MeshDataObject meshData)
         {
             var mapping = (meshData?.m_Mappings ?? Array.Empty<UnityVertexMappingObject>())
                 .FirstOrDefault(candidate => candidate != null && candidate.m_IsValid);
-            return mapping != null ? mapping.FbxToUnityScale : 1f;
+            return mapping;
         }
 
-        private static float GetFbxToUnityScale(BlendShareGenerationRequest request)
+        private static UnityVertexMappingObject GetFbxToUnityMapping(BlendShareGenerationRequest request)
         {
             var mapping = request?.GetMappingFor(request.TargetRenderer != null ? request.TargetRenderer.sharedMesh : null);
-            return mapping != null ? mapping.FbxToUnityScale : GetFbxToUnityScale(request?.MeshData);
+            return mapping != null ? mapping : GetFbxToUnityMapping(request?.MeshData);
         }
 
         private static BlendShareSkinBindingDescriptor BuildSkinBinding(GameObject root, string rendererPath)

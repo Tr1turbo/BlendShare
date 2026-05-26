@@ -46,7 +46,7 @@ namespace Triturbo.BlendShare.Core
         /// Blendshape sequences are paired by index order (FBX asset path).
         /// Returns an empty/invalid pair when either mesh is null or no shared blendshapes exist.
         /// </summary>
-        public static FingerprintPair CreatePair(UfbxMesh fbxMesh, Mesh unityMesh, float importScale = 1f)
+        public static FingerprintPair CreatePair(UfbxMesh fbxMesh, Mesh unityMesh, Matrix4x4 fbxToUnity)
         {
             var fbxBlendShapes = BuildFbxBlendShapeSequence(
                 fbxMesh,
@@ -70,7 +70,7 @@ namespace Triturbo.BlendShare.Core
             }
 
             return new FingerprintPair(
-                CreateFromFbx(fbxMesh, fbxPaired, importScale),
+                CreateFromFbx(fbxMesh, fbxPaired, fbxToUnity),
                 CreateFromUnity(unityMesh, unityPaired),
                 pairedNames);
         }
@@ -79,7 +79,7 @@ namespace Triturbo.BlendShare.Core
         public static PositionFingerprint[] CreateFromFbx(
             UfbxMesh mesh,
             FbxBlendShapeData[] blendShapes,
-            float importScale = 1f)
+            Matrix4x4 fbxToUnity)
         {
             if (mesh == null)
             {
@@ -89,7 +89,7 @@ namespace Triturbo.BlendShare.Core
             return CreateFromFbxPositions(
                 mesh.GetVertices(),
                 blendShapes,
-                importScale);
+                fbxToUnity);
         }
 
         public static PositionFingerprint[] CreateFromUnity(
@@ -325,14 +325,14 @@ namespace Triturbo.BlendShare.Core
         private static PositionFingerprint[] CreateFromFbxPositions(
             IReadOnlyList<Vector3d> basePositions,
             FbxBlendShapeData[] blendShapes,
-            float importScale)
+            Matrix4x4 fbxToUnity)
         {
             int controlPointCount = basePositions?.Count ?? 0;
             var fingerprints = CreateFingerprints(
                 controlPointCount,
                 CountSamplesFromFbx(blendShapes),
                 basePositions,
-                importScale);
+                fbxToUnity);
 
             int sampleIndex = 0;
             foreach (var blendShape in blendShapes ?? System.Array.Empty<FbxBlendShapeData>())
@@ -350,7 +350,7 @@ namespace Triturbo.BlendShare.Core
                     {
                         fingerprints[fbxIndex].SetRelativeSample(
                             currentSampleIndex,
-                            ToVector3(frame?.GetDeltaControlPointAt(fbxIndex) ?? Vector3d.zero) * importScale);
+                            fbxToUnity.MultiplyVector(ToVector3(frame?.GetDeltaControlPointAt(fbxIndex) ?? Vector3d.zero)));
                     });
                 }
                 else
@@ -359,7 +359,7 @@ namespace Triturbo.BlendShare.Core
                     {
                         fingerprints[fbxIndex].SetRelativeSample(
                             currentSampleIndex,
-                            ToVector3(frame?.GetDeltaControlPointAt(fbxIndex) ?? Vector3d.zero) * importScale);
+                            fbxToUnity.MultiplyVector(ToVector3(frame?.GetDeltaControlPointAt(fbxIndex) ?? Vector3d.zero)));
                     }
                 }
             }
@@ -371,7 +371,7 @@ namespace Triturbo.BlendShare.Core
             int vertexCount,
             int sampleCount,
             IReadOnlyList<Vector3d> basePositions,
-            float basePositionScale)
+            Matrix4x4 fbxToUnity)
         {
             int count = System.Math.Max(0, vertexCount);
             var fingerprints = new PositionFingerprint[count];
@@ -381,7 +381,7 @@ namespace Triturbo.BlendShare.Core
                 Parallel.For(0, count, i =>
                 {
                     Vector3 basePosition = basePositions != null && i < basePositions.Count
-                        ? ToVector3(basePositions[i]) * basePositionScale
+                        ? fbxToUnity.MultiplyPoint3x4(ToVector3(basePositions[i]))
                         : Vector3.zero;
                     fingerprints[i] = new PositionFingerprint(basePosition, new Vector3[sampleCount]);
                 });
@@ -391,7 +391,7 @@ namespace Triturbo.BlendShare.Core
                 for (int i = 0; i < count; i++)
                 {
                     Vector3 basePosition = basePositions != null && i < basePositions.Count
-                        ? ToVector3(basePositions[i]) * basePositionScale
+                        ? fbxToUnity.MultiplyPoint3x4(ToVector3(basePositions[i]))
                         : Vector3.zero;
                     fingerprints[i] = new PositionFingerprint(basePosition, new Vector3[sampleCount]);
                 }

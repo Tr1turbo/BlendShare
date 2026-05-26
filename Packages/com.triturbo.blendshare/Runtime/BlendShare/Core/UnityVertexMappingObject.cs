@@ -1,7 +1,5 @@
 using System.Linq;
 using UnityEngine;
-using UnityEngine.Scripting.APIUpdating;
-
 
 namespace Triturbo.BlendShare.Core
 {
@@ -9,7 +7,6 @@ namespace Triturbo.BlendShare.Core
     /// Stores the FBX control-point indices that correspond to one Unity vertex.
     /// </summary>
     [System.Serializable]
-    [MovedFrom(true, "Triturbo.BlendShapeShare.BlendShapeData", "Triturbo.BlendShapeShare.Data.Editor")]
     public struct FbxIndexGroup
     {
         public int[] m_Indices;
@@ -18,7 +15,6 @@ namespace Triturbo.BlendShare.Core
     /// <summary>
     /// ScriptableObject mapping from Unity mesh vertices back to FBX control-point indices.
     /// </summary>
-    [MovedFrom(true, "Triturbo.BlendShapeShare.BlendShapeData", "Triturbo.BlendShapeShare.Data.Editor")]
     public class UnityVertexMappingObject : ScriptableObject
     {
         public string m_UnityVertexHash;
@@ -26,13 +22,19 @@ namespace Triturbo.BlendShare.Core
         public Mesh m_UnityMesh;
         public int m_UnityVertexCount;
 
+        //Import Settings
         public float m_FbxToUnityScale = 1f;
+        public bool m_BakeAxisConversion;
+
         public int[] m_Indices;
         public FbxIndexGroup[] m_IndexGroups;
 
         public bool m_IsValid;
-        public string m_InvalidReason;
+        public string m_Report;
         public float FbxToUnityScale => m_FbxToUnityScale == 0f ? 1f : m_FbxToUnityScale;
+        public Matrix4x4 FbxToUnityMatrix => Matrix4x4.Scale(m_BakeAxisConversion
+            ? new Vector3(FbxToUnityScale, FbxToUnityScale, -FbxToUnityScale)
+            : new Vector3(-FbxToUnityScale, FbxToUnityScale, FbxToUnityScale));
         public string UnityVerticesHashShort
         {
             get
@@ -70,16 +72,28 @@ namespace Triturbo.BlendShare.Core
                 return group.m_Indices != null && group.m_Indices.Length > 0 && group.m_Indices[0] >= 0;
             }
 
-            // Legacy on-the-fly fallback (read-only)
-            if (m_Indices != null && unityVertexIndex >= 0 && unityVertexIndex < m_Indices.Length)
-            {
-                int idx = m_Indices[unityVertexIndex];
-                if (idx < 0) return false;
-                group = new FbxIndexGroup { m_Indices = new[] { idx } };
-                return true;
-            }
-
             return false;
+        }
+
+        public Vector3 ConvertFbxPointToUnity(Vector3 fbxPoint)
+        {
+            return FbxToUnityMatrix.MultiplyPoint3x4(fbxPoint);
+        }
+
+        public Vector3 ConvertFbxVectorToUnity(Vector3 fbxVector)
+        {
+            return FbxToUnityMatrix.MultiplyVector(fbxVector);
+        }
+
+        public Vector3 ConvertFbxDirectionToUnity(Vector3 fbxDirection)
+        {
+            return FbxToUnityMatrix.MultiplyVector(fbxDirection).normalized;
+        }
+
+        public Matrix4x4 ConvertFbxMatrixToUnity(Matrix4x4 fbxMatrix)
+        {
+            var fbxToUnity = FbxToUnityMatrix;
+            return fbxToUnity * fbxMatrix * fbxToUnity.inverse;
         }
 
         public bool IsValidFor(Mesh targetMesh)

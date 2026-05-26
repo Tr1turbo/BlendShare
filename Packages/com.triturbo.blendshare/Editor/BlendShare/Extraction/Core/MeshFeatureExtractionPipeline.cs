@@ -126,6 +126,8 @@ namespace Triturbo.BlendShare.Core
                 originMesh,
                 context.Session.OriginScene,
                 FbxUnityAssetReader.GetImportScale(context.Session.OriginFbxGo),
+                FbxUnityAssetReader.GetBakeAxisConversion(context.Session.OriginFbxGo),
+                FbxUnityAssetReader.GetImporterSpaceTransform(context.Session.OriginFbxGo),
                 out _);
 
             return mapping != null

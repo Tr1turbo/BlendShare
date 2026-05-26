@@ -121,7 +121,7 @@ namespace Triturbo.BlendShare.NDMF
                         continue;
                     }
 
-                    float fbxToUnityScale = GetFbxToUnityScale(meshApplier, meshData);
+                    var mapping = GetFbxToUnityMapping(meshApplier, meshData);
 
                     foreach (string bonePath in GetNeededBonePathsInGraphOrder(skin))
                     {
@@ -139,7 +139,9 @@ namespace Triturbo.BlendShare.NDMF
 
                         var parent = ResolveProxyParent(bone, skin.m_BoneGraph, targetRoot, transformsByPath, proxiesByBonePath);
                         var localScale = bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale;
-                        var localPosition = bone.m_FbxLocalTranslation * fbxToUnityScale;
+                        var localPosition = mapping != null
+                            ? mapping.ConvertFbxVectorToUnity(bone.m_FbxLocalTranslation)
+                            : bone.m_FbxLocalTranslation;
                         string key = BuildProxyKey(parent, localPosition, bone.m_FbxLocalEulerRotation, localScale);
                         string desiredName = MeshNodePath.LeafName(bonePath);
                         bool createdProxy = false;
@@ -211,7 +213,7 @@ namespace Triturbo.BlendShare.NDMF
             return owner.TargetRoot != null ? owner.TargetRoot : owner.transform;
         }
 
-        private static float GetFbxToUnityScale(BlendShareMeshComponent meshApplier, MeshDataObject meshData)
+        private static UnityVertexMappingObject GetFbxToUnityMapping(BlendShareMeshComponent meshApplier, MeshDataObject meshData)
         {
             var targetMesh = meshApplier?.TargetRenderer != null ? meshApplier.TargetRenderer.sharedMesh : null;
             var mapping = targetMesh != null
@@ -229,7 +231,7 @@ namespace Triturbo.BlendShare.NDMF
                     out mapping);
             }
 
-            return mapping != null ? mapping.FbxToUnityScale : 1f;
+            return mapping;
         }
 
         private static IEnumerable<MeshDataObject> GetMeshDataForApplier(BlendShareMeshComponent meshApplier)
@@ -416,7 +418,7 @@ namespace Triturbo.BlendShare.NDMF
                 if (mapping == null || !mapping.m_IsValid)
                 {
                     createdOrFoundAll = false;
-                    string invalidReason = mapping?.m_InvalidReason ?? "mapping generation failed";
+                    string invalidReason = mapping?.m_Report ?? "mapping generation failed";
                     failures.Add($"{pair.Share.name}/{pair.MeshData.m_Path}: {invalidReason}");
                     if (mapping != null)
                     {

@@ -73,12 +73,14 @@ namespace Triturbo.BlendShare.Migration
             try
             {
                 float importScale = FbxUnityAssetReader.GetImportScale(legacyAsset.m_Original);
+                bool bakeAxisConversion = FbxUnityAssetReader.GetBakeAxisConversion(legacyAsset.m_Original);
+                Matrix4x4 importerSpaceTransform = FbxUnityAssetReader.GetImporterSpaceTransform(legacyAsset.m_Original);
                 var meshes = new List<MeshDataObject>();
                 foreach (var legacyMesh in legacyMeshes)
                 {
                     meshPaths.TryGetValue(legacyMesh, out string meshPath);
 
-                    var mesh = ConvertMesh(legacyMesh, meshPath, originalScene, importScale);
+                    var mesh = ConvertMesh(legacyMesh, meshPath, originalScene, importScale, bakeAxisConversion, importerSpaceTransform);
                     if (mesh != null)
                     {
                         meshes.Add(mesh);
@@ -98,7 +100,9 @@ namespace Triturbo.BlendShare.Migration
             MeshData legacyMesh,
             string meshPath,
             UfbxScene originalScene,
-            float importScale)
+            float importScale,
+            bool bakeAxisConversion,
+            Matrix4x4 importerSpaceTransform)
         {
             if (legacyMesh == null)
             {
@@ -136,6 +140,8 @@ namespace Triturbo.BlendShare.Migration
                 legacyMesh.m_OriginMesh,
                 originalScene,
                 importScale,
+                bakeAxisConversion,
+                importerSpaceTransform,
                 out UfbxMesh fbxMesh);
 
             if (fbxMesh != null && fbxMesh.ControlPointCount > 0)

@@ -159,9 +159,9 @@ namespace Triturbo.BlendShare.Inspector
                 EditorGUILayout.ObjectField("Unity Mesh", mapping.m_UnityMesh, typeof(Mesh), false);
                 EditorGUILayout.LabelField("Unity Vertices", mapping.m_UnityVertexCount.ToString());
                 EditorGUILayout.LabelField("Mapping Valid", mapping.m_IsValid.ToString());
-                if (!mapping.m_IsValid && !string.IsNullOrEmpty(mapping.m_InvalidReason))
+                if (!mapping.m_IsValid && !string.IsNullOrEmpty(mapping.m_Report))
                 {
-                    EditorGUILayout.HelpBox(mapping.m_InvalidReason, MessageType.Warning);
+                    EditorGUILayout.HelpBox(mapping.m_Report, MessageType.Warning);
                 }
             }
             EditorGUI.indentLevel--;
@@ -446,7 +446,7 @@ namespace Triturbo.BlendShare.Inspector
                 var mapping = UnityFbxVertexMappingBuilder.BuildFromFbx(mesh.m_Path, targetMesh, blendShare.m_Original);
                 if (mapping == null || !mapping.m_IsValid)
                 {
-                    failures.Add($"{mesh.m_Path}: {mapping?.m_InvalidReason ?? "mapping generation failed"}");
+                    failures.Add($"{mesh.m_Path}: {mapping?.m_Report ?? "mapping generation failed"}");
                     continue;
                 }
 
