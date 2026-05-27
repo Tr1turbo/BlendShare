@@ -1,0 +1,213 @@
+name: Build UFBX Native Library
+
+on:
+  workflow_dispatch:
+  # Rebuild native plugins whenever the bridge or vendored ufbx source changes.
+  push:
+    paths:
+      - ".github/workflows/build-ufbx-native.yml"
+      - "Packages/com.triturbo.blendshare/Native/BlendShareUfbx/**"
+      - "Packages/com.triturbo.blendshare/ThirdParty~/ufbx/**"
+
+permissions:
+  # Required for the follow-up job that commits generated plugin binaries.
+  contents: write
+
+concurrency:
+  group: build-ufbx-native-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PACKAGE_PATH: Packages/com.triturbo.blendshare
+  LIBRARY_NAME: BlendShareUfbx
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            os: windows-latest
+            artifact_path: Packages/com.triturbo.blendshare/Plugins/BlendShareUfbx.dll
+          - platform: macos
+            os: macos-latest
+            artifact_path: Packages/com.triturbo.blendshare/Plugins/BlendShareUfbx.bundle
+          - platform: linux
+            os: ubuntu-latest
+            artifact_path: Packages/com.triturbo.blendshare/Plugins/BlendShareUfbx.so
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC
+        if: matrix.platform == 'windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build Windows DLL
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $sourceDir = Join-Path $env:GITHUB_WORKSPACE "$env:PACKAGE_PATH/Native/BlendShareUfbx"
+          $ufbxDir = Join-Path $env:GITHUB_WORKSPACE "$env:PACKAGE_PATH/ThirdParty~/ufbx"
+          $outDir = Join-Path $env:GITHUB_WORKSPACE "$env:PACKAGE_PATH/Plugins"
+          $objDir = Join-Path $env:RUNNER_TEMP "ufbx-obj"
+          $libraryName = $env:LIBRARY_NAME
+          $outFile = Join-Path $outDir "$libraryName.dll"
+          $importLib = Join-Path $objDir "$libraryName.lib"
+
+          New-Item -ItemType Directory -Force -Path $outDir, $objDir | Out-Null
+
+          cl /nologo /O2 /MT /LD /DNDEBUG "/I$ufbxDir" `
+            (Join-Path $sourceDir "blendshare_ufbx_bridge.c") `
+            (Join-Path $ufbxDir "ufbx.c") `
+            "/Fo$objDir\\" `
+            "/Fe$outFile" `
+            /link "/IMPLIB:$importLib"
+
+      - name: Build macOS bundle
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          source_dir="$GITHUB_WORKSPACE/$PACKAGE_PATH/Native/BlendShareUfbx"
+          ufbx_dir="$GITHUB_WORKSPACE/$PACKAGE_PATH/ThirdParty~/ufbx"
+          out_dir="$GITHUB_WORKSPACE/$PACKAGE_PATH/Plugins"
+          bundle_dir="$out_dir/$LIBRARY_NAME.bundle"
+          binary_dir="$bundle_dir/Contents/MacOS"
+
+          mkdir -p "$binary_dir"
+
+          # Unity expects macOS native plugins as bundles, matching Autodesk's FBX package layout.
+          cat > "$bundle_dir/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleDevelopmentRegion</key>
+            <string>en</string>
+            <key>CFBundleExecutable</key>
+            <string>$LIBRARY_NAME</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.triturbo.blendshare.ufbx</string>
+            <key>CFBundleInfoDictionaryVersion</key>
+            <string>6.0</string>
+            <key>CFBundleName</key>
+            <string>$LIBRARY_NAME</string>
+            <key>CFBundlePackageType</key>
+            <string>BNDL</string>
+            <key>CFBundleShortVersionString</key>
+            <string>1.0</string>
+            <key>CFBundleVersion</key>
+            <string>1</string>
+          </dict>
+          </plist>
+          PLIST
+
+          clang -O2 -DNDEBUG -fPIC -fvisibility=hidden \
+            -arch x86_64 -arch arm64 \
+            -I"$ufbx_dir" \
+            "$source_dir/blendshare_ufbx_bridge.c" \
+            "$ufbx_dir/ufbx.c" \
+            -bundle \
+            -o "$binary_dir/$LIBRARY_NAME"
+
+      - name: Build Linux shared library
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          source_dir="$GITHUB_WORKSPACE/$PACKAGE_PATH/Native/BlendShareUfbx"
+          ufbx_dir="$GITHUB_WORKSPACE/$PACKAGE_PATH/ThirdParty~/ufbx"
+          out_dir="$GITHUB_WORKSPACE/$PACKAGE_PATH/Plugins"
+
+          mkdir -p "$out_dir"
+
+          cc -O2 -DNDEBUG -fPIC -fvisibility=hidden \
+            -I"$ufbx_dir" \
+            "$source_dir/blendshare_ufbx_bridge.c" \
+            "$ufbx_dir/ufbx.c" \
+            -shared \
+            -o "$out_dir/$LIBRARY_NAME.so"
+
+      - name: Upload native artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.LIBRARY_NAME }}-${{ matrix.platform }}
+          path: ${{ matrix.artifact_path }}
+          if-no-files-found: error
+          retention-days: 14
+
+  commit:
+    name: Commit native binaries
+    needs: build
+    runs-on: ubuntu-latest
+    # Tags and pull request merge refs are immutable/non-branch targets, so only push
+    # generated binaries back when this workflow runs on a real branch.
+    if: startsWith(github.ref, 'refs/heads/')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Download native artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: native-artifacts
+
+      - name: Copy native binaries into package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$PACKAGE_PATH/Plugins"
+
+          # Keep committed Unity .meta files in place; copy only generated binaries
+          # and the deterministic bundle Info.plist from the build artifacts.
+          cp "native-artifacts/$LIBRARY_NAME-windows/$LIBRARY_NAME.dll" \
+            "$PACKAGE_PATH/Plugins/$LIBRARY_NAME.dll"
+
+          # upload-artifact extracts directory artifacts by their contents, so the
+          # macOS artifact may be rooted at Contents/ rather than *.bundle/.
+          macos_artifact="native-artifacts/$LIBRARY_NAME-macos"
+          macos_bundle="$macos_artifact/$LIBRARY_NAME.bundle"
+          if [ ! -d "$macos_bundle" ]; then
+            macos_bundle="$macos_artifact"
+          fi
+
+          mkdir -p "$PACKAGE_PATH/Plugins/$LIBRARY_NAME.bundle/Contents/MacOS"
+          cp "$macos_bundle/Contents/Info.plist" \
+            "$PACKAGE_PATH/Plugins/$LIBRARY_NAME.bundle/Contents/Info.plist"
+          cp "$macos_bundle/Contents/MacOS/$LIBRARY_NAME" \
+            "$PACKAGE_PATH/Plugins/$LIBRARY_NAME.bundle/Contents/MacOS/$LIBRARY_NAME"
+          cp "native-artifacts/$LIBRARY_NAME-linux/$LIBRARY_NAME.so" \
+            "$PACKAGE_PATH/Plugins/$LIBRARY_NAME.so"
+
+      - name: Commit generated native binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -f \
+            "$PACKAGE_PATH/Plugins/$LIBRARY_NAME.dll" \
+            "$PACKAGE_PATH/Plugins/$LIBRARY_NAME.bundle" \
+            "$PACKAGE_PATH/Plugins/$LIBRARY_NAME.so"
+
+          if git diff --cached --quiet; then
+            echo "No native binary changes to commit."
+            exit 0
+          fi
+
+          git commit -m "build(ci): update ufbx native libraries"
+          git push
