@@ -59,6 +59,7 @@ namespace Triturbo.BlendShare.NDMF
                     continue;
                 }
 
+                BlendShareComponentSetupService.PrepareMeshApplierGenerationMappings(applier);
                 validMeshAppliers.Add(applier);
             }
 
@@ -81,11 +82,20 @@ namespace Triturbo.BlendShare.NDMF
                     continue;
                 }
 
-                var source = new BlendShareComponentGenerationSource(
+                var rootAppliers = rootGroup.ToArray();
+                var owners = rootAppliers
+                    .Select(applier => applier.Owner)
+                    .Where(owner => owner != null)
+                    .Distinct()
+                    .ToArray();
+                var generationComponents = owners.Cast<BlendShareGenerationComponent>()
+                    .Concat(rootAppliers)
+                    .Concat(boneProxies.Where(proxy => proxy != null && owners.Contains(proxy.Owner)))
+                    .Distinct()
+                    .ToArray();
+                var artifact = BlendShareArtifactService.CreateInMemoryArtifact(
                     targetRoot.gameObject,
-                    rootGroup,
-                    boneProxies);
-                var artifact = BlendShareArtifactService.CreateInMemoryArtifact(source);
+                    generationComponents);
                 if (artifact == null)
                 {
                     Debug.LogError($"[BlendShare NDMF] Failed to generate BlendShare artifact for '{targetRoot.name}'.", targetRoot);

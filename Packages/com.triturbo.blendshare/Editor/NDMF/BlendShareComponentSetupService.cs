@@ -363,6 +363,25 @@ namespace Triturbo.BlendShare.NDMF
                 out diagnostic);
         }
 
+        public static void PrepareMeshApplierGenerationMappings(BlendShareMeshComponent applier)
+        {
+            if (applier == null || applier.Owner == null || applier.MeshData == null || applier.TargetRenderer == null)
+            {
+                applier?.SetGenerationMappingOverrides(null);
+                return;
+            }
+
+            var targetMesh = applier.TargetRenderer.sharedMesh;
+            var sourceFbx = ResolveSourceFbx(applier.Owner, targetMesh);
+            if (BlendShareVertexMappingCacheService.TryGet(sourceFbx, applier.MeshData, targetMesh, out var mapping))
+            {
+                applier.SetGenerationMappingOverrides(new[] { mapping });
+                return;
+            }
+
+            applier.SetGenerationMappingOverrides(null);
+        }
+
         public static bool EnsureMeshApplierMappingCache(
             BlendShareMeshComponent applier,
             out string diagnostic)

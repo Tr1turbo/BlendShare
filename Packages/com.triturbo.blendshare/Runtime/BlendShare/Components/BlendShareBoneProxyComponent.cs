@@ -6,7 +6,7 @@ namespace Triturbo.BlendShare.Components
     [ExecuteInEditMode]
     [DisallowMultipleComponent]
     [AddComponentMenu("BlendShare/BlendShare Bone Proxy")]
-    public sealed class BlendShareBoneProxyComponent : MonoBehaviour
+    public sealed class BlendShareBoneProxyComponent : BlendShareGenerationComponent
     {
         [SerializeField, NotKeyable]
         private BlendShareComponent m_Owner;

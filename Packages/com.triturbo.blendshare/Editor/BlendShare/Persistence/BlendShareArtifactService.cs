@@ -31,21 +31,19 @@ namespace Triturbo.BlendShare.Persistence
                 return null;
             }
 
-            var pipeline = new MeshFeatureGenerationPipeline();
+            var unityPipeline = new UnityMeshGenerationPipeline();
             var appliedBlendShares = GetAppliedBlendShares(targetMeshContainer, shares);
             GameObject targetFbx = GetTargetFbx(targetMeshContainer);
             BlendShareArtifact inMemoryArtifact = null;
             Mesh[] unsavedMeshes = Array.Empty<Mesh>();
-            Object[] unsavedObjects = Array.Empty<Object>();
 
-            if (targetFbx == null || pipeline.CanApplyToUnityMeshes(targetMeshContainer, shares))
+            if (targetFbx == null || unityPipeline.CanApplyToUnityMeshes(targetMeshContainer, shares))
             {
                 inMemoryArtifact = CreateInMemoryArtifact(
                     targetMeshContainer,
                     shares,
                     null,
-                    appliedBlendShares,
-                    out unsavedObjects);
+                    appliedBlendShares);
                 if (inMemoryArtifact != null)
                 {
                     unsavedMeshes = (inMemoryArtifact.m_Meshes ?? Array.Empty<BlendShareMeshDescriptor>())
@@ -59,7 +57,6 @@ namespace Triturbo.BlendShare.Persistence
                     finally
                     {
                         RemoveGeneratedObjects(unsavedMeshes);
-                        RemoveGeneratedObjects(unsavedObjects);
                         RemoveGeneratedObjects(new Object[] { inMemoryArtifact.m_Armature, inMemoryArtifact });
                     }
                 }
@@ -67,34 +64,54 @@ namespace Triturbo.BlendShare.Persistence
 
             if (targetFbx != null)
             {
-#if ENABLE_FBX_SDK
-                if (pipeline.CanApplyToFbx(appliedBlendShares))
-                {
-                    string folder = Path.GetDirectoryName(path) ?? Application.dataPath;
-                    string tempAssetPath = Path.Combine(folder, $"{targetMeshContainer.name}-{Guid.NewGuid()}.fbx");
-                    try
-                    {
-                        if (!BlendShareGenerationService.CreateFbx(targetFbx, appliedBlendShares, tempAssetPath, true))
-                        {
-                            Debug.LogError("[BlendShare] Failed to create temporary artifact FBX.");
-                            return null;
-                        }
-
-                        return SaveArtifactToAsset(
-                            targetFbx,
-                            appliedBlendShares,
-                            tempAssetPath,
-                            path);
-                    }
-                    finally
-                    {
-                        AssetDatabase.MoveAssetToTrash(tempAssetPath);
-                    }
-                }
-#endif
+                return CreateArtifactViaFbxFallback(targetFbx, targetMeshContainer, appliedBlendShares, path);
             }
 
             return null;
+        }
+
+        private static BlendShareArtifact CreateArtifactViaFbxFallback(
+            GameObject targetFbx,
+            Object targetMeshContainer,
+            IEnumerable<BlendShareObject> appliedBlendShares,
+            string path)
+        {
+#if ENABLE_FBX_SDK
+            if (targetFbx == null || targetMeshContainer == null || string.IsNullOrWhiteSpace(path))
+            {
+                return null;
+            }
+
+            var shares = appliedBlendShares?.Where(share => share != null).Distinct().ToArray()
+                         ?? Array.Empty<BlendShareObject>();
+            if (!new FbxGenerationPipeline().CanApply(shares))
+            {
+                return null;
+            }
+
+            string folder = Path.GetDirectoryName(path) ?? Application.dataPath;
+            string tempAssetPath = Path.Combine(folder, $"{targetMeshContainer.name}-{Guid.NewGuid()}.fbx");
+            try
+            {
+                if (!BlendShareGenerationService.CreateFbx(targetFbx, shares, tempAssetPath, true))
+                {
+                    Debug.LogError("[BlendShare] Failed to create temporary artifact FBX.");
+                    return null;
+                }
+
+                return SaveArtifactToAsset(
+                    targetFbx,
+                    shares,
+                    tempAssetPath,
+                    path);
+            }
+            finally
+            {
+                AssetDatabase.MoveAssetToTrash(tempAssetPath);
+            }
+#else
+            return null;
+#endif
         }
 
         public static BlendShareArtifact CreateInMemoryArtifact(
@@ -102,102 +119,53 @@ namespace Triturbo.BlendShare.Persistence
             IEnumerable<BlendShareObject> blendShares,
             Func<BlendShareObject, MeshDataObject, bool> shouldGenerateMesh = null)
         {
-            var source = new BlendShareObjectGenerationSource(targetMeshContainer, blendShares, shouldGenerateMesh);
-            if (targetMeshContainer == null || source.BlendShares.Count == 0)
+            var shares = blendShares?.Where(share => share != null).Distinct().ToArray() ?? Array.Empty<BlendShareObject>();
+            if (targetMeshContainer == null || shares.Length == 0)
             {
                 return null;
             }
 
-            return CreateInMemoryArtifact(
-                source,
-                GetAppliedBlendShares(targetMeshContainer, source.BlendShares),
-                out _);
+            return new UnityMeshGenerationPipeline().CreateArtifact(
+                targetMeshContainer,
+                shares,
+                shouldGenerateMesh,
+                GetAppliedBlendShares(targetMeshContainer, shares));
         }
 
-        public static BlendShareArtifact CreateInMemoryArtifact(IBlendShareGenerationSource source)
+        public static BlendShareArtifact CreateInMemoryArtifact(
+            GameObject targetRoot,
+            IEnumerable<BlendShareGenerationComponent> components)
         {
-            if (source == null || source.TargetMeshContainer == null || source.BlendShares.Count == 0)
+            if (targetRoot == null)
             {
                 return null;
             }
 
-            return CreateInMemoryArtifact(
-                source,
-                GetAppliedBlendShares(source.TargetMeshContainer, source.BlendShares),
-                out _);
+            var componentArray = (components ?? Enumerable.Empty<BlendShareGenerationComponent>())
+                .Where(component => component != null)
+                .Distinct()
+                .ToArray();
+            if (componentArray.Length == 0)
+            {
+                return null;
+            }
+
+            return new UnityMeshGenerationPipeline().CreateArtifactFromComponents(
+                targetRoot,
+                componentArray);
         }
 
         private static BlendShareArtifact CreateInMemoryArtifact(
             Object targetMeshContainer,
             IReadOnlyCollection<BlendShareObject> shares,
             Func<BlendShareObject, MeshDataObject, bool> shouldGenerateMesh,
-            IReadOnlyCollection<BlendShareObject> appliedBlendShares,
-            out Object[] generatedObjects)
+            IReadOnlyCollection<BlendShareObject> appliedBlendShares)
         {
-            return CreateInMemoryArtifact(
-                new BlendShareObjectGenerationSource(targetMeshContainer, shares, shouldGenerateMesh),
-                appliedBlendShares,
-                out generatedObjects);
-        }
-
-        private static BlendShareArtifact CreateInMemoryArtifact(
-            IBlendShareGenerationSource source,
-            IReadOnlyCollection<BlendShareObject> appliedBlendShares,
-            out Object[] generatedObjects)
-        {
-            generatedObjects = Array.Empty<Object>();
-            var pipeline = new MeshFeatureGenerationPipeline();
-            bool generationSucceeded = pipeline.TryGenerateUnityMeshes(
-                source,
-                out var generatedMeshes,
-                out var sessionObjects,
-                out var skinBindingsByMeshKey);
-            generatedObjects = sessionObjects?.Where(obj => obj != null).ToArray() ?? Array.Empty<Object>();
-            if (!generationSucceeded)
-            {
-                RemoveGeneratedObjects(generatedObjects);
-                return null;
-            }
-
-            var targetSource = GetTargetFbx(source.TargetMeshContainer) != null
-                ? GetTargetFbx(source.TargetMeshContainer)
-                : source.TargetMeshContainer;
-            var root = source.TargetMeshContainer as GameObject;
-            var descriptors = (generatedMeshes ?? Enumerable.Empty<Mesh>())
-                .Where(mesh => mesh != null)
-                .Select(mesh =>
-                {
-                    string meshPath = MeshNodePath.Normalize(mesh.name);
-                    skinBindingsByMeshKey.TryGetValue(meshPath, out var generatedBinding);
-                    return new BlendShareMeshDescriptor
-                    {
-                        m_NodePath = meshPath,
-                        m_Mesh = mesh,
-                        m_SkinBinding = generatedBinding != null
-                            ? ToArtifactSkinBinding(generatedBinding)
-                            : BuildSkinBinding(root, meshPath)
-                    };
-                })
-                .GroupBy(descriptor => descriptor.m_NodePath)
-                .Select(group => group.First())
-                .ToArray();
-
-            if (descriptors.Length == 0)
-            {
-                RemoveGeneratedObjects(generatedMeshes);
-                RemoveGeneratedObjects(generatedObjects);
-                return null;
-            }
-
-            var artifact = ScriptableObject.CreateInstance<BlendShareArtifact>();
-            artifact.name = $"{source.TargetMeshContainer.name}_BlendShareArtifact";
-            artifact.m_TargetSource = targetSource;
-            artifact.m_TargetSourceHash = CalculateHash(targetSource);
-            artifact.m_AppliedBlendShares = appliedBlendShares?.Where(share => share != null).Distinct().ToArray()
-                                            ?? Array.Empty<BlendShareObject>();
-            artifact.m_Meshes = descriptors;
-            artifact.m_Armature = BuildArmatureArtifact(source);
-            return artifact;
+            return new UnityMeshGenerationPipeline().CreateArtifact(
+                targetMeshContainer,
+                shares,
+                shouldGenerateMesh,
+                appliedBlendShares);
         }
 
         public static void ApplyArtifact(BlendShareArtifact artifact, Transform targetRoot)
@@ -974,72 +942,11 @@ namespace Triturbo.BlendShare.Persistence
             return artifact;
         }
 
-        private static BoneGraphObject BuildArmatureArtifact(IBlendShareGenerationSource source)
-        {
-            if (source == null)
-            {
-                return BuildArmatureArtifact(Enumerable.Empty<BlendShareObject>());
-            }
-
-            var artifact = ScriptableObject.CreateInstance<BoneGraphObject>();
-            artifact.name = "Armature";
-            artifact.SetBones((source.Requests ?? Array.Empty<BlendShareGenerationRequest>())
-                .Where(request => request?.MeshData != null)
-                .Select(request => new
-                {
-                    Request = request,
-                    Feature = request.MeshData.GetFeature<SkinWeightFeatureObject>(),
-                    Mapping = GetFbxToUnityMapping(request)
-                })
-                .Where(item => item.Feature?.m_BoneGraph != null)
-                .SelectMany(item => (item.Feature.m_BoneGraph.Bones ?? Array.Empty<BoneNodeData>())
-                    .Where(bone => bone != null)
-                    .Select(bone => new { item.Request, Bone = bone, item.Mapping }))
-                .GroupBy(item =>
-                {
-                    string sourceBonePath = MeshNodePath.Normalize(item.Bone.m_Path);
-                    return item.Request.TryGetBoneOverride(sourceBonePath, out var boneOverride)
-                        ? boneOverride.FinalBonePath
-                        : sourceBonePath;
-                })
-                .Select(group =>
-                {
-                    var item = group.First();
-                    var bone = item.Bone;
-                    string sourceBonePath = MeshNodePath.Normalize(bone.m_Path);
-                    if (item.Request.TryGetBoneOverride(sourceBonePath, out var boneOverride))
-                    {
-                        return new BoneNodeData(
-                            boneOverride.FinalBonePath,
-                            boneOverride.ParentPath,
-                            boneOverride.GeneratedLocalPosition,
-                            boneOverride.GeneratedLocalEulerRotation,
-                            boneOverride.GeneratedLocalScale,
-                            true);
-                    }
-
-                    return new BoneNodeData(
-                        bone.m_Path,
-                        bone.m_ParentPath,
-                        item.Mapping != null ? item.Mapping.ConvertFbxVectorToUnity(bone.m_FbxLocalTranslation) : bone.m_FbxLocalTranslation,
-                        bone.m_FbxLocalEulerRotation,
-                        bone.m_FbxLocalScale,
-                        bone.m_CreateIfMissing);
-                }));
-            return artifact;
-        }
-
         private static UnityVertexMappingObject GetFbxToUnityMapping(MeshDataObject meshData)
         {
             var mapping = (meshData?.m_Mappings ?? Array.Empty<UnityVertexMappingObject>())
                 .FirstOrDefault(candidate => candidate != null && candidate.m_IsValid);
             return mapping;
-        }
-
-        private static UnityVertexMappingObject GetFbxToUnityMapping(BlendShareGenerationRequest request)
-        {
-            var mapping = request?.GetMappingFor(request.TargetRenderer != null ? request.TargetRenderer.sharedMesh : null);
-            return mapping != null ? mapping : GetFbxToUnityMapping(request?.MeshData);
         }
 
         private static BlendShareSkinBindingDescriptor BuildSkinBinding(GameObject root, string rendererPath)
@@ -1079,7 +986,7 @@ namespace Triturbo.BlendShare.Persistence
             };
         }
 
-        private static BlendShareSkinBindingDescriptor ToArtifactSkinBinding(MeshFeatureSkinBindingOutput binding)
+        private static BlendShareSkinBindingDescriptor ToArtifactSkinBinding(UnityMeshSkinBindingOutput binding)
         {
             if (binding == null)
             {

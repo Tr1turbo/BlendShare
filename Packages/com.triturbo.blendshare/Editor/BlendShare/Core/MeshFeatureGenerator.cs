@@ -15,14 +15,14 @@ namespace Triturbo.BlendShare.Core
         /// </summary>
         /// <param name="context">Unity mesh generation context for the current mesh.</param>
         /// <returns>A skipped result when this generator has no feature data in the context.</returns>
-        MeshFeatureGenerationResult CanApplyToUnityMesh(MeshFeatureUnityGenerationContext context);
+        MeshFeatureGenerationResult CanApplyToUnityMesh(UnityMeshGenerationContext context);
 
         /// <summary>
         /// Applies this feature to the current Unity mesh target.
         /// </summary>
         /// <param name="context">Unity mesh generation context for the current mesh.</param>
         /// <returns>Generation result for this feature.</returns>
-        MeshFeatureGenerationResult ApplyToUnityMesh(MeshFeatureUnityGenerationContext context);
+        MeshFeatureGenerationResult ApplyToUnityMesh(UnityMeshGenerationContext context);
 
 #if ENABLE_FBX_SDK
         /// <summary>
@@ -30,21 +30,21 @@ namespace Triturbo.BlendShare.Core
         /// </summary>
         /// <param name="context">FBX generation context for the current mesh.</param>
         /// <returns>A skipped result when this generator has no feature data in the context.</returns>
-        MeshFeatureGenerationResult CanApplyToFbx(MeshFeatureFbxGenerationContext context);
+        MeshFeatureGenerationResult CanApplyToFbx(FbxGenerationContext context);
 
         /// <summary>
         /// Applies this feature to the current FBX mesh node.
         /// </summary>
         /// <param name="context">FBX generation context for the current mesh.</param>
         /// <returns>Generation result for this feature.</returns>
-        MeshFeatureGenerationResult ApplyToFbx(MeshFeatureFbxGenerationContext context);
+        MeshFeatureGenerationResult ApplyToFbx(FbxGenerationContext context);
 
         /// <summary>
         /// Removes this feature from the current FBX mesh node.
         /// </summary>
         /// <param name="context">FBX generation context for the current mesh.</param>
         /// <returns>Generation result for this feature.</returns>
-        MeshFeatureGenerationResult RemoveFromFbx(MeshFeatureFbxGenerationContext context);
+        MeshFeatureGenerationResult RemoveFromFbx(FbxGenerationContext context);
 #endif
     }
 
@@ -59,7 +59,7 @@ namespace Triturbo.BlendShare.Core
         public virtual int Order => 0;
 
         /// <inheritdoc />
-        public MeshFeatureGenerationResult CanApplyToUnityMesh(MeshFeatureUnityGenerationContext context)
+        public MeshFeatureGenerationResult CanApplyToUnityMesh(UnityMeshGenerationContext context)
         {
             if (!TryGetFeature(context, out TFeature feature, out var result))
             {
@@ -70,7 +70,7 @@ namespace Triturbo.BlendShare.Core
         }
 
         /// <inheritdoc />
-        public MeshFeatureGenerationResult ApplyToUnityMesh(MeshFeatureUnityGenerationContext context)
+        public MeshFeatureGenerationResult ApplyToUnityMesh(UnityMeshGenerationContext context)
         {
             if (!TryGetFeature(context, out TFeature feature, out var result))
             {
@@ -81,19 +81,19 @@ namespace Triturbo.BlendShare.Core
         }
 
         protected virtual MeshFeatureGenerationResult CanApplyToUnityMesh(
-            MeshFeatureUnityGenerationContext context,
+            UnityMeshGenerationContext context,
             TFeature feature)
         {
             return MeshFeatureGenerationResult.Success(false);
         }
 
         protected abstract MeshFeatureGenerationResult ApplyToUnityMesh(
-            MeshFeatureUnityGenerationContext context,
+            UnityMeshGenerationContext context,
             TFeature feature);
 
 #if ENABLE_FBX_SDK
         /// <inheritdoc />
-        public MeshFeatureGenerationResult CanApplyToFbx(MeshFeatureFbxGenerationContext context)
+        public MeshFeatureGenerationResult CanApplyToFbx(FbxGenerationContext context)
         {
             if (!TryGetFeature(context, out TFeature feature, out var result))
             {
@@ -104,7 +104,7 @@ namespace Triturbo.BlendShare.Core
         }
 
         /// <inheritdoc />
-        public MeshFeatureGenerationResult ApplyToFbx(MeshFeatureFbxGenerationContext context)
+        public MeshFeatureGenerationResult ApplyToFbx(FbxGenerationContext context)
         {
             if (!TryGetFeature(context, out TFeature feature, out var result))
             {
@@ -115,7 +115,7 @@ namespace Triturbo.BlendShare.Core
         }
 
         /// <inheritdoc />
-        public MeshFeatureGenerationResult RemoveFromFbx(MeshFeatureFbxGenerationContext context)
+        public MeshFeatureGenerationResult RemoveFromFbx(FbxGenerationContext context)
         {
             if (!TryGetFeature(context, out TFeature feature, out var result))
             {
@@ -126,21 +126,21 @@ namespace Triturbo.BlendShare.Core
         }
 
         protected virtual MeshFeatureGenerationResult CanApplyToFbx(
-            MeshFeatureFbxGenerationContext context,
+            FbxGenerationContext context,
             TFeature feature)
         {
             return MeshFeatureGenerationResult.FailedResult($"Feature '{typeof(TFeature).Name}' does not support FBX generation.");
         }
 
         protected virtual MeshFeatureGenerationResult ApplyToFbx(
-            MeshFeatureFbxGenerationContext context,
+            FbxGenerationContext context,
             TFeature feature)
         {
             return MeshFeatureGenerationResult.FailedResult($"Feature '{typeof(TFeature).Name}' does not support FBX generation.");
         }
 
         protected virtual MeshFeatureGenerationResult RemoveFromFbx(
-            MeshFeatureFbxGenerationContext context,
+            FbxGenerationContext context,
             TFeature feature)
         {
             return MeshFeatureGenerationResult.FailedResult($"Feature '{typeof(TFeature).Name}' does not support FBX removal.");
@@ -148,7 +148,7 @@ namespace Triturbo.BlendShare.Core
 #endif
 
         private bool TryGetFeature(
-            MeshFeatureUnityGenerationContext context,
+            UnityMeshGenerationContext context,
             out TFeature feature,
             out MeshFeatureGenerationResult result)
         {
@@ -173,7 +173,7 @@ namespace Triturbo.BlendShare.Core
 
 #if ENABLE_FBX_SDK
         private bool TryGetFeature(
-            MeshFeatureFbxGenerationContext context,
+            FbxGenerationContext context,
             out TFeature feature,
             out MeshFeatureGenerationResult result)
         {

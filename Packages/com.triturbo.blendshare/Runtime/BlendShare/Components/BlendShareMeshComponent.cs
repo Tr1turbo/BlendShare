@@ -53,7 +53,7 @@ namespace Triturbo.BlendShare.Components
 
     [DisallowMultipleComponent]
     [AddComponentMenu("BlendShare/BlendShare Mesh")]
-    public sealed class BlendShareMeshComponent : MonoBehaviour
+    public sealed class BlendShareMeshComponent : BlendShareGenerationComponent
     {
         [SerializeField, NotKeyable]
         private BlendShareComponent m_Owner;
@@ -75,6 +75,9 @@ namespace Triturbo.BlendShare.Components
 
         [SerializeField, NotKeyable]
         private List<BlendShareBoneProxyBinding> m_BoneProxyBindings = new();
+
+        [NonSerialized]
+        private UnityVertexMappingObject[] m_GenerationMappingOverrides = Array.Empty<UnityVertexMappingObject>();
 
         public BlendShareComponent Owner
         {
@@ -117,6 +120,9 @@ namespace Triturbo.BlendShare.Components
         public IReadOnlyList<BlendShareBoneProxyBinding> BoneProxyBindings =>
             m_BoneProxyBindings ??= new List<BlendShareBoneProxyBinding>();
 
+        public IReadOnlyList<UnityVertexMappingObject> GenerationMappingOverrides =>
+            m_GenerationMappingOverrides ?? Array.Empty<UnityVertexMappingObject>();
+
         public void SetBoneProxyBindings(IEnumerable<BlendShareBoneProxyBinding> bindings)
         {
             m_BoneProxyBindings = (bindings ?? Enumerable.Empty<BlendShareBoneProxyBinding>())
@@ -129,6 +135,14 @@ namespace Triturbo.BlendShare.Components
                 .GroupBy(binding => $"{binding.BoneGraph.GetInstanceID()}:{binding.SourceBonePath}")
                 .Select(group => group.First())
                 .ToList();
+        }
+
+        public void SetGenerationMappingOverrides(IEnumerable<UnityVertexMappingObject> mappings)
+        {
+            m_GenerationMappingOverrides = (mappings ?? Enumerable.Empty<UnityVertexMappingObject>())
+                .Where(mapping => mapping != null)
+                .Distinct()
+                .ToArray();
         }
 
         public bool TryGetBoneProxyBinding(

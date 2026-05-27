@@ -19,7 +19,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
         public static readonly BlendShapeFeatureGenerator Instance = new();
 
         protected override MeshFeatureGenerationResult CanApplyToUnityMesh(
-            MeshFeatureUnityGenerationContext context,
+            UnityMeshGenerationContext context,
             BlendShapeFeatureObject feature)
         {
             if (context.MeshData == null || context.WorkingMesh == null)
@@ -33,7 +33,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
         }
 
         protected override MeshFeatureGenerationResult ApplyToUnityMesh(
-            MeshFeatureUnityGenerationContext context,
+            UnityMeshGenerationContext context,
             BlendShapeFeatureObject feature)
         {
             if (context.MeshData == null || context.WorkingMesh == null)
@@ -92,7 +92,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
         }
 
         private static UnityBlendShapeData CreateUnityBlendShapeData(
-            MeshFeatureUnityGenerationContext context,
+            UnityMeshGenerationContext context,
             BlendShapeRecord blendShape,
             Mesh targetMesh)
         {
@@ -169,14 +169,14 @@ namespace Triturbo.BlendShare.Features.BlendShapes
 
 #if ENABLE_FBX_SDK
         protected override MeshFeatureGenerationResult CanApplyToFbx(
-            MeshFeatureFbxGenerationContext context,
+            FbxGenerationContext context,
             BlendShapeFeatureObject feature)
         {
             return MeshFeatureGenerationResult.Success(false);
         }
 
         protected override MeshFeatureGenerationResult ApplyToFbx(
-            MeshFeatureFbxGenerationContext context,
+            FbxGenerationContext context,
             BlendShapeFeatureObject feature)
         {
             FbxMesh targetMesh = context.TargetMesh;
@@ -230,7 +230,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
         }
 
         protected override MeshFeatureGenerationResult RemoveFromFbx(
-            MeshFeatureFbxGenerationContext context,
+            FbxGenerationContext context,
             BlendShapeFeatureObject feature)
         {
             FbxMesh targetMesh = context.TargetMesh;

@@ -8,7 +8,7 @@ namespace Triturbo.BlendShare.Components
 {
     [DisallowMultipleComponent]
     [AddComponentMenu("BlendShare/BlendShare Core")]
-    public sealed class BlendShareComponent : MonoBehaviour
+    public sealed class BlendShareComponent : BlendShareGenerationComponent
     {
         [SerializeField, NotKeyable]
         private AvatarObjectReference<Transform> m_TargetRootReference = new();

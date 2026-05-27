@@ -358,7 +358,7 @@ namespace Triturbo.BlendShare.Inspector
                 return ArtifactMappingStatus.Blocked(Localization.S("data.artifact_mapping.original_missing"), false);
             }
 
-            var targetLookup = MeshFeatureTargetMeshLookup.Create(blendShare.m_Original);
+            var targetLookup = UnityMeshTargetLookup.Create(blendShare.m_Original);
             if (targetLookup == null)
             {
                 return ArtifactMappingStatus.Blocked(Localization.S("data.artifact_mapping.target_unreadable"), false);
@@ -412,7 +412,7 @@ namespace Triturbo.BlendShare.Inspector
                 return;
             }
 
-            var targetLookup = MeshFeatureTargetMeshLookup.Create(blendShare.m_Original);
+            var targetLookup = UnityMeshTargetLookup.Create(blendShare.m_Original);
             if (targetLookup == null)
             {
                 EditorUtility.DisplayDialog(

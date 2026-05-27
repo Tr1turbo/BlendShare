@@ -148,7 +148,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             // }
             
             isAbleToGenerateMesh = targetMeshContainer != null &&
-                                   new MeshFeatureGenerationPipeline().CanApplyToUnityMeshes(targetMeshContainer, validList);
+                                   new UnityMeshGenerationPipeline().CanApplyToUnityMeshes(targetMeshContainer, validList);
         }
         
         

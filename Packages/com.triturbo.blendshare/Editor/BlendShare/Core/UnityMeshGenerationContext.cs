@@ -1,34 +1,33 @@
 using System.Collections.Generic;
 using System.Linq;
-using Triturbo.BlendShare.Fbx;
-using Triturbo.BlendShare.Fbx.Ufbx;
+using Triturbo.BlendShare.Components;
+using Triturbo.BlendShare.Features.BoneGraph;
 using UnityEditor;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
-#if ENABLE_FBX_SDK
-using Autodesk.Fbx;
-#endif
-
 namespace Triturbo.BlendShare.Core
 {
     /// <summary>
-    /// Shared state for one mesh feature generation request.
+    /// Shared state for one Unity mesh generation run.
     /// </summary>
-    public sealed class MeshFeatureGenerationSession
+    public sealed class UnityMeshGenerationSession
     {
         private readonly List<Object> generatedObjects = new();
         private readonly Dictionary<string, Object> generatedObjectsByKey = new();
-        private readonly Dictionary<string, MeshFeatureSkinBindingOutput> skinBindingsByMeshKey = new();
+        private readonly Dictionary<string, UnityMeshSkinBindingOutput> skinBindingsByMeshKey = new();
+        private readonly Dictionary<string, BoneNodeData> armatureBonesByPath = new();
         private readonly Dictionary<string, Transform> transformsByPath = new();
         private readonly HashSet<string> completedSteps = new();
+        private BoneGraphObject armature;
 
         public Object TargetMeshContainer { get; }
-        public IBlendShareGenerationSource Source { get; }
         public IReadOnlyList<BlendShareObject> Shares { get; }
-        public MeshFeatureTargetMeshLookup TargetMeshes { get; }
+        public IReadOnlyList<BlendShareGenerationComponent> Components { get; }
+        public UnityMeshTargetLookup TargetMeshes { get; }
         public IReadOnlyList<Object> GeneratedObjects => generatedObjects;
-        public IReadOnlyDictionary<string, MeshFeatureSkinBindingOutput> SkinBindingsByMeshKey => skinBindingsByMeshKey;
+        public IReadOnlyDictionary<string, UnityMeshSkinBindingOutput> SkinBindingsByMeshKey => skinBindingsByMeshKey;
+        public BoneGraphObject Armature => armature;
 
         /// <summary>
         /// Creates a generation session for a target mesh container and a set of BlendShare assets.
@@ -36,27 +35,20 @@ namespace Triturbo.BlendShare.Core
         /// <param name="targetMeshContainer">FBX asset, generated mesh asset, or other Unity object that contains target meshes.</param>
         /// <param name="shares">BlendShare assets being applied.</param>
         /// <param name="targetMeshes">Lookup table for target meshes.</param>
-        public MeshFeatureGenerationSession(
+        public UnityMeshGenerationSession(
             Object targetMeshContainer,
             IEnumerable<BlendShareObject> shares,
-            MeshFeatureTargetMeshLookup targetMeshes)
+            UnityMeshTargetLookup targetMeshes,
+            IEnumerable<BlendShareGenerationComponent> components = null)
         {
             TargetMeshContainer = targetMeshContainer;
-            Source = null;
             Shares = shares?.Where(share => share != null).Distinct().ToArray() ??
                      System.Array.Empty<BlendShareObject>();
             TargetMeshes = targetMeshes;
-        }
-
-        public MeshFeatureGenerationSession(
-            IBlendShareGenerationSource source,
-            MeshFeatureTargetMeshLookup targetMeshes)
-        {
-            TargetMeshContainer = source?.TargetMeshContainer;
-            Source = source;
-            Shares = source?.BlendShares?.Where(share => share != null).ToArray() ??
-                     System.Array.Empty<BlendShareObject>();
-            TargetMeshes = targetMeshes;
+            Components = (components ?? System.Array.Empty<BlendShareGenerationComponent>())
+                .Where(component => component != null)
+                .Distinct()
+                .ToArray();
         }
 
         /// <summary>
@@ -72,13 +64,6 @@ namespace Triturbo.BlendShare.Core
             }
 
             return MeshNodePath.Normalize(meshData.m_Path);
-        }
-
-        public static string BuildMeshKey(BlendShareGenerationRequest request)
-        {
-            return !string.IsNullOrWhiteSpace(request?.RendererNodePath)
-                ? MeshNodePath.Normalize(request.RendererNodePath)
-                : BuildMeshKey(request?.MeshData);
         }
 
         /// <summary>
@@ -131,12 +116,44 @@ namespace Triturbo.BlendShare.Core
         public void SetSkinBinding(string meshKey, string rootBonePath, IEnumerable<string> bonePaths)
         {
             string normalizedKey = MeshNodePath.Normalize(meshKey);
-            skinBindingsByMeshKey[normalizedKey] = new MeshFeatureSkinBindingOutput(rootBonePath, bonePaths);
+            skinBindingsByMeshKey[normalizedKey] = new UnityMeshSkinBindingOutput(rootBonePath, bonePaths);
         }
 
-        public bool TryGetSkinBinding(string meshKey, out MeshFeatureSkinBindingOutput binding)
+        public bool TryGetSkinBinding(string meshKey, out UnityMeshSkinBindingOutput binding)
         {
             return skinBindingsByMeshKey.TryGetValue(MeshNodePath.Normalize(meshKey), out binding);
+        }
+
+        public void AddArmatureBones(IEnumerable<BoneNodeData> bones)
+        {
+            foreach (var bone in bones ?? System.Array.Empty<BoneNodeData>())
+            {
+                if (bone == null)
+                {
+                    continue;
+                }
+
+                string path = MeshNodePath.Normalize(bone.m_Path);
+                if (!armatureBonesByPath.ContainsKey(path))
+                {
+                    armatureBonesByPath.Add(path, bone);
+                }
+            }
+
+            if (armatureBonesByPath.Count == 0)
+            {
+                return;
+            }
+
+            if (armature == null)
+            {
+                armature = ScriptableObject.CreateInstance<BoneGraphObject>();
+                armature.name = "Armature";
+                AddObject("Armature", armature);
+            }
+
+            armature.SetBones(armatureBonesByPath.Values);
+            EditorUtility.SetDirty(armature);
         }
 
         /// <summary>
@@ -220,12 +237,12 @@ namespace Triturbo.BlendShare.Core
     /// <summary>
     /// Renderer skin binding generated alongside a Unity mesh.
     /// </summary>
-    public sealed class MeshFeatureSkinBindingOutput
+    public sealed class UnityMeshSkinBindingOutput
     {
         public string RootBonePath { get; }
         public string[] BonePaths { get; }
 
-        public MeshFeatureSkinBindingOutput(string rootBonePath, IEnumerable<string> bonePaths)
+        public UnityMeshSkinBindingOutput(string rootBonePath, IEnumerable<string> bonePaths)
         {
             RootBonePath = MeshNodePath.Normalize(rootBonePath);
             BonePaths = bonePaths?
@@ -237,24 +254,23 @@ namespace Triturbo.BlendShare.Core
     /// <summary>
     /// Context passed to generators while applying a feature to a Unity mesh.
     /// </summary>
-    public sealed class MeshFeatureUnityGenerationContext
+    public sealed class UnityMeshGenerationContext
     {
         private readonly HashSet<MeshFeatureObject> handledFeatures = new();
 
-        public MeshFeatureGenerationSession Session { get; }
+        public UnityMeshGenerationSession Session { get; }
         public BlendShareObject Share { get; }
         public MeshDataObject MeshData { get; }
+        public string MeshKey { get; }
         public Mesh OriginalMesh { get; }
         public Mesh WorkingMesh { get; set; }
         public SkinnedMeshRenderer TargetRenderer { get; }
         public Transform TargetRootTransform { get; }
-        public BlendShareGenerationRequest Request { get; }
+        public IReadOnlyList<BlendShareGenerationComponent> Components { get; }
+        public IReadOnlyList<UnityVertexMappingObject> MappingOverrides { get; }
         public IReadOnlyList<MeshFeatureObject> Features =>
             MeshData != null ? MeshData.Features : System.Array.Empty<MeshFeatureObject>();
         public bool HasUnhandledFeatures => Features.Any(feature => feature != null && !handledFeatures.Contains(feature));
-        public string MeshKey => Request != null
-            ? MeshFeatureGenerationSession.BuildMeshKey(Request)
-            : MeshFeatureGenerationSession.BuildMeshKey(MeshData);
 
         /// <summary>
         /// Creates a Unity mesh generation context.
@@ -266,24 +282,33 @@ namespace Triturbo.BlendShare.Core
         /// <param name="workingMesh">Mutable mesh instance that generators update.</param>
         /// <param name="targetRenderer">Target renderer for GameObject-backed generation, when available.</param>
         /// <param name="targetRootTransform">Target avatar/root transform for scene-backed generation, when available.</param>
-        public MeshFeatureUnityGenerationContext(
-            MeshFeatureGenerationSession session,
+        public UnityMeshGenerationContext(
+            UnityMeshGenerationSession session,
             BlendShareObject share,
             MeshDataObject meshData,
             Mesh originalMesh,
             Mesh workingMesh,
             SkinnedMeshRenderer targetRenderer = null,
             Transform targetRootTransform = null,
-            BlendShareGenerationRequest request = null)
+            string meshKey = null,
+            IEnumerable<BlendShareGenerationComponent> components = null,
+            IEnumerable<UnityVertexMappingObject> mappingOverrides = null)
         {
             Session = session;
             Share = share;
             MeshData = meshData;
+            MeshKey = MeshNodePath.Normalize(meshKey ?? UnityMeshGenerationSession.BuildMeshKey(meshData));
             OriginalMesh = originalMesh;
             WorkingMesh = workingMesh;
             TargetRenderer = targetRenderer;
             TargetRootTransform = targetRootTransform ?? session?.TargetMeshes?.RootTransform;
-            Request = request;
+            Components = (components ?? session?.Components ?? System.Array.Empty<BlendShareGenerationComponent>())
+                .Where(component => component != null)
+                .Distinct()
+                .ToArray();
+            MappingOverrides = (mappingOverrides ?? System.Array.Empty<UnityVertexMappingObject>())
+                .Where(mapping => mapping != null)
+                .ToArray();
         }
 
         /// <summary>
@@ -300,6 +325,16 @@ namespace Triturbo.BlendShare.Core
             }
 
             return feature;
+        }
+
+        public T GetComponent<T>() where T : BlendShareGenerationComponent
+        {
+            return Components.OfType<T>().FirstOrDefault();
+        }
+
+        public IEnumerable<T> GetComponents<T>() where T : BlendShareGenerationComponent
+        {
+            return Components.OfType<T>();
         }
 
         /// <summary>
@@ -347,7 +382,8 @@ namespace Triturbo.BlendShare.Core
 
         public UnityVertexMappingObject GetMappingFor(Mesh targetMesh)
         {
-            return Request?.GetMappingFor(targetMesh) ??
+            return (MappingOverrides ?? System.Array.Empty<UnityVertexMappingObject>())
+                   .FirstOrDefault(mapping => mapping != null && mapping.IsCompatibleWith(MeshData, targetMesh)) ??
                    (MeshData?.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
                    .FirstOrDefault(mapping => mapping != null && mapping.IsCompatibleWith(MeshData, targetMesh));
         }
@@ -357,7 +393,7 @@ namespace Triturbo.BlendShare.Core
     /// <summary>
     /// Resolves target Unity meshes by stored mesh path.
     /// </summary>
-    public sealed class MeshFeatureTargetMeshLookup
+    public sealed class UnityMeshTargetLookup
     {
         private readonly Dictionary<string, Mesh> meshesByPath = new();
         private readonly Dictionary<string, SkinnedMeshRenderer> renderersByPath = new();
@@ -366,21 +402,21 @@ namespace Triturbo.BlendShare.Core
         public IReadOnlyList<Mesh> Meshes => meshes;
         public Transform RootTransform { get; private set; }
 
-        private MeshFeatureTargetMeshLookup() { }
+        private UnityMeshTargetLookup() { }
 
         /// <summary>
         /// Builds a mesh lookup from a Unity object that owns target meshes.
         /// </summary>
         /// <param name="targetMeshContainer">Asset or object containing target meshes.</param>
         /// <returns>A lookup instance, or <c>null</c> when the container cannot provide target meshes.</returns>
-        public static MeshFeatureTargetMeshLookup Create(Object targetMeshContainer)
+        public static UnityMeshTargetLookup Create(Object targetMeshContainer)
         {
             if (targetMeshContainer == null)
             {
                 return null;
             }
 
-            var lookup = new MeshFeatureTargetMeshLookup();
+            var lookup = new UnityMeshTargetLookup();
             if (targetMeshContainer is GameObject root)
             {
                 lookup.AddRendererPaths(root);
@@ -411,9 +447,9 @@ namespace Triturbo.BlendShare.Core
         /// </summary>
         /// <param name="sourceMeshes">Meshes whose names already contain the path identifier.</param>
         /// <returns>A lookup instance.</returns>
-        public static MeshFeatureTargetMeshLookup Create(IEnumerable<Mesh> sourceMeshes)
+        public static UnityMeshTargetLookup Create(IEnumerable<Mesh> sourceMeshes)
         {
-            var lookup = new MeshFeatureTargetMeshLookup();
+            var lookup = new UnityMeshTargetLookup();
             foreach (var mesh in sourceMeshes ?? Enumerable.Empty<Mesh>())
             {
                 // Explicit mesh collections are only valid when their mesh names store node paths
@@ -432,14 +468,15 @@ namespace Triturbo.BlendShare.Core
         /// <returns><c>true</c> when a target mesh was found.</returns>
         public bool TryGetMesh(MeshDataObject meshData, out Mesh mesh)
         {
-            mesh = null;
-            if (meshData == null)
-            {
-                return false;
-            }
+            string path = MeshNodePath.Normalize(meshData?.m_Path);
+            return TryGetMesh(path, out mesh);
+        }
 
-            string path = MeshNodePath.Normalize(meshData.m_Path);
-            if (meshesByPath.TryGetValue(path, out mesh))
+        public bool TryGetMesh(string path, out Mesh mesh)
+        {
+            mesh = null;
+            string normalizedPath = MeshNodePath.Normalize(path);
+            if (meshesByPath.TryGetValue(normalizedPath, out mesh))
             {
                 return true;
             }
@@ -455,14 +492,15 @@ namespace Triturbo.BlendShare.Core
         /// <returns><c>true</c> when a scene/prefab renderer was found.</returns>
         public bool TryGetRenderer(MeshDataObject meshData, out SkinnedMeshRenderer renderer)
         {
-            renderer = null;
-            if (meshData == null)
-            {
-                return false;
-            }
+            string path = MeshNodePath.Normalize(meshData?.m_Path);
+            return TryGetRenderer(path, out renderer);
+        }
 
-            string path = MeshNodePath.Normalize(meshData.m_Path);
-            if (renderersByPath.TryGetValue(path, out renderer))
+        public bool TryGetRenderer(string path, out SkinnedMeshRenderer renderer)
+        {
+            renderer = null;
+            string normalizedPath = MeshNodePath.Normalize(path);
+            if (renderersByPath.TryGetValue(normalizedPath, out renderer))
             {
                 return true;
             }
@@ -527,117 +565,4 @@ namespace Triturbo.BlendShare.Core
         }
     }
 
-#if ENABLE_FBX_SDK
-    /// <summary>
-    /// Shared state for one FBX feature generation request.
-    /// </summary>
-    public sealed class MeshFeatureFbxGenerationSession
-    {
-        private readonly Dictionary<string, object> stateByKey = new();
-
-        public FbxNode RootNode { get; }
-        public float ImportScale { get; }
-        public UfbxScene ReaderScene { get; }
-
-        public MeshFeatureFbxGenerationSession(
-            FbxNode rootNode,
-            float importScale,
-            UfbxScene readerScene = null)
-        {
-            RootNode = rootNode;
-            ImportScale = importScale == 0f ? 1f : importScale;
-            ReaderScene = readerScene;
-        }
-
-        public bool TryGetState<T>(string key, out T state) where T : class
-        {
-            if (!string.IsNullOrWhiteSpace(key) &&
-                stateByKey.TryGetValue(key, out var cached) &&
-                cached is T typed)
-            {
-                state = typed;
-                return true;
-            }
-
-            state = null;
-            return false;
-        }
-
-        public void SetState<T>(string key, T state) where T : class
-        {
-            if (string.IsNullOrWhiteSpace(key) || state == null)
-            {
-                return;
-            }
-
-            stateByKey[key] = state;
-        }
-    }
-
-    /// <summary>
-    /// Context passed to generators while applying or removing a feature on an FBX mesh node.
-    /// </summary>
-    public sealed class MeshFeatureFbxGenerationContext
-    {
-        private readonly HashSet<MeshFeatureObject> handledFeatures = new();
-
-        public BlendShareObject Share { get; }
-        public MeshDataObject MeshData { get; }
-        public FbxNode Node { get; }
-        public MeshFeatureFbxGenerationSession Session { get; }
-        public bool RemoveInAllDeformer { get; }
-        public IReadOnlyList<MeshFeatureObject> Features =>
-            MeshData != null ? MeshData.Features : System.Array.Empty<MeshFeatureObject>();
-        public bool HasUnhandledFeatures => Features.Any(feature => feature != null && !handledFeatures.Contains(feature));
-        public FbxMesh TargetMesh => Node?.GetMesh();
-        public FbxNode RootNode => Session?.RootNode;
-
-        /// <summary>
-        /// Creates an FBX mesh generation context.
-        /// </summary>
-        /// <param name="share">BlendShare asset currently being applied.</param>
-        /// <param name="meshData">Stored mesh data currently being generated.</param>
-        /// <param name="node">Target FBX node.</param>
-        /// <param name="removeInAllDeformer">Whether removal should scan all blendshape deformers.</param>
-        /// <param name="session">Shared FBX generation session.</param>
-        public MeshFeatureFbxGenerationContext(
-            BlendShareObject share,
-            MeshDataObject meshData,
-            FbxNode node,
-            bool removeInAllDeformer = true,
-            MeshFeatureFbxGenerationSession session = null)
-        {
-            Share = share;
-            MeshData = meshData;
-            Node = node;
-            Session = session;
-            RemoveInAllDeformer = removeInAllDeformer;
-        }
-
-        /// <summary>
-        /// Gets and claims the stored feature object for this mesh, if present.
-        /// </summary>
-        /// <typeparam name="TFeature">Feature object type to retrieve.</typeparam>
-        /// <returns>The stored feature object, or <c>null</c> when the mesh does not contain that feature.</returns>
-        public TFeature GetFeature<TFeature>() where TFeature : MeshFeatureObject
-        {
-            var feature = MeshData != null ? MeshData.GetFeature<TFeature>() : null;
-            if (feature != null)
-            {
-                handledFeatures.Add(feature);
-            }
-
-            return feature;
-        }
-
-        /// <summary>
-        /// Gets stored feature objects that no generation pass claimed from this context.
-        /// </summary>
-        /// <returns>Unhandled feature objects for diagnostics.</returns>
-        public IEnumerable<MeshFeatureObject> GetUnhandledFeatures()
-        {
-            return Features.Where(feature => feature != null && !handledFeatures.Contains(feature));
-        }
-    }
-#endif
 }

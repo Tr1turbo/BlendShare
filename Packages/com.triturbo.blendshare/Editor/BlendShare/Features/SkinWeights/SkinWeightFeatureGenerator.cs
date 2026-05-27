@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Triturbo.BlendShare.Components;
 using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Features.BoneGraph;
 using Triturbo.BlendShare.Fbx;
@@ -27,7 +28,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         public override int Order => -100;
 
         protected override MeshFeatureGenerationResult CanApplyToUnityMesh(
-            MeshFeatureUnityGenerationContext context,
+            UnityMeshGenerationContext context,
             SkinWeightFeatureObject feature)
         {
             if (context.MeshData == null || context.WorkingMesh == null)
@@ -47,7 +48,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         protected override MeshFeatureGenerationResult ApplyToUnityMesh(
-            MeshFeatureUnityGenerationContext context,
+            UnityMeshGenerationContext context,
             SkinWeightFeatureObject feature)
         {
             var canApply = CanApplyToUnityMesh(context, feature);
@@ -81,6 +82,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 context.MeshKey,
                 ResolveRootBonePath(context, feature),
                 boneTable.BonePaths);
+            RegisterArmatureBones(context, feature, mapping);
             context.WorkingMesh = mesh;
 
             EditorUtility.SetDirty(mesh);
@@ -89,7 +91,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
 #if ENABLE_FBX_SDK
         protected override MeshFeatureGenerationResult CanApplyToFbx(
-            MeshFeatureFbxGenerationContext context,
+            FbxGenerationContext context,
             SkinWeightFeatureObject feature)
         {
             feature.Sanitize(context.MeshData);
@@ -97,7 +99,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         protected override MeshFeatureGenerationResult ApplyToFbx(
-            MeshFeatureFbxGenerationContext context,
+            FbxGenerationContext context,
             SkinWeightFeatureObject feature)
         {
             FbxMesh targetMesh = context.TargetMesh;
@@ -145,7 +147,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         protected override MeshFeatureGenerationResult RemoveFromFbx(
-            MeshFeatureFbxGenerationContext context,
+            FbxGenerationContext context,
             SkinWeightFeatureObject feature)
         {
             return MeshFeatureGenerationResult.Skipped();
@@ -240,7 +242,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static bool ApplyBoneGraphNodesToFbx(
-            MeshFeatureFbxGenerationContext context,
+            FbxGenerationContext context,
             BoneGraphObject boneGraph,
             out string error)
         {
@@ -268,7 +270,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static FbxNode ResolveOrCreateFbxBone(
-            MeshFeatureFbxGenerationContext context,
+            FbxGenerationContext context,
             BoneGraphObject boneGraph,
             string path,
             HashSet<string> resolving,
@@ -334,7 +336,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static bool TryGetCurrentSkinState(
-            MeshFeatureFbxGenerationContext context,
+            FbxGenerationContext context,
             out FbxSkinRebuildState state,
             out string error)
         {
@@ -365,13 +367,13 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return true;
         }
 
-        private static string BuildSkinStateKey(MeshFeatureFbxGenerationContext context)
+        private static string BuildSkinStateKey(FbxGenerationContext context)
         {
             return $"fbx-skin::{MeshNodePath.Normalize(context?.MeshData?.m_Path)}";
         }
 
         private static UfbxMesh GetReaderMesh(
-            MeshFeatureFbxGenerationContext context,
+            FbxGenerationContext context,
             out string error)
         {
             error = null;
@@ -440,7 +442,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static bool RebuildFbxSkin(
-            MeshFeatureFbxGenerationContext context,
+            FbxGenerationContext context,
             SkinWeightFeatureObject feature,
             FbxSkinRebuildState state,
             out string error)
@@ -495,7 +497,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static List<FbxClusterRebuildData> BuildClusterRebuildData(
-            MeshFeatureFbxGenerationContext context,
+            FbxGenerationContext context,
             SkinWeightFeatureObject feature,
             FbxSkinRebuildState state,
             out string error)
@@ -548,7 +550,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static ClusterMatrices ResolveClusterMatrices(
-            MeshFeatureFbxGenerationContext context,
+            FbxGenerationContext context,
             SkinWeightFeatureObject feature,
             string path,
             FbxNode boneNode)
@@ -579,7 +581,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             }
         }
 
-        private static FbxNode GetRootNode(MeshFeatureFbxGenerationContext context)
+        private static FbxNode GetRootNode(FbxGenerationContext context)
         {
             if (context.RootNode != null)
             {
@@ -888,7 +890,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 #endif
 
         private static BoneTable BuildBoneTable(
-            MeshFeatureUnityGenerationContext context,
+            UnityMeshGenerationContext context,
             SkinWeightFeatureObject feature,
             Mesh mesh,
             UnityVertexMappingObject mapping,
@@ -916,10 +918,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             foreach (string path in GetMeshNeededBonePathsInGraphOrder(feature))
             {
                 string finalPath = path;
-                BlendShareGenerationBoneOverride boneOverride = null;
-                if (context.Request != null && context.Request.TryGetBoneOverride(path, out boneOverride))
+                if (TryGetBoneProxyData(context, feature, path, out var boneProxy))
                 {
-                    finalPath = boneOverride.FinalBonePath;
+                    finalPath = boneProxy.FinalBonePath;
                 }
 
                 if (table.HasPath(finalPath))
@@ -976,7 +977,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static bool TryResolveExtraBoneBindPose(
-            MeshFeatureUnityGenerationContext context,
+            UnityMeshGenerationContext context,
             SkinWeightFeatureObject feature,
             string path,
             UnityVertexMappingObject mapping,
@@ -984,10 +985,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             out string error)
         {
             bindPose = Matrix4x4.identity;
-            if (context.Request != null &&
-                context.Request.TryGetBoneOverride(path, out var boneOverride) &&
-                boneOverride.RecalculateBindpose &&
-                boneOverride.TryGetLocalToWorld(context.TargetRootTransform, out var overrideLocalToWorld))
+            if (TryGetBoneProxyData(context, feature, path, out var boneProxy) &&
+                boneProxy.RecalculateBindpose &&
+                boneProxy.TryGetLocalToWorld(out var overrideLocalToWorld))
             {
                 bindPose = overrideLocalToWorld.inverse * context.TargetRenderer.transform.localToWorldMatrix;
                 error = null;
@@ -1008,7 +1008,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return true;
             }
 
-            if (!TryResolveBoneLocalToWorld(context, feature?.m_BoneGraph, path, mapping, new HashSet<string>(), out var localToWorld, out error))
+            if (!TryResolveBoneLocalToWorld(context, feature, path, mapping, new HashSet<string>(), out var localToWorld, out error))
             {
                 return false;
             }
@@ -1018,8 +1018,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static bool TryResolveBoneLocalToWorld(
-            MeshFeatureUnityGenerationContext context,
-            BoneGraphObject boneGraph,
+            UnityMeshGenerationContext context,
+            SkinWeightFeatureObject feature,
             string path,
             UnityVertexMappingObject mapping,
             HashSet<string> resolving,
@@ -1036,14 +1036,14 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return true;
             }
 
-            if (context.Request != null &&
-                context.Request.TryGetBoneOverride(path, out var boneOverride) &&
-                boneOverride.RecalculateBindpose &&
-                boneOverride.TryGetLocalToWorld(context.TargetRootTransform, out localToWorld))
+            if (TryGetBoneProxyData(context, feature, path, out var boneProxy) &&
+                boneProxy.RecalculateBindpose &&
+                boneProxy.TryGetLocalToWorld(out localToWorld))
             {
                 return true;
             }
 
+            var boneGraph = feature?.m_BoneGraph;
             var graphBone = boneGraph != null ? boneGraph.GetBone(path) : null;
             if (graphBone == null)
             {
@@ -1074,7 +1074,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             }
 
             string parentPath = MeshNodePath.Normalize(graphBone.m_ParentPath);
-            if (!TryResolveBoneLocalToWorld(context, boneGraph, parentPath, mapping, resolving, out var parentLocalToWorld, out error))
+            if (!TryResolveBoneLocalToWorld(context, feature, parentPath, mapping, resolving, out var parentLocalToWorld, out error))
             {
                 resolving.Remove(path);
                 localToWorld = Matrix4x4.identity;
@@ -1090,8 +1090,169 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return true;
         }
 
+        private static bool TryGetBoneProxyData(
+            UnityMeshGenerationContext context,
+            SkinWeightFeatureObject feature,
+            string sourceBonePath,
+            out BoneProxyGenerationData data)
+        {
+            data = null;
+            var meshComponent = context.GetComponent<BlendShareMeshComponent>();
+            if (meshComponent == null ||
+                feature?.m_BoneGraph == null ||
+                !meshComponent.TryGetBoneProxyBinding(feature.m_BoneGraph, sourceBonePath, out var binding) ||
+                binding?.Proxy == null ||
+                binding.Proxy.TargetParent == null)
+            {
+                return false;
+            }
+
+            var proxy = binding.Proxy;
+            string parentPath = MeshNodePath.Normalize(MeshNodePath.GetRelativePath(proxy.TargetParent, context.TargetRootTransform));
+            string finalPath = parentPath == MeshNodePath.Root
+                ? MeshNodePath.Normalize(proxy.name)
+                : MeshNodePath.Normalize($"{parentPath}/{proxy.name}");
+            data = new BoneProxyGenerationData(
+                finalPath,
+                parentPath,
+                proxy,
+                proxy.TargetParent,
+                proxy.LocalPosition,
+                proxy.LocalEulerRotation,
+                proxy.LocalScale,
+                proxy.RecalculateBindpose);
+            return true;
+        }
+
+        private static void RegisterArmatureBones(
+            UnityMeshGenerationContext context,
+            SkinWeightFeatureObject feature,
+            UnityVertexMappingObject mapping)
+        {
+            if (context?.Session == null || feature?.m_BoneGraph == null)
+            {
+                return;
+            }
+
+            context.Session.AddArmatureBones((feature.m_BoneGraph.Bones ?? Array.Empty<BoneNodeData>())
+                .Where(bone => bone != null)
+                .Select(bone => CreateArtifactBoneNode(context, feature, mapping, bone)));
+        }
+
+        private static BoneNodeData CreateArtifactBoneNode(
+            UnityMeshGenerationContext context,
+            SkinWeightFeatureObject feature,
+            UnityVertexMappingObject mapping,
+            BoneNodeData bone)
+        {
+            if (TryGetProxyBoneNode(context, feature, bone.m_Path, out var proxyBone))
+            {
+                return proxyBone;
+            }
+
+            return new BoneNodeData(
+                bone.m_Path,
+                bone.m_ParentPath,
+                mapping != null ? mapping.ConvertFbxVectorToUnity(bone.m_FbxLocalTranslation) : bone.m_FbxLocalTranslation,
+                bone.m_FbxLocalEulerRotation,
+                bone.m_FbxLocalScale,
+                bone.m_CreateIfMissing);
+        }
+
+        private static bool TryGetProxyBoneNode(
+            UnityMeshGenerationContext context,
+            SkinWeightFeatureObject feature,
+            string sourceBonePath,
+            out BoneNodeData boneNode)
+        {
+            boneNode = null;
+            if (!TryGetBoneProxyData(context, feature, sourceBonePath, out var boneProxy))
+            {
+                return false;
+            }
+
+            GetProxyLocalTransform(
+                boneProxy.Proxy,
+                out var localPosition,
+                out var localEulerRotation,
+                out var localScale);
+            boneNode = new BoneNodeData(
+                boneProxy.FinalBonePath,
+                boneProxy.ParentPath,
+                localPosition,
+                localEulerRotation,
+                localScale,
+                true);
+            return true;
+        }
+
+        private static void GetProxyLocalTransform(
+            BlendShareBoneProxyComponent proxy,
+            out Vector3 localPosition,
+            out Vector3 localEulerRotation,
+            out Vector3 localScale)
+        {
+            if (proxy != null &&
+                proxy.TryGetCurrentLocalTransform(out localPosition, out localEulerRotation, out localScale))
+            {
+                localScale = localScale == Vector3.zero ? Vector3.one : localScale;
+                return;
+            }
+
+            localPosition = proxy != null ? proxy.LocalPosition : Vector3.zero;
+            localEulerRotation = proxy != null ? proxy.LocalEulerRotation : Vector3.zero;
+            localScale = proxy != null ? proxy.LocalScale : Vector3.one;
+        }
+
+        private sealed class BoneProxyGenerationData
+        {
+            public string FinalBonePath { get; }
+            public string ParentPath { get; }
+            public BlendShareBoneProxyComponent Proxy { get; }
+            public Transform TargetParent { get; }
+            public Vector3 LocalPosition { get; }
+            public Vector3 LocalEulerRotation { get; }
+            public Vector3 LocalScale { get; }
+            public bool RecalculateBindpose { get; }
+
+            public BoneProxyGenerationData(
+                string finalBonePath,
+                string parentPath,
+                BlendShareBoneProxyComponent proxy,
+                Transform targetParent,
+                Vector3 localPosition,
+                Vector3 localEulerRotation,
+                Vector3 localScale,
+                bool recalculateBindpose)
+            {
+                FinalBonePath = MeshNodePath.Normalize(finalBonePath);
+                ParentPath = MeshNodePath.Normalize(parentPath);
+                Proxy = proxy;
+                TargetParent = targetParent;
+                LocalPosition = localPosition;
+                LocalEulerRotation = localEulerRotation;
+                LocalScale = localScale == Vector3.zero ? Vector3.one : localScale;
+                RecalculateBindpose = recalculateBindpose;
+            }
+
+            public bool TryGetLocalToWorld(out Matrix4x4 localToWorld)
+            {
+                if (TargetParent == null)
+                {
+                    localToWorld = Matrix4x4.identity;
+                    return false;
+                }
+
+                localToWorld = TargetParent.localToWorldMatrix * Matrix4x4.TRS(
+                    LocalPosition,
+                    Quaternion.Euler(LocalEulerRotation),
+                    LocalScale);
+                return true;
+            }
+        }
+
         private static string ResolveRootBonePath(
-            MeshFeatureUnityGenerationContext context,
+            UnityMeshGenerationContext context,
             SkinWeightFeatureObject feature)
         {
             string rootBonePath = MeshNodePath.Normalize(feature.m_RootBonePath);

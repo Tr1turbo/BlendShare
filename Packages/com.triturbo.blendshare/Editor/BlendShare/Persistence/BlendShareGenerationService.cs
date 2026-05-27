@@ -30,14 +30,15 @@ namespace Triturbo.BlendShare.Persistence
                 return null;
             }
 
-            var pipeline = new MeshFeatureGenerationPipeline();
+            var unityPipeline = new UnityMeshGenerationPipeline();
             var appliedBlendShares = GetAppliedBlendShares(targetMeshContainer, shares);
             GameObject targetFbx = GetTargetFbx(targetMeshContainer);
 
-            if (targetFbx != null && !pipeline.CanApplyToUnityMeshes(targetMeshContainer, shares))
+            if (targetFbx != null && !unityPipeline.CanApplyToUnityMeshes(targetMeshContainer, shares))
             {
 #if ENABLE_FBX_SDK
-                if (pipeline.CanApplyToFbx(appliedBlendShares))
+                var fbxPipeline = new FbxGenerationPipeline();
+                if (fbxPipeline.CanApply(appliedBlendShares))
                 {
                     string folder = System.IO.Path.GetDirectoryName(path) ?? Application.dataPath;
                     string tempAssetPath = System.IO.Path.Combine(folder, $"{targetMeshContainer.name}-{System.Guid.NewGuid()}.fbx");
@@ -63,23 +64,34 @@ namespace Triturbo.BlendShare.Persistence
                 return null;
             }
 
-            bool generationSucceeded = pipeline.TryGenerateUnityMeshes(
+            var artifact = unityPipeline.CreateArtifact(
                 targetMeshContainer,
                 shares,
-                out var generatedMeshes,
-                out var generatedObjects);
-            if (!generationSucceeded)
+                null,
+                appliedBlendShares);
+            if (artifact == null)
             {
-                RemoveGeneratedObjects(generatedObjects);
                 return null;
             }
 
-            return GeneratedMeshAssetSO.SaveBlendShareMeshesToAsset(
-                targetFbx,
-                appliedBlendShares,
-                generatedMeshes,
-                generatedObjects,
-                path);
+            var meshes = (artifact.m_Meshes ?? System.Array.Empty<BlendShareMeshDescriptor>())
+                .Select(descriptor => descriptor?.m_Mesh)
+                .Where(mesh => mesh != null)
+                .ToArray();
+            try
+            {
+                return GeneratedMeshAssetSO.SaveBlendShareMeshesToAsset(
+                    targetFbx,
+                    appliedBlendShares,
+                    meshes,
+                    artifact.m_Armature != null ? new Object[] { artifact.m_Armature } : System.Array.Empty<Object>(),
+                    path);
+            }
+            finally
+            {
+                RemoveGeneratedObjects(meshes);
+                RemoveGeneratedObjects(new Object[] { artifact.m_Armature, artifact });
+            }
         }
 
         /// <summary>
@@ -90,7 +102,7 @@ namespace Triturbo.BlendShare.Persistence
         /// <returns><c>true</c> when every feature can be applied directly to the Unity meshes.</returns>
         public static bool IsAllMeshesValid(IEnumerable<BlendShareObject> blendShares, IEnumerable<Mesh> meshes)
         {
-            return new MeshFeatureGenerationPipeline().CanApplyToUnityMeshes(blendShares, meshes);
+            return new UnityMeshGenerationPipeline().CanApplyToUnityMeshes(blendShares, meshes);
         }
 
 #if ENABLE_FBX_SDK
@@ -108,7 +120,7 @@ namespace Triturbo.BlendShare.Persistence
             string outputPath = null,
             bool onlyNecessary = false)
         {
-            return new MeshFeatureGenerationPipeline().CreateFbx(source, blendShares, outputPath, onlyNecessary);
+            return new FbxGenerationPipeline().Create(source, blendShares, outputPath, onlyNecessary);
         }
 
         /// <summary>
@@ -123,7 +135,7 @@ namespace Triturbo.BlendShare.Persistence
             GameObject target,
             bool removeInAllDeformer = true)
         {
-            return new MeshFeatureGenerationPipeline().RemoveBlendShapes(share, target, removeInAllDeformer);
+            return new FbxGenerationPipeline().RemoveBlendShapes(share, target, removeInAllDeformer);
         }
 #else
         /// <summary>
