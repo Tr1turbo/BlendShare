@@ -12,7 +12,7 @@ namespace Triturbo.BlendShare.NDMF
         private const string RendererBlendShapePropertyPrefix = "blendShape.";
 
         public static void ApplyWeightsToRenderer(
-            BlendShareMeshComponent applier,
+            BlendShareMesh applier,
             SkinnedMeshRenderer renderer)
         {
             ApplyWeightsToRenderer(applier?.BlendShapeWeights, renderer);
@@ -44,7 +44,7 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         public static void RetargetRendererBlendShapeCurves(
-            IEnumerable<BlendShareMeshComponent> appliers,
+            IEnumerable<BlendShareMesh> appliers,
             AnimatorServicesContext animatorServices)
         {
             if (animatorServices == null)
@@ -52,7 +52,7 @@ namespace Triturbo.BlendShare.NDMF
                 return;
             }
 
-            var remaps = (appliers ?? Enumerable.Empty<BlendShareMeshComponent>())
+            var remaps = (appliers ?? Enumerable.Empty<BlendShareMesh>())
                 .Where(applier => applier != null &&
                                   applier.TargetRenderer != null)
                 .SelectMany(applier => BuildRendererCurveRemaps(applier, animatorServices.ObjectPathRemapper))
@@ -81,7 +81,7 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         private static IEnumerable<CurveRemap> BuildRendererCurveRemaps(
-            BlendShareMeshComponent applier,
+            BlendShareMesh applier,
             ObjectPathRemapper pathRemapper)
         {
             if (applier == null || applier.TargetRenderer == null)
@@ -107,7 +107,7 @@ namespace Triturbo.BlendShare.NDMF
                     propertyName);
                 var sourceBinding = EditorCurveBinding.FloatCurve(
                     applierPath,
-                    typeof(BlendShareMeshComponent),
+                    typeof(BlendShareMesh),
                     propertyName);
                 if (!sourceBinding.Equals(targetBinding))
                 {
@@ -116,7 +116,7 @@ namespace Triturbo.BlendShare.NDMF
             }
         }
 
-        private static IEnumerable<string> GetBlendShapeNames(BlendShareMeshComponent applier)
+        private static IEnumerable<string> GetBlendShapeNames(BlendShareMesh applier)
         {
             foreach (var weight in applier?.BlendShapeWeights ?? System.Array.Empty<BlendShareProxyBlendShapeWeight>())
             {

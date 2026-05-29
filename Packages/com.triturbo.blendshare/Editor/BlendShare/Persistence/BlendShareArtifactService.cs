@@ -134,14 +134,14 @@ namespace Triturbo.BlendShare.Persistence
 
         public static BlendShareArtifact CreateInMemoryArtifact(
             GameObject targetRoot,
-            IEnumerable<BlendShareGenerationComponent> components)
+            IEnumerable<BlendShareComponent> components)
         {
             if (targetRoot == null)
             {
                 return null;
             }
 
-            var componentArray = (components ?? Enumerable.Empty<BlendShareGenerationComponent>())
+            var componentArray = (components ?? Enumerable.Empty<BlendShareComponent>())
                 .Where(component => component != null)
                 .Distinct()
                 .ToArray();

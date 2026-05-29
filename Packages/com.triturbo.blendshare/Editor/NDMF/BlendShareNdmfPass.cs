@@ -19,14 +19,14 @@ namespace Triturbo.BlendShare.NDMF
 
         protected override void Execute(nadena.dev.ndmf.BuildContext context)
         {
-            var appliers = context.AvatarRootObject.GetComponentsInChildren<BlendShareComponent>(true);
+            var appliers = context.AvatarRootObject.GetComponentsInChildren<BlendShareCore>(true);
             if (appliers.Length == 0)
             {
                 return;
             }
 
-            var meshAppliers = context.AvatarRootObject.GetComponentsInChildren<BlendShareMeshComponent>(true);
-            var boneProxies = context.AvatarRootObject.GetComponentsInChildren<BlendShareBoneProxyComponent>(true);
+            var meshAppliers = context.AvatarRootObject.GetComponentsInChildren<BlendShareMesh>(true);
+            var boneProxies = context.AvatarRootObject.GetComponentsInChildren<BlendShareBoneProxy>(true);
             AnimatorServicesContext animatorServices;
             ObjectPathRemapper pathRemapper;
             try
@@ -45,7 +45,7 @@ namespace Triturbo.BlendShare.NDMF
                 PlaceProxyInBuildHierarchy(proxy, context.AvatarRootTransform, pathRemapper);
             }
 
-            var validMeshAppliers = new List<BlendShareMeshComponent>();
+            var validMeshAppliers = new List<BlendShareMesh>();
             foreach (var applier in meshAppliers.Where(applier => applier != null && applier.EnabledForBuild && applier.Owner != null && applier.Owner.enabled))
             {
                 if (!BlendShareComponentSetupService.ValidateMeshApplierForBuild(applier, out string diagnostic))
@@ -91,7 +91,7 @@ namespace Triturbo.BlendShare.NDMF
                     .Where(owner => owner != null)
                     .Distinct()
                     .ToArray();
-                var generationComponents = owners.Cast<BlendShareGenerationComponent>()
+                var generationComponents = owners.Cast<BlendShareComponent>()
                     .Concat(rootAppliers)
                     .Concat(boneProxies.Where(proxy => proxy != null && owners.Contains(proxy.Owner)))
                     .Distinct()
@@ -132,23 +132,23 @@ namespace Triturbo.BlendShare.NDMF
                 BlendShareBlendShapeWeightService.RetargetRendererBlendShapeCurves(rootAppliers, animatorServices);
             }
 
-            foreach (var component in context.AvatarRootObject.GetComponentsInChildren<BlendShareMeshComponent>(true))
+            foreach (var component in context.AvatarRootObject.GetComponentsInChildren<BlendShareMesh>(true))
             {
                 Object.DestroyImmediate(component);
             }
 
-            foreach (var component in context.AvatarRootObject.GetComponentsInChildren<BlendShareBoneProxyComponent>(true))
+            foreach (var component in context.AvatarRootObject.GetComponentsInChildren<BlendShareBoneProxy>(true))
             {
                 Object.DestroyImmediate(component);
             }
 
-            foreach (var component in context.AvatarRootObject.GetComponentsInChildren<BlendShareComponent>(true))
+            foreach (var component in context.AvatarRootObject.GetComponentsInChildren<BlendShareCore>(true))
             {
                 Object.DestroyImmediate(component);
             }
         }
 
-        private static void ReportMappingFailure(BlendShareMeshComponent applier, string diagnostic)
+        private static void ReportMappingFailure(BlendShareMesh applier, string diagnostic)
         {
             var details = BuildMappingFailureDetails(applier, diagnostic);
             ErrorReport.ReportError(new BlendShareNdmfError(
@@ -158,7 +158,7 @@ namespace Triturbo.BlendShare.NDMF
             Debug.LogError($"[BlendShare NDMF] {details}", applier);
         }
 
-        private static string BuildMappingFailureDetails(BlendShareMeshComponent applier, string diagnostic)
+        private static string BuildMappingFailureDetails(BlendShareMesh applier, string diagnostic)
         {
             string rendererPath = applier?.TargetRenderer != null
                 ? MeshNodePath.Normalize(MeshNodePath.GetRelativePath(
@@ -236,7 +236,7 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         private static void PlaceProxyInBuildHierarchy(
-            BlendShareBoneProxyComponent proxy,
+            BlendShareBoneProxy proxy,
             Transform fallbackRoot,
             ObjectPathRemapper pathRemapper)
         {

@@ -13,7 +13,7 @@ namespace Triturbo.BlendShare.NDMF
     public static class BlendShareComponentSetupService
     {
 
-        public static RebuildMeshBindingsResult RebuildMeshBindings(BlendShareComponent owner)
+        public static RebuildMeshBindingsResult RebuildMeshBindings(BlendShareCore owner)
         {
             var result = new RebuildMeshBindingsResult();
             if (owner == null)
@@ -70,7 +70,7 @@ namespace Triturbo.BlendShare.NDMF
             return result;
         }
 
-        public static RebuildBoneProxiesResult RebuildBoneProxies(BlendShareComponent owner)
+        public static RebuildBoneProxiesResult RebuildBoneProxies(BlendShareCore owner)
         {
             var result = new RebuildBoneProxiesResult();
             if (owner == null)
@@ -97,9 +97,9 @@ namespace Triturbo.BlendShare.NDMF
             var proxiesByName = existingProxies
                 .GroupBy(proxy => proxy.name)
                 .ToDictionary(group => group.Key, group => group.ToList());
-            var updatedProxiesByKey = new Dictionary<string, BlendShareBoneProxyComponent>();
-            var usedProxies = new HashSet<BlendShareBoneProxyComponent>();
-            var proxiesByBonePath = new Dictionary<string, BlendShareBoneProxyComponent>();
+            var updatedProxiesByKey = new Dictionary<string, BlendShareBoneProxy>();
+            var usedProxies = new HashSet<BlendShareBoneProxy>();
+            var proxiesByBonePath = new Dictionary<string, BlendShareBoneProxy>();
 
             foreach (var meshApplier in FindOwnedMeshAppliers(owner)
                          .Where(applier => applier != null && applier.EnabledForBuild))
@@ -188,10 +188,10 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         private static bool TryTakeProxy(
-            IReadOnlyDictionary<string, List<BlendShareBoneProxyComponent>> proxies,
+            IReadOnlyDictionary<string, List<BlendShareBoneProxy>> proxies,
             string key,
-            ISet<BlendShareBoneProxyComponent> usedProxies,
-            out BlendShareBoneProxyComponent proxy)
+            ISet<BlendShareBoneProxy> usedProxies,
+            out BlendShareBoneProxy proxy)
         {
             proxy = null;
             if (string.IsNullOrWhiteSpace(key) ||
@@ -205,7 +205,7 @@ namespace Triturbo.BlendShare.NDMF
             return proxy != null;
         }
 
-        public static Transform ResolveTargetRoot(BlendShareComponent owner)
+        public static Transform ResolveTargetRoot(BlendShareCore owner)
         {
             if (owner == null)
             {
@@ -215,7 +215,7 @@ namespace Triturbo.BlendShare.NDMF
             return owner.TargetRoot != null ? owner.TargetRoot : owner.transform;
         }
 
-        private static UnityVertexMappingObject GetFbxToUnityMapping(BlendShareMeshComponent meshApplier, MeshDataObject meshData)
+        private static UnityVertexMappingObject GetFbxToUnityMapping(BlendShareMesh meshApplier, MeshDataObject meshData)
         {
             var targetMesh = meshApplier?.TargetRenderer != null ? meshApplier.TargetRenderer.sharedMesh : null;
             var mapping = targetMesh != null
@@ -236,7 +236,7 @@ namespace Triturbo.BlendShare.NDMF
             return mapping;
         }
 
-        private static IEnumerable<MeshDataObject> GetMeshDataForApplier(BlendShareMeshComponent meshApplier)
+        private static IEnumerable<MeshDataObject> GetMeshDataForApplier(BlendShareMesh meshApplier)
         {
             if (meshApplier?.Owner == null || meshApplier.MeshData == null)
             {
@@ -250,7 +250,7 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         public static bool ValidateMeshApplierForBuild(
-            BlendShareMeshComponent applier,
+            BlendShareMesh applier,
             out string diagnostic)
         {
             diagnostic = null;
@@ -294,7 +294,7 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         public static bool ValidateMeshApplierMapping(
-            BlendShareMeshComponent applier,
+            BlendShareMesh applier,
             out string diagnostic)
         {
             diagnostic = null;
@@ -337,7 +337,7 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         public static bool TryGetCachedInvalidMappingDiagnostic(
-            BlendShareMeshComponent applier,
+            BlendShareMesh applier,
             out string diagnostic)
         {
             diagnostic = null;
@@ -365,7 +365,7 @@ namespace Triturbo.BlendShare.NDMF
                 out diagnostic);
         }
 
-        public static void PrepareMeshApplierGenerationMappings(BlendShareMeshComponent applier)
+        public static void PrepareMeshApplierGenerationMappings(BlendShareMesh applier)
         {
             if (applier == null || applier.Owner == null || applier.MeshData == null || applier.TargetRenderer == null)
             {
@@ -385,7 +385,7 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         public static bool EnsureMeshApplierMappingCache(
-            BlendShareMeshComponent applier,
+            BlendShareMesh applier,
             out string diagnostic)
         {
             diagnostic = null;
@@ -482,7 +482,7 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         private static IEnumerable<(BlendShareObject Share, MeshDataObject MeshData)> GetBlendShareMeshPairsForApplier(
-            BlendShareMeshComponent applier)
+            BlendShareMesh applier)
         {
             if (applier?.Owner == null || applier.MeshData == null)
             {
@@ -496,14 +496,14 @@ namespace Triturbo.BlendShare.NDMF
             }
         }
 
-        private static BlendShareObject FindBlendShareForMeshData(BlendShareComponent owner, MeshDataObject meshData)
+        private static BlendShareObject FindBlendShareForMeshData(BlendShareCore owner, MeshDataObject meshData)
         {
             return (owner?.BlendShares ?? Array.Empty<BlendShareObject>())
                 .Where(share => share != null)
                 .FirstOrDefault(share => (share.Meshes ?? Array.Empty<MeshDataObject>()).Contains(meshData));
         }
 
-        public static GameObject ResolveSourceFbx(BlendShareComponent owner, Mesh targetMesh)
+        public static GameObject ResolveSourceFbx(BlendShareCore owner, Mesh targetMesh)
         {
             if (targetMesh != null)
             {
@@ -521,7 +521,7 @@ namespace Triturbo.BlendShare.NDMF
             return ResolveOriginalFbx(owner);
         }
 
-        private static GameObject ResolveOriginalFbx(BlendShareComponent owner)
+        private static GameObject ResolveOriginalFbx(BlendShareCore owner)
         {
             return (owner?.BlendShares ?? Array.Empty<BlendShareObject>())
                 .Where(share => share != null)
@@ -529,36 +529,36 @@ namespace Triturbo.BlendShare.NDMF
                 .FirstOrDefault(original => original != null);
         }
 
-        public static BlendShareMeshComponent[] FindOwnedMeshAppliers(BlendShareComponent owner)
+        public static BlendShareMesh[] FindOwnedMeshAppliers(BlendShareCore owner)
         {
             if (owner == null)
             {
-                return Array.Empty<BlendShareMeshComponent>();
+                return Array.Empty<BlendShareMesh>();
             }
 
-            return UnityEngine.Object.FindObjectsOfType<BlendShareMeshComponent>(true)
+            return UnityEngine.Object.FindObjectsOfType<BlendShareMesh>(true)
                 .Where(applier => applier != null &&
                                   applier.Owner == owner &&
                                   applier.gameObject.scene == owner.gameObject.scene)
                 .ToArray();
         }
 
-        public static BlendShareBoneProxyComponent[] FindOwnedBoneProxies(BlendShareComponent owner)
+        public static BlendShareBoneProxy[] FindOwnedBoneProxies(BlendShareCore owner)
         {
             if (owner == null)
             {
-                return Array.Empty<BlendShareBoneProxyComponent>();
+                return Array.Empty<BlendShareBoneProxy>();
             }
 
-            return UnityEngine.Object.FindObjectsOfType<BlendShareBoneProxyComponent>(true)
+            return UnityEngine.Object.FindObjectsOfType<BlendShareBoneProxy>(true)
                 .Where(proxy => proxy != null &&
                                 proxy.Owner == owner &&
                                 proxy.gameObject.scene == owner.gameObject.scene)
                 .ToArray();
         }
 
-        private static BlendShareMeshComponent CreateMeshApplier(
-            BlendShareComponent owner,
+        private static BlendShareMesh CreateMeshApplier(
+            BlendShareCore owner,
             SkinnedMeshRenderer renderer,
             string rendererPath)
         {
@@ -574,18 +574,18 @@ namespace Triturbo.BlendShare.NDMF
                 host.transform.SetParent(owner.transform, false);
             }
 
-            var applier = host.GetComponents<BlendShareMeshComponent>()
+            var applier = host.GetComponents<BlendShareMesh>()
                 .FirstOrDefault(component => component.Owner == owner || component.Owner == null);
             if (applier == null)
             {
-                applier = Undo.AddComponent<BlendShareMeshComponent>(host);
+                applier = Undo.AddComponent<BlendShareMesh>(host);
             }
 
             return applier;
         }
 
-        private static BlendShareBoneProxyComponent CreateBoneProxy(
-            BlendShareComponent owner,
+        private static BlendShareBoneProxy CreateBoneProxy(
+            BlendShareCore owner,
             string sourceBonePath,
             Transform parent)
         {
@@ -593,7 +593,7 @@ namespace Triturbo.BlendShare.NDMF
             var host = new GameObject(CreateUniqueChildName(owner.transform, desiredName));
             Undo.RegisterCreatedObjectUndo(host, "Create BlendShare Bone Proxy");
             host.transform.SetParent(owner.transform, false);
-            var proxy = Undo.AddComponent<BlendShareBoneProxyComponent>(host);
+            var proxy = Undo.AddComponent<BlendShareBoneProxy>(host);
             proxy.TargetParent = parent;
             return proxy;
         }
@@ -621,7 +621,7 @@ namespace Triturbo.BlendShare.NDMF
             BoneGraphObject graph,
             Transform targetRoot,
             IReadOnlyDictionary<string, Transform> transformsByPath,
-            IReadOnlyDictionary<string, BlendShareBoneProxyComponent> proxiesByBonePath)
+            IReadOnlyDictionary<string, BlendShareBoneProxy> proxiesByBonePath)
         {
             string parentPath = MeshNodePath.Normalize(bone?.m_ParentPath);
             while (parentPath != MeshNodePath.Root)
@@ -668,7 +668,7 @@ namespace Triturbo.BlendShare.NDMF
                 Quantize(localScale.x), Quantize(localScale.y), Quantize(localScale.z));
         }
 
-        private static BlendShareMeshComponent TakeFirst(List<BlendShareMeshComponent> appliers)
+        private static BlendShareMesh TakeFirst(List<BlendShareMesh> appliers)
         {
             var first = appliers.FirstOrDefault();
             if (first != null)
@@ -716,10 +716,10 @@ namespace Triturbo.BlendShare.NDMF
     public sealed class RebuildMeshBindingsResult
     {
         private readonly List<string> diagnostics = new();
-        private readonly List<BlendShareMeshComponent> meshAppliers = new();
+        private readonly List<BlendShareMesh> meshAppliers = new();
 
         public IReadOnlyList<string> Diagnostics => diagnostics;
-        public IReadOnlyList<BlendShareMeshComponent> MeshAppliers => meshAppliers;
+        public IReadOnlyList<BlendShareMesh> MeshAppliers => meshAppliers;
         public bool Success => diagnostics.Count == 0;
 
         internal void AddDiagnostic(string diagnostic)
@@ -730,7 +730,7 @@ namespace Triturbo.BlendShare.NDMF
             }
         }
 
-        internal void AddMeshApplier(BlendShareMeshComponent applier)
+        internal void AddMeshApplier(BlendShareMesh applier)
         {
             if (applier != null && !meshAppliers.Contains(applier))
             {
@@ -742,10 +742,10 @@ namespace Triturbo.BlendShare.NDMF
     public sealed class RebuildBoneProxiesResult
     {
         private readonly List<string> diagnostics = new();
-        private readonly List<BlendShareBoneProxyComponent> boneProxies = new();
+        private readonly List<BlendShareBoneProxy> boneProxies = new();
 
         public IReadOnlyList<string> Diagnostics => diagnostics;
-        public IReadOnlyList<BlendShareBoneProxyComponent> BoneProxies => boneProxies;
+        public IReadOnlyList<BlendShareBoneProxy> BoneProxies => boneProxies;
         public bool Success => diagnostics.Count == 0;
 
         internal void AddDiagnostic(string diagnostic)
@@ -756,7 +756,7 @@ namespace Triturbo.BlendShare.NDMF
             }
         }
 
-        internal void AddBoneProxy(BlendShareBoneProxyComponent proxy)
+        internal void AddBoneProxy(BlendShareBoneProxy proxy)
         {
             if (proxy != null && !boneProxies.Contains(proxy))
             {

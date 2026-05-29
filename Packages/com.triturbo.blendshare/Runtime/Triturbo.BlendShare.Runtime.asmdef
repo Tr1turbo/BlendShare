@@ -1,7 +1,9 @@
 {
     "name": "Triturbo.BlendShare.Runtime",
     "rootNamespace": "",
-    "references": [],
+    "references": [
+        "GUID:3456780c4fb2d324ab9c633d6f1b0ddb"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
@@ -9,6 +11,12 @@
     "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [],
-    "versionDefines": [],
+    "versionDefines": [
+        {
+            "name": "com.vrchat.base",
+            "expression": "3.0.0",
+            "define": "BS_HAS_VRCSDK3_BASE"
+        }
+    ],
     "noEngineReferences": false
 }

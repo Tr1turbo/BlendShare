@@ -7,12 +7,12 @@ using UnityEngine;
 
 namespace Triturbo.BlendShare.NDMF
 {
-    [CustomEditor(typeof(BlendShareBoneProxyComponent))]
-    public sealed class BlendShareBoneProxyComponentEditor : UnityEditor.Editor
+    [CustomEditor(typeof(BlendShareBoneProxy))]
+    public sealed class BlendShareBoneProxyEditor : UnityEditor.Editor
     {
         public override void OnInspectorGUI()
         {
-            var proxy = (BlendShareBoneProxyComponent)target;
+            var proxy = (BlendShareBoneProxy)target;
             serializedObject.Update();
 
             EditorGUILayout.LabelField("BlendShare Bone Proxy", EditorStyles.boldLabel);
@@ -84,7 +84,7 @@ namespace Triturbo.BlendShare.NDMF
             }
         }
 
-        private static void NotifyPreviewInputChanged(BlendShareBoneProxyComponent proxy)
+        private static void NotifyPreviewInputChanged(BlendShareBoneProxy proxy)
         {
             EditorUtility.SetDirty(proxy);
             FlushNdmfPreviewInvalidatesIfAvailable();
@@ -117,7 +117,7 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         private static bool TryGetSourceBindingTransform(
-            BlendShareBoneProxyComponent proxy,
+            BlendShareBoneProxy proxy,
             out Vector3 position,
             out Vector3 eulerRotation,
             out Vector3 scale,
@@ -186,7 +186,7 @@ namespace Triturbo.BlendShare.NDMF
             return true;
         }
 
-        private static UnityVertexMappingObject GetFbxToUnityMapping(BlendShareMeshComponent meshApplier)
+        private static UnityVertexMappingObject GetFbxToUnityMapping(BlendShareMesh meshApplier)
         {
             var meshData = meshApplier?.MeshData;
             var targetMesh = meshApplier?.TargetRenderer != null ? meshApplier.TargetRenderer.sharedMesh : null;
@@ -206,14 +206,14 @@ namespace Triturbo.BlendShare.NDMF
             return mapping;
         }
 
-        private static BlendShareObject FindBlendShareForMeshData(BlendShareComponent owner, MeshDataObject meshData)
+        private static BlendShareObject FindBlendShareForMeshData(BlendShareCore owner, MeshDataObject meshData)
         {
             return (owner?.BlendShares ?? System.Array.Empty<BlendShareObject>())
                 .FirstOrDefault(share => share != null && (share.Meshes ?? System.Array.Empty<MeshDataObject>()).Contains(meshData));
         }
 
         [DrawGizmo(GizmoType.Selected | GizmoType.NonSelected | GizmoType.Active)]
-        private static void DrawBindPoseOffsetGizmo(BlendShareBoneProxyComponent proxy, GizmoType gizmoType)
+        private static void DrawBindPoseOffsetGizmo(BlendShareBoneProxy proxy, GizmoType gizmoType)
         {
             if (proxy == null ||
                 proxy.IsTransformAtBindPosition() ||

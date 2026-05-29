@@ -31,7 +31,7 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         public static bool TryGetAnimatedBlendShapeValue(
-            BlendShareMeshComponent applier,
+            BlendShareMesh applier,
             string shapeName,
             out float value,
             out bool recording)
@@ -54,7 +54,7 @@ namespace Triturbo.BlendShare.NDMF
             return true;
         }
 
-        public static void RecordBlendShapeValue(BlendShareMeshComponent applier, string shapeName, float value)
+        public static void RecordBlendShapeValue(BlendShareMesh applier, string shapeName, float value)
         {
             if (!TryGetActiveBlendShapeBinding(applier, shapeName, out var clip, out var binding, out float time, out bool recording) ||
                 !recording)
@@ -74,7 +74,7 @@ namespace Triturbo.BlendShare.NDMF
                 true);
         }
 
-        public static void AddBlendShapeKey(BlendShareMeshComponent applier, string shapeName, float value)
+        public static void AddBlendShapeKey(BlendShareMesh applier, string shapeName, float value)
         {
             if (!TryGetActiveBlendShapeBinding(applier, shapeName, out var clip, out var binding, out float time, out _))
             {
@@ -84,7 +84,7 @@ namespace Triturbo.BlendShare.NDMF
             SetBlendShapeKey(clip, binding, time, value, "Add BlendShape Key");
         }
 
-        public static void RemoveBlendShapeKey(BlendShareMeshComponent applier, string shapeName)
+        public static void RemoveBlendShapeKey(BlendShareMesh applier, string shapeName)
         {
             if (!TryGetActiveBlendShapeBinding(applier, shapeName, out var clip, out var binding, out float time, out _))
             {
@@ -112,7 +112,7 @@ namespace Triturbo.BlendShare.NDMF
             }
         }
 
-        public static void RemoveAllBlendShapeKeys(BlendShareMeshComponent applier, string shapeName)
+        public static void RemoveAllBlendShapeKeys(BlendShareMesh applier, string shapeName)
         {
             if (!TryGetActiveBlendShapeBinding(applier, shapeName, out var clip, out var binding, out _, out _))
             {
@@ -129,7 +129,7 @@ namespace Triturbo.BlendShare.NDMF
             EditorUtility.SetDirty(clip);
         }
 
-        public static bool CanEditActiveBlendShapeCurve(BlendShareMeshComponent applier, string shapeName)
+        public static bool CanEditActiveBlendShapeCurve(BlendShareMesh applier, string shapeName)
         {
             return TryGetActiveBlendShapeBinding(applier, shapeName, out _, out _, out _, out _);
         }
@@ -140,13 +140,13 @@ namespace Triturbo.BlendShare.NDMF
             return AnimationMode.InAnimationMode() || (hasState && recording);
         }
 
-        public static bool HasBlendShapeCurve(BlendShareMeshComponent applier, string shapeName)
+        public static bool HasBlendShapeCurve(BlendShareMesh applier, string shapeName)
         {
             return TryGetActiveBlendShapeBinding(applier, shapeName, out var clip, out var binding, out _, out _) &&
                    AnimationUtility.GetEditorCurve(clip, binding) != null;
         }
 
-        public static bool HasBlendShapeKeyAtCurrentTime(BlendShareMeshComponent applier, string shapeName)
+        public static bool HasBlendShapeKeyAtCurrentTime(BlendShareMesh applier, string shapeName)
         {
             if (!TryGetActiveBlendShapeBinding(applier, shapeName, out var clip, out var binding, out float time, out _))
             {
@@ -214,7 +214,7 @@ namespace Triturbo.BlendShare.NDMF
             SampledWeights.Clear();
             bool changed = false;
 
-            foreach (var applier in root.GetComponentsInChildren<BlendShareMeshComponent>(true))
+            foreach (var applier in root.GetComponentsInChildren<BlendShareMesh>(true))
             {
                 if (applier == null)
                 {
@@ -349,7 +349,7 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         private static bool TryGetActiveBlendShapeBinding(
-            BlendShareMeshComponent applier,
+            BlendShareMesh applier,
             string shapeName,
             out AnimationClip clip,
             out EditorCurveBinding binding,
@@ -375,7 +375,7 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         private static bool TryGetBlendShareRecordingPath(
-            BlendShareMeshComponent applier,
+            BlendShareMesh applier,
             GameObject root,
             out string path)
         {
@@ -399,7 +399,7 @@ namespace Triturbo.BlendShare.NDMF
             return true;
         }
 
-        private static string GetBlendShareBindingPath(BlendShareMeshComponent applier, GameObject root)
+        private static string GetBlendShareBindingPath(BlendShareMesh applier, GameObject root)
         {
             if (applier == null ||
                 root == null ||
@@ -419,7 +419,7 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         private static BlendShareProxyBlendShapeWeight FindBlendShapeWeight(
-            BlendShareMeshComponent applier,
+            BlendShareMesh applier,
             string shapeName)
         {
             return applier?.BlendShapeWeights.FirstOrDefault(weight =>
@@ -479,7 +479,7 @@ namespace Triturbo.BlendShare.NDMF
         private readonly struct PreviewWeightSnapshot
         {
             public PreviewWeightSnapshot(
-                BlendShareMeshComponent applier,
+                BlendShareMesh applier,
                 string shapeName,
                 float weight)
             {
@@ -488,7 +488,7 @@ namespace Triturbo.BlendShare.NDMF
                 Weight = weight;
             }
 
-            public BlendShareMeshComponent Applier { get; }
+            public BlendShareMesh Applier { get; }
             public string ShapeName { get; }
             public float Weight { get; }
         }

@@ -106,10 +106,10 @@ namespace Triturbo.BlendShare.Inspector
                 return;
             }
 
-            var component = target.GetComponent<BlendShareComponent>();
+            var component = target.GetComponent<BlendShareCore>();
             if (component == null)
             {
-                component = Undo.AddComponent<BlendShareComponent>(target);
+                component = Undo.AddComponent<BlendShareCore>(target);
             }
 
             Undo.RecordObject(component, "Assign BlendShare Object");

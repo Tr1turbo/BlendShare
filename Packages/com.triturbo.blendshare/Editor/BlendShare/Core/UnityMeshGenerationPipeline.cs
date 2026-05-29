@@ -47,7 +47,7 @@ namespace Triturbo.BlendShare.Core
                 targetMeshContainer,
                 shares,
                 targetLookup,
-                Array.Empty<BlendShareGenerationComponent>());
+                Array.Empty<BlendShareComponent>());
             var generatedByMeshKey = new Dictionary<string, Mesh>();
 
             foreach (var share in shares)
@@ -85,7 +85,7 @@ namespace Triturbo.BlendShare.Core
 
         public BlendShareArtifact CreateArtifactFromComponents(
             GameObject targetRoot,
-            IEnumerable<BlendShareGenerationComponent> components,
+            IEnumerable<BlendShareComponent> components,
             IEnumerable<BlendShareObject> appliedBlendShares = null)
         {
             if (targetRoot == null)
@@ -93,12 +93,12 @@ namespace Triturbo.BlendShare.Core
                 return null;
             }
 
-            var componentList = (components ?? Array.Empty<BlendShareGenerationComponent>())
+            var componentList = (components ?? Array.Empty<BlendShareComponent>())
                 .Where(component => component != null)
                 .Distinct()
                 .ToArray();
             var shares = DedupBlendShares(componentList
-                .OfType<BlendShareMeshComponent>()
+                .OfType<BlendShareMesh>()
                 .Where(IsUsableMeshComponent)
                 .Select(component => FindBlendShareForMeshData(component.Owner, component.MeshData)))
                 .ToArray();
@@ -117,7 +117,7 @@ namespace Triturbo.BlendShare.Core
             var generatedByMeshKey = new Dictionary<string, Mesh>();
             var emitted = new HashSet<string>();
             foreach (var meshComponent in componentList
-                         .OfType<BlendShareMeshComponent>()
+                         .OfType<BlendShareMesh>()
                          .Where(IsUsableMeshComponent)
                          .OrderBy(component => GetHierarchyOrder(component.Owner != null ? component.Owner.transform : null))
                          .ThenBy(component => GetHierarchyOrder(component.transform)))
@@ -254,7 +254,7 @@ namespace Triturbo.BlendShare.Core
             string rendererPath,
             SkinnedMeshRenderer targetRenderer = null,
             Mesh targetMesh = null,
-            IEnumerable<BlendShareGenerationComponent> components = null,
+            IEnumerable<BlendShareComponent> components = null,
             IEnumerable<UnityVertexMappingObject> mappingOverrides = null)
         {
             string meshKey = !string.IsNullOrWhiteSpace(rendererPath)
@@ -468,7 +468,7 @@ namespace Triturbo.BlendShare.Core
         }
 
         private static IEnumerable<UnityVertexMappingObject> BuildMappingOverrides(
-            BlendShareMeshComponent meshComponent,
+            BlendShareMesh meshComponent,
             MeshDataObject meshData)
         {
             var targetMesh = meshComponent?.TargetRenderer != null ? meshComponent.TargetRenderer.sharedMesh : null;
@@ -483,12 +483,12 @@ namespace Triturbo.BlendShare.Core
             }
         }
 
-        private static IReadOnlyList<BlendShareGenerationComponent> GetComponentsForMeshPass(
-            IEnumerable<BlendShareGenerationComponent> components,
-            BlendShareComponent owner,
-            BlendShareMeshComponent meshComponent)
+        private static IReadOnlyList<BlendShareComponent> GetComponentsForMeshPass(
+            IEnumerable<BlendShareComponent> components,
+            BlendShareCore owner,
+            BlendShareMesh meshComponent)
         {
-            var result = new List<BlendShareGenerationComponent>();
+            var result = new List<BlendShareComponent>();
             if (owner != null)
             {
                 result.Add(owner);
@@ -499,8 +499,8 @@ namespace Triturbo.BlendShare.Core
                 result.Add(meshComponent);
             }
 
-            result.AddRange((components ?? Array.Empty<BlendShareGenerationComponent>())
-                .OfType<BlendShareBoneProxyComponent>()
+            result.AddRange((components ?? Array.Empty<BlendShareComponent>())
+                .OfType<BlendShareBoneProxy>()
                 .Where(proxy => proxy != null && proxy.Owner == owner));
 
             return result
@@ -509,7 +509,7 @@ namespace Triturbo.BlendShare.Core
                 .ToArray();
         }
 
-        private static bool IsUsableMeshComponent(BlendShareMeshComponent component)
+        private static bool IsUsableMeshComponent(BlendShareMesh component)
         {
             return component != null &&
                    component.EnabledForBuild &&
@@ -520,7 +520,7 @@ namespace Triturbo.BlendShare.Core
                    component.MeshData != null;
         }
 
-        private static BlendShareObject FindBlendShareForMeshData(BlendShareComponent owner, MeshDataObject meshData)
+        private static BlendShareObject FindBlendShareForMeshData(BlendShareCore owner, MeshDataObject meshData)
         {
             return (owner?.BlendShares ?? Array.Empty<BlendShareObject>())
                 .Where(share => share != null)

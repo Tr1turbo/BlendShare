@@ -29,7 +29,7 @@ namespace Triturbo.BlendShare.NDMF
 
         public ImmutableList<RenderGroup> GetTargetGroups(ComputeContext context)
         {
-            return context.GetComponentsByType<BlendShareMeshComponent>()
+            return context.GetComponentsByType<BlendShareMesh>()
                 .Where(applier => context.Observe(applier, item => item.EnabledForBuild) &&
                                   IsOwnerEnabled(applier, context) &&
                                   context.Observe(applier, item => item.TargetRenderer) != null)
@@ -44,7 +44,7 @@ namespace Triturbo.BlendShare.NDMF
             return Task.FromResult<IRenderFilterNode>(node);
         }
 
-        private static bool IsOwnerEnabled(BlendShareMeshComponent applier, ComputeContext context)
+        private static bool IsOwnerEnabled(BlendShareMesh applier, ComputeContext context)
         {
             if (applier == null)
             {
@@ -62,7 +62,7 @@ namespace Triturbo.BlendShare.NDMF
             private Transform rootBone;
             private SkinnedMeshRenderer originalRenderer;
             private SkinnedMeshRenderer proxyRenderer;
-            private BlendShareMeshComponent[] weightAppliers = System.Array.Empty<BlendShareMeshComponent>();
+            private BlendShareMesh[] weightAppliers = System.Array.Empty<BlendShareMesh>();
             private string generationSignature;
             private bool hasPreviewOutput;
 
@@ -134,7 +134,7 @@ namespace Triturbo.BlendShare.NDMF
                 mesh = null;
                 bones = System.Array.Empty<Transform>();
                 rootBone = null;
-                weightAppliers = System.Array.Empty<BlendShareMeshComponent>();
+                weightAppliers = System.Array.Empty<BlendShareMesh>();
                 hasPreviewOutput = false;
             }
 
@@ -150,7 +150,7 @@ namespace Triturbo.BlendShare.NDMF
                 this.proxyRenderer = proxyRenderer;
                 generationSignature = BuildGenerationSignature(originalRenderer, context);
 
-                var enabledAppliers = new List<BlendShareMeshComponent>();
+                var enabledAppliers = new List<BlendShareMesh>();
                 foreach (var applier in FindMeshAppliersForRenderer(originalRenderer, context))
                 {
                     ObserveMeshApplier(applier, context);
@@ -179,9 +179,9 @@ namespace Triturbo.BlendShare.NDMF
                     .Select(BlendShareComponentSetupService.ResolveTargetRoot)
                     .FirstOrDefault(root => root != null) ?? originalRenderer.transform.root;
                 var boneProxies = sourceRoot != null
-                    ? sourceRoot.GetComponentsInChildren<BlendShareBoneProxyComponent>(true)
-                    : System.Array.Empty<BlendShareBoneProxyComponent>();
-                var generationComponents = owners.Cast<BlendShareGenerationComponent>()
+                    ? sourceRoot.GetComponentsInChildren<BlendShareBoneProxy>(true)
+                    : System.Array.Empty<BlendShareBoneProxy>();
+                var generationComponents = owners.Cast<BlendShareComponent>()
                     .Concat(enabledAppliers)
                     .Concat(boneProxies.Where(proxy => proxy != null && owners.Contains(proxy.Owner)))
                     .Distinct()
@@ -268,7 +268,7 @@ namespace Triturbo.BlendShare.NDMF
                 return builder.ToString();
             }
 
-            private static void AppendProxyState(StringBuilder builder, BlendShareBoneProxyComponent proxy, ComputeContext context)
+            private static void AppendProxyState(StringBuilder builder, BlendShareBoneProxy proxy, ComputeContext context)
             {
                 if (proxy == null)
                 {
@@ -322,16 +322,16 @@ namespace Triturbo.BlendShare.NDMF
                 }
             }
 
-            private static IEnumerable<BlendShareMeshComponent> FindMeshAppliersForRenderer(
+            private static IEnumerable<BlendShareMesh> FindMeshAppliersForRenderer(
                 SkinnedMeshRenderer renderer,
                 ComputeContext context)
             {
                 if (renderer == null)
                 {
-                    return System.Array.Empty<BlendShareMeshComponent>();
+                    return System.Array.Empty<BlendShareMesh>();
                 }
 
-                return context.GetComponentsByType<BlendShareMeshComponent>()
+                return context.GetComponentsByType<BlendShareMesh>()
                     .Where(applier => applier != null &&
                                       context.Observe(applier, item => item.EnabledForBuild) &&
                                       IsOwnerEnabled(applier, context) &&
@@ -361,7 +361,7 @@ namespace Triturbo.BlendShare.NDMF
             }
 
             private static IReadOnlyDictionary<string, Transform> BuildProxyBoneOverrides(
-                IEnumerable<BlendShareMeshComponent> meshAppliers,
+                IEnumerable<BlendShareMesh> meshAppliers,
                 Transform sourceRoot)
             {
                 var overrides = new Dictionary<string, Transform>();
@@ -370,7 +370,7 @@ namespace Triturbo.BlendShare.NDMF
                     return overrides;
                 }
 
-                foreach (var applier in meshAppliers ?? System.Array.Empty<BlendShareMeshComponent>())
+                foreach (var applier in meshAppliers ?? System.Array.Empty<BlendShareMesh>())
                 {
                     foreach (var binding in applier?.BoneProxyBindings ?? System.Array.Empty<BlendShareBoneProxyBinding>())
                     {
@@ -394,7 +394,7 @@ namespace Triturbo.BlendShare.NDMF
                 return overrides;
             }
 
-            private static void ObserveMeshApplier(BlendShareMeshComponent applier, ComputeContext context)
+            private static void ObserveMeshApplier(BlendShareMesh applier, ComputeContext context)
             {
                 if (applier == null)
                 {
@@ -423,11 +423,11 @@ namespace Triturbo.BlendShare.NDMF
             }
 
             private void ObserveProxyInputs(
-                IEnumerable<BlendShareMeshComponent> meshAppliers,
-                IEnumerable<BlendShareBoneProxyComponent> boneProxies,
+                IEnumerable<BlendShareMesh> meshAppliers,
+                IEnumerable<BlendShareBoneProxy> boneProxies,
                 ComputeContext context)
             {
-                foreach (var applier in meshAppliers ?? System.Array.Empty<BlendShareMeshComponent>())
+                foreach (var applier in meshAppliers ?? System.Array.Empty<BlendShareMesh>())
                 {
                     if (applier?.TargetRenderer != null)
                     {
@@ -440,13 +440,13 @@ namespace Triturbo.BlendShare.NDMF
                     }
                 }
 
-                foreach (var proxy in boneProxies ?? System.Array.Empty<BlendShareBoneProxyComponent>())
+                foreach (var proxy in boneProxies ?? System.Array.Empty<BlendShareBoneProxy>())
                 {
                     ObserveProxy(proxy, context);
                 }
             }
 
-            private static void ObserveProxy(BlendShareBoneProxyComponent proxy, ComputeContext context)
+            private static void ObserveProxy(BlendShareBoneProxy proxy, ComputeContext context)
             {
                 if (proxy == null)
                 {

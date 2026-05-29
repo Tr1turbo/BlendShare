@@ -7,8 +7,8 @@ using UnityEngine;
 
 namespace Triturbo.BlendShare.NDMF
 {
-    [CustomEditor(typeof(BlendShareComponent))]
-    public sealed class BlendShareComponentEditor : UnityEditor.Editor
+    [CustomEditor(typeof(BlendShareCore))]
+    public sealed class BlendShareCoreEditor : UnityEditor.Editor
     {
         public override void OnInspectorGUI()
         {
@@ -19,12 +19,12 @@ namespace Triturbo.BlendShare.NDMF
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_BlendShares"), new GUIContent("BlendShare Objects"), true);
             serializedObject.ApplyModifiedProperties();
 
-            var owner = (BlendShareComponent)target;
+            var owner = (BlendShareCore)target;
             DrawSummary(owner);
             DrawActions(owner);
         }
 
-        private static void DrawSummary(BlendShareComponent owner)
+        private static void DrawSummary(BlendShareCore owner)
         {
             var meshAppliers = BlendShareComponentSetupService.FindOwnedMeshAppliers(owner);
             var proxies = BlendShareComponentSetupService.FindOwnedBoneProxies(owner);
@@ -68,7 +68,7 @@ namespace Triturbo.BlendShare.NDMF
             }
         }
 
-        private static string GetRendererPath(BlendShareMeshComponent applier)
+        private static string GetRendererPath(BlendShareMesh applier)
         {
             if (applier?.TargetRenderer == null)
             {
@@ -79,7 +79,7 @@ namespace Triturbo.BlendShare.NDMF
             return MeshNodePath.Normalize(MeshNodePath.GetRelativePath(applier.TargetRenderer.transform, targetRoot));
         }
 
-        private static void DrawActions(BlendShareComponent owner)
+        private static void DrawActions(BlendShareCore owner)
         {
             EditorGUILayout.Space();
             using (new EditorGUILayout.HorizontalScope())

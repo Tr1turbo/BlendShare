@@ -1097,7 +1097,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             out BoneProxyGenerationData data)
         {
             data = null;
-            var meshComponent = context.GetComponent<BlendShareMeshComponent>();
+            var meshComponent = context.GetComponent<BlendShareMesh>();
             if (meshComponent == null ||
                 feature?.m_BoneGraph == null ||
                 !meshComponent.TryGetBoneProxyBinding(feature.m_BoneGraph, sourceBonePath, out var binding) ||
@@ -1187,7 +1187,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static void GetProxyLocalTransform(
-            BlendShareBoneProxyComponent proxy,
+            BlendShareBoneProxy proxy,
             out Vector3 localPosition,
             out Vector3 localEulerRotation,
             out Vector3 localScale)
@@ -1208,7 +1208,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         {
             public string FinalBonePath { get; }
             public string ParentPath { get; }
-            public BlendShareBoneProxyComponent Proxy { get; }
+            public BlendShareBoneProxy Proxy { get; }
             public Transform TargetParent { get; }
             public Vector3 LocalPosition { get; }
             public Vector3 LocalEulerRotation { get; }
@@ -1218,7 +1218,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             public BoneProxyGenerationData(
                 string finalBonePath,
                 string parentPath,
-                BlendShareBoneProxyComponent proxy,
+                BlendShareBoneProxy proxy,
                 Transform targetParent,
                 Vector3 localPosition,
                 Vector3 localEulerRotation,

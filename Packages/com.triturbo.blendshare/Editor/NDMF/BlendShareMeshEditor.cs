@@ -4,10 +4,10 @@ using UnityEngine;
 
 namespace Triturbo.BlendShare.NDMF
 {
-    [CustomEditor(typeof(BlendShareMeshComponent))]
-    public sealed class BlendShareMeshComponentEditor : UnityEditor.Editor
+    [CustomEditor(typeof(BlendShareMesh))]
+    public sealed class BlendShareMeshEditor : UnityEditor.Editor
     {
-        static BlendShareMeshComponentEditor()
+        static BlendShareMeshEditor()
         {
             EditorApplication.contextualPropertyMenu -= AddBlendShapeAnimationMenuItems;
             EditorApplication.contextualPropertyMenu += AddBlendShapeAnimationMenuItems;
@@ -15,7 +15,7 @@ namespace Triturbo.BlendShare.NDMF
 
         public override void OnInspectorGUI()
         {
-            var applier = (BlendShareMeshComponent)target;
+            var applier = (BlendShareMesh)target;
             if (applier.SyncActiveBlendShapeWeights())
             {
                 EditorUtility.SetDirty(applier);
@@ -29,7 +29,7 @@ namespace Triturbo.BlendShare.NDMF
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_MeshData"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_EnabledForBuild"));
 
-            DrawBlendShapeWeights(applier, serializedObject.FindProperty(BlendShareMeshComponent.BlendShapeWeightsFieldName));
+            DrawBlendShapeWeights(applier, serializedObject.FindProperty(BlendShareMesh.BlendShapeWeightsFieldName));
 
             EditorGUILayout.Space();
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_DiagnosticMessage"));
@@ -64,7 +64,7 @@ namespace Triturbo.BlendShare.NDMF
             serializedObject.ApplyModifiedProperties();
         }
 
-        private static void DrawBlendShapeWeights(BlendShareMeshComponent applier, SerializedProperty weightsProperty)
+        private static void DrawBlendShapeWeights(BlendShareMesh applier, SerializedProperty weightsProperty)
         {
             if (weightsProperty == null || !weightsProperty.isArray || weightsProperty.arraySize == 0)
             {
@@ -134,7 +134,7 @@ namespace Triturbo.BlendShare.NDMF
 
         }
 
-        private static void RecordProxyBlendShapeAnimation(BlendShareMeshComponent applier, string shapeName, float value)
+        private static void RecordProxyBlendShapeAnimation(BlendShareMesh applier, string shapeName, float value)
         {
             if (applier == null || string.IsNullOrWhiteSpace(shapeName))
             {
@@ -160,7 +160,7 @@ namespace Triturbo.BlendShare.NDMF
 
         private static bool TryGetBlendShapeMenuContext(
             SerializedProperty property,
-            out BlendShareMeshComponent applier,
+            out BlendShareMesh applier,
             out string shapeName,
             out float value)
         {
@@ -168,10 +168,10 @@ namespace Triturbo.BlendShare.NDMF
             shapeName = null;
             value = 0f;
             if (property == null ||
-                property.serializedObject?.targetObject is not BlendShareMeshComponent blendShareMesh ||
+                property.serializedObject?.targetObject is not BlendShareMesh blendShareMesh ||
                 property.propertyType != SerializedPropertyType.Float ||
                 !property.propertyPath.EndsWith($".{BlendShareProxyBlendShapeWeight.WeightFieldName}") ||
-                !property.propertyPath.Contains($"{BlendShareMeshComponent.BlendShapeWeightsFieldName}.Array.data["))
+                !property.propertyPath.Contains($"{BlendShareMesh.BlendShapeWeightsFieldName}.Array.data["))
             {
                 return false;
             }
@@ -197,7 +197,7 @@ namespace Triturbo.BlendShare.NDMF
 
         private static void AddBlendShapeAnimationMenuItems(
             GenericMenu menu,
-            BlendShareMeshComponent applier,
+            BlendShareMesh applier,
             string shapeName,
             float value)
         {

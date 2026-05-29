@@ -16,7 +16,7 @@ namespace Triturbo.BlendShare.NDMF
 
         internal static EditorCurveBinding CreateAuthoringBlendShapeBinding(string path, string propertyName)
         {
-            return EditorCurveBinding.FloatCurve(path, typeof(BlendShareMeshComponent), propertyName);
+            return EditorCurveBinding.FloatCurve(path, typeof(BlendShareMesh), propertyName);
         }
 
         static BlendShareAnimationWindowBindingPatch()
@@ -130,7 +130,7 @@ namespace Triturbo.BlendShare.NDMF
                 return;
             }
 
-            var appliers = targetObject.GetComponents<BlendShareMeshComponent>();
+            var appliers = targetObject.GetComponents<BlendShareMesh>();
             if (appliers.Length == 0)
             {
                 return;
@@ -188,7 +188,7 @@ namespace Triturbo.BlendShare.NDMF
                 return;
             }
 
-            foreach (var applier in target.GetComponents<BlendShareMeshComponent>())
+            foreach (var applier in target.GetComponents<BlendShareMesh>())
             {
                 if (applier == null)
                 {
@@ -248,7 +248,7 @@ namespace Triturbo.BlendShare.NDMF
             ref bool __result)
         {
             if (__result ||
-                targetObject is not BlendShareMeshComponent applier ||
+                targetObject is not BlendShareMesh applier ||
                 !IsBlendShapeProperty(propertyPath))
             {
                 return;
@@ -298,7 +298,7 @@ namespace Triturbo.BlendShare.NDMF
 
         private static bool IsBlendShareBlendShapeBinding(EditorCurveBinding binding)
         {
-            return binding.type == typeof(BlendShareMeshComponent) &&
+            return binding.type == typeof(BlendShareMesh) &&
                    IsBlendShapeProperty(binding.propertyName);
         }
 
@@ -341,7 +341,7 @@ namespace Triturbo.BlendShare.NDMF
                 return false;
             }
 
-            foreach (var applier in target.GetComponents<BlendShareMeshComponent>())
+            foreach (var applier in target.GetComponents<BlendShareMesh>())
             {
                 if (TryGetBlendShareBlendShapeWeight(applier, binding.propertyName, out weight))
                 {
@@ -430,7 +430,7 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         private static bool TryGetBlendShareBlendShapeWeight(
-            BlendShareMeshComponent applier,
+            BlendShareMesh applier,
             string propertyName,
             out float weight)
         {

@@ -23,7 +23,7 @@ namespace Triturbo.BlendShare.Core
 
         public Object TargetMeshContainer { get; }
         public IReadOnlyList<BlendShareObject> Shares { get; }
-        public IReadOnlyList<BlendShareGenerationComponent> Components { get; }
+        public IReadOnlyList<BlendShareComponent> Components { get; }
         public UnityMeshTargetLookup TargetMeshes { get; }
         public IReadOnlyList<Object> GeneratedObjects => generatedObjects;
         public IReadOnlyDictionary<string, UnityMeshSkinBindingOutput> SkinBindingsByMeshKey => skinBindingsByMeshKey;
@@ -39,13 +39,13 @@ namespace Triturbo.BlendShare.Core
             Object targetMeshContainer,
             IEnumerable<BlendShareObject> shares,
             UnityMeshTargetLookup targetMeshes,
-            IEnumerable<BlendShareGenerationComponent> components = null)
+            IEnumerable<BlendShareComponent> components = null)
         {
             TargetMeshContainer = targetMeshContainer;
             Shares = shares?.Where(share => share != null).Distinct().ToArray() ??
                      System.Array.Empty<BlendShareObject>();
             TargetMeshes = targetMeshes;
-            Components = (components ?? System.Array.Empty<BlendShareGenerationComponent>())
+            Components = (components ?? System.Array.Empty<BlendShareComponent>())
                 .Where(component => component != null)
                 .Distinct()
                 .ToArray();
@@ -266,7 +266,7 @@ namespace Triturbo.BlendShare.Core
         public Mesh WorkingMesh { get; set; }
         public SkinnedMeshRenderer TargetRenderer { get; }
         public Transform TargetRootTransform { get; }
-        public IReadOnlyList<BlendShareGenerationComponent> Components { get; }
+        public IReadOnlyList<BlendShareComponent> Components { get; }
         public IReadOnlyList<UnityVertexMappingObject> MappingOverrides { get; }
         public IReadOnlyList<MeshFeatureObject> Features =>
             MeshData != null ? MeshData.Features : System.Array.Empty<MeshFeatureObject>();
@@ -291,7 +291,7 @@ namespace Triturbo.BlendShare.Core
             SkinnedMeshRenderer targetRenderer = null,
             Transform targetRootTransform = null,
             string meshKey = null,
-            IEnumerable<BlendShareGenerationComponent> components = null,
+            IEnumerable<BlendShareComponent> components = null,
             IEnumerable<UnityVertexMappingObject> mappingOverrides = null)
         {
             Session = session;
@@ -302,7 +302,7 @@ namespace Triturbo.BlendShare.Core
             WorkingMesh = workingMesh;
             TargetRenderer = targetRenderer;
             TargetRootTransform = targetRootTransform ?? session?.TargetMeshes?.RootTransform;
-            Components = (components ?? session?.Components ?? System.Array.Empty<BlendShareGenerationComponent>())
+            Components = (components ?? session?.Components ?? System.Array.Empty<BlendShareComponent>())
                 .Where(component => component != null)
                 .Distinct()
                 .ToArray();
@@ -327,12 +327,12 @@ namespace Triturbo.BlendShare.Core
             return feature;
         }
 
-        public T GetComponent<T>() where T : BlendShareGenerationComponent
+        public T GetComponent<T>() where T : BlendShareComponent
         {
             return Components.OfType<T>().FirstOrDefault();
         }
 
-        public IEnumerable<T> GetComponents<T>() where T : BlendShareGenerationComponent
+        public IEnumerable<T> GetComponents<T>() where T : BlendShareComponent
         {
             return Components.OfType<T>();
         }
