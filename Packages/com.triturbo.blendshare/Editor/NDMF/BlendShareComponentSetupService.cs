@@ -12,6 +12,7 @@ namespace Triturbo.BlendShare.NDMF
 {
     public static class BlendShareComponentSetupService
     {
+
         public static RebuildMeshBindingsResult RebuildMeshBindings(BlendShareComponent owner)
         {
             var result = new RebuildMeshBindingsResult();
@@ -61,6 +62,7 @@ namespace Triturbo.BlendShare.NDMF
                 applier.RendererNodePath = path;
                 applier.EnabledForBuild = true;
                 applier.DiagnosticMessage = string.Empty;
+                applier.SyncActiveBlendShapeWeights();
                 EditorUtility.SetDirty(applier);
                 result.AddMeshApplier(applier);
             }

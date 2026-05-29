@@ -27,10 +27,12 @@ namespace Triturbo.BlendShare.NDMF
 
             var meshAppliers = context.AvatarRootObject.GetComponentsInChildren<BlendShareMeshComponent>(true);
             var boneProxies = context.AvatarRootObject.GetComponentsInChildren<BlendShareBoneProxyComponent>(true);
+            AnimatorServicesContext animatorServices;
             ObjectPathRemapper pathRemapper;
             try
             {
-                pathRemapper = context.Extension<AnimatorServicesContext>().ObjectPathRemapper;
+                animatorServices = context.Extension<AnimatorServicesContext>();
+                pathRemapper = animatorServices.ObjectPathRemapper;
             }
             catch (System.Exception ex)
             {
@@ -59,6 +61,7 @@ namespace Triturbo.BlendShare.NDMF
                     continue;
                 }
 
+                applier.SyncActiveBlendShapeWeights();
                 BlendShareComponentSetupService.PrepareMeshApplierGenerationMappings(applier);
                 validMeshAppliers.Add(applier);
             }
@@ -118,7 +121,15 @@ namespace Triturbo.BlendShare.NDMF
                     {
                         Debug.LogError($"[BlendShare NDMF] {diagnostic}", targetRoot);
                     }
+                    continue;
                 }
+
+                foreach (var applier in rootAppliers)
+                {
+                    BlendShareBlendShapeWeightService.ApplyWeightsToRenderer(applier, applier.TargetRenderer);
+                }
+
+                BlendShareBlendShapeWeightService.RetargetRendererBlendShapeCurves(rootAppliers, animatorServices);
             }
 
             foreach (var component in context.AvatarRootObject.GetComponentsInChildren<BlendShareMeshComponent>(true))

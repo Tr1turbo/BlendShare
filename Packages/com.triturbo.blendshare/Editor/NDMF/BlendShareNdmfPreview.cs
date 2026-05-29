@@ -62,6 +62,7 @@ namespace Triturbo.BlendShare.NDMF
             private Transform rootBone;
             private SkinnedMeshRenderer originalRenderer;
             private SkinnedMeshRenderer proxyRenderer;
+            private BlendShareMeshComponent[] weightAppliers = System.Array.Empty<BlendShareMeshComponent>();
             private string generationSignature;
             private bool hasPreviewOutput;
 
@@ -116,6 +117,10 @@ namespace Triturbo.BlendShare.NDMF
                     skinnedMeshRenderer.sharedMesh = mesh;
                     skinnedMeshRenderer.rootBone = rootBone;
                     skinnedMeshRenderer.bones = bones ?? System.Array.Empty<Transform>();
+                    foreach (var applier in weightAppliers)
+                    {
+                        BlendShareBlendShapeWeightService.ApplyWeightsToRenderer(applier, skinnedMeshRenderer);
+                    }
                 }
             }
 
@@ -129,6 +134,7 @@ namespace Triturbo.BlendShare.NDMF
                 mesh = null;
                 bones = System.Array.Empty<Transform>();
                 rootBone = null;
+                weightAppliers = System.Array.Empty<BlendShareMeshComponent>();
                 hasPreviewOutput = false;
             }
 
@@ -218,6 +224,7 @@ namespace Triturbo.BlendShare.NDMF
                 mesh = proxyRenderer.sharedMesh;
                 bones = proxyRenderer.bones;
                 rootBone = proxyRenderer.rootBone;
+                weightAppliers = enabledAppliers.ToArray();
                 hasPreviewOutput = mesh != null;
 
                 context.Observe(originalRenderer, renderer => renderer.sharedMesh);
@@ -398,6 +405,10 @@ namespace Triturbo.BlendShare.NDMF
                 context.Observe(applier, item => item.Owner);
                 context.Observe(applier, item => item.TargetRenderer);
                 context.Observe(applier, item => item.MeshData);
+                context.Observe(applier, item => item.BlendShapeWeights.Count);
+                context.Observe(applier, item => item.BlendShapeWeights
+                    .Select(weight => weight != null ? $"{weight.ShapeName}:{weight.Weight:R}" : string.Empty)
+                    .ToArray(), Enumerable.SequenceEqual);
                 context.Observe(applier, item => item.BoneProxyBindings.Count);
                 foreach (var binding in applier.BoneProxyBindings)
                 {
