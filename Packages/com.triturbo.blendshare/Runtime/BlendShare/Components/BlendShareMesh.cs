@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.Core;
-using Triturbo.BlendShare.Features.BoneGraph;
+using Triturbo.BlendShare.Features.SkinWeights;
 using Triturbo.BlendShare.Features.BlendShapes;
 using UnityEngine;
 using UnityEngine.Animations;

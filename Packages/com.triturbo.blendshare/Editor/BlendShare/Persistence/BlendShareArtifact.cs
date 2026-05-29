@@ -1,6 +1,6 @@
 using System;
 using Triturbo.BlendShare.Core;
-using Triturbo.BlendShare.Features.BoneGraph;
+using Triturbo.BlendShare.Features.SkinWeights;
 using UnityEngine;
 using Object = UnityEngine.Object;
 

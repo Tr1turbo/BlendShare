@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Triturbo.BlendShare.Features.BoneGraph;
+using Triturbo.BlendShare.Features.SkinWeights;
 using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Fbx.Ufbx;
 using Triturbo.BlendShare.Fbx.Unity;

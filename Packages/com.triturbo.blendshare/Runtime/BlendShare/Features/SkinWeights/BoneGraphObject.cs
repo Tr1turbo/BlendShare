@@ -3,7 +3,7 @@ using System.Linq;
 using Triturbo.BlendShare.Core;
 using UnityEngine;
 
-namespace Triturbo.BlendShare.Features.BoneGraph
+namespace Triturbo.BlendShare.Features.SkinWeights
 {
     [System.Serializable]
     public sealed class BoneNodeData

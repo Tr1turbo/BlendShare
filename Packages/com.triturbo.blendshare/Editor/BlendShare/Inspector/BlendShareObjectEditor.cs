@@ -4,7 +4,6 @@ using System.Linq;
 using Triturbo.BlendShapeShare;
 using Triturbo.BlendShapeShare.BlendShapeData;
 using Triturbo.BlendShare.Core;
-using Triturbo.BlendShare.Features.BoneGraph;
 using Triturbo.BlendShare.Features.BlendShapes;
 using Triturbo.BlendShare.Features.SkinWeights;
 using Triturbo.BlendShare.Persistence;

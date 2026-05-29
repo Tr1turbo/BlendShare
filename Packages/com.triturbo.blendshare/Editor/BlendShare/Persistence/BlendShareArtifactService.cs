@@ -6,7 +6,6 @@ using System.Security.Cryptography;
 using Triturbo.BlendShapeShare.BlendShapeData;
 using Triturbo.BlendShare.Components;
 using Triturbo.BlendShare.Core;
-using Triturbo.BlendShare.Features.BoneGraph;
 using Triturbo.BlendShare.Features.SkinWeights;
 using Triturbo.BlendShare.Migration;
 using UnityEditor;

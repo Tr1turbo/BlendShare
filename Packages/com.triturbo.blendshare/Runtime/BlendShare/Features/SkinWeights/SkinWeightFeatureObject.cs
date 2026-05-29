@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.Core;
-using Triturbo.BlendShare.Features.BoneGraph;
 using UnityEngine;
 using UnityEngine.Scripting.APIUpdating;
 
