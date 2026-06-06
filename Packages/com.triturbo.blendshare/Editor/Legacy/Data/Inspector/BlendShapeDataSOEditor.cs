@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Triturbo.BlendShare.Migration;
+using Triturbo.BlendShare.Persistence;
 using UnityEngine;
 
 using UnityEditor;
@@ -1190,7 +1191,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             
             EditorGUI.EndDisabledGroup();
             
-            if (GUILayout.Button(Localization.G("data.create_meshes")))
+            if (GUILayout.Button(Localization.G("data.create_artifact")))
             {
                 if (dataAsset.m_Original == null)
                 {
@@ -1199,13 +1200,14 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 }
 
                 string folderPath = Path.GetDirectoryName(AssetDatabase.GetAssetPath(dataAsset));
-                var path = EditorUtility.SaveFilePanelInProject(Localization.S("data.save_mesh.title"),
-                    dataAsset.DefaultMeshAssetName, "asset",
+                var path = EditorUtility.SaveFilePanelInProject(Localization.S("data.save_artifact.title"),
+                    $"{dataAsset.DefaultMeshAssetName}_Artifact", "asset",
                     Localization.S("data.save_file.message"), folderPath);
 
                 if (path.Length > 0)
                 {
-                    var generated = BlendShapeAppender.CreateMeshAsset(dataAsset.m_Original, new[]{dataAsset}, path);
+                    var upgraded = BlendShareUpgradeService.UpgradeSideBySide(dataAsset);
+                    var generated = BlendShareArtifactService.CreateArtifact(dataAsset.m_Original, new[]{upgraded}, path);
 
 #if !ENABLE_FBX_SDK
                     if (generated == null)

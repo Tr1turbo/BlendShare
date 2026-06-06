@@ -6,28 +6,26 @@ using UnityEngine;
 using UnityEditor;
 using System.Linq;
 using System.Security.Cryptography;
-using Triturbo.BlendShapeShare.BlendShapeData;
 using Triturbo.BlendShare.Core;
-using UnityEngine.Scripting.APIUpdating;
 using Object = UnityEngine.Object;
 
-namespace Triturbo.BlendShare.Persistence
+namespace Triturbo.BlendShapeShare.BlendShapeData
 {
-    
+
     // a container for mesh assets
-    [MovedFrom(true, "Triturbo.BlendShapeShare.BlendShapeData", "Triturbo.BlendShapeShare.Data.Editor")]
     [PreferBinarySerialization]
+    [Obsolete("GeneratedMeshAssetSO is a legacy generated mesh container. Use BlendShareArtifact for new generated assets.")]
     public class GeneratedMeshAssetSO : ScriptableObject
     {
-        public GameObject m_OriginalFbxGo;
+        public GameObject m_OriginalFbxAsset;
         public string m_OriginalFbxHash;
         public BlendShapeDataSO[]  m_AppliedBlendShapes;
         public BlendShareObject[] m_AppliedBlendShares;
-        
-        
-        
+
+
+
         /// <summary>
-        /// Applies all meshes stored in this asset to matching <see cref="SkinnedMeshRenderer"/>s 
+        /// Applies all meshes stored in this asset to matching <see cref="SkinnedMeshRenderer"/>s
         /// under the specified <paramref name="target"/> transform.
         /// </summary>
         /// <remarks>
@@ -36,10 +34,15 @@ namespace Triturbo.BlendShare.Persistence
         /// since it loads sub-assets using <see cref="UnityEditor.AssetDatabase"/>.
         /// </para>
         /// <para>
-        /// Meshes are matched by the generated mesh name, which stores the renderer/node path.
+        /// Meshes are matched by their <see cref="Mesh.name"/> (or the GameObject name if the renderer
+        /// has missing <see cref="SkinnedMeshRenderer.sharedMesh"/>). All renderers with matching names will be updated.
         /// </para>
         /// <para>
-        /// This operation is Undo/Redo compatible — Unity’s <see cref="Undo"/> system records 
+        /// If multiple renderers share the same mesh name, the mesh is applied to all of them and an
+        /// error is logged for visibility.
+        /// </para>
+        /// <para>
+        /// This operation is Undo/Redo compatible — Unity’s <see cref="Undo"/> system records
         /// each mesh assignment so that changes can be reverted or redone safely.
         /// </para>
         /// </remarks>
@@ -58,14 +61,17 @@ namespace Triturbo.BlendShare.Persistence
 
             Object[] subAssets = AssetDatabase.LoadAllAssetRepresentationsAtPath(assetPath);
 
-            var meshRenderers = new Dictionary<string, SkinnedMeshRenderer>();
+            // Build name -> renderer list map
+            var meshRenderers = new Dictionary<string, List<SkinnedMeshRenderer>>();
             foreach (var renderer in target.GetComponentsInChildren<SkinnedMeshRenderer>(true))
             {
-                string key = MeshNodePath.GetRelativePath(renderer.transform, target);
-                if (!meshRenderers.ContainsKey(key))
+                string key = renderer.sharedMesh != null ? renderer.sharedMesh.name : renderer.gameObject.name;
+                if (!meshRenderers.TryGetValue(key, out var list))
                 {
-                    meshRenderers[key] = renderer;
+                    list = new List<SkinnedMeshRenderer>();
+                    meshRenderers[key] = list;
                 }
+                list.Add(renderer);
             }
 
             int undoGroup = Undo.GetCurrentGroup();
@@ -75,20 +81,31 @@ namespace Triturbo.BlendShare.Persistence
             {
                 if (asset is Mesh mesh)
                 {
-                    string meshPath = MeshNodePath.Normalize(mesh.name);
-                    if (meshRenderers.TryGetValue(meshPath, out var targetMeshRenderer))
+                    if (meshRenderers.TryGetValue(mesh.name, out var renderers))
                     {
-                        Undo.RecordObject(targetMeshRenderer, "Apply Mesh");
-                        targetMeshRenderer.sharedMesh = mesh;
-                        EditorUtility.SetDirty(targetMeshRenderer);
+                        if (renderers.Count > 1)
+                        {
+                            Debug.LogWarning(
+                                $"[BlendShare Apply Mesh] Multiple renderers share the same mesh name '{mesh.name}' under '{target.name}'.",
+                                target
+                            );
+                        }
+
+                        foreach (var targetMeshRenderer in renderers)
+                        {
+                            // Record before modification for undo/redo
+                            Undo.RecordObject(targetMeshRenderer, "Apply Mesh");
+                            targetMeshRenderer.sharedMesh = mesh;
+                            EditorUtility.SetDirty(targetMeshRenderer);
+                        }
                     }
                     else
                     {
-                        Debug.LogError($"[BlendShare Apply Mesh] Renderer path '{mesh.name}' not found in target '{target.name}'.", target);
+                        Debug.LogError($"[BlendShare Apply Mesh] Mesh '{mesh.name}' not found in target '{target.name}'.", target);
                     }
                 }
             }
-            
+
             // Finalize undo group
             Undo.CollapseUndoOperations(undoGroup);
         }
@@ -113,9 +130,9 @@ namespace Triturbo.BlendShare.Persistence
         /// The created <see cref="GeneratedMeshAssetSO"/> instance, or <see langword="null"/> if the container asset path is invalid.
         /// </returns>
         public static GeneratedMeshAssetSO SaveMeshesToAsset(
-            GameObject originalFbx, 
+            GameObject originalFbx,
             IEnumerable<BlendShapeDataSO> appliedBlendShapeData,
-            Object meshContainerAsset,  
+            Object meshContainerAsset,
             string path)
         {
             string targetPath = AssetDatabase.GetAssetPath(meshContainerAsset);
@@ -142,41 +159,39 @@ namespace Triturbo.BlendShare.Persistence
         /// The created <see cref="GeneratedMeshAssetSO"/> instance, or <see langword="null"/> if the container asset path is invalid.
         /// </returns>
         public static GeneratedMeshAssetSO SaveMeshesToAsset(
-            GameObject originalFbx, 
+            GameObject originalFbx,
             IEnumerable<BlendShapeDataSO> appliedBlendShapeData,
-            string meshContainerAssetPath,  
+            string meshContainerAssetPath,
             string path)
         {
             Object[] allAssets = AssetDatabase.LoadAllAssetsAtPath(meshContainerAssetPath);
             if(allAssets == null) return null;
-            
-            var uniquePaths = appliedBlendShapeData
-                .Where(data => data != null)
-                .SelectMany(data => data.m_MeshDataList ?? Enumerable.Empty<MeshData>())
-                .Where(meshData => meshData != null && meshData.HasNodePath)
-                .Select(meshData => meshData.NodePath)
+
+            var uniqueMeshNames = appliedBlendShapeData
+                .SelectMany(data => data.m_MeshDataList)
+                .Select(meshData => meshData.m_MeshName)
                 .Distinct()
                 .ToArray();
-            
-            var meshesByPath = BuildMeshesByPath(meshContainerAssetPath, allAssets);
-            List<Mesh> meshesList = new List<Mesh>(uniquePaths.Length);
 
-            foreach (var meshPath in uniquePaths)
+            List<Mesh> meshesList = new List<Mesh>(uniqueMeshNames.Length);
+
+            foreach (var meshName in uniqueMeshNames)
             {
-                if (meshesByPath.TryGetValue(meshPath, out var targetMesh))
-                {
-                    meshesList.Add(targetMesh);
-                }
+                Mesh targetMesh = allAssets
+                    .OfType<Mesh>()
+                    .FirstOrDefault(mesh => mesh.name == meshName);
+                if (targetMesh == null) continue;
+                meshesList.Add(targetMesh);
             }
-            
+
             return SaveMeshesToAsset(originalFbx, appliedBlendShapeData, meshesList, path);
         }
-        
+
         /// <summary>
         /// Creates and saves a <see cref="GeneratedMeshAssetSO"/> asset that contains the specified meshes and related metadata.
         /// </summary>
         /// <param name="originalFbx">
-        /// The original FBX <see cref="GameObject"/> used as a reference for generating the meshes.  
+        /// The original FBX <see cref="GameObject"/> used as a reference for generating the meshes.
         /// Its information is stored in the resulting asset.
         /// </param>
         /// <param name="appliedBlendShapeData">
@@ -228,7 +243,7 @@ namespace Triturbo.BlendShare.Persistence
                 .ToArray();
             var existingAsset = AssetDatabase.LoadAssetAtPath<GeneratedMeshAssetSO>(path);
             GeneratedMeshAssetSO asset = existingAsset != null ? existingAsset : CreateInstance<GeneratedMeshAssetSO>();
-            
+
             try
             {
                 AssetDatabase.StartAssetEditing();
@@ -238,7 +253,7 @@ namespace Triturbo.BlendShare.Persistence
                     AssetDatabase.CreateAsset(asset, path);
                 }
 
-                asset.m_OriginalFbxGo = originalFbx;
+                asset.m_OriginalFbxAsset = originalFbx;
                 asset.m_OriginalFbxHash = CalculateHash(originalFbx);
                 asset.m_AppliedBlendShapes = appliedBlendShapes;
                 asset.m_AppliedBlendShares = Array.Empty<BlendShareObject>();
@@ -326,6 +341,7 @@ namespace Triturbo.BlendShare.Persistence
             return asset;
         }
 
+        [Obsolete("SaveBlendShareMeshesToAsset creates the legacy GeneratedMeshAssetSO format. Use BlendShareArtifactService.CreateArtifact for new editor workflows.")]
         public static GeneratedMeshAssetSO SaveBlendShareMeshesToAsset(
             GameObject originalFbx,
             IEnumerable<BlendShareObject> appliedBlendShares,
@@ -349,6 +365,7 @@ namespace Triturbo.BlendShare.Persistence
         /// <param name="additionalSubAssets">Additional subassets created by feature generator passes.</param>
         /// <param name="path">Generated asset path.</param>
         /// <returns>The generated mesh asset, or <c>null</c> when saving fails.</returns>
+        [Obsolete("SaveBlendShareMeshesToAsset creates the legacy GeneratedMeshAssetSO format. Use BlendShareArtifactService.CreateArtifact for new editor workflows.")]
         public static GeneratedMeshAssetSO SaveBlendShareMeshesToAsset(
             GameObject originalFbx,
             IEnumerable<BlendShareObject> appliedBlendShares,
@@ -374,6 +391,7 @@ namespace Triturbo.BlendShare.Persistence
             return asset;
         }
 
+        [Obsolete("SaveBlendShareMeshesToAsset creates the legacy GeneratedMeshAssetSO format. Use BlendShareArtifactService.CreateArtifact for new editor workflows.")]
         public static GeneratedMeshAssetSO SaveBlendShareMeshesToAsset(
             GameObject originalFbx,
             IEnumerable<BlendShareObject> appliedBlendShares,
@@ -408,8 +426,8 @@ namespace Triturbo.BlendShare.Persistence
 
             return SaveBlendShareMeshesToAsset(originalFbx, blendShareArray, meshesList, path);
         }
-        
-        
+
+
         public static string CalculateHash(Object obj)
         {
             if(obj == null)

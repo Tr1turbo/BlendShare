@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
+using Triturbo.BlendShapeShare.BlendShapeData;
 using Triturbo.BlendShare.Components;
 using Triturbo.BlendShare.Persistence;
 using UnityEditor;
@@ -543,8 +544,8 @@ namespace Triturbo.BlendShare.Core
         {
             if (targetMeshContainer is GeneratedMeshAssetSO generatedAsset)
             {
-                return generatedAsset.m_OriginalFbxGo != null
-                    ? generatedAsset.m_OriginalFbxGo
+                return generatedAsset.m_OriginalFbxAsset != null
+                    ? generatedAsset.m_OriginalFbxAsset
                     : targetMeshContainer;
             }
 

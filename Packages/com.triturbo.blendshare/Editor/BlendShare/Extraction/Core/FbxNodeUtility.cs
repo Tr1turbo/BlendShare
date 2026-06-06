@@ -4,16 +4,13 @@ using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Fbx;
 
-namespace Triturbo.BlendShapeShare.Util
+namespace Triturbo.BlendShare.Core
 {
-    public static class FbxUtil
+    public static class FbxNodeUtility
     {
         /// <summary>
         /// Finds a mesh node by its exact slash-delimited path from the supplied root node.
         /// </summary>
-        /// <param name="rootNode">Root FBX node to search under.</param>
-        /// <param name="path">FBX node path relative to <paramref name="rootNode"/>.</param>
-        /// <returns>The matching mesh node, or <c>null</c> when the path is missing or does not contain a mesh.</returns>
         public static FbxNode FindMeshChildByPath(this FbxNode rootNode, string path)
         {
             if (rootNode == null)
@@ -42,6 +39,7 @@ namespace Triturbo.BlendShapeShare.Util
                         break;
                     }
                 }
+
                 if (!found)
                 {
                     return null;
@@ -74,19 +72,19 @@ namespace Triturbo.BlendShapeShare.Util
             CollectMeshChildrenByName(rootNode, name, matches);
             return matches.Count == 1 ? matches[0] : null;
         }
-        
+
         public static FbxNode FindMeshChild(this FbxNode rootNode, string name)
         {
             if (rootNode.GetName() == name && rootNode.GetMesh() != null)
-            { 
+            {
                 return rootNode;
             }
-            
+
             for (int i = 0; i < rootNode.GetChildCount(); i++)
             {
                 FbxNode child = rootNode.GetChild(i);
                 if (child.GetName() == name && child.GetMesh() != null)
-                { 
+                {
                     return child;
                 }
             }
@@ -95,7 +93,7 @@ namespace Triturbo.BlendShapeShare.Util
             {
                 return rootNode.GetChild(i).FindMeshChild(name);
             }
-            
+
             return null;
         }
 
@@ -147,5 +145,4 @@ namespace Triturbo.BlendShapeShare.Util
         }
     }
 }
-
 #endif

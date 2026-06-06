@@ -168,12 +168,6 @@ namespace Triturbo.BlendShare.Migration
                     continue;
                 }
 
-                if (legacyMesh.HasNodePath)
-                {
-                    meshPaths[legacyMesh] = legacyMesh.NodePath;
-                    continue;
-                }
-
                 string nodeName = MeshNodePath.LeafName(legacyMesh.m_MeshName);
                 if (nodeNamePathLookup.TryGetValue(nodeName, out string path))
                 {

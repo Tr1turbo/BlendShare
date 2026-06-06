@@ -4,7 +4,6 @@ using UnityEditor;
 using Triturbo.BlendShapeShare;
 using Triturbo.BlendShapeShare.BlendShapeData;
 using Triturbo.BlendShare.Core;
-using Triturbo.BlendShare.Persistence;
 
 namespace Triturbo.BlendShare.Inspector
 {
@@ -23,7 +22,7 @@ namespace Triturbo.BlendShare.Inspector
         
         private void OnEnable()
         {
-            originalFbxProp = serializedObject.FindProperty("m_OriginalFbxGo");
+            originalFbxProp = serializedObject.FindProperty("m_OriginalFbxAsset");
             originalHashProp = serializedObject.FindProperty("m_OriginalFbxHash");
             appliedBlendShapesProp = serializedObject.FindProperty("m_AppliedBlendShapes");
             appliedBlendSharesProp = serializedObject.FindProperty("m_AppliedBlendShares");

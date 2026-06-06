@@ -11,6 +11,7 @@ using UnityEditorInternal;
 
 namespace Triturbo.BlendShapeShare.BlendShapeData
 {
+    [System.Obsolete("BlendShapeMeshGeneratorWindow is a legacy editor. Use the new BlendShareObject workflow for new assets.")]
     public class BlendShapeMeshGeneratorWindow : EditorWindow 
     { 
         private Object targetMeshContainer;
@@ -39,30 +40,13 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
            GetWindow<BlendShapeMeshGeneratorWindow>("BlendShare");
         }
 
-        private BlendShareObject[] GetValidBlendShares()
+        private Object[] GetValidBlendShapeAssets()
         {
             return blendShapeList
-                .Where(b => b != null)
-                .Select(GetOrUpgradeBlendShareObject)
-                .Where(b => b != null)
+                .Where(IsSupportedBlendShareData)
                 .Distinct()
                 .ToArray();
         } 
-
-        private static BlendShareObject GetOrUpgradeBlendShareObject(Object obj)
-        {
-            if (obj is BlendShareObject blendShare)
-            {
-                return blendShare;
-            }
-
-            if (obj is BlendShapeDataSO legacy)
-            {
-                return BlendShareUpgradeService.UpgradeSideBySide(legacy);
-            }
-
-            return null;
-        }
         
         private void OnEnable()
         {
@@ -83,12 +67,13 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             reorderableList.drawElementCallback = (Rect rect, int index, bool isActive, bool isFocused) =>
             {
                 rect.y += 2;
-                blendShapeList[index] = EditorGUI.ObjectField(
+                var updated = EditorGUI.ObjectField(
                     new Rect(rect.x, rect.y, rect.width, EditorGUIUtility.singleLineHeight),
                     blendShapeList[index],
                     typeof(Object),
                     false
                 );
+                blendShapeList[index] = IsSupportedBlendShareData(updated) ? updated : blendShapeList[index];
             };
 
             reorderableList.onAddCallback = list =>
@@ -112,18 +97,14 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             {
                 if (evt.type == EventType.DragUpdated || evt.type == EventType.DragPerform)
                 {
-                    bool valid = DragAndDrop.objectReferences.Any(o => o is BlendShareObject || o is BlendShapeDataSO);
+                    bool valid = DragAndDrop.objectReferences.Any(IsSupportedBlendShareData);
                     DragAndDrop.visualMode = valid ? DragAndDropVisualMode.Copy : DragAndDropVisualMode.Rejected;
                     if (evt.type == EventType.DragPerform)
                     {
                         DragAndDrop.AcceptDrag();
                         blendShapeList.AddRange(DragAndDrop.objectReferences
-                            .OfType<BlendShapeDataSO>()
+                            .Where(IsSupportedBlendShareData)
                             .Where(bsd => !blendShapeList.Contains(bsd)));
-                        blendShapeList.AddRange(DragAndDrop.objectReferences
-                            .OfType<BlendShareObject>()
-                            .Where(bsd => !blendShapeList.Contains(bsd)));
-
                         evt.Use();
                     }
                 }
@@ -133,7 +114,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         private void OnDataListUpdated()
         {
             // Remove nulls first
-            var validList = GetValidBlendShares();
+            var validList = GetValidBlendShapeAssets();
 
             // bool allSame = validList.Length > 0 && 
             //                validList.All(b => b.m_Original == validList[0].m_Original);
@@ -147,8 +128,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             //     Debug.Log("Elements have different origin FBX objects");
             // }
             
-            isAbleToGenerateMesh = targetMeshContainer != null &&
-                                   new UnityMeshGenerationPipeline().CanApplyToUnityMeshes(targetMeshContainer, validList);
+            isAbleToGenerateMesh = targetMeshContainer != null && validList.Length > 0;
         }
         
         
@@ -169,7 +149,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 isAbleToGenerateFbx = EditorWidgets.IsFBXGameObject(targetMeshContainer);
                 if (!isAbleToGenerateFbx && targetMeshContainer is GeneratedMeshAssetSO maso)
                 {
-                    isAbleToGenerateFbx = maso.m_OriginalFbxGo != null;
+                    isAbleToGenerateFbx = maso.m_OriginalFbxAsset != null;
                 }
                 OnDataListUpdated();
 
@@ -193,9 +173,9 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             HandleDragAndDrop();
             EditorGUILayout.Space(16);
             
-            bool isValidInput = targetMeshContainer != null && blendShapeList.Any(b => b != null);
+            bool isValidInput = targetMeshContainer != null && blendShapeList.Any(IsSupportedBlendShareData);
             
-            if (isValidInput &&　!isAbleToGenerateFbx && !isAbleToGenerateMesh)
+            if (isValidInput && !isAbleToGenerateFbx && !isAbleToGenerateMesh)
             {
                 EditorGUILayout.HelpBox(
                     Localization.S("mesh_generator.mesh_generation_disable"), 
@@ -205,7 +185,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             GUI.enabled = isValidInput && (isAbleToGenerateFbx || isAbleToGenerateMesh);
             if (GUILayout.Button(Localization.G("mesh_generator.generate_mesh"), GUILayout.Height(32)))
             {
-                var validBlendShapes =  GetValidBlendShares();
+                var validBlendShapes =  GetValidBlendShapeAssets();
                 var savePath = GetFileSavePath(validBlendShapes, "asset");
                 if (!string.IsNullOrEmpty(savePath))
                 {
@@ -216,7 +196,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             GUI.enabled = isValidInput && isAbleToGenerateFbx;
             if (GUILayout.Button(Localization.G("mesh_generator.generate_fbx"), GUILayout.Height(32)))
             {
-                var validBlendShapes =  GetValidBlendShares();
+                var validBlendShapes =  GetValidBlendShapeAssets();
                 var savePath = GetFileSavePath(validBlendShapes,"fbx");
                 if (!string.IsNullOrEmpty(savePath))
                 {
@@ -229,12 +209,12 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             
         }
 
-        private string GetFileSavePath(BlendShareObject[] validBlendShapes, string extension)
+        private string GetFileSavePath(Object[] validBlendShapes, string extension)
         {
             string defaultName = targetMeshContainer.name;
             foreach (var blendShape in validBlendShapes)
             {
-                defaultName += blendShape.DefaultMeshAssetName;
+                defaultName += GetDefaultAssetName(blendShape);
             }
             string savePath = EditorUtility.SaveFilePanel(
                 "Save Mesh Asset",
@@ -250,23 +230,24 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             return "";
         }
 
-        private void GenerateMesh(BlendShareObject[] validBlendShapes, string filePath)
+        private void GenerateMesh(Object[] validBlendShapes, string filePath)
         {
             if (targetMeshContainer == null)
             {
                 EditorUtility.DisplayDialog("Error", "Please assign a Target Mesh Container.", "OK");
                 return;
             }
-            if (validBlendShapes.Length == 0)
+            var blendShares = GetBlendSharesForGeneration(validBlendShapes, false);
+            if (blendShares.Length == 0)
             {
-                EditorUtility.DisplayDialog("Error", "Please assign at least one BlendShareObject.", "OK");
+                EditorUtility.DisplayDialog("Error", "Please assign at least one BlendShapeDataSO or BlendShareObject.", "OK");
                 return;
             }
             try
             {
-                var result = BlendShareGenerationService.CreateMeshAsset(
+                var result = BlendShareArtifactService.CreateArtifact(
                     targetMeshContainer,
-                    validBlendShapes,
+                    blendShares,
                     filePath
                 );
                 if (result == null)
@@ -278,7 +259,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 AssetDatabase.SaveAssets();
                 AssetDatabase.Refresh();
             
-                EditorUtility.DisplayDialog("Success", $"Generated mesh asset saved at:\n{filePath}", "OK");
+                EditorUtility.DisplayDialog("Success", $"Generated artifact saved at:\n{filePath}", "OK");
                 Selection.activeObject = result;
             }
             catch (System.Exception ex)
@@ -288,7 +269,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             }
         }
         
-        private void GenerateFbx(BlendShareObject[] validBlendShapes, string filePath)
+        private void GenerateFbx(Object[] validBlendShapes, string filePath)
         {
             if (targetMeshContainer == null)
             {
@@ -296,31 +277,25 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 return;
             }
             
-            if (validBlendShapes.Length == 0)
+            var blendShares = GetBlendSharesForGeneration(validBlendShapes, true);
+            if (blendShares.Length == 0)
             {
-                EditorUtility.DisplayDialog("Error", "Please assign at least one BlendShareObject.", "OK");
+                EditorUtility.DisplayDialog("Error", "Please assign at least one BlendShapeDataSO or BlendShareObject.", "OK");
                 return;
             }
             try
             {
                 GameObject source = null;
-                IEnumerable<BlendShareObject> blendShapes = validBlendShapes;
                 if (EditorWidgets.IsFBXGameObject(targetMeshContainer, out var fbx))
                 {
                     source = fbx;
                 }
                 else if(targetMeshContainer is GeneratedMeshAssetSO maso)
                 {
-                    source = maso.m_OriginalFbxGo;
-                    blendShapes = (maso.m_AppliedBlendShares ?? System.Array.Empty<BlendShareObject>())
-                        .Concat((maso.m_AppliedBlendShapes ?? System.Array.Empty<BlendShapeDataSO>())
-                            .Where(legacy => legacy != null)
-                            .Select(BlendShareUpgradeService.UpgradeSideBySide)
-                            .Where(share => share != null))
-                        .Concat(validBlendShapes);
+                    source = maso.m_OriginalFbxAsset;
                 }
                 
-                if (!BlendShareGenerationService.CreateFbx(source, blendShapes, filePath))
+                if (!BlendShareGenerationService.CreateFbx(source, blendShares, filePath))
                 {
                     EditorUtility.DisplayDialog("Error", "Fbx generation failed", "OK");
                     return;
@@ -334,6 +309,69 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 Debug.LogError(ex);
                 EditorUtility.DisplayDialog("Error", $"Failed to generate mesh asset:\n{ex.Message}", "OK");
             }
+        }
+
+        private static bool IsSupportedBlendShareData(Object obj)
+        {
+            return obj is BlendShapeDataSO || obj is BlendShareObject;
+        }
+
+        private static string GetDefaultAssetName(Object asset)
+        {
+            if (asset is BlendShareObject blendShare)
+            {
+                return blendShare.DefaultMeshAssetName;
+            }
+
+            if (asset is BlendShapeDataSO legacy)
+            {
+                return legacy.DefaultMeshAssetName;
+            }
+
+            return string.Empty;
+        }
+
+        private BlendShareObject[] GetBlendSharesForGeneration(IEnumerable<Object> assets, bool includeTargetGeneratedAssetApplied)
+        {
+            var blendShares = new List<BlendShareObject>();
+            if (includeTargetGeneratedAssetApplied && targetMeshContainer is GeneratedMeshAssetSO generatedAsset)
+            {
+                if (generatedAsset.m_AppliedBlendShares != null)
+                {
+                    blendShares.AddRange(generatedAsset.m_AppliedBlendShares.Where(share => share != null));
+                }
+
+                if (generatedAsset.m_AppliedBlendShapes != null)
+                {
+                    blendShares.AddRange(generatedAsset.m_AppliedBlendShapes
+                        .Where(legacy => legacy != null)
+                        .Select(BlendShareUpgradeService.UpgradeSideBySide)
+                        .Where(share => share != null));
+                }
+            }
+
+            foreach (var asset in assets ?? Enumerable.Empty<Object>())
+            {
+                if (asset is BlendShareObject blendShare)
+                {
+                    blendShares.Add(blendShare);
+                    continue;
+                }
+
+                if (asset is BlendShapeDataSO legacy)
+                {
+                    var upgraded = BlendShareUpgradeService.UpgradeSideBySide(legacy);
+                    if (upgraded != null)
+                    {
+                        blendShares.Add(upgraded);
+                    }
+                }
+            }
+
+            return blendShares
+                .Where(share => share != null)
+                .Distinct()
+                .ToArray();
         }
     
         

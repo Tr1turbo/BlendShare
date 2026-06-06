@@ -1069,7 +1069,7 @@ namespace Triturbo.BlendShare.Persistence
         {
             if (targetMeshContainer is GeneratedMeshAssetSO generatedAsset)
             {
-                return generatedAsset.m_OriginalFbxGo;
+                return generatedAsset.m_OriginalFbxAsset;
             }
 
             return targetMeshContainer as GameObject;

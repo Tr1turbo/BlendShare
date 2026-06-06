@@ -19,6 +19,7 @@ namespace Triturbo.BlendShare.Persistence
         /// <param name="blendShares">BlendShare assets to apply.</param>
         /// <param name="path">Asset path where the generated mesh asset should be saved.</param>
         /// <returns>The saved generated mesh asset, or <c>null</c> when generation fails.</returns>
+        [System.Obsolete("CreateMeshAsset creates the legacy GeneratedMeshAssetSO format. Use BlendShareArtifactService.CreateArtifact for new generated assets.")]
         public static GeneratedMeshAssetSO CreateMeshAsset(
             Object targetMeshContainer,
             IEnumerable<BlendShareObject> blendShares,
@@ -204,7 +205,7 @@ namespace Triturbo.BlendShare.Persistence
         {
             if (targetMeshContainer is GeneratedMeshAssetSO generatedAsset)
             {
-                return generatedAsset.m_OriginalFbxGo;
+                return generatedAsset.m_OriginalFbxAsset;
             }
 
             return targetMeshContainer as GameObject;

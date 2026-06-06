@@ -81,6 +81,16 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             _deltaControlPointsDict = null;
         }
 
+        [System.Obsolete("Use AddDeltaControlPointAt(Vector3d, int). This overload is kept for legacy BlendShapeDataSO APIs.")]
+        public void AddDeltaControlPointAt(Vector4d controlPoint, int index)
+        {
+            AddDeltaControlPointAt(
+                controlPoint == null
+                    ? Vector3d.zero
+                    : new Vector3d(controlPoint.m_X, controlPoint.m_Y, controlPoint.m_Z),
+                index);
+        }
+
         public Vector3d GetDeltaControlPointAt(int index)
         {
             MigrateLegacyVectors();

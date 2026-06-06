@@ -2,7 +2,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Triturbo.BlendShare.Core;
 using UnityEditor.AssetImporters;
 using UnityEngine;
 
@@ -10,6 +9,7 @@ using UnityEngine;
 namespace Triturbo.BlendShapeShare.BlendShapeData
 {
     
+    [System.Obsolete("BlendShapeDataSO is a legacy asset format. Use BlendShareObject for new assets.")]
     public class BlendShapeDataSO : ScriptableObject
     {
         public GameObject m_Original;
@@ -28,12 +28,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
             foreach (var meshData in m_MeshDataList)
             {
-                if (meshData != null && meshData.HasNodePath)
-                {
-                    meshData.SetNodePath(meshData.m_NodePath);
-                }
                 meshData?.SanitizeShapeNames();
-                meshData?.MigrateLegacyFbxBlendShapeVectors();
             }
         }
 
@@ -92,7 +87,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         public int m_VertexCount;
         public int m_VerticesHash;
         public string m_MeshName;
-        public string m_NodePath;
         public List<string> m_ShapeNames;
 
         [SerializeField]
@@ -184,14 +178,6 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             return true;
         }
 
-        internal void MigrateLegacyFbxBlendShapeVectors()
-        {
-            foreach (var blendShape in m_BlendShapes ?? new List<BlendShapeWrapper>())
-            {
-                blendShape?.m_FbxBlendShapeData?.MigrateLegacyVectors();
-            }
-        }
-
         public bool AddBlendShape(BlendShapeWrapper blendShapeWrapper)
         {
             if (!ContainsBlendShape(blendShapeWrapper.m_ShapeName))
@@ -229,26 +215,9 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             blendShape.m_UnityBlendShapeData = unityBlendShapeData;
         }
 
-
-
-
-        public bool HasNodePath => !string.IsNullOrWhiteSpace(m_NodePath);
-        public string NodePath => MeshNodePath.Normalize(m_NodePath);
-
-        public void SetNodePath(string path)
-        {
-            m_NodePath = string.IsNullOrWhiteSpace(path) ? null : MeshNodePath.Normalize(path);
-        }
-
         public MeshData(string name, Mesh mesh)
-            : this(name, mesh, null)
-        {
-        }
-
-        public MeshData(string name, Mesh mesh, string nodePath)
         {
             this.m_MeshName = name;
-            SetNodePath(nodePath);
             m_OriginMesh = mesh;
 
 
@@ -261,14 +230,8 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
         }
         public MeshData(Mesh mesh, IEnumerable<string> blendShapeNames)
-            : this(mesh, blendShapeNames, null)
-        {
-        }
-
-        public MeshData(Mesh mesh, IEnumerable<string> blendShapeNames, string nodePath)
         {
             this.m_MeshName = mesh.name;
-            SetNodePath(nodePath);
             m_OriginMesh = mesh;
 
 
@@ -311,8 +274,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 md.m_OriginMesh,
                 md.m_VertexCount,
                 md.m_VerticesHash,
-                md.m_MeshName,
-                md.m_NodePath
+                md.m_MeshName
             });
     
             var combinedList = new List<MeshData>();
@@ -320,7 +282,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             foreach (var group in grouped)
             {
                 // Take the first as the base
-                var baseData = new MeshData(group.Key.m_MeshName, group.Key.m_OriginMesh, group.Key.m_NodePath);
+                var baseData = new MeshData(group.Key.m_MeshName, group.Key.m_OriginMesh);
     
                 foreach (var entry in group)
                 {
@@ -434,12 +396,12 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 if (deltaNormals[i] != Vector3.zero)
                 {
                     this.m_NormalIndices.Add(i);
-                    this.m_DeltaNormals.Add(deltaNormals[i]);
+                    this.m_DeltaVertices.Add(deltaNormals[i]);
                 }
                 if (deltaTangents[i] != Vector3.zero)
                 {
                     this.m_TangentIndices.Add(i);
-                    this.m_DeltaTangents.Add(deltaTangents[i]);
+                    this.m_DeltaVertices.Add(deltaTangents[i]);
                 }
             }
 

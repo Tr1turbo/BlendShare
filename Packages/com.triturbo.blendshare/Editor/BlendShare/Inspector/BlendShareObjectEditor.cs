@@ -282,27 +282,6 @@ namespace Triturbo.BlendShare.Inspector
                 }
             }
 
-            if (GUILayout.Button(Localization.G("data.create_meshes")))
-            {
-                if (blendShare.m_Original == null)
-                {
-                    Localization.DisplayDialog("data.dialog.fbx_missing", Localization.S("data.dialog.ok"));
-                    return;
-                }
-
-                string folderPath = Path.GetDirectoryName(AssetDatabase.GetAssetPath(blendShare));
-                string path = EditorUtility.SaveFilePanelInProject(
-                    Localization.S("data.save_mesh.title"),
-                    blendShare.DefaultMeshAssetName,
-                    "asset",
-                    Localization.S("data.save_file.message"),
-                    folderPath);
-                if (!string.IsNullOrEmpty(path))
-                {
-                    BlendShareGenerationService.CreateMeshAsset(blendShare.m_Original, new[] { blendShare }, path);
-                }
-            }
-
             if (!artifactMappingStatus.CanGenerateArtifact)
             {
                 EditorGUILayout.HelpBox(artifactMappingStatus.Message, MessageType.Warning);
@@ -341,13 +320,6 @@ namespace Triturbo.BlendShare.Inspector
                 }
             }
 
-            if (GUILayout.Button(Localization.G("data.open_advanced_generator")))
-            {
-                var window = EditorWindow.GetWindow<BlendShapeMeshGeneratorWindow>("BlendShare");
-                window.blendShapeList.Add(blendShare);
-                window.TargetMeshContainer = blendShare.m_Original;
-                window.Focus();
-            }
         }
 
         private static ArtifactMappingStatus GetArtifactMappingStatus(BlendShareObject blendShare)

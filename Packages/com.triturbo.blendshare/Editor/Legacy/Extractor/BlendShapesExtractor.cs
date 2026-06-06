@@ -6,18 +6,13 @@ using UnityEditor;
 using System.Linq;
 
 using Triturbo.BlendShapeShare.BlendShapeData;
-using Triturbo.BlendShare.Core;
 using System.Diagnostics;
 using Debug = UnityEngine.Debug;
 using System.Threading.Tasks;
 
-
-using Vector3d = Triturbo.BlendShare.Fbx.Vector3d;
-
-
 #if ENABLE_FBX_SDK
 using Autodesk.Fbx;
-using Triturbo.BlendShapeShare.Util;
+using Triturbo.BlendShare.Core;
 # endif
 
 
@@ -76,6 +71,7 @@ namespace Triturbo.BlendShapeShare.Extractor
         }
     }
 
+    [System.Obsolete("BlendShapesExtractor is a legacy extractor. Use the new BlendShare extraction pipeline for new assets.")]
     public static class BlendShapesExtractor
     {
         public static BlendShapeDataSO ExtractBlendShapes(GameObject blendShapeSource, GameObject originObject, List<MeshData> meshDataList,
@@ -261,19 +257,16 @@ namespace Triturbo.BlendShapeShare.Extractor
             int count = 0;
             foreach (var meshData in meshDataList)
             {
-                string nodePath = meshData.HasNodePath ? meshData.NodePath : meshData.m_MeshName;
-                FbxNode node = meshData.HasNodePath
-                    ? sourceRootNode.FindMeshChildByPathOrUniqueName(nodePath)
-                    : sourceRootNode.FindMeshChild(nodePath);
+                FbxNode node = sourceRootNode.FindMeshChild(meshData.m_MeshName);
                 FbxMesh sourceMesh = node?.GetMesh();
-                if (EditorUtility.DisplayCancelableProgressBar("Extract BlendShapes", $"Check node: {nodePath}", 0.4f + 0.4f * count++ / meshDataList.Count))
+                if (EditorUtility.DisplayCancelableProgressBar("Extract BlendShapes", $"Check node: {meshData.m_MeshName}", 0.4f + 0.4f * count++ / meshDataList.Count))
                 {
                     EditorUtility.ClearProgressBar();
                     return false;
                 }
                 if (sourceMesh == null)
                 {
-                    Debug.LogError($"Can not find mesh: {nodePath} in FBX file");
+                    Debug.LogError($"Can not find mesh: {meshData.m_MeshName} in FBX file");
                     continue;
                 }
 
@@ -283,9 +276,7 @@ namespace Triturbo.BlendShapeShare.Extractor
                 {
                     continue;
                 }
-                FbxNode nodeOrigin = meshData.HasNodePath
-                    ? originRootNode?.FindMeshChildByPathOrUniqueName(nodePath)
-                    : originRootNode?.FindMeshChild(nodePath);
+                FbxNode nodeOrigin = originRootNode?.FindMeshChild(meshData.m_MeshName);
                 FbxMesh originMesh = nodeOrigin?.GetMesh();
 
                 if (originMesh != null)
@@ -641,7 +632,7 @@ namespace Triturbo.BlendShapeShare.Extractor
 
                     if (weldingGroup == null)
                     {
-                        var delta = new Vector3d(deltas[pointIndex].X, deltas[pointIndex].Y, deltas[pointIndex].Z);
+                        var delta = new Vector4d(deltas[pointIndex].X, deltas[pointIndex].Y, deltas[pointIndex].Z, deltas[pointIndex].W);
 
                         if (!delta.IsZero())
                             frames[shapeIndex].AddDeltaControlPointAt(delta, pointIndex);
@@ -652,7 +643,7 @@ namespace Triturbo.BlendShapeShare.Extractor
                 {
                     for (int i = 0; i < deltas.Length; i++)
                     {
-                        var delta = new Vector3d(deltas[i].X, deltas[i].Y, deltas[i].Z);
+                        var delta = new Vector4d(deltas[i].X, deltas[i].Y, deltas[i].Z, deltas[i].W);
                         if (!delta.IsZero())
                             frames[shapeIndex].AddDeltaControlPointAt(delta, i);
                     }
@@ -672,15 +663,12 @@ namespace Triturbo.BlendShapeShare.Extractor
         internal static List<MeshData> CompareBlendShape(GameObject source, GameObject origin, bool compareByName = true)
         {
             List<MeshData> meshDataList = new List<MeshData>();
-            Dictionary<string, SkinnedMeshRenderer> originRenderersByPath = new Dictionary<string, SkinnedMeshRenderer>();
+            Dictionary<string, SkinnedMeshRenderer> originMeshLookup = new Dictionary<string, SkinnedMeshRenderer>();
 
+            // Create a lookup dictionary for origin mesh renderers
             foreach (var skinnedMesh in origin.GetComponentsInChildren<SkinnedMeshRenderer>(true))
             {
-                string path = MeshNodePath.GetRelativePath(skinnedMesh.transform, origin.transform);
-                if (!originRenderersByPath.ContainsKey(path))
-                {
-                    originRenderersByPath[path] = skinnedMesh;
-                }
+                originMeshLookup[skinnedMesh.name] = skinnedMesh;
             }
 
             foreach (var meshRenderer in source.GetComponentsInChildren<SkinnedMeshRenderer>(true))
@@ -691,10 +679,10 @@ namespace Triturbo.BlendShapeShare.Extractor
                     continue;
                 }
 
-                string nodePath = MeshNodePath.GetRelativePath(meshRenderer.transform, source.transform);
-                if (!originRenderersByPath.TryGetValue(nodePath, out SkinnedMeshRenderer originRenderer) || originRenderer.sharedMesh == null)
+                // Use lookup dictionary for faster search
+                if (!originMeshLookup.TryGetValue(meshRenderer.name, out SkinnedMeshRenderer originRenderer) || originRenderer.sharedMesh == null)
                 {
-                    Debug.LogError($"Cannot find matching SkinnedMeshRenderer at path {nodePath} in origin: {origin.name}");
+                    Debug.LogError($"Cannot find matching SkinnedMeshRenderer for {meshRenderer.name} in origin: {origin.name}");
                     continue;
                 }
 
@@ -714,7 +702,7 @@ namespace Triturbo.BlendShapeShare.Extractor
                     }
                 }
 
-                MeshData meshData = new MeshData(originMesh, extraBlendShapes, nodePath);
+                MeshData meshData = new MeshData(originMesh, extraBlendShapes);
                 meshDataList.Add(meshData);
             }
             return meshDataList;
@@ -762,10 +750,8 @@ namespace Triturbo.BlendShapeShare.Extractor
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
 
-            Dictionary<string, MeshData> meshDataDict = meshDataList
-                .Where(meshData => meshData != null && meshData.HasNodePath)
-                .GroupBy(meshData => meshData.NodePath)
-                .ToDictionary(group => group.Key, group => group.First());
+            // Convert meshDataList to a dictionary for faster lookup
+            Dictionary<string, MeshData> meshDataDict = meshDataList.ToDictionary(m => m.m_MeshName);
 
             // Get all skinned mesh renderers in source
             var skinnedMeshRenderers = source.GetComponentsInChildren<SkinnedMeshRenderer>(true);
@@ -778,8 +764,8 @@ namespace Triturbo.BlendShapeShare.Extractor
                     continue;
                 }
 
-                string nodePath = MeshNodePath.GetRelativePath(meshRenderer.transform, source.transform);
-                if (!meshDataDict.TryGetValue(nodePath, out MeshData meshData))
+                // Look up MeshData by name
+                if (!meshDataDict.TryGetValue(sourceMesh.name, out MeshData meshData))
                 {
                     continue;
                 }

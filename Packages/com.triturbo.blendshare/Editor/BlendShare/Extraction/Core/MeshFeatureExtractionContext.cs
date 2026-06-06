@@ -9,7 +9,6 @@ using UnityEngine;
 
 #if ENABLE_FBX_SDK
 using Autodesk.Fbx;
-using Triturbo.BlendShapeShare.Util;
 #endif
 
 namespace Triturbo.BlendShare.Core

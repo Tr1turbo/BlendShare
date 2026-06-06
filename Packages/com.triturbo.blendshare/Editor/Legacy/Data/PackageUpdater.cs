@@ -17,7 +17,7 @@ namespace Triturbo.BlendShapeShare
         private const string packageJsonPath = "Packages/com.triturbo.blendshare/package.json";
         
         
-       [MenuItem("Tools/BlendShare/Check for Update")]
+       //[MenuItem("Tools/BlendShare/Check for Update")]
         public static async void CheckAndImportLatest()
         {
             try
