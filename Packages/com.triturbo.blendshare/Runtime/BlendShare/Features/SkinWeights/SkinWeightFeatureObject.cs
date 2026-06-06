@@ -21,7 +21,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
     }
 
     [System.Serializable]
-    public sealed class SkinWeightExtraBoneBindPoseData
+    public sealed class SkinWeightBindPoseData
     {
         public string m_Path;
 
@@ -29,9 +29,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         public Triturbo.BlendShare.Fbx.FbxMatrix4x4 m_FbxTransformLinkMatrix = Triturbo.BlendShare.Fbx.FbxMatrix4x4.Identity;
         public bool m_HasFbxClusterMatrices;
 
-        public SkinWeightExtraBoneBindPoseData() { }
+        public SkinWeightBindPoseData() { }
 
-        public SkinWeightExtraBoneBindPoseData(
+        public SkinWeightBindPoseData(
             string path,
             Triturbo.BlendShare.Fbx.FbxMatrix4x4 fbxTransformMatrix,
             Triturbo.BlendShare.Fbx.FbxMatrix4x4 fbxTransformLinkMatrix)
@@ -52,7 +52,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         public string m_RootBonePath = MeshNodePath.Root;
         public int m_FbxControlPointCount = -1;
         public string[] m_BonePaths = System.Array.Empty<string>();
-        public SkinWeightExtraBoneBindPoseData[] m_ExtraBoneBindPoses = System.Array.Empty<SkinWeightExtraBoneBindPoseData>();
+        public SkinWeightBindPoseData[] m_BindPoses = System.Array.Empty<SkinWeightBindPoseData>();
 
         [SerializeField, NonReorderable]
         private List<SkinWeightControlPointData> m_ControlPointWeights = new();
@@ -61,8 +61,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         public IReadOnlyList<SkinWeightControlPointData> ControlPointWeights => m_ControlPointWeights;
         public int BoneSlotCount => m_BonePaths?.Length ?? 0;
         public int WeightedControlPointCount => m_ControlPointWeights?.Count ?? 0;
-        public IReadOnlyList<SkinWeightExtraBoneBindPoseData> ExtraBoneBindPoses =>
-            m_ExtraBoneBindPoses ?? System.Array.Empty<SkinWeightExtraBoneBindPoseData>();
+        public IReadOnlyList<SkinWeightBindPoseData> BindPoses =>
+            m_BindPoses ?? System.Array.Empty<SkinWeightBindPoseData>();
 
         public override void Sanitize(MeshDataObject owner)
         {
@@ -74,14 +74,16 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 .Distinct()
                 .ToArray();
 
-            m_ExtraBoneBindPoses = (m_ExtraBoneBindPoses ?? System.Array.Empty<SkinWeightExtraBoneBindPoseData>())
+            var referencedBonePaths = new HashSet<string>(m_BonePaths);
+            m_BindPoses = (m_BindPoses ?? System.Array.Empty<SkinWeightBindPoseData>())
                 .Where(bindPose => bindPose != null && !string.IsNullOrWhiteSpace(bindPose.m_Path))
                 .Select(bindPose =>
                 {
                     bindPose.m_Path = MeshNodePath.Normalize(bindPose.m_Path);
                     return bindPose;
                 })
-                .Where(bindPose => m_BonePaths.Contains(bindPose.m_Path))
+                .Where(bindPose => referencedBonePaths.Contains(bindPose.m_Path) ||
+                                   bindPose.m_HasFbxClusterMatrices)
                 .GroupBy(bindPose => bindPose.m_Path)
                 .Select(group => group.First())
                 .ToArray();
@@ -120,7 +122,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             int fbxControlPointCount,
             IEnumerable<string> bonePaths,
             IEnumerable<SkinWeightControlPointData> controlPointWeights,
-            IEnumerable<SkinWeightExtraBoneBindPoseData> extraBoneBindPoses = null)
+            IEnumerable<SkinWeightBindPoseData> bindPoses = null)
         {
             m_BoneGraph = boneGraph;
             m_RootBonePath = MeshNodePath.Normalize(rootBonePath);
@@ -128,29 +130,29 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             m_BonePaths = bonePaths?.ToArray() ?? System.Array.Empty<string>();
             m_ControlPointWeights = controlPointWeights?.Where(weights => weights != null).ToList() ??
                                     new List<SkinWeightControlPointData>();
-            m_ExtraBoneBindPoses = extraBoneBindPoses?.Where(bindPose => bindPose != null).ToArray() ??
-                                   System.Array.Empty<SkinWeightExtraBoneBindPoseData>();
+            m_BindPoses = bindPoses?.Where(bindPose => bindPose != null).ToArray() ??
+                          System.Array.Empty<SkinWeightBindPoseData>();
             Sanitize(null);
         }
 
-        public bool TryGetExtraBoneFbxClusterMatrices(
+        public bool TryGetBindPoseFbxClusterMatrices(
             string path,
             out Triturbo.BlendShare.Fbx.FbxMatrix4x4 transformMatrix,
             out Triturbo.BlendShare.Fbx.FbxMatrix4x4 transformLinkMatrix)
         {
             string normalized = MeshNodePath.Normalize(path);
-            var entry = (m_ExtraBoneBindPoses ?? System.Array.Empty<SkinWeightExtraBoneBindPoseData>())
+            var entry = (m_BindPoses ?? System.Array.Empty<SkinWeightBindPoseData>())
                 .FirstOrDefault(candidate => candidate != null && MeshNodePath.Normalize(candidate.m_Path) == normalized);
             transformMatrix = entry != null ? entry.m_FbxTransformMatrix : Triturbo.BlendShare.Fbx.FbxMatrix4x4.Identity;
             transformLinkMatrix = entry != null ? entry.m_FbxTransformLinkMatrix : Triturbo.BlendShare.Fbx.FbxMatrix4x4.Identity;
             return entry != null && entry.m_HasFbxClusterMatrices;
         }
 
-        public bool TryGetExtraBoneFbxTransformLinkMatrix(
+        public bool TryGetBindPoseFbxTransformLinkMatrix(
             string path,
             out Triturbo.BlendShare.Fbx.FbxMatrix4x4 transformLinkMatrix)
         {
-            return TryGetExtraBoneFbxClusterMatrices(
+            return TryGetBindPoseFbxClusterMatrices(
                 path,
                 out _,
                 out transformLinkMatrix);

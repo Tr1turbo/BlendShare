@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using UnityEngine.UIElements;
 using UnityEngine;
 
 namespace Triturbo.BlendShare.Core
@@ -10,6 +11,7 @@ namespace Triturbo.BlendShare.Core
     public interface IMeshFeatureExtractionOptionsProvider
     {
         string FeatureId { get; }
+        string TabLabel { get; }
         Type OptionsType { get; }
         int DisplayOrder { get; }
 
@@ -21,12 +23,33 @@ namespace Triturbo.BlendShare.Core
     }
 
     /// <summary>
+    /// Optional editor hook for building copied feature inspection data from a short-lived FBX session.
+    /// </summary>
+    public interface IMeshFeatureInspectionProvider
+    {
+        object BuildInspectionData(
+            FbxInspectionSession session,
+            IReadOnlyList<MeshFeatureExtractionMeshRequest> meshes);
+    }
+
+    /// <summary>
+    /// Optional UI Toolkit renderer for feature options. Providers without this render through IMGUI fallback.
+    /// </summary>
+    public interface IUIToolkitMeshFeatureOptionsProvider
+    {
+        VisualElement CreateOptionsElement(
+            MeshFeatureExtractionOptions options,
+            MeshFeatureOptionsEditorContext context);
+    }
+
+    /// <summary>
     /// Typed base options provider for feature-specific extraction settings.
     /// </summary>
     public abstract class MeshFeatureExtractionOptionsProvider<TOptions> : IMeshFeatureExtractionOptionsProvider
         where TOptions : MeshFeatureExtractionOptions
     {
         public abstract string FeatureId { get; }
+        public virtual string TabLabel => FeatureId;
         public Type OptionsType => typeof(TOptions);
         public virtual int DisplayOrder => 0;
 
@@ -60,15 +83,35 @@ namespace Triturbo.BlendShare.Core
         public GameObject SourceFbxGo { get; }
         public GameObject OriginFbxGo { get; }
         public IReadOnlyList<MeshFeatureExtractionMeshRequest> Meshes { get; }
+        public IReadOnlyDictionary<string, object> CachedData { get; }
+        public float AvailableHeight { get; }
 
         public MeshFeatureOptionsEditorContext(
             GameObject sourceFbxGo,
             GameObject originFbxGo,
-            IReadOnlyList<MeshFeatureExtractionMeshRequest> meshes)
+            IReadOnlyList<MeshFeatureExtractionMeshRequest> meshes,
+            IReadOnlyDictionary<string, object> cachedData = null,
+            float availableHeight = 0f)
         {
             SourceFbxGo = sourceFbxGo;
             OriginFbxGo = originFbxGo;
             Meshes = meshes ?? Array.Empty<MeshFeatureExtractionMeshRequest>();
+            CachedData = cachedData ?? new Dictionary<string, object>();
+            AvailableHeight = availableHeight;
+        }
+
+        public bool TryGetCachedData<TValue>(string key, out TValue value)
+        {
+            if (!string.IsNullOrEmpty(key) &&
+                CachedData.TryGetValue(key, out var raw) &&
+                raw is TValue typed)
+            {
+                value = typed;
+                return true;
+            }
+
+            value = default;
+            return false;
         }
     }
 }

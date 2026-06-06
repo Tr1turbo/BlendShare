@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Triturbo.BlendShare.Features.SkinWeights;
 using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Fbx.Ufbx;
 using Triturbo.BlendShare.Fbx.Unity;
@@ -48,7 +47,6 @@ namespace Triturbo.BlendShare.Core
         private readonly Dictionary<string, Transform> sourceTransformsByPath = new();
         private readonly Dictionary<string, Transform> originTransformsByPath = new();
         private readonly Dictionary<string, UfbxMesh> normalizedSourceMeshesByPath = new();
-        private BoneGraphObject boneGraph;
 
 #if ENABLE_FBX_SDK
         private FbxSdkExtractionSource sourceSdkSource;
@@ -215,87 +213,9 @@ namespace Triturbo.BlendShare.Core
             return welding;
         }
 
-        internal BoneGraphObject GetOrCreateBoneGraph()
-        {
-            if (boneGraph != null)
-            {
-                return boneGraph;
-            }
-
-            boneGraph = ScriptableObject.CreateInstance<BoneGraphObject>();
-            boneGraph.name = "BoneGraph";
-            return boneGraph;
-        }
-
         internal bool OriginHasTransform(string path)
         {
             return originTransformsByPath.ContainsKey(MeshNodePath.Normalize(path));
-        }
-
-        internal bool AddMissingBonePatch(string path, UfbxNode sourceNode = null)
-        {
-            string normalizedPath = MeshNodePath.Normalize(path);
-            if (normalizedPath == MeshNodePath.Root || OriginHasTransform(normalizedPath))
-            {
-                return false;
-            }
-
-            var graph = GetOrCreateBoneGraph();
-            if (graph.HasBone(normalizedPath))
-            {
-                return false;
-            }
-
-            sourceNode ??= GetSourceNode(normalizedPath);
-            string parentPath = GetParentPath(normalizedPath);
-            if (parentPath != MeshNodePath.Root && !OriginHasTransform(parentPath))
-            {
-                AddMissingBonePatch(parentPath, sourceNode?.Parent);
-            }
-
-            graph.GetOrAddBone(CreateBoneNode(normalizedPath, parentPath, sourceNode));
-            return true;
-        }
-
-        internal BoneGraphObject GetBoneGraphIfCreated()
-        {
-            return boneGraph;
-        }
-
-        private BoneNodeData CreateBoneNode(string path, string parentPath, UfbxNode sourceNode = null)
-        {
-            var node = new BoneNodeData
-            {
-                m_Path = path,
-                m_ParentPath = parentPath,
-                m_CreateIfMissing = true
-            };
-
-            var fbxNode = sourceNode ?? GetSourceNode(path);
-            if (fbxNode != null)
-            {
-                node.m_FbxLocalTranslation = fbxNode.LclTranslation.ToVector3();
-                node.m_FbxLocalEulerRotation = fbxNode.LclRotation.ToVector3();
-                node.m_FbxLocalScale = fbxNode.LclScale.ToVector3();
-                return node;
-            }
-
-            node.m_FbxLocalTranslation = Vector3.zero;
-            node.m_FbxLocalEulerRotation = Vector3.zero;
-            node.m_FbxLocalScale = Vector3.one;
-            return node;
-        }
-
-        private static string GetParentPath(string path)
-        {
-            string normalized = MeshNodePath.Normalize(path);
-            if (normalized == MeshNodePath.Root)
-            {
-                return MeshNodePath.Root;
-            }
-
-            int separator = normalized.LastIndexOf('/');
-            return separator > 0 ? normalized.Substring(0, separator) : MeshNodePath.Root;
         }
 
         private static void CacheTransformPaths(Transform root, IDictionary<string, Transform> lookup)

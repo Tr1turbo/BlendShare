@@ -21,6 +21,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
     public sealed class BlendShapeExtractionOptions : MeshFeatureExtractionOptions
     {
         private readonly Dictionary<string, List<string>> selectedBlendShapeNamesByMesh = new();
+        private readonly HashSet<string> disabledMeshKeys = new();
 
         public override string FeatureId => BlendShapeFeatureObject.Id;
 
@@ -43,7 +44,26 @@ namespace Triturbo.BlendShare.Features.BlendShapes
         {
             return Enabled &&
                    mesh != null &&
+                   IsMeshEnabled(mesh.Path) &&
                    GetSelectedBlendShapeNames(mesh.Path).Count > 0;
+        }
+
+        public bool IsMeshEnabled(string path)
+        {
+            return !disabledMeshKeys.Contains(MeshFeatureExtractionSession.BuildMeshKey(path));
+        }
+
+        public void SetMeshEnabled(string path, bool enabled)
+        {
+            string key = MeshFeatureExtractionSession.BuildMeshKey(path);
+            if (enabled)
+            {
+                disabledMeshKeys.Remove(key);
+            }
+            else
+            {
+                disabledMeshKeys.Add(key);
+            }
         }
 
         /// <summary>
@@ -99,7 +119,9 @@ namespace Triturbo.BlendShare.Features.BlendShapes
         public bool HasAnySelectedBlendShapeNames(IEnumerable<MeshFeatureExtractionMeshRequest> meshes)
         {
             return (meshes ?? Enumerable.Empty<MeshFeatureExtractionMeshRequest>())
-                .Any(mesh => mesh != null && GetSelectedBlendShapeNames(mesh.Path).Count > 0);
+                .Any(mesh => mesh != null &&
+                             IsMeshEnabled(mesh.Path) &&
+                             GetSelectedBlendShapeNames(mesh.Path).Count > 0);
         }
 
         internal ReaderFbxMatrix GetReaderTransform(ReaderFbxTransform originalTransform, ReaderFbxTransform sourceTransform)
