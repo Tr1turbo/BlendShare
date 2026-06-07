@@ -396,12 +396,12 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 if (deltaNormals[i] != Vector3.zero)
                 {
                     this.m_NormalIndices.Add(i);
-                    this.m_DeltaVertices.Add(deltaNormals[i]);
+                    this.m_DeltaNormals.Add(deltaNormals[i]);
                 }
                 if (deltaTangents[i] != Vector3.zero)
                 {
                     this.m_TangentIndices.Add(i);
-                    this.m_DeltaVertices.Add(deltaTangents[i]);
+                    this.m_DeltaTangents.Add(deltaTangents[i]);
                 }
             }
 
@@ -410,39 +410,37 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
         public Vector3[] GetDeltaVertices(int vertexCount)
         {
-            Vector3[] delta = new Vector3[vertexCount];
-            int i = 0;
-            foreach (var index in m_VertexIndices)
-            {
-                if (index >= vertexCount) continue;
-                delta[index] = m_DeltaVertices[i++];
-            }
-            return delta;
+            return GetDeltaArray(vertexCount, m_VertexIndices, m_DeltaVertices);
         }
 
         public Vector3[] GetDeltaNormals(int vertexCount)
         {
-            Vector3[] delta = new Vector3[vertexCount];
-            int i = 0;
-            foreach (var index in m_NormalIndices)
-            {
-                if (index >= vertexCount) continue;
-                delta[index] = m_DeltaNormals[i++];
-            }
-            return delta;
+            return GetDeltaArray(vertexCount, m_NormalIndices, m_DeltaNormals);
 
         }
         public Vector3[] GetDeltaTangents(int vertexCount)
         {
-            Vector3[] delta = new Vector3[vertexCount];
-            int i = 0;
-            foreach (var index in m_TangentIndices)
-            {
-                if (index >= vertexCount) continue;
-                delta[index] = m_DeltaTangents[i++];
-            }
-            return delta;
+            return GetDeltaArray(vertexCount, m_TangentIndices, m_DeltaTangents);
 
+        }
+
+        private static Vector3[] GetDeltaArray(int vertexCount, List<int> indices, List<Vector3> deltas)
+        {
+            Vector3[] delta = new Vector3[vertexCount];
+            if (indices == null || deltas == null)
+            {
+                return delta;
+            }
+
+            int count = Mathf.Min(indices.Count, deltas.Count);
+            for (int i = 0; i < count; i++)
+            {
+                int index = indices[i];
+                if (index < 0 || index >= vertexCount) continue;
+                delta[index] = deltas[i];
+            }
+
+            return delta;
         }
 
 
