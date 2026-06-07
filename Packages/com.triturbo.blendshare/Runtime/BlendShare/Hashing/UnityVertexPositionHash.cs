@@ -2,7 +2,7 @@ using System.IO;
 using System.Security.Cryptography;
 using UnityEngine;
 
-namespace Triturbo.BlendShare.Core
+namespace Triturbo.BlendShare.Hashing
 {
     /// <summary>
     /// Creates stable hashes for Unity mesh vertex positions.
@@ -10,7 +10,7 @@ namespace Triturbo.BlendShare.Core
     public static class UnityVertexPositionHash
     {
         private const int DefaultShortHashLength = 8;
-        private const string HexDigits = "0123456789abcdef";
+        private const string AlgorithmVersion = "BlendShare.UnityVertexPositionHash.v2";
 
         public static string Calculate(Mesh mesh)
         {
@@ -34,10 +34,11 @@ namespace Triturbo.BlendShare.Core
 
         private static string Calculate(Vector3[] vertices)
         {
-            using (SHA1 sha1 = SHA1.Create())
-            using (var cryptoStream = new CryptoStream(Stream.Null, sha1, CryptoStreamMode.Write))
+            using (var sha256 = SHA256.Create())
+            using (var cryptoStream = new CryptoStream(Stream.Null, sha256, CryptoStreamMode.Write))
             using (var writer = new BinaryWriter(cryptoStream))
             {
+                writer.Write(AlgorithmVersion);
                 writer.Write(vertices?.Length ?? 0);
 
                 if (vertices != null)
@@ -54,31 +55,13 @@ namespace Triturbo.BlendShare.Core
                 writer.Flush();
                 cryptoStream.FlushFinalBlock();
 
-                return ToHexString(sha1.Hash);
+                return BlendShareHashUtility.ToLowerHex(sha256.Hash);
             }
         }
 
         private static float NormalizeZero(float value)
         {
             return value == 0f ? 0f : value;
-        }
-
-        private static string ToHexString(byte[] bytes)
-        {
-            if (bytes == null || bytes.Length == 0)
-            {
-                return string.Empty;
-            }
-
-            var chars = new char[bytes.Length * 2];
-            for (int i = 0; i < bytes.Length; i++)
-            {
-                byte value = bytes[i];
-                chars[i * 2] = HexDigits[value >> 4];
-                chars[i * 2 + 1] = HexDigits[value & 0xF];
-            }
-
-            return new string(chars);
         }
     }
 }

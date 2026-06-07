@@ -5,8 +5,8 @@ using System.IO;
 using UnityEngine;
 using UnityEditor;
 using System.Linq;
-using System.Security.Cryptography;
 using Triturbo.BlendShare.Core;
+using Triturbo.BlendShare.Hashing;
 using Object = UnityEngine.Object;
 
 namespace Triturbo.BlendShapeShare.BlendShapeData
@@ -437,14 +437,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             string filePath = AssetDatabase.GetAssetPath(obj);
             if(string.IsNullOrEmpty(filePath)) return "";
 
-            using (FileStream stream = new FileStream(filePath, FileMode.Open, FileAccess.Read))
-            {
-                using (SHA256 sha256 = SHA256.Create())
-                {
-                    byte[] hashBytes = sha256.ComputeHash(stream);
-                    return BitConverter.ToString(hashBytes).ToLower().Replace("-", "");
-                }
-            }
+            return BlendShareHashUtility.Sha256File(filePath);
         }
 
         private static Dictionary<string, Mesh> BuildMeshesByPath(string meshContainerAssetPath, IEnumerable<Object> allAssets)

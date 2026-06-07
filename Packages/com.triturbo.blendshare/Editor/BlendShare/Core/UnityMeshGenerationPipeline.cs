@@ -1,10 +1,9 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
 using Triturbo.BlendShapeShare.BlendShapeData;
 using Triturbo.BlendShare.Components;
+using Triturbo.BlendShare.Hashing;
 using Triturbo.BlendShare.Persistence;
 using UnityEditor;
 using UnityEngine;
@@ -565,12 +564,7 @@ namespace Triturbo.BlendShare.Core
                 return string.Empty;
             }
 
-            using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read))
-            using (var sha256 = SHA256.Create())
-            {
-                byte[] hashBytes = sha256.ComputeHash(stream);
-                return BitConverter.ToString(hashBytes).ToLowerInvariant().Replace("-", string.Empty);
-            }
+            return BlendShareHashUtility.Sha256File(filePath);
         }
 
         private static string GetHierarchyOrder(Transform transform)

@@ -2,9 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
-using System.Text;
 using Triturbo.BlendShare.Core;
+using Triturbo.BlendShare.Hashing;
 using UnityEditor;
 using UnityEngine;
 
@@ -541,7 +540,7 @@ namespace Triturbo.BlendShare.NDMF
             string unityVertexHash,
             int unityVertexCount)
         {
-            return Sha256($"{sourceFbxId}|{meshPath}|{unityMeshId}|{unityVertexHash}|{unityVertexCount}");
+            return BlendShareHashUtility.Sha256String($"{sourceFbxId}|{meshPath}|{unityMeshId}|{unityVertexHash}|{unityVertexCount}");
         }
 
         private static string GetGlobalId(UnityEngine.Object obj)
@@ -586,19 +585,6 @@ namespace Triturbo.BlendShare.NDMF
                 .Concat(new[] { meshIndex })
                 .ToArray();
             return meshIndex;
-        }
-
-        private static string Sha256(string value)
-        {
-            using var sha = SHA256.Create();
-            byte[] bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(value ?? string.Empty));
-            var builder = new StringBuilder(bytes.Length * 2);
-            for (int i = 0; i < bytes.Length; i++)
-            {
-                builder.Append(bytes[i].ToString("x2"));
-            }
-
-            return builder.ToString();
         }
 
         private static void DestroyTransientMapping(UnityVertexMappingObject mapping)
