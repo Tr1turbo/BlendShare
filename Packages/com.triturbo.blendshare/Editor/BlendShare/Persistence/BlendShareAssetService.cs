@@ -46,6 +46,7 @@ namespace Triturbo.BlendShare.Persistence
                     asset = existing;
                 }
 
+                asset.name = Path.GetFileNameWithoutExtension(path);
                 RemoveOldSubAssets(path, asset);
 
                 for (int i = 0; i < boneGraphs.Length; i++)
