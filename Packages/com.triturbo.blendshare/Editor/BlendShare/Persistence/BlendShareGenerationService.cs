@@ -1,8 +1,10 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Triturbo.BlendShapeShare.BlendShapeData;
 using Triturbo.BlendShare.Core;
+using Triturbo.BlendShare.Hashing;
 using Triturbo.BlendShare.Migration;
 using UnityEditor;
 using UnityEngine;
@@ -106,6 +108,126 @@ namespace Triturbo.BlendShare.Persistence
             return new UnityMeshGenerationPipeline().CanApplyToUnityMeshes(blendShares, meshes);
         }
 
+        public static bool ApplyPatch(
+            GameObject target,
+            BlendShareObject share,
+            bool force,
+            out string message)
+        {
+            message = null;
+            if (target == null || share == null)
+            {
+                message = "Target FBX or BlendShare patch is missing.";
+                return false;
+            }
+
+            var state = BlendShareFbxMetadataService.GetPatchState(target, share);
+            if (state.HasPatch && !force)
+            {
+                message = "This BlendShare patch is already applied on the FBX.";
+                return false;
+            }
+
+#if ENABLE_FBX_SDK
+            var metadata = state.Metadata;
+            if (!BlendShareFbxMetadataService.EnsureBaselineBackup(target, metadata, out message))
+            {
+                return false;
+            }
+
+            string targetPath = AssetDatabase.GetAssetPath(target);
+            string hashBefore = BlendShareHashUtility.Sha256File(targetPath);
+            if (!CreateFbx(target, new[] { share }))
+            {
+                message = "Failed to apply BlendShare patch to FBX.";
+                return false;
+            }
+
+            string hashAfter = BlendShareHashUtility.Sha256File(targetPath);
+            var record = BlendShareFbxMetadataService.CreateRecord(target, share, hashBefore, hashAfter);
+            BlendShareFbxMetadataService.CommitApplyRecord(metadata, share, record);
+            if (!BlendShareFbxMetadataService.Save(target, metadata, out message))
+            {
+                return false;
+            }
+
+            message = "BlendShare patch applied.";
+            return true;
+#else
+            message = "FBX SDK support is not available.";
+            return false;
+#endif
+        }
+
+        public static bool RestorePatch(
+            GameObject target,
+            BlendShareObject share,
+            out string message)
+        {
+            message = null;
+            if (target == null || share == null)
+            {
+                message = "Target FBX or BlendShare patch is missing.";
+                return false;
+            }
+
+            var metadata = BlendShareFbxMetadataService.Load(target);
+            int restoreIndex = BlendShareFbxMetadataService.FindLatestPatchIndex(metadata, share);
+            if (restoreIndex < 0)
+            {
+                message = "This BlendShare patch is not recorded on the FBX.";
+                return false;
+            }
+
+#if ENABLE_FBX_SDK
+            return RestoreByReplay(target, metadata, restoreIndex, out message);
+#else
+            if ((metadata.activeRecords?.Length ?? 0) == 1 && restoreIndex == 0)
+            {
+                return RestoreToOriginal(target, out message);
+            }
+
+            message = "FBX SDK support is not available.";
+            return false;
+#endif
+        }
+
+        public static bool RestoreToOriginal(GameObject target, out string message)
+        {
+            message = null;
+            if (target == null)
+            {
+                message = "Target FBX is missing.";
+                return false;
+            }
+
+            var metadata = BlendShareFbxMetadataService.Load(target);
+            string targetPath = AssetDatabase.GetAssetPath(target);
+            string tempPath = CreateTemporaryFbxCopy(targetPath);
+            try
+            {
+                if (!BlendShareFbxMetadataService.RestoreBaseline(target, metadata, out message))
+                {
+                    RestoreTemporaryFbxCopy(tempPath, targetPath);
+                    return false;
+                }
+
+                if (!BlendShareFbxMetadataService.Clear(target, metadata, out message))
+                {
+                    RestoreTemporaryFbxCopy(tempPath, targetPath);
+                    return false;
+                }
+
+                BlendShareFbxMetadataService.PruneBackup(metadata);
+                message = "FBX restored to original.";
+                return true;
+            }
+            finally
+            {
+                DeleteTemporaryFbxCopy(tempPath);
+            }
+        }
+
 #if ENABLE_FBX_SDK
         /// <summary>
         /// Creates an FBX file by applying BlendShare features to a source FBX asset.
@@ -121,7 +243,16 @@ namespace Triturbo.BlendShare.Persistence
             string outputPath = null,
             bool onlyNecessary = false)
         {
-            return new FbxGenerationPipeline().Create(source, blendShares, outputPath, onlyNecessary);
+            bool result = new FbxGenerationPipeline().Create(source, blendShares, outputPath, onlyNecessary);
+            string sourcePath = AssetDatabase.GetAssetPath(source);
+            if (result &&
+                !string.IsNullOrWhiteSpace(outputPath) &&
+                !string.Equals(outputPath, sourcePath, StringComparison.Ordinal))
+            {
+                BlendShareFbxMetadataService.ClearBlendShareMetadataAtPath(outputPath);
+            }
+
+            return result;
         }
 
         /// <summary>
@@ -171,6 +302,115 @@ namespace Triturbo.BlendShare.Persistence
             return false;
         }
 #endif
+
+#if ENABLE_FBX_SDK
+        private static bool RestoreByReplay(
+            GameObject target,
+            BlendShareFbxMetadata metadata,
+            int restoreIndex,
+            out string message)
+        {
+            message = null;
+            var oldRecords = metadata.activeRecords ?? Array.Empty<BlendShareFbxPatchRecord>();
+            var recordsToReplay = oldRecords
+                .Where((_, index) => index != restoreIndex)
+                .ToArray();
+            if (!BlendShareFbxMetadataService.CanResolveRecords(recordsToReplay, out message))
+            {
+                return false;
+            }
+
+            string targetPath = AssetDatabase.GetAssetPath(target);
+            string tempPath = CreateTemporaryFbxCopy(targetPath);
+            try
+            {
+                if (!BlendShareFbxMetadataService.RestoreBaseline(target, metadata, out message))
+                {
+                    RestoreTemporaryFbxCopy(tempPath, targetPath);
+                    return false;
+                }
+
+                var replayedRecords = new List<BlendShareFbxPatchRecord>();
+                foreach (var record in recordsToReplay)
+                {
+                    if (!BlendShareFbxMetadataService.TryResolveRecord(record, out var replayShare))
+                    {
+                        message = $"Cannot find BlendShare patch asset '{record?.blendShareName}'.";
+                        RestoreTemporaryFbxCopy(tempPath, targetPath);
+                        return false;
+                    }
+
+                    string hashBefore = BlendShareHashUtility.Sha256File(targetPath);
+                    if (!CreateFbx(target, new[] { replayShare }))
+                    {
+                        message = $"Failed to reapply BlendShare patch '{record.blendShareName}'.";
+                        RestoreTemporaryFbxCopy(tempPath, targetPath);
+                        return false;
+                    }
+
+                    string hashAfter = BlendShareHashUtility.Sha256File(targetPath);
+                    record.hashBefore = hashBefore;
+                    record.hashAfter = hashAfter;
+                    replayedRecords.Add(record);
+                }
+
+                metadata.activeRecords = replayedRecords.ToArray();
+                if (metadata.activeRecords.Length == 0)
+                {
+                    if (!BlendShareFbxMetadataService.Clear(target, metadata, out message))
+                    {
+                        RestoreTemporaryFbxCopy(tempPath, targetPath);
+                        return false;
+                    }
+
+                    BlendShareFbxMetadataService.PruneBackup(metadata);
+                }
+                else if (!BlendShareFbxMetadataService.Save(target, metadata, out message))
+                {
+                    RestoreTemporaryFbxCopy(tempPath, targetPath);
+                    return false;
+                }
+
+                message = "BlendShare patch restored.";
+                return true;
+            }
+            finally
+            {
+                DeleteTemporaryFbxCopy(tempPath);
+            }
+        }
+#endif
+
+        private static string CreateTemporaryFbxCopy(string targetPath)
+        {
+            if (string.IsNullOrEmpty(targetPath) || !File.Exists(targetPath))
+            {
+                return string.Empty;
+            }
+
+            string tempPath = Path.Combine(Path.GetTempPath(), $"BlendShareRestore-{Guid.NewGuid():N}.fbx");
+            File.Copy(targetPath, tempPath, true);
+            return tempPath;
+        }
+
+        private static void RestoreTemporaryFbxCopy(string tempPath, string targetPath)
+        {
+            if (string.IsNullOrEmpty(tempPath) || string.IsNullOrEmpty(targetPath) || !File.Exists(tempPath))
+            {
+                return;
+            }
+
+            File.Copy(tempPath, targetPath, true);
+            AssetDatabase.ImportAsset(targetPath, ImportAssetOptions.ForceSynchronousImport | ImportAssetOptions.ForceUpdate);
+        }
+
+        private static void DeleteTemporaryFbxCopy(string tempPath)
+        {
+            if (!string.IsNullOrEmpty(tempPath) && File.Exists(tempPath))
+            {
+                File.Delete(tempPath);
+            }
+        }
 
         private static List<BlendShareObject> GetAppliedBlendShares(
             Object targetMeshContainer,

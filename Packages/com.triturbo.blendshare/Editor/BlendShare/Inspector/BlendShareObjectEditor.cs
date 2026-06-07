@@ -16,6 +16,7 @@ namespace Triturbo.BlendShare.Inspector
     public class BlendShareObjectEditor : UnityEditor.Editor
     {
         private readonly Dictionary<MeshDataObject, bool> meshFoldouts = new();
+        private bool forceApplyUnlocked;
 
         public override void OnInspectorGUI()
         {
@@ -42,7 +43,6 @@ namespace Triturbo.BlendShare.Inspector
             EditorGUILayout.LabelField("BlendShare Object", EditorStyles.boldLabel);
             EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(BlendShareObject.m_Original)), Localization.G("data.original_fbx"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(BlendShareObject.m_DefaultGeneratedAssetName)), Localization.G("data.hidden_settings.default_asset_name"));
-            EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(BlendShareObject.m_Applied)), Localization.G("data.hidden_settings.applied"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(BlendShareObject.m_DeformerID)), Localization.G("data.hidden_settings.deformer_id"));
         }
 
@@ -241,6 +241,9 @@ namespace Triturbo.BlendShare.Inspector
         private void DrawActions(BlendShareObject blendShare)
         {
             bool hasOriginal = blendShare.m_Original != null;
+            var patchState = hasOriginal
+                ? BlendShareFbxMetadataService.GetPatchState(blendShare.m_Original, blendShare)
+                : default;
             var artifactMappingStatus = GetArtifactMappingStatus(blendShare);
 
 #if !ENABLE_FBX_SDK
@@ -249,24 +252,9 @@ namespace Triturbo.BlendShare.Inspector
 
             using (new EditorGUI.DisabledScope(!hasOriginal))
             {
-                using (new EditorGUILayout.HorizontalScope())
-                {
-                    if (GUILayout.Button(Localization.G("data.apply_blendshapes")))
-                    {
-                        blendShare.m_Applied = true;
-                        BlendShareGenerationService.CreateFbx(blendShare.m_Original, new[] { blendShare });
-                        EditorUtility.SetDirty(blendShare);
-                    }
-
-                    if (GUILayout.Button(Localization.G("data.remove_blendshapes")))
-                    {
-                        blendShare.m_Applied = false;
-                        BlendShareGenerationService.RemoveBlendShapes(blendShare, blendShare.m_Original);
-                        EditorUtility.SetDirty(blendShare);
-                    }
-                }
-
-                if (GUILayout.Button(Localization.G("data.apply_blendshapes_as_new_fbx")))
+                DrawPatchMetadataSummary(patchState);
+                DrawPatchActions(blendShare, patchState);
+                if (GUILayout.Button("Apply BlendShare Patch as New FBX"))
                 {
                     string folderPath = Path.GetDirectoryName(AssetDatabase.GetAssetPath(blendShare));
                     string path = EditorUtility.SaveFilePanelInProject(
@@ -320,6 +308,172 @@ namespace Triturbo.BlendShare.Inspector
                 }
             }
 
+        }
+
+        private void DrawPatchMetadataSummary(BlendShareFbxPatchState patchState)
+        {
+            if (patchState.ActiveRecordCount <= 0)
+            {
+                return;
+            }
+
+            EditorGUILayout.LabelField("Applied BlendShare Patches", patchState.ActiveRecordCount.ToString());
+            if (!string.IsNullOrEmpty(patchState.LatestPatchName))
+            {
+                EditorGUILayout.LabelField("Latest Patch", patchState.LatestPatchName);
+            }
+        }
+
+        private void DrawPatchActions(BlendShareObject blendShare, BlendShareFbxPatchState patchState)
+        {
+            bool applyLocked = patchState.HasPatch && !forceApplyUnlocked;
+            bool showRestore = patchState.ActiveRecordCount > 0 && patchState.HasPatch;
+            Rect row = EditorGUILayout.GetControlRect(false, EditorGUIUtility.singleLineHeight);
+            const float spacing = 4f;
+            float halfWidth = (row.width - spacing) * 0.5f;
+            var applyRect = new Rect(row.x, row.y, halfWidth, row.height);
+            var restoreRect = new Rect(applyRect.xMax + spacing, row.y, halfWidth, row.height);
+
+            DrawApplyPatchControl(applyRect, blendShare, patchState, applyLocked);
+            DrawRestoreControl(restoreRect, blendShare, patchState, showRestore);
+
+            if (applyLocked)
+            {
+                EditorGUILayout.HelpBox("This BlendShare patch is already applied on the original FBX.", MessageType.Info);
+            }
+
+            if (showRestore && !patchState.CanReplayRemainingPatches)
+            {
+                EditorGUILayout.HelpBox("A recorded BlendShare patch asset is missing, so this patch cannot be restored while preserving the other patches.", MessageType.Warning);
+            }
+        }
+
+        private void DrawApplyPatchControl(
+            Rect rect,
+            BlendShareObject blendShare,
+            BlendShareFbxPatchState patchState,
+            bool applyLocked)
+        {
+            Rect buttonRect = rect;
+            if (patchState.HasPatch)
+            {
+                const float lockWidth = 14f;
+                var lockRect = new Rect(rect.x, rect.y + 1f, lockWidth, rect.height - 2f);
+                GUIContent lockIcon = forceApplyUnlocked
+                    ? EditorGUIUtility.IconContent("Unlocked")
+                    : EditorGUIUtility.IconContent("Locked");
+                if (GUI.Button(lockRect, lockIcon, GUIStyle.none))
+                {
+                    forceApplyUnlocked = !forceApplyUnlocked;
+                }
+
+                buttonRect = new Rect(lockRect.xMax + 1f, rect.y, rect.width - lockWidth - 1f, rect.height);
+            }
+
+            using (new EditorGUI.DisabledScope(applyLocked))
+            {
+                if (GUI.Button(buttonRect, "Apply BlendShare Patch"))
+                {
+                    RunApplyPatch(blendShare, patchState);
+                }
+            }
+        }
+
+        private void RunApplyPatch(BlendShareObject blendShare, BlendShareFbxPatchState patchState)
+        {
+            bool force = patchState.HasPatch && forceApplyUnlocked;
+            if (force && !EditorUtility.DisplayDialog(
+                    "Apply BlendShare Patch",
+                    "Force applying the same patch can stack skin weights until patch overwrite is implemented. Continue?",
+                    "Apply",
+                    "Cancel"))
+            {
+                return;
+            }
+
+            if (BlendShareGenerationService.ApplyPatch(blendShare.m_Original, blendShare, force, out string message))
+            {
+                forceApplyUnlocked = false;
+            }
+            else
+            {
+                EditorUtility.DisplayDialog("Apply BlendShare Patch", message, "OK");
+            }
+        }
+
+        private void DrawRestoreControl(
+            Rect rect,
+            BlendShareObject blendShare,
+            BlendShareFbxPatchState patchState,
+            bool showRestore)
+        {
+            bool showDropdown = patchState.ActiveRecordCount > 1;
+            Rect restoreButtonRect = rect;
+            Rect dropdownRect = default;
+            if (showDropdown)
+            {
+                const float dropdownWidth = 20f;
+                restoreButtonRect = new Rect(rect.x, rect.y, rect.width - dropdownWidth, rect.height);
+                dropdownRect = new Rect(restoreButtonRect.xMax, rect.y, dropdownWidth, rect.height);
+            }
+
+            using (new EditorGUI.DisabledScope(!showRestore || !patchState.CanReplayRemainingPatches))
+            {
+                GUIStyle restoreStyle = showDropdown ? EditorStyles.miniButtonLeft : GUI.skin.button;
+                if (GUI.Button(restoreButtonRect, "Restore", restoreStyle))
+                {
+                    RunRestorePatch(blendShare);
+                }
+            }
+
+            if (showDropdown && GUI.Button(dropdownRect, EditorGUIUtility.IconContent("icon dropdown"), EditorStyles.miniButtonRight))
+            {
+                var menu = new GenericMenu();
+                menu.AddItem(new GUIContent("Restore to Original"), false, () => RunRestoreToOriginal(blendShare));
+                menu.DropDown(dropdownRect);
+            }
+        }
+
+        private void RunRestorePatch(BlendShareObject blendShare)
+        {
+            if (!EditorUtility.DisplayDialog(
+                    "Restore BlendShare Patch",
+                    "This will restore the FBX baseline and reapply every other recorded BlendShare patch. Continue?",
+                    "Restore",
+                    "Cancel"))
+            {
+                return;
+            }
+
+            if (BlendShareGenerationService.RestorePatch(blendShare.m_Original, blendShare, out string message))
+            {
+                forceApplyUnlocked = false;
+            }
+            else
+            {
+                EditorUtility.DisplayDialog("Restore BlendShare Patch", message, "OK");
+            }
+        }
+
+        private void RunRestoreToOriginal(BlendShareObject blendShare)
+        {
+            if (!EditorUtility.DisplayDialog(
+                    "Restore to Original",
+                    "This will restore the FBX baseline backup and remove all BlendShare patch metadata. Continue?",
+                    "Restore",
+                    "Cancel"))
+            {
+                return;
+            }
+
+            if (BlendShareGenerationService.RestoreToOriginal(blendShare.m_Original, out string message))
+            {
+                forceApplyUnlocked = false;
+            }
+            else
+            {
+                EditorUtility.DisplayDialog("Restore to Original", message, "OK");
+            }
         }
 
         private static ArtifactMappingStatus GetArtifactMappingStatus(BlendShareObject blendShare)
