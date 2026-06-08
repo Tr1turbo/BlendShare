@@ -24,7 +24,7 @@ namespace Triturbo.BlendShare.Core
 
         public bool CanApply(IEnumerable<BlendShareObject> blendShares)
         {
-            foreach (var share in blendShares ?? Enumerable.Empty<BlendShareObject>())
+            foreach (var share in BlendSharePatchIdUtility.DeduplicateByPatchId(blendShares))
             {
                 foreach (var meshData in share.Meshes ?? System.Array.Empty<MeshDataObject>())
                 {
@@ -64,10 +64,12 @@ namespace Triturbo.BlendShare.Core
             GameObject source,
             IEnumerable<BlendShareObject> blendShares,
             string outputPath = null,
-            bool onlyNecessary = false)
+            bool onlyNecessary = false,
+            bool deduplicatePatchIds = true)
         {
-            var shares = blendShares?.Where(share => share != null).Distinct().ToArray() ??
-                         System.Array.Empty<BlendShareObject>();
+            var shares = deduplicatePatchIds
+                ? BlendSharePatchIdUtility.DeduplicateByPatchId(blendShares).ToArray()
+                : (blendShares ?? Enumerable.Empty<BlendShareObject>()).Where(share => share != null).ToArray();
             if (source == null || shares.Length == 0)
             {
                 return false;
@@ -80,13 +82,9 @@ namespace Triturbo.BlendShare.Core
             var fbxImporter = FbxImporter.Create(fbxManager, "");
             int fileFormat = fbxManager.GetIOPluginRegistry().FindWriterIDByDescription("FBX binary (*.fbx)");
             string sourceAssetPath = AssetDatabase.GetAssetPath(source);
-            bool requiresSkinReader = shares
-                .SelectMany(share => share.Meshes ?? System.Array.Empty<MeshDataObject>())
-                .Where(meshData => meshData != null)
-                .SelectMany(meshData => meshData.Features ?? System.Array.Empty<MeshFeatureObject>())
-                .Any(feature => feature != null && feature.FeatureId == "skin-weights");
+            bool requiresReaderScene = RequiresFbxReaderScene(shares);
             UfbxScene readerScene = null;
-            if (requiresSkinReader)
+            if (requiresReaderScene)
             {
                 var readerResult = UfbxScene.TryLoad(sourceAssetPath);
                 if (readerResult.Success)
@@ -95,7 +93,7 @@ namespace Triturbo.BlendShare.Core
                 }
                 else
                 {
-                    Debug.LogWarning($"[BlendShare] Could not read original FBX skin data: {readerResult.Message}");
+                    Debug.LogWarning($"[BlendShare] Could not read original FBX data: {readerResult.Message}");
                 }
             }
 
@@ -180,7 +178,6 @@ namespace Triturbo.BlendShare.Core
                 {
                     AssetDatabase.CopyAsset(sourceAssetPath, outputPath);
                 }
-                AssetDatabase.Refresh();
 
                 if (!exporter.Initialize(outputPath, fileFormat, fbxManager.GetIOSettings()))
                 {
@@ -199,78 +196,33 @@ namespace Triturbo.BlendShare.Core
             }
         }
 
-        public bool RemoveBlendShapes(BlendShareObject share, GameObject target, bool removeInAllDeformer = true)
+        private static bool RequiresFbxReaderScene(IEnumerable<BlendShareObject> shares)
         {
-            if (share == null || target == null)
+            foreach (var share in shares ?? Enumerable.Empty<BlendShareObject>())
             {
-                return false;
-            }
-
-            var fbxManager = FbxManager.Create();
-            var ios = FbxIOSettings.Create(fbxManager, Globals.IOSROOT);
-            fbxManager.SetIOSettings(ios);
-            var scene = FbxScene.Create(fbxManager, target.name);
-            var fbxImporter = FbxImporter.Create(fbxManager, "");
-            int fileFormat = fbxManager.GetIOPluginRegistry().FindWriterIDByDescription("FBX binary (*.fbx)");
-
-            if (!fbxImporter.Initialize(AssetDatabase.GetAssetPath(target), fileFormat, fbxManager.GetIOSettings()))
-            {
-                return false;
-            }
-
-            fbxImporter.Import(scene);
-            fbxImporter.Destroy();
-            var sourceRootNode = scene.GetRootNode();
-
-            foreach (var meshData in share.Meshes ?? System.Array.Empty<MeshDataObject>())
-            {
-                if (meshData == null)
+                foreach (var meshData in share.Meshes ?? System.Array.Empty<MeshDataObject>())
                 {
-                    continue;
-                }
-
-                FbxNode node = FindFbxMeshNode(sourceRootNode, meshData);
-                if (node?.GetMesh() == null)
-                {
-                    Debug.LogError($"Can not find mesh: {FormatMesh(meshData)} in FBX file");
-                    continue;
-                }
-
-                bool failed = false;
-                var context = new FbxGenerationContext(
-                    share,
-                    meshData,
-                    node,
-                    removeInAllDeformer);
-
-                foreach (var generator in FeatureGenerators)
-                {
-                    var result = generator.RemoveFromFbx(context);
-                    if (result.Failed)
+                    if (meshData == null)
                     {
-                        LogFeatureFailure("remove from FBX", generator, meshData, result);
-                        failed = true;
-                        break;
+                        continue;
+                    }
+
+                    var context = new FbxGenerationContext(share, meshData, null);
+                    if (FeatureGenerators.Any(generator => generator.RequiresFbxReaderScene(context)))
+                    {
+                        return true;
                     }
                 }
-
-                if (!failed && context.HasUnhandledFeatures)
-                {
-                    LogUnhandledFeatures("remove from FBX", meshData, context.GetUnhandledFeatures());
-                }
             }
 
-            var exporter = FbxExporter.Create(fbxManager, "");
-            if (!exporter.Initialize(AssetDatabase.GetAssetPath(target), fileFormat, fbxManager.GetIOSettings()))
-            {
-                Debug.LogError("Exporter Initialize failed.");
-                return false;
-            }
+            return false;
+        }
 
-            exporter.Export(scene);
-            exporter.Destroy();
-            AssetDatabase.Refresh();
-            return true;
+        public bool RemoveBlendShapes(BlendShareObject share, GameObject target, bool removeInAllDeformer = true)
+        {
+            // Feature-level revert is intentionally disabled. Revert uses baseline replay instead.
+            Debug.LogWarning("[BlendShare] Feature-level BlendShare revert is disabled; use baseline replay revert instead.");
+            return false;
         }
 
         private static FbxNode FindFbxMeshNode(FbxNode rootNode, MeshDataObject meshData)

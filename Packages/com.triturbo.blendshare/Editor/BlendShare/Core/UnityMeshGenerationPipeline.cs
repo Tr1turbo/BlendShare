@@ -30,7 +30,7 @@ namespace Triturbo.BlendShare.Core
             Func<BlendShareObject, MeshDataObject, bool> shouldGenerateMesh = null,
             IEnumerable<BlendShareObject> appliedBlendShares = null)
         {
-            var shares = DedupBlendShares(blendShares).ToArray();
+            var shares = BlendSharePatchIdUtility.DeduplicateByPatchId(blendShares).ToArray();
             if (targetMeshContainer == null || shares.Length == 0)
             {
                 return null;
@@ -97,7 +97,7 @@ namespace Triturbo.BlendShare.Core
                 .Where(component => component != null)
                 .Distinct()
                 .ToArray();
-            var shares = DedupBlendShares(componentList
+            var shares = BlendSharePatchIdUtility.DeduplicateByPatchId(componentList
                 .OfType<BlendShareMesh>()
                 .Where(IsUsableMeshComponent)
                 .Select(component => FindBlendShareForMeshData(component.Owner, component.MeshData)))
@@ -192,7 +192,7 @@ namespace Triturbo.BlendShare.Core
             Object targetMeshContainer,
             IEnumerable<BlendShareObject> blendShares)
         {
-            var shares = DedupBlendShares(blendShares).ToArray();
+            var shares = BlendSharePatchIdUtility.DeduplicateByPatchId(blendShares).ToArray();
             if (targetLookup == null)
             {
                 return false;
@@ -408,7 +408,7 @@ namespace Triturbo.BlendShare.Core
             artifact.name = $"{targetMeshContainer.name}_BlendShareArtifact";
             artifact.m_TargetSource = targetSource;
             artifact.m_TargetSourceHash = CalculateHash(targetSource);
-            artifact.m_AppliedBlendShares = DedupBlendShares(appliedBlendShares).ToArray();
+            artifact.m_AppliedBlendShares = BlendSharePatchIdUtility.DeduplicateByPatchId(appliedBlendShares).ToArray();
             artifact.m_Meshes = meshDescriptors;
             artifact.m_Armature = session?.Armature;
             return artifact;
@@ -525,18 +525,6 @@ namespace Triturbo.BlendShare.Core
             return (owner?.BlendShares ?? Array.Empty<BlendShareObject>())
                 .Where(share => share != null)
                 .FirstOrDefault(share => (share.Meshes ?? Array.Empty<MeshDataObject>()).Contains(meshData));
-        }
-
-        private static IEnumerable<BlendShareObject> DedupBlendShares(IEnumerable<BlendShareObject> blendShares)
-        {
-            var seen = new HashSet<BlendShareObject>();
-            foreach (var share in blendShares ?? Array.Empty<BlendShareObject>())
-            {
-                if (share != null && seen.Add(share))
-                {
-                    yield return share;
-                }
-            }
         }
 
         private static Object ResolveTargetSource(Object targetMeshContainer)

@@ -10,6 +10,7 @@
 
   "extractor.file_unit_warning": "FBX 文件单位不一致，可能会导致问题\n原始：{0}\n来源：{1}",
   "extractor.default_asset_name": "默认资产名称",
+  "extractor.patch_id": "补丁 ID",
   "extractor.deformer_id": "变形器 ID",
   "extractor.apply_transform": "应用变换",
   "extractor.apply_transform.tooltip": "在计算 BlendShape 顶点偏移前，将 Object 的变换应用到网格上。如果 BlendShape 出现方向问题，请尝试启用“应用旋转”进行修正。",
@@ -147,6 +148,7 @@
   "data.hidden_settings.default_asset_name.tooltip": "生成资产的默认名称。",
   "data.hidden_settings.applied": "已应用",
   "data.hidden_settings.applied.tooltip": "表示用户是否已将形态键应用到 FBX。",
+  "data.hidden_settings.patch_id": "补丁 ID",
   "data.hidden_settings.deformer_id": "变形器 ID",
 
   "mesh_asset.applied_blendshapes": "已应用的形态键数据",

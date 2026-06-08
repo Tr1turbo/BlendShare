@@ -43,7 +43,7 @@ namespace Triturbo.BlendShare.Inspector
             EditorGUILayout.LabelField("BlendShare Object", EditorStyles.boldLabel);
             EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(BlendShareObject.m_Original)), Localization.G("data.original_fbx"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(BlendShareObject.m_DefaultGeneratedAssetName)), Localization.G("data.hidden_settings.default_asset_name"));
-            EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(BlendShareObject.m_DeformerID)), Localization.G("data.hidden_settings.deformer_id"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(BlendShareObject.m_PatchId)), Localization.G("data.hidden_settings.patch_id"));
         }
 
         private void DrawMeshes(BlendShareObject blendShare)
@@ -254,20 +254,7 @@ namespace Triturbo.BlendShare.Inspector
             {
                 DrawPatchMetadataSummary(patchState);
                 DrawPatchActions(blendShare, patchState);
-                if (GUILayout.Button("Apply BlendShare Patch as New FBX"))
-                {
-                    string folderPath = Path.GetDirectoryName(AssetDatabase.GetAssetPath(blendShare));
-                    string path = EditorUtility.SaveFilePanelInProject(
-                        Localization.S("data.save_fbx.title"),
-                        blendShare.DefaultFbxName,
-                        "fbx",
-                        Localization.S("data.save_file.message"),
-                        folderPath);
-                    if (!string.IsNullOrEmpty(path))
-                    {
-                        BlendShareGenerationService.CreateFbx(blendShare.m_Original, new[] { blendShare }, path);
-                    }
-                }
+                DrawCreateFbxControl(blendShare, patchState);
             }
 
             if (!artifactMappingStatus.CanGenerateArtifact)
@@ -327,7 +314,7 @@ namespace Triturbo.BlendShare.Inspector
         private void DrawPatchActions(BlendShareObject blendShare, BlendShareFbxPatchState patchState)
         {
             bool applyLocked = patchState.HasPatch && !forceApplyUnlocked;
-            bool showRestore = patchState.ActiveRecordCount > 0 && patchState.HasPatch;
+            bool showRestore = patchState.ActiveRecordCount > 0;
             Rect row = EditorGUILayout.GetControlRect(false, EditorGUIUtility.singleLineHeight);
             const float spacing = 4f;
             float halfWidth = (row.width - spacing) * 0.5f;
@@ -339,12 +326,15 @@ namespace Triturbo.BlendShare.Inspector
 
             if (applyLocked)
             {
-                EditorGUILayout.HelpBox("This BlendShare patch is already applied on the original FBX.", MessageType.Info);
+                string lockMessage = patchState.HasExactPatch
+                    ? "This BlendShare patch is already recorded on the original FBX. Unlock to apply it again; this may accumulate changes."
+                    : "Another BlendShare patch with the same patch id is already recorded on the original FBX. Unlock to apply this patch anyway; this may accumulate changes or conflict with the recorded patch.";
+                EditorGUILayout.HelpBox(lockMessage, MessageType.Info);
             }
 
-            if (showRestore && !patchState.CanReplayRemainingPatches)
+            if (patchState.HasExactPatch && patchState.ActiveRecordCount > 1 && !patchState.CanRevertPatch)
             {
-                EditorGUILayout.HelpBox("A recorded BlendShare patch asset is missing, so this patch cannot be restored while preserving the other patches.", MessageType.Warning);
+                EditorGUILayout.HelpBox("A recorded BlendShare patch needed for replay is missing, so this patch cannot be reverted. Restore to Original is still available.", MessageType.Warning);
             }
         }
 
@@ -384,7 +374,7 @@ namespace Triturbo.BlendShare.Inspector
             bool force = patchState.HasPatch && forceApplyUnlocked;
             if (force && !EditorUtility.DisplayDialog(
                     "Apply BlendShare Patch",
-                    "Force applying the same patch can stack skin weights until patch overwrite is implemented. Continue?",
+                    "This patch id is already recorded on the FBX. Applying again may accumulate changes. Restore to original first if you do not want accumulation.",
                     "Apply",
                     "Cancel"))
             {
@@ -401,13 +391,46 @@ namespace Triturbo.BlendShare.Inspector
             }
         }
 
+        private void DrawCreateFbxControl(BlendShareObject blendShare, BlendShareFbxPatchState patchState)
+        {
+            if (GUILayout.Button("Apply BlendShare Patch as New FBX"))
+            {
+                RunCreateFbx(blendShare, patchState);
+            }
+        }
+
+        private void RunCreateFbx(BlendShareObject blendShare, BlendShareFbxPatchState patchState)
+        {
+            if (patchState.HasPatch &&
+                !EditorUtility.DisplayDialog(
+                    "Apply BlendShare Patch as New FBX",
+                    "This patch id is already recorded on the original FBX. The generated FBX will inherit that history, and applying this patch again may accumulate changes. Restore to original first if you do not want accumulation.",
+                    "Generate",
+                    "Cancel"))
+            {
+                return;
+            }
+
+            string folderPath = Path.GetDirectoryName(AssetDatabase.GetAssetPath(blendShare));
+            string path = EditorUtility.SaveFilePanelInProject(
+                Localization.S("data.save_fbx.title"),
+                blendShare.DefaultFbxName,
+                "fbx",
+                Localization.S("data.save_file.message"),
+                folderPath);
+            if (!string.IsNullOrEmpty(path))
+            {
+                BlendShareGenerationService.CreateFbx(blendShare.m_Original, new[] { blendShare }, path);
+            }
+        }
+
         private void DrawRestoreControl(
             Rect rect,
             BlendShareObject blendShare,
             BlendShareFbxPatchState patchState,
             bool showRestore)
         {
-            bool showDropdown = patchState.ActiveRecordCount > 1;
+            bool showDropdown = patchState.ActiveRecordCount > 1 && patchState.HasExactPatch;
             Rect restoreButtonRect = rect;
             Rect dropdownRect = default;
             if (showDropdown)
@@ -417,19 +440,27 @@ namespace Triturbo.BlendShare.Inspector
                 dropdownRect = new Rect(restoreButtonRect.xMax, rect.y, dropdownWidth, rect.height);
             }
 
-            using (new EditorGUI.DisabledScope(!showRestore || !patchState.CanReplayRemainingPatches))
+            using (new EditorGUI.DisabledScope(!showRestore))
             {
                 GUIStyle restoreStyle = showDropdown ? EditorStyles.miniButtonLeft : GUI.skin.button;
-                if (GUI.Button(restoreButtonRect, "Restore", restoreStyle))
+                if (GUI.Button(restoreButtonRect, "Restore to Original", restoreStyle))
                 {
-                    RunRestorePatch(blendShare);
+                    RunRestoreToOriginal(blendShare);
                 }
             }
 
             if (showDropdown && GUI.Button(dropdownRect, EditorGUIUtility.IconContent("icon dropdown"), EditorStyles.miniButtonRight))
             {
                 var menu = new GenericMenu();
-                menu.AddItem(new GUIContent("Restore to Original"), false, () => RunRestoreToOriginal(blendShare));
+                if (patchState.CanRevertPatch)
+                {
+                    menu.AddItem(new GUIContent("Revert This Patch"), false, () => RunRestorePatch(blendShare));
+                }
+                else
+                {
+                    menu.AddDisabledItem(new GUIContent("Revert This Patch"));
+                }
+
                 menu.DropDown(dropdownRect);
             }
         }
@@ -437,9 +468,9 @@ namespace Triturbo.BlendShare.Inspector
         private void RunRestorePatch(BlendShareObject blendShare)
         {
             if (!EditorUtility.DisplayDialog(
-                    "Restore BlendShare Patch",
-                    "This will restore the FBX baseline and reapply every other recorded BlendShare patch. Continue?",
-                    "Restore",
+                    "Revert BlendShare Patch",
+                    "This will restore the FBX baseline backup, then reapply every other recorded BlendShare patch. Continue?",
+                    "Revert",
                     "Cancel"))
             {
                 return;
@@ -451,7 +482,7 @@ namespace Triturbo.BlendShare.Inspector
             }
             else
             {
-                EditorUtility.DisplayDialog("Restore BlendShare Patch", message, "OK");
+                EditorUtility.DisplayDialog("Revert BlendShare Patch", message, "OK");
             }
         }
 

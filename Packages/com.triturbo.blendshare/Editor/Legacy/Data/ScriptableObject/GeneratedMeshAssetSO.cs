@@ -384,8 +384,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 return null;
             }
 
-            asset.m_AppliedBlendShares = appliedBlendShares?.Where(share => share != null).Distinct().ToArray()
-                                        ?? Array.Empty<BlendShareObject>();
+            asset.m_AppliedBlendShares = BlendSharePatchIdUtility.DeduplicateByPatchId(appliedBlendShares).ToArray();
             EditorUtility.SetDirty(asset);
             AssetDatabase.SaveAssets();
             return asset;
@@ -404,8 +403,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 return null;
             }
 
-            var blendShareArray = appliedBlendShares?.Where(share => share != null).Distinct().ToArray()
-                                  ?? Array.Empty<BlendShareObject>();
+            var blendShareArray = BlendSharePatchIdUtility.DeduplicateByPatchId(appliedBlendShares).ToArray();
             var uniquePaths = blendShareArray
                 .Where(share => share != null)
                 .SelectMany(share => share.Meshes)

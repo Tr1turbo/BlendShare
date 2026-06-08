@@ -10,6 +10,7 @@
 
   "extractor.file_unit_warning": "FBX 檔案單位不一致，可能會導致問題\n原始：{0}\n來源：{1}",
   "extractor.default_asset_name": "預設資產名稱",
+  "extractor.patch_id": "補丁 ID",
   "extractor.deformer_id": "變形器 ID",
   "extractor.apply_transform": "套用變換",
   "extractor.apply_transform.tooltip": "在計算 BlendShape 頂點位移前，將 Object 的變換套用到網格上。如果 BlendShape 出現方向問題，請嘗試啟用「套用旋轉」以進行修正。",
@@ -149,6 +150,7 @@
   "data.hidden_settings.default_asset_name.tooltip": "生成資產的預設名稱。",
   "data.hidden_settings.applied": "已套用",
   "data.hidden_settings.applied.tooltip": "表示使用者是否已將型態鍵套用到 FBX。",
+  "data.hidden_settings.patch_id": "修補 ID",
   "data.hidden_settings.deformer_id": "變形器 ID",
 
 

@@ -12,6 +12,7 @@
   
   "extractor.file_unit_warning": "FBX file units not same, may cause problem\nOriginal: {0}\nSource: {1}",
   "extractor.default_asset_name": "Default Asset Name",
+  "extractor.patch_id":"Patch ID",
   "extractor.deformer_id":"Deformer ID",
   "extractor.apply_transform": "Apply Transform",
   "extractor.apply_transform.tooltip": "Apply the Object's transform to the meshes before calculating the BlendShapes vertices' offsets. If orientation issues occur with the BlendShapes, try enabling 'Apply Rotation' to correct them.",
@@ -68,6 +69,7 @@
   "data.hidden_settings.default_asset_name.tooltip": "Default name for generated asset.",
   "data.hidden_settings.applied": "Applied",
   "data.hidden_settings.applied.tooltip": "Indicate if user has applied BlendShapes to FBX.",
+  "data.hidden_settings.patch_id": "Patch ID",
   "data.hidden_settings.deformer_id": "Deformer ID",
 
   "data.bone_graph.title": "Bone Graph",

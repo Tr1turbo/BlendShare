@@ -174,6 +174,12 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             EditorGUILayout.Space(16);
             
             bool isValidInput = targetMeshContainer != null && blendShapeList.Any(IsSupportedBlendShareData);
+            if (HasDuplicatePatchIdsForWarning())
+            {
+                EditorGUILayout.HelpBox(
+                    "Multiple BlendShare patches in the list use the same patch id. Generation will use only one patch per id; the latest entry with that id wins.",
+                    MessageType.Warning);
+            }
             
             if (isValidInput && !isAbleToGenerateFbx && !isAbleToGenerateMesh)
             {
@@ -331,7 +337,31 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             return string.Empty;
         }
 
-        private BlendShareObject[] GetBlendSharesForGeneration(IEnumerable<Object> assets, bool includeTargetGeneratedAssetApplied)
+        private bool HasDuplicatePatchIdsForWarning()
+        {
+            var seenPatchIds = new HashSet<string>(System.StringComparer.Ordinal);
+            foreach (var asset in blendShapeList ?? new List<Object>())
+            {
+                string patchId = asset switch
+                {
+                    BlendShareObject blendShare => blendShare.m_PatchId,
+                    BlendShapeDataSO legacy => legacy.m_DeformerID,
+                    _ => string.Empty
+                };
+
+                if (!string.IsNullOrEmpty(patchId) && !seenPatchIds.Add(patchId))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private BlendShareObject[] GetBlendSharesForGeneration(
+            IEnumerable<Object> assets,
+            bool includeTargetGeneratedAssetApplied,
+            bool deduplicatePatchIds = true)
         {
             var blendShares = new List<BlendShareObject>();
             if (includeTargetGeneratedAssetApplied && targetMeshContainer is GeneratedMeshAssetSO generatedAsset)
@@ -368,10 +398,9 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 }
             }
 
-            return blendShares
-                .Where(share => share != null)
-                .Distinct()
-                .ToArray();
+            return deduplicatePatchIds
+                ? BlendSharePatchIdUtility.DeduplicateByPatchId(blendShares).ToArray()
+                : blendShares.Where(share => share != null).Distinct().ToArray();
         }
     
         

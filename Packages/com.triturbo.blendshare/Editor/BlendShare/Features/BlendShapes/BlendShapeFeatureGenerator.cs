@@ -233,6 +233,9 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             FbxGenerationContext context,
             BlendShapeFeatureObject feature)
         {
+            return MeshFeatureGenerationResult.FailedResult("Feature-level BlendShare revert is disabled; use baseline replay revert instead.");
+#if false
+            // Disabled until feature-level inverse can restore previous same-id state safely.
             FbxMesh targetMesh = context.TargetMesh;
             if (targetMesh == null)
             {
@@ -260,23 +263,24 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             }
 
             return MeshFeatureGenerationResult.Success();
+#endif
         }
 
         private static FbxBlendShape GetDeformer(BlendShareObject share, FbxMesh targetMesh, bool create = true)
         {
-            if (!string.IsNullOrEmpty(share.m_DeformerID))
+            if (!string.IsNullOrEmpty(share.m_PatchId))
             {
                 for (int i = targetMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape) - 1; i >= 0; i--)
                 {
                     var deformer = targetMesh.GetBlendShapeDeformer(i);
-                    if (deformer.GetName() == share.m_DeformerID)
+                    if (deformer.GetName() == share.m_PatchId)
                     {
                         return deformer;
                     }
                 }
             }
 
-            return create ? FbxBlendShape.Create(targetMesh, share.m_DeformerID) : null;
+            return create ? FbxBlendShape.Create(targetMesh, share.m_PatchId) : null;
         }
 
         private static FbxBlendShapeChannel CreateFbxBlendShapeChannel(

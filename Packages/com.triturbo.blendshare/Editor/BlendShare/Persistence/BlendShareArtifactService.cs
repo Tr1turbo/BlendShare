@@ -24,7 +24,7 @@ namespace Triturbo.BlendShare.Persistence
             IEnumerable<BlendShareObject> blendShares,
             string path)
         {
-            var shares = blendShares?.Where(share => share != null).Distinct().ToList() ?? new List<BlendShareObject>();
+            var shares = BlendSharePatchIdUtility.DeduplicateByPatchId(blendShares).ToList();
             if (targetMeshContainer == null || shares.Count == 0 || string.IsNullOrWhiteSpace(path))
             {
                 return null;
@@ -81,8 +81,7 @@ namespace Triturbo.BlendShare.Persistence
                 return null;
             }
 
-            var shares = appliedBlendShares?.Where(share => share != null).Distinct().ToArray()
-                         ?? Array.Empty<BlendShareObject>();
+            var shares = BlendSharePatchIdUtility.DeduplicateByPatchId(appliedBlendShares).ToArray();
             if (!new FbxGenerationPipeline().CanApply(shares))
             {
                 return null;
@@ -92,7 +91,7 @@ namespace Triturbo.BlendShare.Persistence
             string tempAssetPath = Path.Combine(folder, $"{targetMeshContainer.name}-{Guid.NewGuid()}.fbx");
             try
             {
-                if (!BlendShareGenerationService.CreateFbx(targetFbx, shares, tempAssetPath, true))
+                if (!BlendShareGenerationService.CreateFbx(targetFbx, shares, tempAssetPath, true, false))
                 {
                     Debug.LogError("[BlendShare] Failed to create temporary artifact FBX.");
                     return null;
@@ -118,7 +117,7 @@ namespace Triturbo.BlendShare.Persistence
             IEnumerable<BlendShareObject> blendShares,
             Func<BlendShareObject, MeshDataObject, bool> shouldGenerateMesh = null)
         {
-            var shares = blendShares?.Where(share => share != null).Distinct().ToArray() ?? Array.Empty<BlendShareObject>();
+            var shares = BlendSharePatchIdUtility.DeduplicateByPatchId(blendShares).ToArray();
             if (targetMeshContainer == null || shares.Length == 0)
             {
                 return null;
@@ -349,8 +348,7 @@ namespace Triturbo.BlendShare.Persistence
                 return null;
             }
 
-            var shares = appliedBlendShares?.Where(share => share != null).Distinct().ToArray()
-                         ?? Array.Empty<BlendShareObject>();
+            var shares = BlendSharePatchIdUtility.DeduplicateByPatchId(appliedBlendShares).ToArray();
             var uniquePaths = shares
                 .SelectMany(share => share.Meshes ?? Array.Empty<MeshDataObject>())
                 .Where(meshData => meshData != null)
@@ -391,8 +389,7 @@ namespace Triturbo.BlendShare.Persistence
             Object bindingSource,
             string path)
         {
-            var shares = appliedBlendShares?.Where(share => share != null).Distinct().ToArray()
-                         ?? Array.Empty<BlendShareObject>();
+            var shares = BlendSharePatchIdUtility.DeduplicateByPatchId(appliedBlendShares).ToArray();
             GameObject root = bindingSource as GameObject;
             var descriptors = (meshes ?? Enumerable.Empty<Mesh>())
                 .Where(mesh => mesh != null)
@@ -510,8 +507,7 @@ namespace Triturbo.BlendShare.Persistence
 
                 artifact.m_TargetSource = targetSource;
                 artifact.m_TargetSourceHash = CalculateHash(targetSource);
-                artifact.m_AppliedBlendShares = appliedBlendShares?.Where(share => share != null).Distinct().ToArray()
-                                                ?? Array.Empty<BlendShareObject>();
+                artifact.m_AppliedBlendShares = BlendSharePatchIdUtility.DeduplicateByPatchId(appliedBlendShares).ToArray();
                 artifact.m_Meshes = descriptors;
                 artifact.m_Armature = armatureToSave;
 
@@ -1059,10 +1055,7 @@ namespace Triturbo.BlendShare.Persistence
             }
 
             appliedBlendShares.AddRange(shares ?? Enumerable.Empty<BlendShareObject>());
-            return appliedBlendShares
-                .Where(share => share != null)
-                .Distinct()
-                .ToList();
+            return BlendSharePatchIdUtility.DeduplicateByPatchId(appliedBlendShares).ToList();
         }
 
         private static GameObject GetTargetFbx(Object targetMeshContainer)

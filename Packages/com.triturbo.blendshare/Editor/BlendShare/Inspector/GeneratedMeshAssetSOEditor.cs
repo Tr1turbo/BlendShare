@@ -90,7 +90,7 @@ namespace Triturbo.BlendShare.Inspector
                     var obj = element.objectReferenceValue;
                     if (obj is BlendShareObject share)
                     {
-                        EditorGUILayout.ObjectField(share.m_DeformerID, obj, typeof(BlendShareObject), false);
+                        EditorGUILayout.ObjectField(share.m_PatchId, obj, typeof(BlendShareObject), false);
                     }
                     else
                     {

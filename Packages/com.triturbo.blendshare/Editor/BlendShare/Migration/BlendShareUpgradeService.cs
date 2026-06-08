@@ -57,7 +57,7 @@ namespace Triturbo.BlendShare.Migration
             asset.m_Original = legacyAsset.m_Original;
             asset.m_DefaultGeneratedAssetName = legacyAsset.m_DefaultGeneratedAssetName;
             asset.m_Applied = legacyAsset.m_Applied;
-            asset.m_DeformerID = legacyAsset.m_DeformerID;
+            asset.m_PatchId = legacyAsset.m_DeformerID;
 
             var legacyMeshes = legacyAsset.m_MeshDataList?
                 .Where(legacyMesh => legacyMesh != null)

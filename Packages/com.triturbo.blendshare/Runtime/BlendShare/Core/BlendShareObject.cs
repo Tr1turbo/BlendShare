@@ -9,14 +9,12 @@ namespace Triturbo.BlendShare.Core
     /// <summary>
     /// Root BlendShare asset containing extracted mesh feature data and generation defaults.
     /// </summary>
-    [MovedFrom(true, "Triturbo.BlendShapeShare.BlendShapeData", "Triturbo.BlendShapeShare.Data.Editor")]
-    [CreateAssetMenu(fileName = "BlendShareData", menuName = "BlendShare/BlendShareObject", order = 1)]
     public class BlendShareObject : ScriptableObject
     {
         public GameObject m_Original;
         public string m_DefaultGeneratedAssetName;
         public bool m_Applied = false;
-        public string m_DeformerID = "+BlendShare";
+        public string m_PatchId = "+BlendShare";
 
         [SerializeField]
         private List<MeshDataObject> m_Meshes = new();

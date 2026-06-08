@@ -182,21 +182,21 @@ namespace Triturbo.BlendShare.Editor
             {
                 value = defaultName
             };
-            var deformerField = new TextField(Localization.S("extractor.deformer_id"))
+            var patchIdField = new TextField(Localization.S("extractor.patch_id"))
             {
                 value = "+BlendShare-" + defaultName
             };
-            deformerField.SetEnabled(false);
+            patchIdField.SetEnabled(false);
             defaultNameField.RegisterValueChangedCallback(evt =>
             {
                 defaultName = evt.newValue;
-                deformerField.SetValueWithoutNotify("+BlendShare-" + defaultName);
+                patchIdField.SetValueWithoutNotify("+BlendShare-" + defaultName);
             });
 
             container.Add(originField);
             container.Add(sourceField);
             container.Add(defaultNameField);
-            container.Add(deformerField);
+            container.Add(patchIdField);
             return container;
         }
 
@@ -413,7 +413,7 @@ namespace Triturbo.BlendShare.Editor
             defaultName = EditorGUILayout.TextField(Localization.G("extractor.default_asset_name"), defaultName);
 
             EditorGUI.BeginDisabledGroup(true);
-            EditorGUILayout.TextField(Localization.G("extractor.deformer_id"), "+BlendShare-" + defaultName);
+            EditorGUILayout.TextField(Localization.G("extractor.patch_id"), "+BlendShare-" + defaultName);
             EditorGUI.EndDisabledGroup();
         }
 

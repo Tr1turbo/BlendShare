@@ -296,8 +296,10 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
             var bindPoses = ExtractSelectedBindPoses(
                 sourceSkin,
+                originSkin,
                 options.GetSelectedBindposeBonePaths(context.Path),
-                sourceBonesByIndex);
+                sourceBonesByIndex,
+                originBonesByIndex);
             var boneGraph = BuildSelectedBoneGraph(
                 context.Session,
                 options.GetSelectedBoneTransformPaths(),
@@ -383,22 +385,48 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
         private static List<SkinWeightBindPoseData> ExtractSelectedBindPoses(
             UfbxSkinDeformer sourceSkin,
+            UfbxSkinDeformer originSkin,
             IEnumerable<string> selectedBonePaths,
-            IReadOnlyDictionary<int, string> sourceBonesByIndex)
+            IReadOnlyDictionary<int, string> sourceBonesByIndex,
+            IReadOnlyDictionary<int, string> originBonesByIndex)
         {
             var result = new List<SkinWeightBindPoseData>();
             var sourceBindPoses = SkinWeightFbxComparison.BuildBindPosesByPath(sourceSkin, sourceBonesByIndex);
+            var originBindPoses = SkinWeightFbxComparison.BuildBindPosesByPath(originSkin, originBonesByIndex);
             foreach (string bonePath in (selectedBonePaths ?? Array.Empty<string>())
                          .Select(MeshNodePath.Normalize)
                          .Distinct(StringComparer.Ordinal))
             {
                 if (sourceBindPoses.TryGetValue(bonePath, out var sourceBindPose))
                 {
-                    result.Add(sourceBindPose);
+                    originBindPoses.TryGetValue(bonePath, out var originBindPose);
+                    var relativeBindPose = CreateRelativeBindPose(sourceBindPose, originBindPose);
+                    if (relativeBindPose != null)
+                    {
+                        result.Add(relativeBindPose);
+                    }
                 }
             }
 
             return result;
+        }
+
+        private static SkinWeightBindPoseData CreateRelativeBindPose(
+            SkinWeightBindPoseData source,
+            SkinWeightBindPoseData origin)
+        {
+            var originTransformMatrix = origin?.m_FbxTransformMatrix ?? Triturbo.BlendShare.Fbx.FbxMatrix4x4.Identity;
+            var originTransformLinkMatrix = origin?.m_FbxTransformLinkMatrix ?? Triturbo.BlendShare.Fbx.FbxMatrix4x4.Identity;
+            if (!originTransformMatrix.TryInverse(out var inverseOriginTransformMatrix) ||
+                !originTransformLinkMatrix.TryInverse(out var inverseOriginTransformLinkMatrix))
+            {
+                return null;
+            }
+
+            return new SkinWeightBindPoseData(
+                source.m_Path,
+                source.m_FbxTransformMatrix * inverseOriginTransformMatrix,
+                source.m_FbxTransformLinkMatrix * inverseOriginTransformLinkMatrix);
         }
 
         private static BoneGraphObject BuildSelectedBoneGraph(
@@ -480,12 +508,17 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 m_CreateIfMissing = createIfMissing
             };
 
-            var fbxNode = session?.GetSourceNode(path);
-            if (fbxNode != null)
+            var sourceNode = session?.GetSourceNode(path);
+            if (sourceNode != null)
             {
-                node.m_FbxLocalTranslation = fbxNode.LclTranslation.ToVector3();
-                node.m_FbxLocalEulerRotation = fbxNode.LclRotation.ToVector3();
-                node.m_FbxLocalScale = fbxNode.LclScale.ToVector3();
+                var originNode = session.GetOriginNode(path);
+                node.m_FbxLocalTranslation = sourceNode.LclTranslation.ToVector3() -
+                                             (originNode != null ? originNode.LclTranslation.ToVector3() : Vector3.zero);
+                node.m_FbxLocalEulerRotation = sourceNode.LclRotation.ToVector3() -
+                                               (originNode != null ? originNode.LclRotation.ToVector3() : Vector3.zero);
+                node.m_FbxLocalScale = DivideScale(
+                    sourceNode.LclScale.ToVector3(),
+                    originNode != null ? originNode.LclScale.ToVector3() : Vector3.one);
                 return node;
             }
 
@@ -493,6 +526,14 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             node.m_FbxLocalEulerRotation = Vector3.zero;
             node.m_FbxLocalScale = Vector3.one;
             return node;
+        }
+
+        private static Vector3 DivideScale(Vector3 source, Vector3 origin)
+        {
+            return new Vector3(
+                Mathf.Approximately(origin.x, 0f) ? source.x : source.x / origin.x,
+                Mathf.Approximately(origin.y, 0f) ? source.y : source.y / origin.y,
+                Mathf.Approximately(origin.z, 0f) ? source.z : source.z / origin.z);
         }
 
         private static string GetParentPath(string path)

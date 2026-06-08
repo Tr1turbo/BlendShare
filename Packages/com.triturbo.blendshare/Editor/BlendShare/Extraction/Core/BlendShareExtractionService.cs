@@ -46,7 +46,7 @@ namespace Triturbo.BlendShare.Core
             }
 
             blendShare.m_DefaultGeneratedAssetName = defaultGeneratedAssetName;
-            blendShare.m_DeformerID = "+BlendShare-" + defaultGeneratedAssetName;
+            blendShare.m_PatchId = "+BlendShare-" + defaultGeneratedAssetName;
             var saved = BlendShareAssetService.Save(blendShare, path, blendShare.Meshes);
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();

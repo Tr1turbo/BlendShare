@@ -42,8 +42,7 @@ namespace Triturbo.BlendShare.Core
             IEnumerable<BlendShareComponent> components = null)
         {
             TargetMeshContainer = targetMeshContainer;
-            Shares = shares?.Where(share => share != null).Distinct().ToArray() ??
-                     System.Array.Empty<BlendShareObject>();
+            Shares = BlendSharePatchIdUtility.DeduplicateByPatchId(shares).ToArray();
             TargetMeshes = targetMeshes;
             Components = (components ?? System.Array.Empty<BlendShareComponent>())
                 .Where(component => component != null)

@@ -40,6 +40,13 @@ namespace Triturbo.BlendShare.Core
         MeshFeatureGenerationResult ApplyToFbx(FbxGenerationContext context);
 
         /// <summary>
+        /// Checks whether this feature needs the original FBX reader scene during generation.
+        /// </summary>
+        /// <param name="context">FBX generation context for the current mesh.</param>
+        /// <returns><c>true</c> when the generation session should include a reader scene.</returns>
+        bool RequiresFbxReaderScene(FbxGenerationContext context);
+
+        /// <summary>
         /// Removes this feature from the current FBX mesh node.
         /// </summary>
         /// <param name="context">FBX generation context for the current mesh.</param>
@@ -115,6 +122,12 @@ namespace Triturbo.BlendShare.Core
         }
 
         /// <inheritdoc />
+        public bool RequiresFbxReaderScene(FbxGenerationContext context)
+        {
+            return TryGetFeature(context, out TFeature feature, out _) && RequiresFbxReaderScene(context, feature);
+        }
+
+        /// <inheritdoc />
         public MeshFeatureGenerationResult RemoveFromFbx(FbxGenerationContext context)
         {
             if (!TryGetFeature(context, out TFeature feature, out var result))
@@ -137,6 +150,13 @@ namespace Triturbo.BlendShare.Core
             TFeature feature)
         {
             return MeshFeatureGenerationResult.FailedResult($"Feature '{typeof(TFeature).Name}' does not support FBX generation.");
+        }
+
+        protected virtual bool RequiresFbxReaderScene(
+            FbxGenerationContext context,
+            TFeature feature)
+        {
+            return false;
         }
 
         protected virtual MeshFeatureGenerationResult RemoveFromFbx(
