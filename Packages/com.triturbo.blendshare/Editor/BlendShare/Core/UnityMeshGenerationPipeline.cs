@@ -28,14 +28,17 @@ namespace Triturbo.BlendShare.Core
             Object targetMeshContainer,
             IEnumerable<BlendShareObject> blendShares,
             Func<BlendShareObject, MeshDataObject, bool> shouldGenerateMesh = null,
-            IEnumerable<BlendShareObject> appliedBlendShares = null)
+            IEnumerable<BlendShareObject> appliedBlendShares = null,
+            IBlendShareProgress progress = null)
         {
+            progress = BlendShareProgressUtility.Resolve(progress);
             var shares = BlendSharePatchIdUtility.DeduplicateByPatchId(blendShares).ToArray();
             if (targetMeshContainer == null || shares.Length == 0)
             {
                 return null;
             }
 
+            BlendShareProgressUtility.Report(progress, null, "Preparing target meshes...", 0.05f, true);
             var targetLookup = UnityMeshTargetLookup.Create(targetMeshContainer);
             if (targetLookup == null)
             {
@@ -47,47 +50,80 @@ namespace Triturbo.BlendShare.Core
                 targetMeshContainer,
                 shares,
                 targetLookup,
-                Array.Empty<BlendShareComponent>());
+                Array.Empty<BlendShareComponent>(),
+                progress);
             var generatedByMeshKey = new Dictionary<string, Mesh>();
 
-            foreach (var share in shares)
+            try
             {
-                foreach (var meshData in share?.Meshes ?? Array.Empty<MeshDataObject>())
+                int meshStep = 0;
+                int meshStepCount = CountMeshes(shares, shouldGenerateMesh);
+                foreach (var share in shares)
                 {
-                    if (meshData == null || (shouldGenerateMesh != null && !shouldGenerateMesh(share, meshData)))
+                    foreach (var meshData in share?.Meshes ?? Array.Empty<MeshDataObject>())
                     {
-                        continue;
-                    }
+                        if (meshData == null || (shouldGenerateMesh != null && !shouldGenerateMesh(share, meshData)))
+                        {
+                            continue;
+                        }
 
-                    GenerateMesh(
-                        session,
-                        targetLookup,
-                        generatedByMeshKey,
-                        targetRoot,
-                        share,
-                        meshData,
-                        MeshNodePath.Normalize(meshData.m_Path));
+                        meshStep++;
+                        BlendShareProgressUtility.Report(
+                            progress,
+                            null,
+                            $"Generating mesh {FormatMesh(meshData)}...",
+                            GetGenerationProgress(meshStep, meshStepCount),
+                            true);
+
+                        GenerateMesh(
+                            session,
+                            targetLookup,
+                            generatedByMeshKey,
+                            targetRoot,
+                            share,
+                            meshData,
+                            MeshNodePath.Normalize(meshData.m_Path));
+                    }
                 }
+            }
+            catch (BlendShareOperationCanceledException)
+            {
+                DestroyGeneratedObjects(generatedByMeshKey.Values);
+                session.DestroyGeneratedObjects();
+                throw;
             }
 
             if (generatedByMeshKey.Count == 0)
             {
+                session.DestroyGeneratedObjects();
                 return null;
             }
 
-            return BuildArtifact(
-                targetMeshContainer,
-                targetRoot,
-                appliedBlendShares ?? shares,
-                generatedByMeshKey.Values,
-                session);
+            try
+            {
+                BlendShareProgressUtility.Report(progress, null, "Preparing artifact data...", 0.82f, true);
+                return BuildArtifact(
+                    targetMeshContainer,
+                    targetRoot,
+                    appliedBlendShares ?? shares,
+                    generatedByMeshKey.Values,
+                    session);
+            }
+            catch (BlendShareOperationCanceledException)
+            {
+                DestroyGeneratedObjects(generatedByMeshKey.Values);
+                session.DestroyGeneratedObjects();
+                throw;
+            }
         }
 
         public BlendShareArtifact CreateArtifactFromComponents(
             GameObject targetRoot,
             IEnumerable<BlendShareComponent> components,
-            IEnumerable<BlendShareObject> appliedBlendShares = null)
+            IEnumerable<BlendShareObject> appliedBlendShares = null,
+            IBlendShareProgress progress = null)
         {
+            progress = BlendShareProgressUtility.Resolve(progress);
             if (targetRoot == null)
             {
                 return null;
@@ -113,58 +149,88 @@ namespace Triturbo.BlendShare.Core
                 return null;
             }
 
-            var session = new UnityMeshGenerationSession(targetRoot, shares, targetLookup, componentList);
+            var session = new UnityMeshGenerationSession(targetRoot, shares, targetLookup, componentList, progress);
             var generatedByMeshKey = new Dictionary<string, Mesh>();
             var emitted = new HashSet<string>();
-            foreach (var meshComponent in componentList
+            var meshComponents = componentList
                          .OfType<BlendShareMesh>()
                          .Where(IsUsableMeshComponent)
                          .OrderBy(component => GetHierarchyOrder(component.Owner != null ? component.Owner.transform : null))
-                         .ThenBy(component => GetHierarchyOrder(component.transform)))
+                         .ThenBy(component => GetHierarchyOrder(component.transform))
+                         .ToArray();
+            try
             {
-                var share = FindBlendShareForMeshData(meshComponent.Owner, meshComponent.MeshData);
-                if (share == null)
+                for (int meshStep = 0; meshStep < meshComponents.Length; meshStep++)
                 {
-                    Debug.LogError($"[BlendShare] BlendShare mesh component '{meshComponent.name}' references mesh data that is not present in its owner BlendShare list.");
-                    continue;
-                }
+                    var meshComponent = meshComponents[meshStep];
+                    var share = FindBlendShareForMeshData(meshComponent.Owner, meshComponent.MeshData);
+                    if (share == null)
+                    {
+                        Debug.LogError($"[BlendShare] BlendShare mesh component '{meshComponent.name}' references mesh data that is not present in its owner BlendShare list.");
+                        continue;
+                    }
 
-                var renderer = meshComponent.TargetRenderer;
-                var targetMesh = renderer != null ? renderer.sharedMesh : null;
-                string rendererPath = renderer != null
-                    ? MeshNodePath.Normalize(MeshNodePath.GetRelativePath(renderer.transform, targetRoot.transform))
-                    : meshComponent.RendererNodePath;
-                string key = $"{share.GetInstanceID()}:{meshComponent.MeshData.GetInstanceID()}:{rendererPath}";
-                if (!emitted.Add(key))
-                {
-                    continue;
-                }
+                    var renderer = meshComponent.TargetRenderer;
+                    var targetMesh = renderer != null ? renderer.sharedMesh : null;
+                    string rendererPath = renderer != null
+                        ? MeshNodePath.Normalize(MeshNodePath.GetRelativePath(renderer.transform, targetRoot.transform))
+                        : meshComponent.RendererNodePath;
+                    string key = $"{share.GetInstanceID()}:{meshComponent.MeshData.GetInstanceID()}:{rendererPath}";
+                    if (!emitted.Add(key))
+                    {
+                        continue;
+                    }
 
-                GenerateMesh(
-                    session,
-                    targetLookup,
-                    generatedByMeshKey,
-                    targetRoot.transform,
-                    share,
-                    meshComponent.MeshData,
-                    rendererPath,
-                    renderer,
-                    targetMesh,
-                    GetComponentsForMeshPass(componentList, meshComponent.Owner, meshComponent),
-                    BuildMappingOverrides(meshComponent, meshComponent.MeshData));
+                    BlendShareProgressUtility.Report(
+                        progress,
+                        null,
+                        $"Generating mesh {FormatMesh(meshComponent.MeshData)}...",
+                        GetGenerationProgress(meshStep + 1, meshComponents.Length),
+                        true);
+
+                    GenerateMesh(
+                        session,
+                        targetLookup,
+                        generatedByMeshKey,
+                        targetRoot.transform,
+                        share,
+                        meshComponent.MeshData,
+                        rendererPath,
+                        renderer,
+                        targetMesh,
+                        GetComponentsForMeshPass(componentList, meshComponent.Owner, meshComponent),
+                        BuildMappingOverrides(meshComponent, meshComponent.MeshData));
+                }
+            }
+            catch (BlendShareOperationCanceledException)
+            {
+                DestroyGeneratedObjects(generatedByMeshKey.Values);
+                session.DestroyGeneratedObjects();
+                throw;
             }
 
             if (generatedByMeshKey.Count == 0)
             {
+                session.DestroyGeneratedObjects();
                 return null;
             }
 
-            return BuildArtifact(
-                targetRoot,
-                targetRoot.transform,
-                appliedBlendShares ?? shares,
-                generatedByMeshKey.Values,
-                session);
+            try
+            {
+                BlendShareProgressUtility.Report(progress, null, "Preparing artifact data...", 0.82f, true);
+                return BuildArtifact(
+                    targetRoot,
+                    targetRoot.transform,
+                    appliedBlendShares ?? shares,
+                    generatedByMeshKey.Values,
+                    session);
+            }
+            catch (BlendShareOperationCanceledException)
+            {
+                DestroyGeneratedObjects(generatedByMeshKey.Values);
+                session.DestroyGeneratedObjects();
+                throw;
+            }
         }
 
         public bool CanApplyToUnityMeshes(
@@ -313,6 +379,12 @@ namespace Triturbo.BlendShare.Core
 
             foreach (var generator in FeatureGenerators)
             {
+                BlendShareProgressUtility.Report(
+                    session.Progress,
+                    null,
+                    $"Applying {generator.GetType().Name} to {FormatMesh(meshData)}...",
+                    0.5f,
+                    true);
                 var canApply = generator.CanApplyToUnityMesh(context);
                 if (canApply.Failed)
                 {
@@ -370,6 +442,35 @@ namespace Triturbo.BlendShare.Core
             {
                 DestroyGeneratedObject(baseline);
             }
+        }
+
+        private static int CountMeshes(
+            IEnumerable<BlendShareObject> shares,
+            Func<BlendShareObject, MeshDataObject, bool> shouldGenerateMesh)
+        {
+            int count = 0;
+            foreach (var share in shares ?? Array.Empty<BlendShareObject>())
+            {
+                foreach (var meshData in share?.Meshes ?? Array.Empty<MeshDataObject>())
+                {
+                    if (meshData != null && (shouldGenerateMesh == null || shouldGenerateMesh(share, meshData)))
+                    {
+                        count++;
+                    }
+                }
+            }
+
+            return count;
+        }
+
+        private static float GetGenerationProgress(int currentMesh, int meshCount)
+        {
+            if (meshCount <= 0)
+            {
+                return 0.2f;
+            }
+
+            return Mathf.Lerp(0.15f, 0.78f, Mathf.Clamp01((float)currentMesh / meshCount));
         }
 
         private static BlendShareArtifact BuildArtifact(
@@ -615,6 +716,14 @@ namespace Triturbo.BlendShare.Core
             }
 
             Object.DestroyImmediate(obj);
+        }
+
+        private static void DestroyGeneratedObjects(IEnumerable<Object> objects)
+        {
+            foreach (var obj in objects ?? Enumerable.Empty<Object>())
+            {
+                DestroyGeneratedObject(obj);
+            }
         }
     }
 }

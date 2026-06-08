@@ -266,7 +266,15 @@ namespace Triturbo.BlendShare.Inspector
             {
                 if (GUILayout.Button(Localization.G("data.create_mappings")))
                 {
-                    CreateMappingsForOriginal(blendShare);
+                    using var progress = BlendShareEditorProgress.Create(Localization.S("data.create_mappings"));
+                    try
+                    {
+                        CreateMappingsForOriginal(blendShare, progress);
+                    }
+                    catch (BlendShareOperationCanceledException)
+                    {
+                        EditorUtility.DisplayDialog(Localization.S("data.create_mappings"), BlendShareProgressUtility.CanceledMessage, Localization.S("data.dialog.ok"));
+                    }
                     artifactMappingStatus = GetArtifactMappingStatus(blendShare);
                 }
             }
@@ -290,7 +298,15 @@ namespace Triturbo.BlendShare.Inspector
                         folderPath);
                     if (!string.IsNullOrEmpty(path))
                     {
-                        BlendShareArtifactService.CreateArtifact(blendShare.m_Original, new[] { blendShare }, path);
+                        using var progress = BlendShareEditorProgress.Create("Create BlendShare Artifact");
+                        try
+                        {
+                            BlendShareArtifactService.CreateArtifact(blendShare.m_Original, new[] { blendShare }, path, progress);
+                        }
+                        catch (BlendShareOperationCanceledException)
+                        {
+                            EditorUtility.DisplayDialog("Create BlendShare Artifact", BlendShareProgressUtility.CanceledMessage, "OK");
+                        }
                     }
                 }
             }
@@ -381,13 +397,14 @@ namespace Triturbo.BlendShare.Inspector
                 return;
             }
 
-            if (BlendShareGenerationService.ApplyPatch(blendShare.m_Original, blendShare, force, out string message))
+            using var progress = BlendShareEditorProgress.Create("Apply BlendShare Patch");
+            if (BlendShareGenerationService.ApplyPatch(blendShare.m_Original, blendShare, force, progress, out string message))
             {
                 forceApplyUnlocked = false;
             }
             else
             {
-                EditorUtility.DisplayDialog("Apply BlendShare Patch", message, "OK");
+                EditorUtility.DisplayDialog("Apply BlendShare Patch", message ?? "Failed to apply BlendShare patch.", "OK");
             }
         }
 
@@ -420,7 +437,19 @@ namespace Triturbo.BlendShare.Inspector
                 folderPath);
             if (!string.IsNullOrEmpty(path))
             {
-                BlendShareGenerationService.CreateFbx(blendShare.m_Original, new[] { blendShare }, path);
+                using var progress = BlendShareEditorProgress.Create("Apply BlendShare Patch as New FBX");
+                try
+                {
+                    bool created = BlendShareGenerationService.CreateFbx(blendShare.m_Original, new[] { blendShare }, path, progress: progress);
+                    if (!created)
+                    {
+                        EditorUtility.DisplayDialog("Apply BlendShare Patch as New FBX", "Failed to create FBX.", "OK");
+                    }
+                }
+                catch (BlendShareOperationCanceledException)
+                {
+                    EditorUtility.DisplayDialog("Apply BlendShare Patch as New FBX", BlendShareProgressUtility.CanceledMessage, "OK");
+                }
             }
         }
 
@@ -476,13 +505,14 @@ namespace Triturbo.BlendShare.Inspector
                 return;
             }
 
-            if (BlendShareGenerationService.RestorePatch(blendShare.m_Original, blendShare, out string message))
+            using var progress = BlendShareEditorProgress.Create("Revert BlendShare Patch");
+            if (BlendShareGenerationService.RestorePatch(blendShare.m_Original, blendShare, progress, out string message))
             {
                 forceApplyUnlocked = false;
             }
             else
             {
-                EditorUtility.DisplayDialog("Revert BlendShare Patch", message, "OK");
+                EditorUtility.DisplayDialog("Revert BlendShare Patch", message ?? "Failed to revert BlendShare patch.", "OK");
             }
         }
 
@@ -497,13 +527,14 @@ namespace Triturbo.BlendShare.Inspector
                 return;
             }
 
-            if (BlendShareGenerationService.RestoreToOriginal(blendShare.m_Original, out string message))
+            using var progress = BlendShareEditorProgress.Create("Restore to Original");
+            if (BlendShareGenerationService.RestoreToOriginal(blendShare.m_Original, progress, out string message))
             {
                 forceApplyUnlocked = false;
             }
             else
             {
-                EditorUtility.DisplayDialog("Restore to Original", message, "OK");
+                EditorUtility.DisplayDialog("Restore to Original", message ?? "Failed to restore original FBX.", "OK");
             }
         }
 
@@ -560,7 +591,7 @@ namespace Triturbo.BlendShare.Inspector
             return ArtifactMappingStatus.Ready();
         }
 
-        private static void CreateMappingsForOriginal(BlendShareObject blendShare)
+        private static void CreateMappingsForOriginal(BlendShareObject blendShare, IBlendShareProgress progress)
         {
             if (blendShare == null || blendShare.m_Original == null)
             {
@@ -578,43 +609,69 @@ namespace Triturbo.BlendShare.Inspector
                 return;
             }
 
-            var createdMappings = new List<UnityVertexMappingObject>();
+            var createdMappings = new List<(MeshDataObject Mesh, UnityVertexMappingObject Mapping)>();
             var failures = new List<string>();
-            foreach (var mesh in blendShare.Meshes ?? System.Array.Empty<MeshDataObject>())
+            var meshes = (blendShare.Meshes ?? System.Array.Empty<MeshDataObject>())
+                .Where(mesh => mesh != null)
+                .ToArray();
+            try
             {
-                if (mesh == null)
+                for (int meshIndex = 0; meshIndex < meshes.Length; meshIndex++)
                 {
-                    continue;
+                    var mesh = meshes[meshIndex];
+                    BlendShareProgressUtility.Report(
+                        progress,
+                        Localization.S("data.create_mappings"),
+                        $"Creating mapping for {mesh.m_Path}...",
+                        meshes.Length > 0 ? (float)meshIndex / meshes.Length : 0f,
+                        true);
+
+                    if (!targetLookup.TryGetMesh(mesh, out var targetMesh))
+                    {
+                        failures.Add($"{mesh.m_Path}: {targetLookup.GetResolutionError(mesh)}");
+                        continue;
+                    }
+
+                    if ((mesh.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
+                        .Any(mapping => mapping != null && mapping.IsCompatibleWith(mesh, targetMesh)))
+                    {
+                        continue;
+                    }
+
+                    var mapping = UnityFbxVertexMappingBuilder.BuildFromFbx(mesh.m_Path, targetMesh, blendShare.m_Original);
+                    if (mapping == null || !mapping.m_IsValid)
+                    {
+                        failures.Add($"{mesh.m_Path}: {mapping?.m_Report ?? "mapping generation failed"}");
+                        continue;
+                    }
+
+                    createdMappings.Add((mesh, mapping));
+                }
+            }
+            catch (BlendShareOperationCanceledException)
+            {
+                foreach (var createdMapping in createdMappings)
+                {
+                    if (createdMapping.Mapping != null && !AssetDatabase.Contains(createdMapping.Mapping))
+                    {
+                        UnityEngine.Object.DestroyImmediate(createdMapping.Mapping);
+                    }
                 }
 
-                if (!targetLookup.TryGetMesh(mesh, out var targetMesh))
-                {
-                    failures.Add($"{mesh.m_Path}: {targetLookup.GetResolutionError(mesh)}");
-                    continue;
-                }
-
-                if ((mesh.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
-                    .Any(mapping => mapping != null && mapping.IsCompatibleWith(mesh, targetMesh)))
-                {
-                    continue;
-                }
-
-                var mapping = UnityFbxVertexMappingBuilder.BuildFromFbx(mesh.m_Path, targetMesh, blendShare.m_Original);
-                if (mapping == null || !mapping.m_IsValid)
-                {
-                    failures.Add($"{mesh.m_Path}: {mapping?.m_Report ?? "mapping generation failed"}");
-                    continue;
-                }
-
-                mesh.m_Mappings = (mesh.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
-                    .Where(existing => existing != null)
-                    .Concat(new[] { mapping })
-                    .ToArray();
-                createdMappings.Add(mapping);
+                throw;
             }
 
             if (createdMappings.Count > 0)
             {
+                BlendShareProgressUtility.Report(progress, Localization.S("data.create_mappings"), "Saving mappings...", 0.95f, false);
+                foreach (var createdMapping in createdMappings)
+                {
+                    createdMapping.Mesh.m_Mappings = (createdMapping.Mesh.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
+                        .Where(existing => existing != null)
+                        .Concat(new[] { createdMapping.Mapping })
+                        .ToArray();
+                }
+
                 BlendShareAssetService.SaveMappings(blendShare);
             }
 

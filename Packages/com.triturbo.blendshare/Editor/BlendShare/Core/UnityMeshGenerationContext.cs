@@ -25,6 +25,7 @@ namespace Triturbo.BlendShare.Core
         public IReadOnlyList<BlendShareObject> Shares { get; }
         public IReadOnlyList<BlendShareComponent> Components { get; }
         public UnityMeshTargetLookup TargetMeshes { get; }
+        public IBlendShareProgress Progress { get; }
         public IReadOnlyList<Object> GeneratedObjects => generatedObjects;
         public IReadOnlyDictionary<string, UnityMeshSkinBindingOutput> SkinBindingsByMeshKey => skinBindingsByMeshKey;
         public BoneGraphObject Armature => armature;
@@ -39,11 +40,13 @@ namespace Triturbo.BlendShare.Core
             Object targetMeshContainer,
             IEnumerable<BlendShareObject> shares,
             UnityMeshTargetLookup targetMeshes,
-            IEnumerable<BlendShareComponent> components = null)
+            IEnumerable<BlendShareComponent> components = null,
+            IBlendShareProgress progress = null)
         {
             TargetMeshContainer = targetMeshContainer;
             Shares = BlendSharePatchIdUtility.DeduplicateByPatchId(shares).ToArray();
             TargetMeshes = targetMeshes;
+            Progress = BlendShareProgressUtility.Resolve(progress);
             Components = (components ?? System.Array.Empty<BlendShareComponent>())
                 .Where(component => component != null)
                 .Distinct()
@@ -219,6 +222,22 @@ namespace Triturbo.BlendShare.Core
             }
 
             return AddObject(key, created) as T;
+        }
+
+        public void DestroyGeneratedObjects()
+        {
+            foreach (var generatedObject in generatedObjects)
+            {
+                if (generatedObject == null || AssetDatabase.Contains(generatedObject))
+                {
+                    continue;
+                }
+
+                Object.DestroyImmediate(generatedObject);
+            }
+
+            generatedObjects.Clear();
+            generatedObjectsByKey.Clear();
         }
 
         private static string BuildGeneratedObjectKey(System.Type type, string key, string fallbackName)

@@ -112,6 +112,7 @@ namespace Triturbo.BlendShare.Persistence
             GameObject target,
             BlendShareObject share,
             bool force,
+            IBlendShareProgress progress,
             out string message)
         {
             message = null;
@@ -131,41 +132,63 @@ namespace Triturbo.BlendShare.Persistence
             }
 
 #if ENABLE_FBX_SDK
-            var metadata = state.Metadata;
-            if (!BlendShareFbxMetadataService.EnsureBaselineBackup(target, metadata, out message))
+            try
             {
+                progress = BlendShareProgressUtility.Resolve(progress);
+                BlendShareProgressUtility.Report(progress, null, "Preparing baseline backup...", 0.03f, true);
+                var metadata = state.Metadata;
+                if (!BlendShareFbxMetadataService.EnsureBaselineBackup(target, metadata, out message))
+                {
+                    return false;
+                }
+
+                BlendShareProgressUtility.Report(progress, null, "Calculating source hash...", 0.05f, true);
+                string targetPath = AssetDatabase.GetAssetPath(target);
+                string hashBefore = BlendShareHashUtility.Sha256File(targetPath);
+                if (!CreateFbx(target, new[] { share }, progress: progress))
+                {
+                    message = "Failed to apply BlendShare patch to FBX.";
+                    return false;
+                }
+
+                BlendShareProgressUtility.Report(progress, null, "Saving BlendShare metadata...", 0.98f, false);
+                string hashAfter = BlendShareHashUtility.Sha256File(targetPath);
+                var record = BlendShareFbxMetadataService.CreateRecord(target, share, hashBefore, hashAfter);
+                BlendShareFbxMetadataService.CommitApplyRecord(metadata, share, record);
+                if (!BlendShareFbxMetadataService.Save(target, metadata, out message))
+                {
+                    return false;
+                }
+
+                message = state.HasPatch
+                    ? "BlendShare patch applied again. This may accumulate on the current FBX."
+                    : "BlendShare patch applied.";
+                return true;
+            }
+            catch (BlendShareOperationCanceledException)
+            {
+                message = BlendShareProgressUtility.CanceledMessage;
                 return false;
             }
-
-            string targetPath = AssetDatabase.GetAssetPath(target);
-            string hashBefore = BlendShareHashUtility.Sha256File(targetPath);
-            if (!CreateFbx(target, new[] { share }))
-            {
-                message = "Failed to apply BlendShare patch to FBX.";
-                return false;
-            }
-
-            string hashAfter = BlendShareHashUtility.Sha256File(targetPath);
-            var record = BlendShareFbxMetadataService.CreateRecord(target, share, hashBefore, hashAfter);
-            BlendShareFbxMetadataService.CommitApplyRecord(metadata, share, record);
-            if (!BlendShareFbxMetadataService.Save(target, metadata, out message))
-            {
-                return false;
-            }
-
-            message = state.HasPatch
-                ? "BlendShare patch applied again. This may accumulate on the current FBX."
-                : "BlendShare patch applied.";
-            return true;
 #else
             message = "FBX SDK support is not available.";
             return false;
 #endif
         }
 
+        public static bool ApplyPatch(
+            GameObject target,
+            BlendShareObject share,
+            bool force,
+            out string message)
+        {
+            return ApplyPatch(target, share, force, null, out message);
+        }
+
         public static bool RestorePatch(
             GameObject target,
             BlendShareObject share,
+            IBlendShareProgress progress,
             out string message)
         {
             message = null;
@@ -185,18 +208,26 @@ namespace Triturbo.BlendShare.Persistence
 
             if ((metadata.activeRecords?.Length ?? 0) <= 1)
             {
-                return RestoreToOriginal(target, out message);
+                return RestoreToOriginal(target, progress, out message);
             }
 
 #if ENABLE_FBX_SDK
-            return RevertByReplay(target, metadata, restoreIndex, out message);
+            return RevertByReplay(target, metadata, restoreIndex, progress, out message);
 #else
             message = "FBX SDK support is not available.";
             return false;
 #endif
         }
 
-        public static bool RestoreToOriginal(GameObject target, out string message)
+        public static bool RestorePatch(
+            GameObject target,
+            BlendShareObject share,
+            out string message)
+        {
+            return RestorePatch(target, share, null, out message);
+        }
+
+        public static bool RestoreToOriginal(GameObject target, IBlendShareProgress progress, out string message)
         {
             message = null;
             if (target == null)
@@ -210,12 +241,14 @@ namespace Triturbo.BlendShare.Persistence
             string tempPath = CreateTemporaryFbxCopy(targetPath);
             try
             {
+                BlendShareProgressUtility.Report(progress, null, "Restoring FBX baseline...", 0.25f, false);
                 if (!BlendShareFbxMetadataService.RestoreBaseline(target, metadata, out message))
                 {
                     RestoreTemporaryFbxCopy(tempPath, targetPath);
                     return false;
                 }
 
+                BlendShareProgressUtility.Report(progress, null, "Clearing BlendShare metadata...", 0.8f, false);
                 if (!BlendShareFbxMetadataService.Clear(target, metadata, out message))
                 {
                     RestoreTemporaryFbxCopy(tempPath, targetPath);
@@ -229,6 +262,11 @@ namespace Triturbo.BlendShare.Persistence
             {
                 DeleteTemporaryFbxCopy(tempPath);
             }
+        }
+
+        public static bool RestoreToOriginal(GameObject target, out string message)
+        {
+            return RestoreToOriginal(target, null, out message);
         }
 
 #if ENABLE_FBX_SDK
@@ -246,29 +284,65 @@ namespace Triturbo.BlendShare.Persistence
             string outputPath = null,
             bool onlyNecessary = false,
             bool initializeMetadata = true,
-            bool deduplicatePatchIds = true)
+            bool deduplicatePatchIds = true,
+            IBlendShareProgress progress = null)
         {
             var shares = deduplicatePatchIds
                 ? BlendSharePatchIdUtility.DeduplicateByPatchId(blendShares)
                 : (blendShares ?? Enumerable.Empty<BlendShareObject>()).Where(share => share != null).ToArray();
-            bool result = new FbxGenerationPipeline().Create(source, shares, outputPath, onlyNecessary, deduplicatePatchIds);
             string sourcePath = AssetDatabase.GetAssetPath(source);
+            if (string.IsNullOrWhiteSpace(sourcePath))
+            {
+                return false;
+            }
+
+            string resolvedOutputPath = string.IsNullOrWhiteSpace(outputPath) ? sourcePath : outputPath;
+            bool writesNewOutput = !string.Equals(resolvedOutputPath, sourcePath, StringComparison.Ordinal);
+
+            bool result;
+            try
+            {
+                result = new FbxGenerationPipeline().Create(sourcePath, shares, resolvedOutputPath, onlyNecessary, deduplicatePatchIds, progress);
+            }
+            catch
+            {
+                if (writesNewOutput)
+                {
+                    DeleteGeneratedOutput(resolvedOutputPath);
+                }
+
+                throw;
+            }
+
+            if (!result && writesNewOutput)
+            {
+                DeleteGeneratedOutput(resolvedOutputPath);
+            }
+
+            if (result)
+            {
+                BlendShareProgressUtility.Report(progress, null, "Importing FBX in Unity...", 0.96f, false);
+                AssetDatabase.ImportAsset(resolvedOutputPath, ImportAssetOptions.ForceSynchronousImport | ImportAssetOptions.ForceUpdate);
+            }
+
             if (result &&
-                !string.IsNullOrWhiteSpace(outputPath) &&
-                !string.Equals(outputPath, sourcePath, StringComparison.Ordinal))
+                !string.IsNullOrWhiteSpace(resolvedOutputPath) &&
+                !string.Equals(resolvedOutputPath, sourcePath, StringComparison.Ordinal))
             {
                 if (initializeMetadata)
                 {
-                    if (!BlendShareFbxMetadataService.InitializeGeneratedOutput(source, outputPath, shares, out string error))
+                    BlendShareProgressUtility.Report(progress, null, "Saving BlendShare metadata...", 0.98f, false);
+                    if (!BlendShareFbxMetadataService.InitializeGeneratedOutput(source, resolvedOutputPath, shares, out string error))
                     {
                         Debug.LogError($"[BlendShare] Failed to initialize generated FBX metadata: {error}");
-                        AssetDatabase.DeleteAsset(outputPath);
+                        AssetDatabase.DeleteAsset(resolvedOutputPath);
                         return false;
                     }
                 }
                 else
                 {
-                    BlendShareFbxMetadataService.ClearBlendShareMetadataAtPath(outputPath);
+                    BlendShareProgressUtility.Report(progress, null, "Clearing BlendShare metadata...", 0.98f, false);
+                    BlendShareFbxMetadataService.ClearBlendShareMetadataAtPath(resolvedOutputPath);
                 }
             }
 
@@ -298,7 +372,8 @@ namespace Triturbo.BlendShare.Persistence
             string outputPath = null,
             bool onlyNecessary = false,
             bool initializeMetadata = true,
-            bool deduplicatePatchIds = true)
+            bool deduplicatePatchIds = true,
+            IBlendShareProgress progress = null)
         {
             return false;
         }
@@ -318,6 +393,7 @@ namespace Triturbo.BlendShare.Persistence
             GameObject target,
             BlendShareFbxMetadata metadata,
             int restoreIndex,
+            IBlendShareProgress progress,
             out string message)
         {
             message = null;
@@ -340,6 +416,7 @@ namespace Triturbo.BlendShare.Persistence
             string tempPath = CreateTemporaryFbxCopy(targetPath);
             try
             {
+                BlendShareProgressUtility.Report(progress, null, "Restoring FBX baseline...", 0.1f, false);
                 if (!BlendShareFbxMetadataService.RestoreBaseline(target, metadata, out message))
                 {
                     RestoreTemporaryFbxCopy(tempPath, targetPath);
@@ -360,13 +437,14 @@ namespace Triturbo.BlendShare.Persistence
                 }
 
                 string hashBefore = BlendShareHashUtility.Sha256File(targetPath);
-                if (!CreateFbx(target, replayShares, deduplicatePatchIds: false))
+                if (!CreateFbx(target, replayShares, deduplicatePatchIds: false, progress: progress))
                 {
                     message = "Failed to reapply BlendShare patch history.";
                     RestoreTemporaryFbxCopy(tempPath, targetPath);
                     return false;
                 }
 
+                BlendShareProgressUtility.Report(progress, null, "Saving BlendShare metadata...", 0.98f, false);
                 string hashAfter = BlendShareHashUtility.Sha256File(targetPath);
                 var replayedRecords = replayRecords
                     .Select(record => BlendShareFbxMetadataService.CopyRecord(record, hashBefore, hashAfter))
@@ -380,6 +458,12 @@ namespace Triturbo.BlendShare.Persistence
 
                 message = "BlendShare patch reverted.";
                 return true;
+            }
+            catch (BlendShareOperationCanceledException)
+            {
+                RestoreTemporaryFbxCopy(tempPath, targetPath);
+                message = BlendShareProgressUtility.CanceledMessage;
+                return false;
             }
             finally
             {
@@ -416,6 +500,19 @@ namespace Triturbo.BlendShare.Persistence
             if (!string.IsNullOrEmpty(tempPath) && File.Exists(tempPath))
             {
                 File.Delete(tempPath);
+            }
+        }
+
+        private static void DeleteGeneratedOutput(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return;
+            }
+
+            if (!AssetDatabase.DeleteAsset(path) && File.Exists(path))
+            {
+                File.Delete(path);
             }
         }
 

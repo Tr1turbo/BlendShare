@@ -17,15 +17,18 @@ namespace Triturbo.BlendShare.Core
         public FbxNode RootNode { get; }
         public float ImportScale { get; }
         public UfbxScene ReaderScene { get; }
+        public IBlendShareProgress Progress { get; }
 
         public FbxGenerationSession(
             FbxNode rootNode,
             float importScale,
-            UfbxScene readerScene = null)
+            UfbxScene readerScene = null,
+            IBlendShareProgress progress = null)
         {
             RootNode = rootNode;
             ImportScale = importScale == 0f ? 1f : importScale;
             ReaderScene = readerScene;
+            Progress = BlendShareProgressUtility.Resolve(progress);
         }
 
         public bool TryGetState<T>(string key, out T state) where T : class

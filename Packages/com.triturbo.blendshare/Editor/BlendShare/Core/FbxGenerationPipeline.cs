@@ -1,7 +1,6 @@
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
-using UnityEditor;
-using UnityEngine;
 
 #if ENABLE_FBX_SDK
 using Autodesk.Fbx;
@@ -61,58 +60,68 @@ namespace Triturbo.BlendShare.Core
         }
 
         public bool Create(
-            GameObject source,
+            string sourcePath,
             IEnumerable<BlendShareObject> blendShares,
             string outputPath = null,
             bool onlyNecessary = false,
-            bool deduplicatePatchIds = true)
+            bool deduplicatePatchIds = true,
+            IBlendShareProgress progress = null)
         {
+            progress = BlendShareProgressUtility.Resolve(progress);
             var shares = deduplicatePatchIds
                 ? BlendSharePatchIdUtility.DeduplicateByPatchId(blendShares).ToArray()
                 : (blendShares ?? Enumerable.Empty<BlendShareObject>()).Where(share => share != null).ToArray();
-            if (source == null || shares.Length == 0)
+            if (string.IsNullOrWhiteSpace(sourcePath) || shares.Length == 0)
             {
                 return false;
             }
 
+            const string title = null;
+            BlendShareProgressUtility.Report(progress, title, "Initializing FBX SDK...", 0.02f, false);
+
             var fbxManager = FbxManager.Create();
             var ios = FbxIOSettings.Create(fbxManager, Globals.IOSROOT);
             fbxManager.SetIOSettings(ios);
-            var scene = FbxScene.Create(fbxManager, source.name);
+            var scene = FbxScene.Create(fbxManager, Path.GetFileNameWithoutExtension(sourcePath));
             var fbxImporter = FbxImporter.Create(fbxManager, "");
             int fileFormat = fbxManager.GetIOPluginRegistry().FindWriterIDByDescription("FBX binary (*.fbx)");
-            string sourceAssetPath = AssetDatabase.GetAssetPath(source);
             bool requiresReaderScene = RequiresFbxReaderScene(shares);
             UfbxScene readerScene = null;
             if (requiresReaderScene)
             {
-                var readerResult = UfbxScene.TryLoad(sourceAssetPath);
+                BlendShareProgressUtility.Report(progress, title, "Reading source FBX data...", 0.06f, true);
+                var readerResult = UfbxScene.TryLoad(sourcePath);
                 if (readerResult.Success)
                 {
                     readerScene = readerResult.Value;
                 }
                 else
                 {
-                    Debug.LogWarning($"[BlendShare] Could not read original FBX data: {readerResult.Message}");
+                    LogWarning($"[BlendShare] Could not read original FBX data: {readerResult.Message}");
                 }
             }
 
             try
             {
-                if (!fbxImporter.Initialize(sourceAssetPath, fileFormat, fbxManager.GetIOSettings()))
+                BlendShareProgressUtility.Report(progress, title, "Loading FBX scene...", 0.12f, true);
+                if (!fbxImporter.Initialize(sourcePath, fileFormat, fbxManager.GetIOSettings()))
                 {
                     return false;
                 }
 
                 fbxImporter.Import(scene);
                 fbxImporter.Destroy();
+                BlendShareProgressUtility.Report(progress, title, "Applying BlendShare data...", 0.2f, true);
 
                 var sourceRootNode = scene.GetRootNode();
                 var generationSession = new FbxGenerationSession(
                     sourceRootNode,
                     GetBlendShareMappingScale(shares),
-                    readerScene);
+                    readerScene,
+                    progress);
                 var modifiedNodes = new HashSet<FbxNode>();
+                int meshStep = 0;
+                int meshStepCount = CountMeshes(shares);
                 foreach (var share in shares)
                 {
                     foreach (var meshData in share.Meshes ?? System.Array.Empty<MeshDataObject>())
@@ -122,10 +131,14 @@ namespace Triturbo.BlendShare.Core
                             continue;
                         }
 
+                        meshStep++;
+                        float meshProgress = GetGenerationProgress(meshStep, meshStepCount, 0f);
+                        BlendShareProgressUtility.Report(progress, title, $"Applying {FormatMesh(meshData)}...", meshProgress, true);
+
                         FbxNode node = FindFbxMeshNode(sourceRootNode, meshData);
                         if (node?.GetMesh() == null)
                         {
-                            Debug.LogError($"Can not find mesh: {FormatMesh(meshData)} in FBX file");
+                            LogError($"Can not find mesh: {FormatMesh(meshData)} in FBX file");
                             continue;
                         }
 
@@ -138,6 +151,7 @@ namespace Triturbo.BlendShare.Core
 
                         foreach (var generator in FeatureGenerators)
                         {
+                            BlendShareProgressUtility.Report(progress, title, $"Applying {generator.GetType().Name} to {FormatMesh(meshData)}...", meshProgress, true);
                             var result = generator.ApplyToFbx(context);
                             if (result.Failed)
                             {
@@ -166,34 +180,54 @@ namespace Triturbo.BlendShare.Core
 
                 if (onlyNecessary)
                 {
+                    BlendShareProgressUtility.Report(progress, title, "Preparing generated FBX contents...", 0.8f, true);
                     DeleteFbxNodesWithMesh(sourceRootNode, modifiedNodes, false);
                 }
 
                 var exporter = FbxExporter.Create(fbxManager, "");
                 if (string.IsNullOrWhiteSpace(outputPath))
                 {
-                    outputPath = sourceAssetPath;
-                }
-                else
-                {
-                    AssetDatabase.CopyAsset(sourceAssetPath, outputPath);
+                    outputPath = sourcePath;
                 }
 
+                BlendShareProgressUtility.Report(progress, title, "Writing FBX file...", 0.86f, false);
                 if (!exporter.Initialize(outputPath, fileFormat, fbxManager.GetIOSettings()))
                 {
-                    Debug.LogError("Exporter Initialize failed.");
+                    LogError("Exporter Initialize failed.");
                     return false;
                 }
 
                 exporter.Export(scene);
                 exporter.Destroy();
-                AssetDatabase.Refresh();
                 return true;
             }
             finally
             {
                 readerScene?.Dispose();
             }
+        }
+
+        private static int CountMeshes(IEnumerable<BlendShareObject> shares)
+        {
+            int count = 0;
+            foreach (var share in shares ?? Enumerable.Empty<BlendShareObject>())
+            {
+                count += (share?.Meshes ?? System.Array.Empty<MeshDataObject>()).Count(mesh => mesh != null);
+            }
+
+            return count;
+        }
+
+        private static float GetGenerationProgress(int currentMesh, int meshCount, float featureProgress)
+        {
+            if (meshCount <= 0)
+            {
+                return 0.2f;
+            }
+
+            float meshBase = Clamp01((currentMesh - 1f) / meshCount);
+            float meshSpan = 1f / meshCount;
+            return Lerp(0.2f, 0.78f, meshBase + meshSpan * Clamp01(featureProgress));
         }
 
         private static bool RequiresFbxReaderScene(IEnumerable<BlendShareObject> shares)
@@ -215,13 +249,6 @@ namespace Triturbo.BlendShare.Core
                 }
             }
 
-            return false;
-        }
-
-        public bool RemoveBlendShapes(BlendShareObject share, GameObject target, bool removeInAllDeformer = true)
-        {
-            // Feature-level revert is intentionally disabled. Revert uses baseline replay instead.
-            Debug.LogWarning("[BlendShare] Feature-level BlendShare revert is disabled; use baseline replay revert instead.");
             return false;
         }
 
@@ -298,7 +325,7 @@ namespace Triturbo.BlendShare.Core
             MeshDataObject meshData,
             MeshFeatureGenerationResult result)
         {
-            Debug.LogError(
+            LogError(
                 $"[BlendShare] Failed to {action} generator '{generator.GetType().Name}' for mesh '{FormatMesh(meshData)}': {result.Message}");
         }
 
@@ -317,8 +344,33 @@ namespace Triturbo.BlendShare.Core
                 return;
             }
 
-            Debug.LogError(
+            LogError(
                 $"[BlendShare] Failed to {action} mesh '{FormatMesh(meshData)}': no generation pass handled feature object(s): {featureNames}.");
+        }
+
+        private static float Clamp01(float value)
+        {
+            if (value < 0f)
+            {
+                return 0f;
+            }
+
+            return value > 1f ? 1f : value;
+        }
+
+        private static float Lerp(float from, float to, float value)
+        {
+            return from + (to - from) * Clamp01(value);
+        }
+
+        private static void LogWarning(string message)
+        {
+            System.Console.Error.WriteLine(message);
+        }
+
+        private static void LogError(string message)
+        {
+            System.Console.Error.WriteLine(message);
         }
 
         private static string FormatMesh(MeshDataObject meshData)
