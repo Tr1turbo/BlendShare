@@ -6,7 +6,7 @@ on:
   push:
     paths:
       - ".github/workflows/build-ufbx-native.yml"
-      - "Packages/com.triturbo.blendshare/Native/BlendShareUfbx/**"
+      - "Packages/com.triturbo.blendshare/Native~/BlendShareUfbx/**"
       - "Packages/com.triturbo.blendshare/ThirdParty~/ufbx/**"
 
 permissions:
@@ -51,7 +51,7 @@ jobs:
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          $sourceDir = Join-Path $env:GITHUB_WORKSPACE "$env:PACKAGE_PATH/Native/BlendShareUfbx"
+          $sourceDir = Join-Path $env:GITHUB_WORKSPACE "$env:PACKAGE_PATH/Native~/BlendShareUfbx"
           $ufbxDir = Join-Path $env:GITHUB_WORKSPACE "$env:PACKAGE_PATH/ThirdParty~/ufbx"
           $outDir = Join-Path $env:GITHUB_WORKSPACE "$env:PACKAGE_PATH/Plugins"
           $objDir = Join-Path $env:RUNNER_TEMP "ufbx-obj"
@@ -74,7 +74,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          source_dir="$GITHUB_WORKSPACE/$PACKAGE_PATH/Native/BlendShareUfbx"
+          source_dir="$GITHUB_WORKSPACE/$PACKAGE_PATH/Native~/BlendShareUfbx"
           ufbx_dir="$GITHUB_WORKSPACE/$PACKAGE_PATH/ThirdParty~/ufbx"
           out_dir="$GITHUB_WORKSPACE/$PACKAGE_PATH/Plugins"
           bundle_dir="$out_dir/$LIBRARY_NAME.bundle"
@@ -122,7 +122,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          source_dir="$GITHUB_WORKSPACE/$PACKAGE_PATH/Native/BlendShareUfbx"
+          source_dir="$GITHUB_WORKSPACE/$PACKAGE_PATH/Native~/BlendShareUfbx"
           ufbx_dir="$GITHUB_WORKSPACE/$PACKAGE_PATH/ThirdParty~/ufbx"
           out_dir="$GITHUB_WORKSPACE/$PACKAGE_PATH/Plugins"
 

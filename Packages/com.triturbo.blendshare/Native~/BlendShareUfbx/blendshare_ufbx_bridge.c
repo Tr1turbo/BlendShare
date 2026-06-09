@@ -374,6 +374,8 @@ BS_UFBX_API int32_t bs_ufbx_get_mesh_info(bs_ufbx_scene *scene, int32_t mesh_ind
     out_info->skin_count = bs_min_i32_size(mesh->skin_deformers.count);
     out_info->blend_deformer_count = bs_min_i32_size(mesh->blend_deformers.count);
     out_info->name_length = bs_min_i32_size(mesh->name.length);
+    out_info->face_count = bs_min_i32_size(mesh->faces.count);
+    out_info->face_index_count = bs_min_i32_size(mesh->vertex_indices.count);
     return 1;
 }
 
@@ -399,6 +401,26 @@ BS_UFBX_API int32_t bs_ufbx_copy_control_point_tangents(bs_ufbx_scene *scene, in
 {
     ufbx_mesh *mesh = bs_get_mesh(scene, mesh_index);
     return bs_copy_vertex_attrib(mesh != NULL ? &mesh->vertex_tangent : NULL, mesh, dst_xyz, dst_vertex_count);
+}
+
+BS_UFBX_API int32_t bs_ufbx_copy_face_sizes(bs_ufbx_scene *scene, int32_t mesh_index, int32_t *dst, int32_t dst_count)
+{
+    ufbx_mesh *mesh = bs_get_mesh(scene, mesh_index);
+    if (mesh == NULL || dst == NULL || dst_count < 0 || (size_t)dst_count < mesh->faces.count) return 0;
+    for (size_t i = 0; i < mesh->faces.count; i++) {
+        dst[i] = bs_min_i32_size(mesh->faces.data[i].num_indices);
+    }
+    return 1;
+}
+
+BS_UFBX_API int32_t bs_ufbx_copy_face_vertex_indices(bs_ufbx_scene *scene, int32_t mesh_index, int32_t *dst, int32_t dst_count)
+{
+    ufbx_mesh *mesh = bs_get_mesh(scene, mesh_index);
+    if (mesh == NULL || dst == NULL || dst_count < 0 || (size_t)dst_count < mesh->vertex_indices.count) return 0;
+    for (size_t i = 0; i < mesh->vertex_indices.count; i++) {
+        dst[i] = (int32_t)mesh->vertex_indices.data[i];
+    }
+    return 1;
 }
 
 BS_UFBX_API int32_t bs_ufbx_get_skin_info(bs_ufbx_scene *scene, int32_t mesh_index, int32_t skin_index, bs_ufbx_skin_info *out_info)

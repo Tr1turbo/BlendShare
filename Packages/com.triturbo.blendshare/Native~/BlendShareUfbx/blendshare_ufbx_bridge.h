@@ -43,6 +43,8 @@ typedef struct bs_ufbx_mesh_info {
     int32_t skin_count;
     int32_t blend_deformer_count;
     int32_t name_length;
+    int32_t face_count;
+    int32_t face_index_count;
 } bs_ufbx_mesh_info;
 
 typedef struct bs_ufbx_skin_info {
@@ -95,6 +97,8 @@ BS_UFBX_API int32_t bs_ufbx_copy_mesh_name(bs_ufbx_scene *scene, int32_t mesh_in
 BS_UFBX_API int32_t bs_ufbx_copy_control_points(bs_ufbx_scene *scene, int32_t mesh_index, double *dst_xyz, int32_t dst_vertex_count);
 BS_UFBX_API int32_t bs_ufbx_copy_control_point_normals(bs_ufbx_scene *scene, int32_t mesh_index, double *dst_xyz, int32_t dst_vertex_count);
 BS_UFBX_API int32_t bs_ufbx_copy_control_point_tangents(bs_ufbx_scene *scene, int32_t mesh_index, double *dst_xyz, int32_t dst_vertex_count);
+BS_UFBX_API int32_t bs_ufbx_copy_face_sizes(bs_ufbx_scene *scene, int32_t mesh_index, int32_t *dst, int32_t dst_count);
+BS_UFBX_API int32_t bs_ufbx_copy_face_vertex_indices(bs_ufbx_scene *scene, int32_t mesh_index, int32_t *dst, int32_t dst_count);
 
 BS_UFBX_API int32_t bs_ufbx_get_skin_info(bs_ufbx_scene *scene, int32_t mesh_index, int32_t skin_index, bs_ufbx_skin_info *out_info);
 BS_UFBX_API int32_t bs_ufbx_copy_skin_name(bs_ufbx_scene *scene, int32_t mesh_index, int32_t skin_index, char *dst, int32_t dst_size);
