@@ -31,23 +31,23 @@ namespace Triturbo.BlendShare.Core
             string path,
             string defaultGeneratedAssetName)
         {
-            var blendShare = Extract(blendShapeSource, originObject, meshRequests, featureOptions);
-            return SaveBlendShare(blendShare, path, defaultGeneratedAssetName);
+            var patch = Extract(blendShapeSource, originObject, meshRequests, featureOptions);
+            return SavePatch(patch, path, defaultGeneratedAssetName);
         }
 
-        private static BlendShareObject SaveBlendShare(
-            BlendShareObject blendShare,
+        private static BlendShareObject SavePatch(
+            BlendShareObject patch,
             string path,
             string defaultGeneratedAssetName)
         {
-            if (blendShare == null)
+            if (patch == null)
             {
                 return null;
             }
 
-            blendShare.m_DefaultGeneratedAssetName = defaultGeneratedAssetName;
-            blendShare.m_PatchId = "+BlendShare-" + defaultGeneratedAssetName;
-            var saved = BlendShareAssetService.Save(blendShare, path, blendShare.Meshes);
+            patch.m_DefaultGeneratedAssetName = defaultGeneratedAssetName;
+            patch.m_PatchId = "+BlendShare-" + defaultGeneratedAssetName;
+            var saved = BlendShareAssetService.Save(patch, path, patch.Meshes);
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             return saved;

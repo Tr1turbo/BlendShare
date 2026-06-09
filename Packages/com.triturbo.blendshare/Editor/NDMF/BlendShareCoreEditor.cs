@@ -16,7 +16,7 @@ namespace Triturbo.BlendShare.NDMF
             EditorWidgets.ShowBlendShareBanner();
 
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_TargetRootReference"), new GUIContent("Target Root"));
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_BlendShares"), new GUIContent("BlendShare Objects"), true);
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_Patches"), new GUIContent("Patches"), true);
             serializedObject.ApplyModifiedProperties();
 
             var owner = (BlendShareCore)target;

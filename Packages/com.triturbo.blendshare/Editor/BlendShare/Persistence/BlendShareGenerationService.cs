@@ -18,34 +18,34 @@ namespace Triturbo.BlendShare.Persistence
         /// Creates a generated mesh asset by applying BlendShare features to a target mesh container.
         /// </summary>
         /// <param name="targetMeshContainer">FBX asset, generated mesh asset, or other asset containing target meshes.</param>
-        /// <param name="blendShares">BlendShare assets to apply.</param>
+        /// <param name="patches">BlendShare assets to apply.</param>
         /// <param name="path">Asset path where the generated mesh asset should be saved.</param>
         /// <returns>The saved generated mesh asset, or <c>null</c> when generation fails.</returns>
         [System.Obsolete("CreateMeshAsset creates the legacy GeneratedMeshAssetSO format. Use BlendShareArtifactService.CreateArtifact for new generated assets.")]
         public static GeneratedMeshAssetSO CreateMeshAsset(
             Object targetMeshContainer,
-            IEnumerable<BlendShareObject> blendShares,
+            IEnumerable<BlendShareObject> patches,
             string path)
         {
-            var shares = BlendSharePatchIdUtility.DeduplicateByPatchId(blendShares).ToList();
-            if (targetMeshContainer == null || shares.Count == 0)
+            var deduplicatedPatches = BlendSharePatchIdUtility.DeduplicateByPatchId(patches).ToList();
+            if (targetMeshContainer == null || deduplicatedPatches.Count == 0)
             {
                 return null;
             }
 
             var unityPipeline = new UnityMeshGenerationPipeline();
-            var appliedBlendShares = GetAppliedBlendShares(targetMeshContainer, shares);
+            var appliedPatches = GetAppliedPatches(targetMeshContainer, deduplicatedPatches);
             GameObject targetFbx = GetTargetFbx(targetMeshContainer);
 
-            if (targetFbx != null && !unityPipeline.CanApplyToUnityMeshes(targetMeshContainer, shares))
+            if (targetFbx != null && !unityPipeline.CanApplyToUnityMeshes(targetMeshContainer, deduplicatedPatches))
             {
 #if ENABLE_FBX_SDK
                 var fbxPipeline = new FbxGenerationPipeline();
-                if (fbxPipeline.CanApply(appliedBlendShares))
+                if (fbxPipeline.CanApply(appliedPatches))
                 {
                     string folder = System.IO.Path.GetDirectoryName(path) ?? Application.dataPath;
                     string tempAssetPath = System.IO.Path.Combine(folder, $"{targetMeshContainer.name}-{System.Guid.NewGuid()}.fbx");
-                    if (!CreateFbx(targetFbx, appliedBlendShares, tempAssetPath, true, false))
+                    if (!CreateFbx(targetFbx, appliedPatches, tempAssetPath, true, false))
                     {
                         Debug.LogError("Failed to create blendshapes fbx.");
                         return null;
@@ -53,7 +53,7 @@ namespace Triturbo.BlendShare.Persistence
 
                     var result = GeneratedMeshAssetSO.SaveBlendShareMeshesToAsset(
                         targetFbx,
-                        appliedBlendShares,
+                        appliedPatches,
                         tempAssetPath,
                         path);
                     AssetDatabase.MoveAssetToTrash(tempAssetPath);
@@ -69,9 +69,9 @@ namespace Triturbo.BlendShare.Persistence
 
             var artifact = unityPipeline.CreateArtifact(
                 targetMeshContainer,
-                shares,
+                deduplicatedPatches,
                 null,
-                appliedBlendShares);
+                appliedPatches);
             if (artifact == null)
             {
                 return null;
@@ -85,7 +85,7 @@ namespace Triturbo.BlendShare.Persistence
             {
                 return GeneratedMeshAssetSO.SaveBlendShareMeshesToAsset(
                     targetFbx,
-                    appliedBlendShares,
+                    appliedPatches,
                     meshes,
                     artifact.m_Armature != null ? new Object[] { artifact.m_Armature } : System.Array.Empty<Object>(),
                     path);
@@ -100,29 +100,29 @@ namespace Triturbo.BlendShare.Persistence
         /// <summary>
         /// Checks whether every mesh feature in the supplied BlendShare assets can apply to the target meshes.
         /// </summary>
-        /// <param name="blendShares">BlendShare assets to validate.</param>
+        /// <param name="patches">BlendShare assets to validate.</param>
         /// <param name="meshes">Target meshes to validate against.</param>
         /// <returns><c>true</c> when every feature can be applied directly to the Unity meshes.</returns>
-        public static bool IsAllMeshesValid(IEnumerable<BlendShareObject> blendShares, IEnumerable<Mesh> meshes)
+        public static bool IsAllMeshesValid(IEnumerable<BlendShareObject> patches, IEnumerable<Mesh> meshes)
         {
-            return new UnityMeshGenerationPipeline().CanApplyToUnityMeshes(blendShares, meshes);
+            return new UnityMeshGenerationPipeline().CanApplyToUnityMeshes(patches, meshes);
         }
 
         public static bool ApplyPatch(
             GameObject target,
-            BlendShareObject share,
+            BlendShareObject patch,
             bool force,
             IBlendShareProgress progress,
             out string message)
         {
             message = null;
-            if (target == null || share == null)
+            if (target == null || patch == null)
             {
                 message = "Target FBX or BlendShare patch is missing.";
                 return false;
             }
 
-            var state = BlendShareFbxMetadataService.GetPatchState(target, share);
+            var state = BlendShareFbxMetadataService.GetPatchState(target, patch);
             if (state.HasPatch && !force)
             {
                 message = state.HasExactPatch
@@ -145,7 +145,7 @@ namespace Triturbo.BlendShare.Persistence
                 BlendShareProgressUtility.Report(progress, null, "Calculating source hash...", 0.05f, true);
                 string targetPath = AssetDatabase.GetAssetPath(target);
                 string hashBefore = BlendShareHashUtility.Sha256File(targetPath);
-                if (!CreateFbx(target, new[] { share }, progress: progress))
+                if (!CreateFbx(target, new[] { patch }, progress: progress))
                 {
                     message = "Failed to apply BlendShare patch to FBX.";
                     return false;
@@ -153,8 +153,8 @@ namespace Triturbo.BlendShare.Persistence
 
                 BlendShareProgressUtility.Report(progress, null, "Saving BlendShare metadata...", 0.98f, false);
                 string hashAfter = BlendShareHashUtility.Sha256File(targetPath);
-                var record = BlendShareFbxMetadataService.CreateRecord(target, share, hashBefore, hashAfter);
-                BlendShareFbxMetadataService.CommitApplyRecord(metadata, share, record);
+                var record = BlendShareFbxMetadataService.CreateRecord(target, patch, hashBefore, hashAfter);
+                BlendShareFbxMetadataService.CommitApplyRecord(metadata, patch, record);
                 if (!BlendShareFbxMetadataService.Save(target, metadata, out message))
                 {
                     return false;
@@ -178,28 +178,28 @@ namespace Triturbo.BlendShare.Persistence
 
         public static bool ApplyPatch(
             GameObject target,
-            BlendShareObject share,
+            BlendShareObject patch,
             bool force,
             out string message)
         {
-            return ApplyPatch(target, share, force, null, out message);
+            return ApplyPatch(target, patch, force, null, out message);
         }
 
-        public static bool RestorePatch(
+        public static bool RevertPatch(
             GameObject target,
-            BlendShareObject share,
+            BlendShareObject patch,
             IBlendShareProgress progress,
             out string message)
         {
             message = null;
-            if (target == null || share == null)
+            if (target == null || patch == null)
             {
                 message = "Target FBX or BlendShare patch is missing.";
                 return false;
             }
 
             var metadata = BlendShareFbxMetadataService.Load(target);
-            int restoreIndex = BlendShareFbxMetadataService.FindLatestPatchAssetIndex(metadata, share);
+            int restoreIndex = BlendShareFbxMetadataService.FindLatestPatchAssetIndex(metadata, patch);
             if (restoreIndex < 0)
             {
                 message = "This BlendShare patch is not recorded on the FBX.";
@@ -219,12 +219,12 @@ namespace Triturbo.BlendShare.Persistence
 #endif
         }
 
-        public static bool RestorePatch(
+        public static bool RevertPatch(
             GameObject target,
-            BlendShareObject share,
+            BlendShareObject patch,
             out string message)
         {
-            return RestorePatch(target, share, null, out message);
+            return RevertPatch(target, patch, null, out message);
         }
 
         public static bool RestoreToOriginal(GameObject target, IBlendShareProgress progress, out string message)
@@ -274,22 +274,22 @@ namespace Triturbo.BlendShare.Persistence
         /// Creates an FBX file by applying BlendShare features to a source FBX asset.
         /// </summary>
         /// <param name="source">Source FBX asset to import and modify.</param>
-        /// <param name="blendShares">BlendShare assets to apply.</param>
+        /// <param name="patches">BlendShare assets to apply.</param>
         /// <param name="outputPath">Destination FBX asset path, or the source asset path when omitted.</param>
         /// <param name="onlyNecessary">Whether to remove unmodified mesh nodes before export.</param>
         /// <returns><c>true</c> when the FBX file was exported successfully.</returns>
         public static bool CreateFbx(
             GameObject source,
-            IEnumerable<BlendShareObject> blendShares,
+            IEnumerable<BlendShareObject> patches,
             string outputPath = null,
             bool onlyNecessary = false,
             bool initializeMetadata = true,
             bool deduplicatePatchIds = true,
             IBlendShareProgress progress = null)
         {
-            var shares = deduplicatePatchIds
-                ? BlendSharePatchIdUtility.DeduplicateByPatchId(blendShares)
-                : (blendShares ?? Enumerable.Empty<BlendShareObject>()).Where(share => share != null).ToArray();
+            var deduplicatedPatches = deduplicatePatchIds
+                ? BlendSharePatchIdUtility.DeduplicateByPatchId(patches)
+                : (patches ?? Enumerable.Empty<BlendShareObject>()).Where(patch => patch != null).ToArray();
             string sourcePath = AssetDatabase.GetAssetPath(source);
             if (string.IsNullOrWhiteSpace(sourcePath))
             {
@@ -302,7 +302,7 @@ namespace Triturbo.BlendShare.Persistence
             bool result;
             try
             {
-                result = new FbxGenerationPipeline().Create(sourcePath, shares, resolvedOutputPath, onlyNecessary, deduplicatePatchIds, progress);
+                result = new FbxGenerationPipeline().Create(sourcePath, deduplicatedPatches, resolvedOutputPath, onlyNecessary, deduplicatePatchIds, progress);
             }
             catch
             {
@@ -332,7 +332,7 @@ namespace Triturbo.BlendShare.Persistence
                 if (initializeMetadata)
                 {
                     BlendShareProgressUtility.Report(progress, null, "Saving BlendShare metadata...", 0.98f, false);
-                    if (!BlendShareFbxMetadataService.InitializeGeneratedOutput(source, resolvedOutputPath, shares, out string error))
+                    if (!BlendShareFbxMetadataService.InitializeGeneratedOutput(source, resolvedOutputPath, deduplicatedPatches, out string error))
                     {
                         Debug.LogError($"[BlendShare] Failed to initialize generated FBX metadata: {error}");
                         AssetDatabase.DeleteAsset(resolvedOutputPath);
@@ -351,24 +351,24 @@ namespace Triturbo.BlendShare.Persistence
 
         // Feature-level inverse is intentionally disabled. Revert uses baseline replay instead.
         // public static bool RemoveBlendShapes(
-        //     BlendShareObject share,
+        //     BlendShareObject patch,
         //     GameObject target,
         //     bool removeInAllDeformer = true)
         // {
-        //     return new FbxGenerationPipeline().RemoveBlendShapes(share, target, removeInAllDeformer);
+        //     return new FbxGenerationPipeline().RemoveBlendShapes(patch, target, removeInAllDeformer);
         // }
 #else
         /// <summary>
         /// Stub used when the Autodesk FBX SDK package is not available.
         /// </summary>
         /// <param name="source">Unused source FBX asset.</param>
-        /// <param name="blendShares">Unused BlendShare assets.</param>
+        /// <param name="patches">Unused BlendShare assets.</param>
         /// <param name="outputPath">Unused output path.</param>
         /// <param name="onlyNecessary">Unused pruning flag.</param>
         /// <returns>Always <c>false</c> without FBX SDK support.</returns>
         public static bool CreateFbx(
             GameObject source,
-            IEnumerable<BlendShareObject> blendShares,
+            IEnumerable<BlendShareObject> patches,
             string outputPath = null,
             bool onlyNecessary = false,
             bool initializeMetadata = true,
@@ -380,7 +380,7 @@ namespace Triturbo.BlendShare.Persistence
 
         // Feature-level inverse is intentionally disabled. Revert uses baseline replay instead.
         // public static bool RemoveBlendShapes(
-        //     BlendShareObject share,
+        //     BlendShareObject patch,
         //     GameObject target,
         //     bool removeInAllDeformer = true)
         // {
@@ -423,21 +423,21 @@ namespace Triturbo.BlendShare.Persistence
                     return false;
                 }
 
-                var replayShares = new List<BlendShareObject>();
+                var replayPatches = new List<BlendShareObject>();
                 foreach (var record in replayRecords)
                 {
-                    if (!BlendShareFbxMetadataService.TryResolveRecord(record, out var replayShare))
+                    if (!BlendShareFbxMetadataService.TryResolveRecord(record, out var replayPatch))
                     {
                         message = $"Cannot find BlendShare patch asset '{record?.blendShareName}'.";
                         RestoreTemporaryFbxCopy(tempPath, targetPath);
                         return false;
                     }
 
-                    replayShares.Add(replayShare);
+                    replayPatches.Add(replayPatch);
                 }
 
                 string hashBefore = BlendShareHashUtility.Sha256File(targetPath);
-                if (!CreateFbx(target, replayShares, deduplicatePatchIds: false, progress: progress))
+                if (!CreateFbx(target, replayPatches, deduplicatePatchIds: false, progress: progress))
                 {
                     message = "Failed to reapply BlendShare patch history.";
                     RestoreTemporaryFbxCopy(tempPath, targetPath);
@@ -516,30 +516,30 @@ namespace Triturbo.BlendShare.Persistence
             }
         }
 
-        private static List<BlendShareObject> GetAppliedBlendShares(
+        private static List<BlendShareObject> GetAppliedPatches(
             Object targetMeshContainer,
-            IEnumerable<BlendShareObject> shares)
+            IEnumerable<BlendShareObject> patches)
         {
-            var appliedBlendShares = new List<BlendShareObject>();
+            var appliedPatches = new List<BlendShareObject>();
 
             if (targetMeshContainer is GeneratedMeshAssetSO generatedAsset)
             {
                 if (generatedAsset.m_AppliedBlendShares != null)
                 {
-                    appliedBlendShares.AddRange(generatedAsset.m_AppliedBlendShares.Where(share => share != null));
+                    appliedPatches.AddRange(generatedAsset.m_AppliedBlendShares.Where(patch => patch != null));
                 }
 
                 if (generatedAsset.m_AppliedBlendShapes != null)
                 {
-                    appliedBlendShares.AddRange(generatedAsset.m_AppliedBlendShapes
+                    appliedPatches.AddRange(generatedAsset.m_AppliedBlendShapes
                         .Where(legacy => legacy != null)
                         .Select(BlendShareUpgradeService.UpgradeSideBySide)
-                        .Where(share => share != null));
+                        .Where(patch => patch != null));
                 }
             }
 
-            appliedBlendShares.AddRange(shares ?? Enumerable.Empty<BlendShareObject>());
-            return BlendSharePatchIdUtility.DeduplicateByPatchId(appliedBlendShares).ToList();
+            appliedPatches.AddRange(patches ?? Enumerable.Empty<BlendShareObject>());
+            return BlendSharePatchIdUtility.DeduplicateByPatchId(appliedPatches).ToList();
         }
 
         private static GameObject GetTargetFbx(Object targetMeshContainer)

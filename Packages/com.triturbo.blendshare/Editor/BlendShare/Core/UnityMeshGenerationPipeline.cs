@@ -26,14 +26,14 @@ namespace Triturbo.BlendShare.Core
 
         public BlendShareArtifact CreateArtifact(
             Object targetMeshContainer,
-            IEnumerable<BlendShareObject> blendShares,
+            IEnumerable<BlendShareObject> patches,
             Func<BlendShareObject, MeshDataObject, bool> shouldGenerateMesh = null,
-            IEnumerable<BlendShareObject> appliedBlendShares = null,
+            IEnumerable<BlendShareObject> appliedPatches = null,
             IBlendShareProgress progress = null)
         {
             progress = BlendShareProgressUtility.Resolve(progress);
-            var shares = BlendSharePatchIdUtility.DeduplicateByPatchId(blendShares).ToArray();
-            if (targetMeshContainer == null || shares.Length == 0)
+            var deduplicatedPatches = BlendSharePatchIdUtility.DeduplicateByPatchId(patches).ToArray();
+            if (targetMeshContainer == null || deduplicatedPatches.Length == 0)
             {
                 return null;
             }
@@ -48,7 +48,7 @@ namespace Triturbo.BlendShare.Core
             var targetRoot = targetMeshContainer is GameObject gameObject ? gameObject.transform : null;
             var session = new UnityMeshGenerationSession(
                 targetMeshContainer,
-                shares,
+                deduplicatedPatches,
                 targetLookup,
                 Array.Empty<BlendShareComponent>(),
                 progress);
@@ -57,12 +57,12 @@ namespace Triturbo.BlendShare.Core
             try
             {
                 int meshStep = 0;
-                int meshStepCount = CountMeshes(shares, shouldGenerateMesh);
-                foreach (var share in shares)
+                int meshStepCount = CountMeshes(deduplicatedPatches, shouldGenerateMesh);
+                foreach (var patch in deduplicatedPatches)
                 {
-                    foreach (var meshData in share?.Meshes ?? Array.Empty<MeshDataObject>())
+                    foreach (var meshData in patch?.Meshes ?? Array.Empty<MeshDataObject>())
                     {
-                        if (meshData == null || (shouldGenerateMesh != null && !shouldGenerateMesh(share, meshData)))
+                        if (meshData == null || (shouldGenerateMesh != null && !shouldGenerateMesh(patch, meshData)))
                         {
                             continue;
                         }
@@ -80,7 +80,7 @@ namespace Triturbo.BlendShare.Core
                             targetLookup,
                             generatedByMeshKey,
                             targetRoot,
-                            share,
+                            patch,
                             meshData,
                             MeshNodePath.Normalize(meshData.m_Path));
                     }
@@ -105,7 +105,7 @@ namespace Triturbo.BlendShare.Core
                 return BuildArtifact(
                     targetMeshContainer,
                     targetRoot,
-                    appliedBlendShares ?? shares,
+                    appliedPatches ?? deduplicatedPatches,
                     generatedByMeshKey.Values,
                     session);
             }
@@ -120,7 +120,7 @@ namespace Triturbo.BlendShare.Core
         public BlendShareArtifact CreateArtifactFromComponents(
             GameObject targetRoot,
             IEnumerable<BlendShareComponent> components,
-            IEnumerable<BlendShareObject> appliedBlendShares = null,
+            IEnumerable<BlendShareObject> appliedPatches = null,
             IBlendShareProgress progress = null)
         {
             progress = BlendShareProgressUtility.Resolve(progress);
@@ -133,12 +133,12 @@ namespace Triturbo.BlendShare.Core
                 .Where(component => component != null)
                 .Distinct()
                 .ToArray();
-            var shares = BlendSharePatchIdUtility.DeduplicateByPatchId(componentList
+            var patches = BlendSharePatchIdUtility.DeduplicateByPatchId(componentList
                 .OfType<BlendShareMesh>()
                 .Where(IsUsableMeshComponent)
                 .Select(component => FindBlendShareForMeshData(component.Owner, component.MeshData)))
                 .ToArray();
-            if (shares.Length == 0)
+            if (patches.Length == 0)
             {
                 return null;
             }
@@ -149,7 +149,7 @@ namespace Triturbo.BlendShare.Core
                 return null;
             }
 
-            var session = new UnityMeshGenerationSession(targetRoot, shares, targetLookup, componentList, progress);
+            var session = new UnityMeshGenerationSession(targetRoot, patches, targetLookup, componentList, progress);
             var generatedByMeshKey = new Dictionary<string, Mesh>();
             var emitted = new HashSet<string>();
             var meshComponents = componentList
@@ -163,8 +163,8 @@ namespace Triturbo.BlendShare.Core
                 for (int meshStep = 0; meshStep < meshComponents.Length; meshStep++)
                 {
                     var meshComponent = meshComponents[meshStep];
-                    var share = FindBlendShareForMeshData(meshComponent.Owner, meshComponent.MeshData);
-                    if (share == null)
+                    var patch = FindBlendShareForMeshData(meshComponent.Owner, meshComponent.MeshData);
+                    if (patch == null)
                     {
                         Debug.LogError($"[BlendShare] BlendShare mesh component '{meshComponent.name}' references mesh data that is not present in its owner BlendShare list.");
                         continue;
@@ -175,7 +175,7 @@ namespace Triturbo.BlendShare.Core
                     string rendererPath = renderer != null
                         ? MeshNodePath.Normalize(MeshNodePath.GetRelativePath(renderer.transform, targetRoot.transform))
                         : meshComponent.RendererNodePath;
-                    string key = $"{share.GetInstanceID()}:{meshComponent.MeshData.GetInstanceID()}:{rendererPath}";
+                    string key = $"{patch.GetInstanceID()}:{meshComponent.MeshData.GetInstanceID()}:{rendererPath}";
                     if (!emitted.Add(key))
                     {
                         continue;
@@ -193,7 +193,7 @@ namespace Triturbo.BlendShare.Core
                         targetLookup,
                         generatedByMeshKey,
                         targetRoot.transform,
-                        share,
+                        patch,
                         meshComponent.MeshData,
                         rendererPath,
                         renderer,
@@ -221,7 +221,7 @@ namespace Triturbo.BlendShare.Core
                 return BuildArtifact(
                     targetRoot,
                     targetRoot.transform,
-                    appliedBlendShares ?? shares,
+                    appliedPatches ?? patches,
                     generatedByMeshKey.Values,
                     session);
             }
@@ -235,39 +235,39 @@ namespace Triturbo.BlendShare.Core
 
         public bool CanApplyToUnityMeshes(
             Object targetMeshContainer,
-            IEnumerable<BlendShareObject> blendShares)
+            IEnumerable<BlendShareObject> patches)
         {
             return CanApplyToUnityMeshes(
                 UnityMeshTargetLookup.Create(targetMeshContainer),
                 targetMeshContainer,
-                blendShares);
+                patches);
         }
 
         public bool CanApplyToUnityMeshes(
-            IEnumerable<BlendShareObject> blendShares,
+            IEnumerable<BlendShareObject> patches,
             IEnumerable<Mesh> meshes)
         {
             return CanApplyToUnityMeshes(
                 UnityMeshTargetLookup.Create(meshes),
                 null,
-                blendShares);
+                patches);
         }
 
         private bool CanApplyToUnityMeshes(
             UnityMeshTargetLookup targetLookup,
             Object targetMeshContainer,
-            IEnumerable<BlendShareObject> blendShares)
+            IEnumerable<BlendShareObject> patches)
         {
-            var shares = BlendSharePatchIdUtility.DeduplicateByPatchId(blendShares).ToArray();
+            var deduplicatedPatches = BlendSharePatchIdUtility.DeduplicateByPatchId(patches).ToArray();
             if (targetLookup == null)
             {
                 return false;
             }
 
-            var session = new UnityMeshGenerationSession(targetMeshContainer, shares, targetLookup);
-            foreach (var share in shares)
+            var session = new UnityMeshGenerationSession(targetMeshContainer, deduplicatedPatches, targetLookup);
+            foreach (var patch in deduplicatedPatches)
             {
-                foreach (var meshData in share?.Meshes ?? Array.Empty<MeshDataObject>())
+                foreach (var meshData in patch?.Meshes ?? Array.Empty<MeshDataObject>())
                 {
                     if (meshData == null || !targetLookup.TryGetMesh(meshData, out var targetMesh))
                     {
@@ -277,7 +277,7 @@ namespace Triturbo.BlendShare.Core
                     targetLookup.TryGetRenderer(meshData, out var targetRenderer);
                     var context = new UnityMeshGenerationContext(
                         session,
-                        share,
+                        patch,
                         meshData,
                         targetMesh,
                         targetMesh,
@@ -315,7 +315,7 @@ namespace Triturbo.BlendShare.Core
             UnityMeshTargetLookup targetLookup,
             Dictionary<string, Mesh> generatedByMeshKey,
             Transform targetRoot,
-            BlendShareObject share,
+            BlendShareObject patch,
             MeshDataObject meshData,
             string rendererPath,
             SkinnedMeshRenderer targetRenderer = null,
@@ -367,7 +367,7 @@ namespace Triturbo.BlendShare.Core
             bool generatedFeature = false;
             var context = new UnityMeshGenerationContext(
                 session,
-                share,
+                patch,
                 meshData,
                 workingMesh,
                 workingMesh,
@@ -436,7 +436,7 @@ namespace Triturbo.BlendShare.Core
                     DestroyGeneratedObject(workingMesh);
                 }
 
-                Debug.LogWarning($"[BlendShare] Skipped BlendShare asset '{share.name}' for mesh '{FormatMesh(meshData)}'. Earlier accumulated output for this mesh will be kept.");
+                Debug.LogWarning($"[BlendShare] Skipped BlendShare patch '{patch.name}' for mesh '{FormatMesh(meshData)}'. Earlier accumulated output for this mesh will be kept.");
             }
             else
             {
@@ -445,15 +445,15 @@ namespace Triturbo.BlendShare.Core
         }
 
         private static int CountMeshes(
-            IEnumerable<BlendShareObject> shares,
+            IEnumerable<BlendShareObject> patches,
             Func<BlendShareObject, MeshDataObject, bool> shouldGenerateMesh)
         {
             int count = 0;
-            foreach (var share in shares ?? Array.Empty<BlendShareObject>())
+            foreach (var patch in patches ?? Array.Empty<BlendShareObject>())
             {
-                foreach (var meshData in share?.Meshes ?? Array.Empty<MeshDataObject>())
+                foreach (var meshData in patch?.Meshes ?? Array.Empty<MeshDataObject>())
                 {
-                    if (meshData != null && (shouldGenerateMesh == null || shouldGenerateMesh(share, meshData)))
+                    if (meshData != null && (shouldGenerateMesh == null || shouldGenerateMesh(patch, meshData)))
                     {
                         count++;
                     }
@@ -476,7 +476,7 @@ namespace Triturbo.BlendShare.Core
         private static BlendShareArtifact BuildArtifact(
             Object targetMeshContainer,
             Transform targetRoot,
-            IEnumerable<BlendShareObject> appliedBlendShares,
+            IEnumerable<BlendShareObject> appliedPatches,
             IEnumerable<Mesh> meshes,
             UnityMeshGenerationSession session)
         {
@@ -509,7 +509,7 @@ namespace Triturbo.BlendShare.Core
             artifact.name = $"{targetMeshContainer.name}_BlendShareArtifact";
             artifact.m_TargetSource = targetSource;
             artifact.m_TargetSourceHash = CalculateHash(targetSource);
-            artifact.m_AppliedBlendShares = BlendSharePatchIdUtility.DeduplicateByPatchId(appliedBlendShares).ToArray();
+            artifact.m_AppliedBlendShares = BlendSharePatchIdUtility.DeduplicateByPatchId(appliedPatches).ToArray();
             artifact.m_Meshes = meshDescriptors;
             artifact.m_Armature = session?.Armature;
             return artifact;
@@ -623,9 +623,9 @@ namespace Triturbo.BlendShare.Core
 
         private static BlendShareObject FindBlendShareForMeshData(BlendShareCore owner, MeshDataObject meshData)
         {
-            return (owner?.BlendShares ?? Array.Empty<BlendShareObject>())
-                .Where(share => share != null)
-                .FirstOrDefault(share => (share.Meshes ?? Array.Empty<MeshDataObject>()).Contains(meshData));
+            return (owner?.Patches ?? Array.Empty<BlendShareObject>())
+                .Where(patch => patch != null)
+                .FirstOrDefault(patch => (patch.Meshes ?? Array.Empty<MeshDataObject>()).Contains(meshData));
         }
 
         private static Object ResolveTargetSource(Object targetMeshContainer)

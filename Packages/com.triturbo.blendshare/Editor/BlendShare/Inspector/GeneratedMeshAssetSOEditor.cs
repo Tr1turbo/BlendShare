@@ -88,9 +88,9 @@ namespace Triturbo.BlendShare.Inspector
                 {
                     var element = appliedBlendSharesProp.GetArrayElementAtIndex(i);
                     var obj = element.objectReferenceValue;
-                    if (obj is BlendShareObject share)
+                    if (obj is BlendShareObject patch)
                     {
-                        EditorGUILayout.ObjectField(share.m_PatchId, obj, typeof(BlendShareObject), false);
+                        EditorGUILayout.ObjectField(patch.m_PatchId, obj, typeof(BlendShareObject), false);
                     }
                     else
                     {

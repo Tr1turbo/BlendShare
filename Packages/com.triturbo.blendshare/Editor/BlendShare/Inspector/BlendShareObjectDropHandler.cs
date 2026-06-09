@@ -63,8 +63,8 @@ namespace Triturbo.BlendShare.Inspector
 
         private static DragAndDropVisualMode HandleDrop(IReadOnlyCollection<GameObject> targets, bool perform)
         {
-            var blendShares = GetDraggedBlendShareObjects();
-            if (blendShares.Count == 0 || targets == null || targets.Count == 0)
+            var patches = GetDraggedPatches();
+            if (patches.Count == 0 || targets == null || targets.Count == 0)
             {
                 return DragAndDropVisualMode.None;
             }
@@ -73,18 +73,18 @@ namespace Triturbo.BlendShare.Inspector
             {
                 foreach (var target in targets)
                 {
-                    AddBlendShares(target, blendShares);
+                    AddPatches(target, patches);
                 }
             }
 
             return DragAndDropVisualMode.Copy;
         }
 
-        private static IReadOnlyList<BlendShareObject> GetDraggedBlendShareObjects()
+        private static IReadOnlyList<BlendShareObject> GetDraggedPatches()
         {
             return DragAndDrop.objectReferences
                 .OfType<BlendShareObject>()
-                .Where(blendShare => blendShare != null)
+                .Where(patch => patch != null)
                 .Distinct()
                 .ToList();
         }
@@ -99,7 +99,7 @@ namespace Triturbo.BlendShare.Inspector
             };
         }
 
-        private static void AddBlendShares(GameObject target, IReadOnlyList<BlendShareObject> blendShares)
+        private static void AddPatches(GameObject target, IReadOnlyList<BlendShareObject> patches)
         {
             if (target == null)
             {
@@ -113,7 +113,7 @@ namespace Triturbo.BlendShare.Inspector
             }
 
             Undo.RecordObject(component, "Assign BlendShare Object");
-            component.SetBlendShares(component.BlendShares.Concat(blendShares).Distinct());
+            component.SetPatches(component.Patches.Concat(patches).Distinct());
             EditorUtility.SetDirty(component);
             Selection.activeObject = target;
         }

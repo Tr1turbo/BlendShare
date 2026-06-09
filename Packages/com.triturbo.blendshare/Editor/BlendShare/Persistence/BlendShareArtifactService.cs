@@ -21,31 +21,31 @@ namespace Triturbo.BlendShare.Persistence
     {
         public static BlendShareArtifact CreateArtifact(
             Object targetMeshContainer,
-            IEnumerable<BlendShareObject> blendShares,
+            IEnumerable<BlendShareObject> patches,
             string path,
             IBlendShareProgress progress = null)
         {
             progress = BlendShareProgressUtility.Resolve(progress);
-            var shares = BlendSharePatchIdUtility.DeduplicateByPatchId(blendShares).ToList();
-            if (targetMeshContainer == null || shares.Count == 0 || string.IsNullOrWhiteSpace(path))
+            var deduplicatedPatches = BlendSharePatchIdUtility.DeduplicateByPatchId(patches).ToList();
+            if (targetMeshContainer == null || deduplicatedPatches.Count == 0 || string.IsNullOrWhiteSpace(path))
             {
                 return null;
             }
 
             BlendShareProgressUtility.Report(progress, null, "Preparing artifact generation...", 0.03f, true);
             var unityPipeline = new UnityMeshGenerationPipeline();
-            var appliedBlendShares = GetAppliedBlendShares(targetMeshContainer, shares);
+            var appliedPatches = GetAppliedPatches(targetMeshContainer, deduplicatedPatches);
             GameObject targetFbx = GetTargetFbx(targetMeshContainer);
             BlendShareArtifact inMemoryArtifact = null;
             Mesh[] unsavedMeshes = Array.Empty<Mesh>();
 
-            if (targetFbx == null || unityPipeline.CanApplyToUnityMeshes(targetMeshContainer, shares))
+            if (targetFbx == null || unityPipeline.CanApplyToUnityMeshes(targetMeshContainer, deduplicatedPatches))
             {
                 inMemoryArtifact = CreateInMemoryArtifact(
                     targetMeshContainer,
-                    shares,
+                    deduplicatedPatches,
                     null,
-                    appliedBlendShares,
+                    appliedPatches,
                     progress);
                 if (inMemoryArtifact != null)
                 {
@@ -68,7 +68,7 @@ namespace Triturbo.BlendShare.Persistence
 
             if (targetFbx != null)
             {
-                return CreateArtifactViaFbxFallback(targetFbx, targetMeshContainer, appliedBlendShares, path, progress);
+                return CreateArtifactViaFbxFallback(targetFbx, targetMeshContainer, appliedPatches, path, progress);
             }
 
             return null;
@@ -77,7 +77,7 @@ namespace Triturbo.BlendShare.Persistence
         private static BlendShareArtifact CreateArtifactViaFbxFallback(
             GameObject targetFbx,
             Object targetMeshContainer,
-            IEnumerable<BlendShareObject> appliedBlendShares,
+            IEnumerable<BlendShareObject> appliedPatches,
             string path,
             IBlendShareProgress progress)
         {
@@ -87,8 +87,8 @@ namespace Triturbo.BlendShare.Persistence
                 return null;
             }
 
-            var shares = BlendSharePatchIdUtility.DeduplicateByPatchId(appliedBlendShares).ToArray();
-            if (!new FbxGenerationPipeline().CanApply(shares))
+            var deduplicatedPatches = BlendSharePatchIdUtility.DeduplicateByPatchId(appliedPatches).ToArray();
+            if (!new FbxGenerationPipeline().CanApply(deduplicatedPatches))
             {
                 return null;
             }
@@ -97,7 +97,7 @@ namespace Triturbo.BlendShare.Persistence
             string tempAssetPath = Path.Combine(folder, $"{targetMeshContainer.name}-{Guid.NewGuid()}.fbx");
             try
             {
-                if (!BlendShareGenerationService.CreateFbx(targetFbx, shares, tempAssetPath, true, false, progress: progress))
+                if (!BlendShareGenerationService.CreateFbx(targetFbx, deduplicatedPatches, tempAssetPath, true, false, progress: progress))
                 {
                     Debug.LogError("[BlendShare] Failed to create temporary artifact FBX.");
                     return null;
@@ -106,7 +106,7 @@ namespace Triturbo.BlendShare.Persistence
                 BlendShareProgressUtility.Report(progress, null, "Saving artifact asset...", 0.92f, false);
                 return SaveArtifactToAsset(
                     targetFbx,
-                    shares,
+                    deduplicatedPatches,
                     tempAssetPath,
                     path);
             }
@@ -121,21 +121,21 @@ namespace Triturbo.BlendShare.Persistence
 
         public static BlendShareArtifact CreateInMemoryArtifact(
             Object targetMeshContainer,
-            IEnumerable<BlendShareObject> blendShares,
+            IEnumerable<BlendShareObject> patches,
             Func<BlendShareObject, MeshDataObject, bool> shouldGenerateMesh = null,
             IBlendShareProgress progress = null)
         {
-            var shares = BlendSharePatchIdUtility.DeduplicateByPatchId(blendShares).ToArray();
-            if (targetMeshContainer == null || shares.Length == 0)
+            var deduplicatedPatches = BlendSharePatchIdUtility.DeduplicateByPatchId(patches).ToArray();
+            if (targetMeshContainer == null || deduplicatedPatches.Length == 0)
             {
                 return null;
             }
 
             return new UnityMeshGenerationPipeline().CreateArtifact(
                 targetMeshContainer,
-                shares,
+                deduplicatedPatches,
                 shouldGenerateMesh,
-                GetAppliedBlendShares(targetMeshContainer, shares),
+                GetAppliedPatches(targetMeshContainer, deduplicatedPatches),
                 progress);
         }
 
@@ -164,16 +164,16 @@ namespace Triturbo.BlendShare.Persistence
 
         private static BlendShareArtifact CreateInMemoryArtifact(
             Object targetMeshContainer,
-            IReadOnlyCollection<BlendShareObject> shares,
+            IReadOnlyCollection<BlendShareObject> patches,
             Func<BlendShareObject, MeshDataObject, bool> shouldGenerateMesh,
-            IReadOnlyCollection<BlendShareObject> appliedBlendShares,
+            IReadOnlyCollection<BlendShareObject> appliedPatches,
             IBlendShareProgress progress)
         {
             return new UnityMeshGenerationPipeline().CreateArtifact(
                 targetMeshContainer,
-                shares,
+                patches,
                 shouldGenerateMesh,
-                appliedBlendShares,
+                appliedPatches,
                 progress);
         }
 
@@ -349,7 +349,7 @@ namespace Triturbo.BlendShare.Persistence
 
         private static BlendShareArtifact SaveArtifactToAsset(
             Object targetSource,
-            IEnumerable<BlendShareObject> appliedBlendShares,
+            IEnumerable<BlendShareObject> appliedPatches,
             string meshContainerAssetPath,
             string path)
         {
@@ -359,9 +359,9 @@ namespace Triturbo.BlendShare.Persistence
                 return null;
             }
 
-            var shares = BlendSharePatchIdUtility.DeduplicateByPatchId(appliedBlendShares).ToArray();
-            var uniquePaths = shares
-                .SelectMany(share => share.Meshes ?? Array.Empty<MeshDataObject>())
+            var deduplicatedPatches = BlendSharePatchIdUtility.DeduplicateByPatchId(appliedPatches).ToArray();
+            var uniquePaths = deduplicatedPatches
+                .SelectMany(patch => patch.Meshes ?? Array.Empty<MeshDataObject>())
                 .Where(meshData => meshData != null)
                 .Select(meshData => MeshNodePath.Normalize(meshData.m_Path))
                 .Distinct()
@@ -387,20 +387,20 @@ namespace Triturbo.BlendShare.Persistence
 
             return SaveArtifactToAsset(
                 targetSource,
-                shares,
+                deduplicatedPatches,
                 descriptors,
-                BuildArmatureArtifact(shares),
+                BuildArmatureArtifact(deduplicatedPatches),
                 path);
         }
 
         private static BlendShareArtifact SaveArtifactToAsset(
             Object targetSource,
-            IEnumerable<BlendShareObject> appliedBlendShares,
+            IEnumerable<BlendShareObject> appliedPatches,
             IEnumerable<Mesh> meshes,
             Object bindingSource,
             string path)
         {
-            var shares = BlendSharePatchIdUtility.DeduplicateByPatchId(appliedBlendShares).ToArray();
+            var deduplicatedPatches = BlendSharePatchIdUtility.DeduplicateByPatchId(appliedPatches).ToArray();
             GameObject root = bindingSource as GameObject;
             var descriptors = (meshes ?? Enumerable.Empty<Mesh>())
                 .Where(mesh => mesh != null)
@@ -420,15 +420,15 @@ namespace Triturbo.BlendShare.Persistence
 
             return SaveArtifactToAsset(
                 targetSource,
-                shares,
+                deduplicatedPatches,
                 descriptors,
-                BuildArmatureArtifact(shares),
+                BuildArmatureArtifact(deduplicatedPatches),
                 path);
         }
 
         private static BlendShareArtifact SaveArtifactToAsset(
             Object targetSource,
-            IReadOnlyCollection<BlendShareObject> appliedBlendShares,
+            IReadOnlyCollection<BlendShareObject> appliedPatches,
             IEnumerable<BlendShareMeshDescriptor> meshDescriptors,
             BoneGraphObject armature,
             string path)
@@ -518,7 +518,7 @@ namespace Triturbo.BlendShare.Persistence
 
                 artifact.m_TargetSource = targetSource;
                 artifact.m_TargetSourceHash = CalculateHash(targetSource);
-                artifact.m_AppliedBlendShares = BlendSharePatchIdUtility.DeduplicateByPatchId(appliedBlendShares).ToArray();
+                artifact.m_AppliedBlendShares = BlendSharePatchIdUtility.DeduplicateByPatchId(appliedPatches).ToArray();
                 artifact.m_Meshes = descriptors;
                 artifact.m_Armature = armatureToSave;
 
@@ -913,16 +913,16 @@ namespace Triturbo.BlendShare.Persistence
         }
 
         private static BoneGraphObject BuildArmatureArtifact(
-            IEnumerable<BlendShareObject> blendShares,
+            IEnumerable<BlendShareObject> patches,
             Func<BlendShareObject, MeshDataObject, bool> shouldGenerateMesh = null)
         {
             var artifact = ScriptableObject.CreateInstance<BoneGraphObject>();
             artifact.name = "Armature";
-            artifact.SetBones((blendShares ?? Enumerable.Empty<BlendShareObject>())
-                .Where(share => share != null)
-                .SelectMany(share => (share.Meshes ?? Array.Empty<MeshDataObject>())
+            artifact.SetBones((patches ?? Enumerable.Empty<BlendShareObject>())
+                .Where(patch => patch != null)
+                .SelectMany(patch => (patch.Meshes ?? Array.Empty<MeshDataObject>())
                     .Where(meshData => meshData != null &&
-                                       (shouldGenerateMesh == null || shouldGenerateMesh(share, meshData)))
+                                       (shouldGenerateMesh == null || shouldGenerateMesh(patch, meshData)))
                     .Select(meshData => new
                     {
                         Feature = meshData.GetFeature<SkinWeightFeatureObject>(),
@@ -1043,30 +1043,30 @@ namespace Triturbo.BlendShare.Persistence
             return meshesByPath;
         }
 
-        private static List<BlendShareObject> GetAppliedBlendShares(
+        private static List<BlendShareObject> GetAppliedPatches(
             Object targetMeshContainer,
-            IEnumerable<BlendShareObject> shares)
+            IEnumerable<BlendShareObject> patches)
         {
-            var appliedBlendShares = new List<BlendShareObject>();
+            var appliedPatches = new List<BlendShareObject>();
 
             if (targetMeshContainer is GeneratedMeshAssetSO generatedAsset)
             {
                 if (generatedAsset.m_AppliedBlendShares != null)
                 {
-                    appliedBlendShares.AddRange(generatedAsset.m_AppliedBlendShares.Where(share => share != null));
+                    appliedPatches.AddRange(generatedAsset.m_AppliedBlendShares.Where(patch => patch != null));
                 }
 
                 if (generatedAsset.m_AppliedBlendShapes != null)
                 {
-                    appliedBlendShares.AddRange(generatedAsset.m_AppliedBlendShapes
+                    appliedPatches.AddRange(generatedAsset.m_AppliedBlendShapes
                         .Where(legacy => legacy != null)
                         .Select(BlendShareUpgradeService.UpgradeSideBySide)
-                        .Where(share => share != null));
+                        .Where(patch => patch != null));
                 }
             }
 
-            appliedBlendShares.AddRange(shares ?? Enumerable.Empty<BlendShareObject>());
-            return BlendSharePatchIdUtility.DeduplicateByPatchId(appliedBlendShares).ToList();
+            appliedPatches.AddRange(patches ?? Enumerable.Empty<BlendShareObject>());
+            return BlendSharePatchIdUtility.DeduplicateByPatchId(appliedPatches).ToList();
         }
 
         private static GameObject GetTargetFbx(Object targetMeshContainer)

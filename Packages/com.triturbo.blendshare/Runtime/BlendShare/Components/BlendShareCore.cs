@@ -14,7 +14,7 @@ namespace Triturbo.BlendShare.Components
         private AvatarObjectReference<Transform> m_TargetRootReference = new();
 
         [SerializeField, NotKeyable]
-        private List<BlendShareObject> m_BlendShares = new();
+        private List<BlendShareObject> m_Patches = new();
 
         public Transform TargetRoot
         {
@@ -24,12 +24,12 @@ namespace Triturbo.BlendShare.Components
             set => EnsureTargetRootReferenceInitialized().Set(value);
         }
 
-        public IReadOnlyList<BlendShareObject> BlendShares => m_BlendShares;
+        public IReadOnlyList<BlendShareObject> Patches => m_Patches;
 
-        public void SetBlendShares(IEnumerable<BlendShareObject> blendShares)
+        public void SetPatches(IEnumerable<BlendShareObject> patches)
         {
-            m_BlendShares = blendShares != null
-                ? new List<BlendShareObject>(blendShares)
+            m_Patches = patches != null
+                ? new List<BlendShareObject>(patches)
                 : new List<BlendShareObject>();
             Sanitize();
         }
@@ -52,8 +52,8 @@ namespace Triturbo.BlendShare.Components
 
         private void Sanitize()
         {
-            m_BlendShares ??= new List<BlendShareObject>();
-            m_BlendShares.RemoveAll(share => share == null);
+            m_Patches ??= new List<BlendShareObject>();
+            m_Patches.RemoveAll(patch => patch == null);
         }
     }
 }

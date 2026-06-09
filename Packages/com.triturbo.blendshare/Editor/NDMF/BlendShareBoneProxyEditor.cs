@@ -208,8 +208,8 @@ namespace Triturbo.BlendShare.NDMF
 
         private static BlendShareObject FindBlendShareForMeshData(BlendShareCore owner, MeshDataObject meshData)
         {
-            return (owner?.BlendShares ?? System.Array.Empty<BlendShareObject>())
-                .FirstOrDefault(share => share != null && (share.Meshes ?? System.Array.Empty<MeshDataObject>()).Contains(meshData));
+            return (owner?.Patches ?? System.Array.Empty<BlendShareObject>())
+                .FirstOrDefault(patch => patch != null && (patch.Meshes ?? System.Array.Empty<MeshDataObject>()).Contains(meshData));
         }
 
         [DrawGizmo(GizmoType.Selected | GizmoType.NonSelected | GizmoType.Active)]

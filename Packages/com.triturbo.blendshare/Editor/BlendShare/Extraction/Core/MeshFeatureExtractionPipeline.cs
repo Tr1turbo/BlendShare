@@ -81,10 +81,10 @@ namespace Triturbo.BlendShare.Core
                     return null;
                 }
 
-                var blendShare = ScriptableObject.CreateInstance<BlendShareObject>();
-                blendShare.m_Original = origin;
-                blendShare.SetMeshes(extractedMeshes);
-                return blendShare;
+                var patch = ScriptableObject.CreateInstance<BlendShareObject>();
+                patch.m_Original = origin;
+                patch.SetMeshes(extractedMeshes);
+                return patch;
             }
         }
 

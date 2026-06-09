@@ -540,7 +540,7 @@ namespace Triturbo.BlendShare.Editor
                 return;
             }
 
-            var blendShare = BlendShareExtractionService.ExtractAndSave(
+            var patch = BlendShareExtractionService.ExtractAndSave(
                 sourceFBX,
                 originFBX,
                 selectedRequests,
@@ -548,7 +548,7 @@ namespace Triturbo.BlendShare.Editor
                 path,
                 defaultName);
 
-            if (blendShare == null)
+            if (patch == null)
             {
                 EditorUtility.DisplayDialog(
                     Localization.S("new_extractor.failed.title"),
@@ -557,8 +557,8 @@ namespace Triturbo.BlendShare.Editor
                 return;
             }
 
-            Selection.activeObject = blendShare;
-            ShowInvalidMappingWarning(blendShare);
+            Selection.activeObject = patch;
+            ShowInvalidMappingWarning(patch);
         }
 
         private bool HasSelectedFeatures()
@@ -591,9 +591,9 @@ namespace Triturbo.BlendShare.Editor
             return selected;
         }
 
-        private void ShowInvalidMappingWarning(BlendShareObject blendShare)
+        private void ShowInvalidMappingWarning(BlendShareObject patch)
         {
-            bool hasInvalidMapping = blendShare.Meshes.Any(mesh =>
+            bool hasInvalidMapping = patch.Meshes.Any(mesh =>
                 (mesh.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
                 .Any(mapping => mapping != null && !mapping.m_IsValid));
             if (!hasInvalidMapping)

@@ -22,7 +22,7 @@ namespace Triturbo.BlendShare.Core
         private BoneGraphObject armature;
 
         public Object TargetMeshContainer { get; }
-        public IReadOnlyList<BlendShareObject> Shares { get; }
+        public IReadOnlyList<BlendShareObject> Patches { get; }
         public IReadOnlyList<BlendShareComponent> Components { get; }
         public UnityMeshTargetLookup TargetMeshes { get; }
         public IBlendShareProgress Progress { get; }
@@ -34,17 +34,17 @@ namespace Triturbo.BlendShare.Core
         /// Creates a generation session for a target mesh container and a set of BlendShare assets.
         /// </summary>
         /// <param name="targetMeshContainer">FBX asset, generated mesh asset, or other Unity object that contains target meshes.</param>
-        /// <param name="shares">BlendShare assets being applied.</param>
+        /// <param name="patches">BlendShare patches being applied.</param>
         /// <param name="targetMeshes">Lookup table for target meshes.</param>
         public UnityMeshGenerationSession(
             Object targetMeshContainer,
-            IEnumerable<BlendShareObject> shares,
+            IEnumerable<BlendShareObject> patches,
             UnityMeshTargetLookup targetMeshes,
             IEnumerable<BlendShareComponent> components = null,
             IBlendShareProgress progress = null)
         {
             TargetMeshContainer = targetMeshContainer;
-            Shares = BlendSharePatchIdUtility.DeduplicateByPatchId(shares).ToArray();
+            Patches = BlendSharePatchIdUtility.DeduplicateByPatchId(patches).ToArray();
             TargetMeshes = targetMeshes;
             Progress = BlendShareProgressUtility.Resolve(progress);
             Components = (components ?? System.Array.Empty<BlendShareComponent>())
@@ -277,7 +277,7 @@ namespace Triturbo.BlendShare.Core
         private readonly HashSet<MeshFeatureObject> handledFeatures = new();
 
         public UnityMeshGenerationSession Session { get; }
-        public BlendShareObject Share { get; }
+        public BlendShareObject Patch { get; }
         public MeshDataObject MeshData { get; }
         public string MeshKey { get; }
         public Mesh OriginalMesh { get; }
@@ -294,7 +294,7 @@ namespace Triturbo.BlendShare.Core
         /// Creates a Unity mesh generation context.
         /// </summary>
         /// <param name="session">Parent generation session.</param>
-        /// <param name="share">BlendShare asset currently being applied.</param>
+        /// <param name="patch">BlendShare patch currently being applied.</param>
         /// <param name="meshData">Stored mesh data currently being generated.</param>
         /// <param name="originalMesh">Original target mesh for the current mesh pass.</param>
         /// <param name="workingMesh">Mutable mesh instance that generators update.</param>
@@ -302,7 +302,7 @@ namespace Triturbo.BlendShare.Core
         /// <param name="targetRootTransform">Target avatar/root transform for scene-backed generation, when available.</param>
         public UnityMeshGenerationContext(
             UnityMeshGenerationSession session,
-            BlendShareObject share,
+            BlendShareObject patch,
             MeshDataObject meshData,
             Mesh originalMesh,
             Mesh workingMesh,
@@ -313,7 +313,7 @@ namespace Triturbo.BlendShare.Core
             IEnumerable<UnityVertexMappingObject> mappingOverrides = null)
         {
             Session = session;
-            Share = share;
+            Patch = patch;
             MeshData = meshData;
             MeshKey = MeshNodePath.Normalize(meshKey ?? UnityMeshGenerationSession.BuildMeshKey(meshData));
             OriginalMesh = originalMesh;

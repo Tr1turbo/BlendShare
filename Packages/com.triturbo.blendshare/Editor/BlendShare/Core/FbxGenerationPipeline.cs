@@ -21,11 +21,11 @@ namespace Triturbo.BlendShare.Core
                 .ThenBy(generator => generator.GetType().FullName, System.StringComparer.Ordinal)
                 .ToArray();
 
-        public bool CanApply(IEnumerable<BlendShareObject> blendShares)
+        public bool CanApply(IEnumerable<BlendShareObject> patches)
         {
-            foreach (var share in BlendSharePatchIdUtility.DeduplicateByPatchId(blendShares))
+            foreach (var patch in BlendSharePatchIdUtility.DeduplicateByPatchId(patches))
             {
-                foreach (var meshData in share.Meshes ?? System.Array.Empty<MeshDataObject>())
+                foreach (var meshData in patch.Meshes ?? System.Array.Empty<MeshDataObject>())
                 {
                     if (meshData == null)
                     {
@@ -33,7 +33,7 @@ namespace Triturbo.BlendShare.Core
                     }
 
                     bool canGenerateFeature = false;
-                    var context = new FbxGenerationContext(share, meshData, null);
+                    var context = new FbxGenerationContext(patch, meshData, null);
 
                     foreach (var generator in FeatureGenerators)
                     {
@@ -61,17 +61,17 @@ namespace Triturbo.BlendShare.Core
 
         public bool Create(
             string sourcePath,
-            IEnumerable<BlendShareObject> blendShares,
+            IEnumerable<BlendShareObject> patches,
             string outputPath = null,
             bool onlyNecessary = false,
             bool deduplicatePatchIds = true,
             IBlendShareProgress progress = null)
         {
             progress = BlendShareProgressUtility.Resolve(progress);
-            var shares = deduplicatePatchIds
-                ? BlendSharePatchIdUtility.DeduplicateByPatchId(blendShares).ToArray()
-                : (blendShares ?? Enumerable.Empty<BlendShareObject>()).Where(share => share != null).ToArray();
-            if (string.IsNullOrWhiteSpace(sourcePath) || shares.Length == 0)
+            var deduplicatedPatches = deduplicatePatchIds
+                ? BlendSharePatchIdUtility.DeduplicateByPatchId(patches).ToArray()
+                : (patches ?? Enumerable.Empty<BlendShareObject>()).Where(patch => patch != null).ToArray();
+            if (string.IsNullOrWhiteSpace(sourcePath) || deduplicatedPatches.Length == 0)
             {
                 return false;
             }
@@ -85,7 +85,7 @@ namespace Triturbo.BlendShare.Core
             var scene = FbxScene.Create(fbxManager, Path.GetFileNameWithoutExtension(sourcePath));
             var fbxImporter = FbxImporter.Create(fbxManager, "");
             int fileFormat = fbxManager.GetIOPluginRegistry().FindWriterIDByDescription("FBX binary (*.fbx)");
-            bool requiresReaderScene = RequiresFbxReaderScene(shares);
+            bool requiresReaderScene = RequiresFbxReaderScene(deduplicatedPatches);
             UfbxScene readerScene = null;
             if (requiresReaderScene)
             {
@@ -116,15 +116,15 @@ namespace Triturbo.BlendShare.Core
                 var sourceRootNode = scene.GetRootNode();
                 var generationSession = new FbxGenerationSession(
                     sourceRootNode,
-                    GetBlendShareMappingScale(shares),
+                    GetBlendShareMappingScale(deduplicatedPatches),
                     readerScene,
                     progress);
                 var modifiedNodes = new HashSet<FbxNode>();
                 int meshStep = 0;
-                int meshStepCount = CountMeshes(shares);
-                foreach (var share in shares)
+                int meshStepCount = CountMeshes(deduplicatedPatches);
+                foreach (var patch in deduplicatedPatches)
                 {
-                    foreach (var meshData in share.Meshes ?? System.Array.Empty<MeshDataObject>())
+                    foreach (var meshData in patch.Meshes ?? System.Array.Empty<MeshDataObject>())
                     {
                         if (meshData == null)
                         {
@@ -144,7 +144,7 @@ namespace Triturbo.BlendShare.Core
 
                         bool failed = false;
                         var context = new FbxGenerationContext(
-                            share,
+                            patch,
                             meshData,
                             node,
                             session: generationSession);
@@ -207,12 +207,12 @@ namespace Triturbo.BlendShare.Core
             }
         }
 
-        private static int CountMeshes(IEnumerable<BlendShareObject> shares)
+        private static int CountMeshes(IEnumerable<BlendShareObject> patches)
         {
             int count = 0;
-            foreach (var share in shares ?? Enumerable.Empty<BlendShareObject>())
+            foreach (var patch in patches ?? Enumerable.Empty<BlendShareObject>())
             {
-                count += (share?.Meshes ?? System.Array.Empty<MeshDataObject>()).Count(mesh => mesh != null);
+                count += (patch?.Meshes ?? System.Array.Empty<MeshDataObject>()).Count(mesh => mesh != null);
             }
 
             return count;
@@ -230,18 +230,18 @@ namespace Triturbo.BlendShare.Core
             return Lerp(0.2f, 0.78f, meshBase + meshSpan * Clamp01(featureProgress));
         }
 
-        private static bool RequiresFbxReaderScene(IEnumerable<BlendShareObject> shares)
+        private static bool RequiresFbxReaderScene(IEnumerable<BlendShareObject> patches)
         {
-            foreach (var share in shares ?? Enumerable.Empty<BlendShareObject>())
+            foreach (var patch in patches ?? Enumerable.Empty<BlendShareObject>())
             {
-                foreach (var meshData in share.Meshes ?? System.Array.Empty<MeshDataObject>())
+                foreach (var meshData in patch.Meshes ?? System.Array.Empty<MeshDataObject>())
                 {
                     if (meshData == null)
                     {
                         continue;
                     }
 
-                    var context = new FbxGenerationContext(share, meshData, null);
+                    var context = new FbxGenerationContext(patch, meshData, null);
                     if (FeatureGenerators.Any(generator => generator.RequiresFbxReaderScene(context)))
                     {
                         return true;
@@ -378,11 +378,11 @@ namespace Triturbo.BlendShare.Core
             return meshData == null ? "<null>" : MeshNodePath.Normalize(meshData.m_Path);
         }
 
-        private static float GetBlendShareMappingScale(IEnumerable<BlendShareObject> shares)
+        private static float GetBlendShareMappingScale(IEnumerable<BlendShareObject> patches)
         {
-            var mapping = (shares ?? Enumerable.Empty<BlendShareObject>())
-                .Where(share => share != null)
-                .SelectMany(share => share.Meshes ?? System.Array.Empty<MeshDataObject>())
+            var mapping = (patches ?? Enumerable.Empty<BlendShareObject>())
+                .Where(patch => patch != null)
+                .SelectMany(patch => patch.Meshes ?? System.Array.Empty<MeshDataObject>())
                 .Where(meshData => meshData != null)
                 .SelectMany(meshData => meshData.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
                 .FirstOrDefault(candidate => candidate != null && candidate.m_IsValid);

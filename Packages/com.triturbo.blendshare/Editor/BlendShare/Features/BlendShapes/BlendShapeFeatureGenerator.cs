@@ -185,7 +185,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                 return MeshFeatureGenerationResult.FailedResult($"Can not find mesh at path: {context.MeshData?.m_Path} in FBX file");
             }
 
-            GetDeformer(context.Share, targetMesh, false)?.Destroy();
+            GetDeformer(context.Patch, targetMesh, false)?.Destroy();
 
             var existingBlendShapes = new HashSet<string>();
             var activeBlendShapes = feature.GetActiveBlendShapes().ToArray();
@@ -213,7 +213,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                 }
             }
 
-            var targetDeformer = GetDeformer(context.Share, targetMesh);
+            var targetDeformer = GetDeformer(context.Patch, targetMesh);
             foreach (var blendShape in activeBlendShapes)
             {
                 if (existingBlendShapes.Contains(blendShape.m_Name))
@@ -243,7 +243,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                 return MeshFeatureGenerationResult.FailedResult($"Can not find mesh at path: {context.MeshData?.m_Path} in FBX file");
             }
 
-            GetDeformer(context.Share, targetMesh, false)?.Destroy();
+            GetDeformer(context.Patch, targetMesh, false)?.Destroy();
             if (!context.RemoveInAllDeformer)
             {
                 return MeshFeatureGenerationResult.Success();
@@ -267,21 +267,21 @@ namespace Triturbo.BlendShare.Features.BlendShapes
 #endif
         }
 
-        private static FbxBlendShape GetDeformer(BlendShareObject share, FbxMesh targetMesh, bool create = true)
+        private static FbxBlendShape GetDeformer(BlendShareObject patch, FbxMesh targetMesh, bool create = true)
         {
-            if (!string.IsNullOrEmpty(share.m_PatchId))
+            if (!string.IsNullOrEmpty(patch.m_PatchId))
             {
                 for (int i = targetMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape) - 1; i >= 0; i--)
                 {
                     var deformer = targetMesh.GetBlendShapeDeformer(i);
-                    if (deformer.GetName() == share.m_PatchId)
+                    if (deformer.GetName() == patch.m_PatchId)
                     {
                         return deformer;
                     }
                 }
             }
 
-            return create ? FbxBlendShape.Create(targetMesh, share.m_PatchId) : null;
+            return create ? FbxBlendShape.Create(targetMesh, patch.m_PatchId) : null;
         }
 
         private static FbxBlendShapeChannel CreateFbxBlendShapeChannel(

@@ -172,15 +172,15 @@ namespace Triturbo.BlendShare.NDMF
             builder.AppendLine($"Renderer path: {rendererPath}");
 
             bool addedPair = false;
-            foreach (var share in applier?.Owner?.BlendShares ?? System.Array.Empty<BlendShareObject>())
+            foreach (var patch in applier?.Owner?.Patches ?? System.Array.Empty<BlendShareObject>())
             {
-                if (share == null || applier?.MeshData == null ||
-                    !(share.Meshes ?? System.Array.Empty<MeshDataObject>()).Contains(applier.MeshData))
+                if (patch == null || applier?.MeshData == null ||
+                    !(patch.Meshes ?? System.Array.Empty<MeshDataObject>()).Contains(applier.MeshData))
                 {
                     continue;
                 }
 
-                builder.AppendLine($"BlendShare asset: {share.name}");
+                builder.AppendLine($"BlendShare patch: {patch.name}");
                 builder.AppendLine($"Mesh path: {applier.MeshData.m_Path}");
                 addedPair = true;
                 break;

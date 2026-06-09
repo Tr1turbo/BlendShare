@@ -35,9 +35,9 @@ namespace Triturbo.BlendShare.NDMF
             var existingByPath = FindOwnedMeshAppliers(owner)
                 .GroupBy(applier => MeshNodePath.Normalize(applier.RendererNodePath))
                 .ToDictionary(group => group.Key, group => group.ToList());
-            var desiredMeshes = owner.BlendShares
-                .Where(share => share != null)
-                .SelectMany(share => share.Meshes.Where(mesh => mesh != null))
+            var desiredMeshes = owner.Patches
+                .Where(patch => patch != null)
+                .SelectMany(patch => patch.Meshes.Where(mesh => mesh != null))
                 .GroupBy(mesh => MeshNodePath.Normalize(mesh.m_Path))
                 .Select(group => group.First());
 
@@ -430,7 +430,7 @@ namespace Triturbo.BlendShare.NDMF
                         out string cachedInvalidDiagnostic))
                 {
                     createdOrFoundAll = false;
-                    failures.Add($"{pair.Share.name}/{pair.MeshData.m_Path}: {cachedInvalidDiagnostic}");
+                    failures.Add($"{pair.Patch.name}/{pair.MeshData.m_Path}: {cachedInvalidDiagnostic}");
                     continue;
                 }
 
@@ -439,7 +439,7 @@ namespace Triturbo.BlendShare.NDMF
                 {
                     createdOrFoundAll = false;
                     string invalidReason = mapping?.m_Report ?? "mapping generation failed";
-                    failures.Add($"{pair.Share.name}/{pair.MeshData.m_Path}: {invalidReason}");
+                    failures.Add($"{pair.Patch.name}/{pair.MeshData.m_Path}: {invalidReason}");
                     if (mapping != null)
                     {
                         BlendShareVertexMappingCacheService.Store(sourceFbx, pair.MeshData, targetMesh, mapping);
@@ -480,7 +480,7 @@ namespace Triturbo.BlendShare.NDMF
                    BlendShareVertexMappingCacheService.ContainsCompatible(sourceFbx, meshData, targetMesh);
         }
 
-        private static IEnumerable<(BlendShareObject Share, MeshDataObject MeshData)> GetBlendShareMeshPairsForApplier(
+        private static IEnumerable<(BlendShareObject Patch, MeshDataObject MeshData)> GetBlendShareMeshPairsForApplier(
             BlendShareMesh applier)
         {
             if (applier?.Owner == null || applier.MeshData == null)
@@ -488,18 +488,18 @@ namespace Triturbo.BlendShare.NDMF
                 yield break;
             }
 
-            var share = FindBlendShareForMeshData(applier.Owner, applier.MeshData);
-            if (share != null)
+            var patch = FindBlendShareForMeshData(applier.Owner, applier.MeshData);
+            if (patch != null)
             {
-                yield return (share, applier.MeshData);
+                yield return (patch, applier.MeshData);
             }
         }
 
         private static BlendShareObject FindBlendShareForMeshData(BlendShareCore owner, MeshDataObject meshData)
         {
-            return (owner?.BlendShares ?? Array.Empty<BlendShareObject>())
-                .Where(share => share != null)
-                .FirstOrDefault(share => (share.Meshes ?? Array.Empty<MeshDataObject>()).Contains(meshData));
+            return (owner?.Patches ?? Array.Empty<BlendShareObject>())
+                .Where(patch => patch != null)
+                .FirstOrDefault(patch => (patch.Meshes ?? Array.Empty<MeshDataObject>()).Contains(meshData));
         }
 
         public static GameObject ResolveSourceFbx(BlendShareCore owner, Mesh targetMesh)
@@ -522,9 +522,9 @@ namespace Triturbo.BlendShare.NDMF
 
         private static GameObject ResolveOriginalFbx(BlendShareCore owner)
         {
-            return (owner?.BlendShares ?? Array.Empty<BlendShareObject>())
-                .Where(share => share != null)
-                .Select(share => share.m_Original)
+            return (owner?.Patches ?? Array.Empty<BlendShareObject>())
+                .Where(patch => patch != null)
+                .Select(patch => patch.m_Original)
                 .FirstOrDefault(original => original != null);
         }
 

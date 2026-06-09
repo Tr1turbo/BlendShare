@@ -5,22 +5,22 @@ namespace Triturbo.BlendShare.Core
 {
     internal static class BlendSharePatchIdUtility
     {
-        internal static IReadOnlyList<BlendShareObject> DeduplicateByPatchId(IEnumerable<BlendShareObject> blendShares)
+        internal static IReadOnlyList<BlendShareObject> DeduplicateByPatchId(IEnumerable<BlendShareObject> patches)
         {
-            var shares = (blendShares ?? Enumerable.Empty<BlendShareObject>())
-                .Where(share => share != null)
+            var inputPatches = (patches ?? Enumerable.Empty<BlendShareObject>())
+                .Where(patch => patch != null)
                 .ToList();
             var result = new List<BlendShareObject>();
             var patchIdSlots = new Dictionary<string, int>(System.StringComparer.Ordinal);
-            var noPatchIdShares = new HashSet<BlendShareObject>();
-            foreach (var share in shares)
+            var noPatchIdPatches = new HashSet<BlendShareObject>();
+            foreach (var patch in inputPatches)
             {
-                string patchId = GetPatchId(share);
+                string patchId = GetPatchId(patch);
                 if (string.IsNullOrEmpty(patchId))
                 {
-                    if (noPatchIdShares.Add(share))
+                    if (noPatchIdPatches.Add(patch))
                     {
-                        result.Add(share);
+                        result.Add(patch);
                     }
 
                     continue;
@@ -28,23 +28,23 @@ namespace Triturbo.BlendShare.Core
 
                 if (patchIdSlots.TryGetValue(patchId, out int slot))
                 {
-                    result[slot] = share;
+                    result[slot] = patch;
                     continue;
                 }
 
                 patchIdSlots.Add(patchId, result.Count);
-                result.Add(share);
+                result.Add(patch);
             }
 
             return result;
         }
 
-        internal static bool HasDuplicatePatchIds(IEnumerable<BlendShareObject> blendShares)
+        internal static bool HasDuplicatePatchIds(IEnumerable<BlendShareObject> patches)
         {
             var seenPatchIds = new HashSet<string>(System.StringComparer.Ordinal);
-            foreach (var share in blendShares ?? Enumerable.Empty<BlendShareObject>())
+            foreach (var patch in patches ?? Enumerable.Empty<BlendShareObject>())
             {
-                string patchId = GetPatchId(share);
+                string patchId = GetPatchId(patch);
                 if (!string.IsNullOrEmpty(patchId) && !seenPatchIds.Add(patchId))
                 {
                     return true;
@@ -54,9 +54,9 @@ namespace Triturbo.BlendShare.Core
             return false;
         }
 
-        private static string GetPatchId(BlendShareObject share)
+        private static string GetPatchId(BlendShareObject patch)
         {
-            return share?.m_PatchId ?? string.Empty;
+            return patch?.m_PatchId ?? string.Empty;
         }
     }
 }

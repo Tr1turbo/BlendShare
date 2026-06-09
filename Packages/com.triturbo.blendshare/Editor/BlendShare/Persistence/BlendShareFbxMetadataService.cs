@@ -76,11 +76,11 @@ namespace Triturbo.BlendShare.Persistence
             return metadata;
         }
 
-        public static BlendShareFbxPatchState GetPatchState(GameObject target, BlendShareObject share)
+        public static BlendShareFbxPatchState GetPatchState(GameObject target, BlendShareObject patch)
         {
             var metadata = Load(target);
-            int patchIndex = FindLatestPatchIndex(metadata, share);
-            int exactPatchIndex = FindLatestPatchAssetIndex(metadata, share);
+            int patchIndex = FindLatestPatchIndex(metadata, patch);
+            int exactPatchIndex = FindLatestPatchAssetIndex(metadata, patch);
             int recordCount = metadata.activeRecords?.Length ?? 0;
             bool hasPatch = patchIndex >= 0;
             bool hasExactPatch = exactPatchIndex >= 0;
@@ -162,7 +162,7 @@ namespace Triturbo.BlendShare.Persistence
         public static bool InitializeGeneratedOutput(
             GameObject source,
             string outputPath,
-            IEnumerable<BlendShareObject> blendShares,
+            IEnumerable<BlendShareObject> patches,
             out string error)
         {
             error = null;
@@ -223,14 +223,14 @@ namespace Triturbo.BlendShare.Persistence
             InitializeTarget(metadata, outputPath);
 
             var records = metadata.activeRecords.ToList();
-            foreach (var share in blendShares ?? Enumerable.Empty<BlendShareObject>())
+            foreach (var patch in patches ?? Enumerable.Empty<BlendShareObject>())
             {
-                if (share == null)
+                if (patch == null)
                 {
                     continue;
                 }
 
-                records.Add(CreateRecord(source, share, sourceHash, outputHash));
+                records.Add(CreateRecord(source, patch, sourceHash, outputHash));
             }
 
             metadata.activeRecords = records.ToArray();
@@ -242,20 +242,20 @@ namespace Triturbo.BlendShare.Persistence
 
         public static BlendShareFbxPatchRecord CreateRecord(
             GameObject target,
-            BlendShareObject share,
+            BlendShareObject patch,
             string hashBefore,
             string hashAfter)
         {
-            GetBlendShareIdentity(share, out string guid, out string localId);
+            GetPatchIdentity(patch, out string guid, out string localId);
             return new BlendShareFbxPatchRecord
             {
                 recordId = Guid.NewGuid().ToString("N"),
                 blendShareGuid = guid,
                 blendShareLocalId = localId,
-                blendSharePath = AssetDatabase.GetAssetPath(share),
-                blendShareName = share != null ? share.name : string.Empty,
-                patchId = share != null ? share.m_PatchId : string.Empty,
-                featureIds = GetFeatureIds(share),
+                blendSharePath = AssetDatabase.GetAssetPath(patch),
+                blendShareName = patch != null ? patch.name : string.Empty,
+                patchId = patch != null ? patch.m_PatchId : string.Empty,
+                featureIds = GetFeatureIds(patch),
                 appliedAtUtc = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
                 hashBefore = hashBefore ?? string.Empty,
                 hashAfter = hashAfter ?? string.Empty
@@ -287,7 +287,7 @@ namespace Triturbo.BlendShare.Persistence
             };
         }
 
-        public static void CommitApplyRecord(BlendShareFbxMetadata metadata, BlendShareObject share, BlendShareFbxPatchRecord record)
+        public static void CommitApplyRecord(BlendShareFbxMetadata metadata, BlendShareObject patch, BlendShareFbxPatchRecord record)
         {
             var records = (metadata.activeRecords ?? Array.Empty<BlendShareFbxPatchRecord>())
                 .Where(existing => existing != null)
@@ -438,12 +438,12 @@ namespace Triturbo.BlendShare.Persistence
             return true;
         }
 
-        public static int FindLatestPatchIndex(BlendShareFbxMetadata metadata, BlendShareObject share)
+        public static int FindLatestPatchIndex(BlendShareFbxMetadata metadata, BlendShareObject patch)
         {
             var records = metadata?.activeRecords ?? Array.Empty<BlendShareFbxPatchRecord>();
             for (int i = records.Length - 1; i >= 0; i--)
             {
-                if (IsSamePatch(records[i], share))
+                if (IsSamePatch(records[i], patch))
                 {
                     return i;
                 }
@@ -452,12 +452,12 @@ namespace Triturbo.BlendShare.Persistence
             return -1;
         }
 
-        public static int FindLatestPatchAssetIndex(BlendShareFbxMetadata metadata, BlendShareObject share)
+        public static int FindLatestPatchAssetIndex(BlendShareFbxMetadata metadata, BlendShareObject patch)
         {
             var records = metadata?.activeRecords ?? Array.Empty<BlendShareFbxPatchRecord>();
             for (int i = records.Length - 1; i >= 0; i--)
             {
-                if (IsSamePatchAsset(records[i], share))
+                if (IsSamePatchAsset(records[i], patch))
                 {
                     return i;
                 }
@@ -466,9 +466,9 @@ namespace Triturbo.BlendShare.Persistence
             return -1;
         }
 
-        public static bool TryResolveRecord(BlendShareFbxPatchRecord record, out BlendShareObject share)
+        public static bool TryResolveRecord(BlendShareFbxPatchRecord record, out BlendShareObject patch)
         {
-            share = null;
+            patch = null;
             if (record == null || string.IsNullOrEmpty(record.blendShareGuid))
             {
                 return false;
@@ -482,16 +482,16 @@ namespace Triturbo.BlendShare.Persistence
 
             foreach (var asset in AssetDatabase.LoadAllAssetsAtPath(path).OfType<BlendShareObject>())
             {
-                GetBlendShareIdentity(asset, out _, out string localId);
+                GetPatchIdentity(asset, out _, out string localId);
                 if (localId == record.blendShareLocalId)
                 {
-                    share = asset;
+                    patch = asset;
                     return true;
                 }
             }
 
-            share = AssetDatabase.LoadAssetAtPath<BlendShareObject>(path);
-            return share != null;
+            patch = AssetDatabase.LoadAssetAtPath<BlendShareObject>(path);
+            return patch != null;
         }
 
         public static bool CanResolveRecords(IEnumerable<BlendShareFbxPatchRecord> records, out string error)
@@ -511,24 +511,24 @@ namespace Triturbo.BlendShare.Persistence
             return true;
         }
 
-        public static bool IsSamePatch(BlendShareFbxPatchRecord record, BlendShareObject share)
+        public static bool IsSamePatch(BlendShareFbxPatchRecord record, BlendShareObject patch)
         {
-            if (record == null || share == null)
+            if (record == null || patch == null)
             {
                 return false;
             }
 
-            return string.Equals(record.patchId ?? string.Empty, share.m_PatchId ?? string.Empty, StringComparison.Ordinal);
+            return string.Equals(record.patchId ?? string.Empty, patch.m_PatchId ?? string.Empty, StringComparison.Ordinal);
         }
 
-        public static bool IsSamePatchAsset(BlendShareFbxPatchRecord record, BlendShareObject share)
+        public static bool IsSamePatchAsset(BlendShareFbxPatchRecord record, BlendShareObject patch)
         {
-            if (record == null || share == null)
+            if (record == null || patch == null)
             {
                 return false;
             }
 
-            GetBlendShareIdentity(share, out string guid, out string localId);
+            GetPatchIdentity(patch, out string guid, out string localId);
             if (!string.IsNullOrEmpty(record.blendShareGuid) && !string.IsNullOrEmpty(guid))
             {
                 if (!string.Equals(record.blendShareGuid, guid, StringComparison.Ordinal))
@@ -541,7 +541,7 @@ namespace Triturbo.BlendShare.Persistence
                        string.Equals(record.blendShareLocalId, localId, StringComparison.Ordinal);
             }
 
-            string path = AssetDatabase.GetAssetPath(share);
+            string path = AssetDatabase.GetAssetPath(patch);
             return !string.IsNullOrEmpty(record.blendSharePath) &&
                    !string.IsNullOrEmpty(path) &&
                    string.Equals(record.blendSharePath, path, StringComparison.Ordinal);
@@ -795,29 +795,29 @@ namespace Triturbo.BlendShare.Persistence
             return metadata?.baselineBackupPath ?? string.Empty;
         }
 
-        private static void GetBlendShareIdentity(BlendShareObject share, out string guid, out string localId)
+        private static void GetPatchIdentity(BlendShareObject patch, out string guid, out string localId)
         {
             guid = string.Empty;
             localId = string.Empty;
-            if (share == null)
+            if (patch == null)
             {
                 return;
             }
 
-            if (AssetDatabase.TryGetGUIDAndLocalFileIdentifier(share, out string assetGuid, out long assetLocalId))
+            if (AssetDatabase.TryGetGUIDAndLocalFileIdentifier(patch, out string assetGuid, out long assetLocalId))
             {
                 guid = assetGuid;
                 localId = assetLocalId.ToString(CultureInfo.InvariantCulture);
                 return;
             }
 
-            string path = AssetDatabase.GetAssetPath(share);
+            string path = AssetDatabase.GetAssetPath(patch);
             guid = string.IsNullOrEmpty(path) ? string.Empty : AssetDatabase.AssetPathToGUID(path);
         }
 
-        private static string[] GetFeatureIds(BlendShareObject share)
+        private static string[] GetFeatureIds(BlendShareObject patch)
         {
-            return (share?.Meshes ?? Array.Empty<MeshDataObject>())
+            return (patch?.Meshes ?? Array.Empty<MeshDataObject>())
                 .Where(mesh => mesh != null)
                 .SelectMany(mesh => mesh.Features ?? Array.Empty<MeshFeatureObject>())
                 .Where(feature => feature != null && !string.IsNullOrEmpty(feature.FeatureId))

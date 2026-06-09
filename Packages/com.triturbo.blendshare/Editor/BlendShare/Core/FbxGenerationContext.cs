@@ -63,7 +63,7 @@ namespace Triturbo.BlendShare.Core
     {
         private readonly HashSet<MeshFeatureObject> handledFeatures = new();
 
-        public BlendShareObject Share { get; }
+        public BlendShareObject Patch { get; }
         public MeshDataObject MeshData { get; }
         public FbxNode Node { get; }
         public FbxGenerationSession Session { get; }
@@ -75,13 +75,13 @@ namespace Triturbo.BlendShare.Core
         public FbxNode RootNode => Session?.RootNode;
 
         public FbxGenerationContext(
-            BlendShareObject share,
+            BlendShareObject patch,
             MeshDataObject meshData,
             FbxNode node,
             bool removeInAllDeformer = true,
             FbxGenerationSession session = null)
         {
-            Share = share;
+            Patch = patch;
             MeshData = meshData;
             Node = node;
             Session = session;
