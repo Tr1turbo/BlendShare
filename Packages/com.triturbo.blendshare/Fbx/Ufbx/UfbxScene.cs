@@ -228,7 +228,7 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             {
                 if (UfbxNative.GetMeshInfo(Handle, i, out var info) == 0)
                 {
-                    meshes[i] = new UfbxMesh(this, i, 0, string.Empty, null, 0, 0, 0);
+                    meshes[i] = new UfbxMesh(this, i, 0, string.Empty, null, 0, 0, 0, 0, 0);
                     continue;
                 }
 
@@ -241,6 +241,8 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
                     name,
                     ownerNode,
                     info.ControlPointCount,
+                    info.FaceCount,
+                    info.FaceIndexCount,
                     info.SkinCount,
                     info.BlendDeformerCount);
             }

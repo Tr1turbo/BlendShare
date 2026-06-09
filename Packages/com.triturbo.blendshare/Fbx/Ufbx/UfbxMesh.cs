@@ -22,12 +22,16 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             string name,
             UfbxNode ownerNode,
             int controlPointCount,
+            int faceCount,
+            int faceIndexCount,
             int skinCount,
             int blendDeformerCount)
             : base(scene, UfbxElementType.Mesh, meshIndex, id, name)
         {
             OwnerNode = ownerNode;
             ControlPointCount = Math.Max(0, controlPointCount);
+            FaceCount = Math.Max(0, faceCount);
+            FaceIndexCount = Math.Max(0, faceIndexCount);
             SkinCount = Math.Max(0, skinCount);
             BlendDeformerCount = Math.Max(0, blendDeformerCount);
         }
@@ -44,6 +48,8 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
                 source.Name,
                 source.OwnerNode,
                 source.ControlPointCount,
+                source.FaceCount,
+                source.FaceIndexCount,
                 source.SkinCount,
                 source.BlendDeformerCount)
         {
@@ -54,6 +60,8 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
 
         public UfbxNode OwnerNode { get; }
         public int ControlPointCount { get; }
+        public int FaceCount { get; }
+        public int FaceIndexCount { get; }
         public int SkinCount { get; }
         public int BlendDeformerCount { get; }
         public IReadOnlyList<UfbxDeformer> Deformers => snapshotDeformers ?? (deformers ??= BuildDeformers());
@@ -131,6 +139,30 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
 
             var values = new double[ControlPointCount * 3];
             return CopyTangents(values) != 0 ? FbxArrayUtility.ToVector3dArray(values) : Array.Empty<Vector3d>();
+        }
+
+        public int CopyFaceSizes(int[] destination)
+        {
+            EnsureAlive();
+            return UfbxNative.CopyFaceSizes(Scene.Handle, Index, destination, destination?.Length ?? 0);
+        }
+
+        public int CopyFaceControlPointIndices(int[] destination)
+        {
+            EnsureAlive();
+            return UfbxNative.CopyFaceVertexIndices(Scene.Handle, Index, destination, destination?.Length ?? 0);
+        }
+
+        public int[] GetFaceSizes()
+        {
+            var values = new int[FaceCount];
+            return CopyFaceSizes(values) != 0 ? values : Array.Empty<int>();
+        }
+
+        public int[] GetFaceControlPointIndices()
+        {
+            var values = new int[FaceIndexCount];
+            return CopyFaceControlPointIndices(values) != 0 ? values : Array.Empty<int>();
         }
 
         private IReadOnlyList<UfbxDeformer> BuildDeformers()

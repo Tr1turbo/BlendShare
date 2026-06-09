@@ -88,6 +88,8 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             public int SkinCount;
             public int BlendDeformerCount;
             public int NameLength;
+            public int FaceCount;
+            public int FaceIndexCount;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -171,6 +173,12 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "bs_ufbx_copy_control_point_tangents")]
         internal static extern int CopyControlPointTangents(IntPtr scene, int meshIndex, [Out] double[] dst, int dstVertexCount);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "bs_ufbx_copy_face_sizes")]
+        internal static extern int CopyFaceSizes(IntPtr scene, int meshIndex, [Out] int[] dst, int dstCount);
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "bs_ufbx_copy_face_vertex_indices")]
+        internal static extern int CopyFaceVertexIndices(IntPtr scene, int meshIndex, [Out] int[] dst, int dstCount);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "bs_ufbx_get_skin_info")]
         internal static extern int GetSkinInfo(IntPtr scene, int meshIndex, int skinIndex, out SkinInfo info);
