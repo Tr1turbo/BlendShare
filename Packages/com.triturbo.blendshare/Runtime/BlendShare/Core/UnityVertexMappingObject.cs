@@ -104,7 +104,7 @@ namespace Triturbo.BlendShare.Core
 
         public bool IsCompatibleWith(MeshDataObject meshData, Mesh targetMesh)
         {
-            return IsValidFor(targetMesh) && MatchesFbxControlPointCount(meshData?.m_FbxControlPointCount ?? -1);
+            return IsValidFor(targetMesh) && MatchesFbxControlPointCount(meshData?.FbxControlPointCount ?? -1);
         }
 
         public bool MatchesFbxControlPointCount(int fbxControlPointCount)

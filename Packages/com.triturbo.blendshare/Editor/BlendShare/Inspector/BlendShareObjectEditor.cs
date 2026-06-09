@@ -77,13 +77,24 @@ namespace Triturbo.BlendShare.Inspector
 
                 EditorGUI.indentLevel++;
                 EditorGUILayout.LabelField("Path", mesh.m_Path);
-                EditorGUILayout.LabelField("FBX Control Points", mesh.m_FbxControlPointCount.ToString());
+                EditorGUILayout.LabelField("FBX Control Points", mesh.FbxControlPointCount.ToString());
+                EditorGUILayout.LabelField("FBX Topology Hash", ShortHash(mesh.m_FbxTopologySignature?.Hash));
                 DrawMappings(mesh);
                 DrawSkinWeightSummary(mesh.GetFeature<SkinWeightFeatureObject>());
                 DrawMeshPresets(patch, mesh, blendShapeFeature);
                 DrawBlendShapeToggles(blendShapeFeature);
                 EditorGUI.indentLevel--;
             }
+        }
+
+        private static string ShortHash(string hash)
+        {
+            if (string.IsNullOrEmpty(hash))
+            {
+                return "-";
+            }
+
+            return hash.Length <= 8 ? hash : hash.Substring(0, 8);
         }
 
         private void DrawSharedBoneGraphs(BlendShareObject patch)

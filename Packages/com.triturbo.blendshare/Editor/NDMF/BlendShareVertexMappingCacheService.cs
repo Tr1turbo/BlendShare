@@ -220,7 +220,7 @@ namespace Triturbo.BlendShare.NDMF
                 return false;
             }
 
-            if (!MatchesFbxControlPointCount(payload, meshData?.m_FbxControlPointCount ?? -1))
+            if (!MatchesFbxControlPointCount(payload, meshData?.FbxControlPointCount ?? -1))
             {
                 return false;
             }

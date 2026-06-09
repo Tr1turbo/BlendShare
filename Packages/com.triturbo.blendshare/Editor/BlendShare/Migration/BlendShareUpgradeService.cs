@@ -9,6 +9,7 @@ using UnityEngine;
 using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Fbx.Ufbx;
 using Triturbo.BlendShare.Fbx.Unity;
+using Triturbo.BlendShare.Hashing;
 
 namespace Triturbo.BlendShare.Migration
 {
@@ -146,11 +147,12 @@ namespace Triturbo.BlendShare.Migration
 
             if (fbxMesh != null && fbxMesh.ControlPointCount > 0)
             {
-                mesh.m_FbxControlPointCount = fbxMesh.ControlPointCount;
+                mesh.m_FbxTopologySignature = FbxTopologyHash.Calculate(fbxMesh);
             }
             else
             {
-                mesh.m_FbxControlPointCount = blendShapeFeature.InferFbxControlPointCount();
+                int inferredCount = blendShapeFeature.InferFbxControlPointCount();
+                mesh.m_FbxTopologySignature = new FbxTopologySignature(string.Empty, inferredCount, -1, false);
             }
 
             mesh.m_Mappings = new[] { mapping };

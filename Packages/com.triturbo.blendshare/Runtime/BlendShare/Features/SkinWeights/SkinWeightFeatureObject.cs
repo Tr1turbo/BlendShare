@@ -50,7 +50,6 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
         public BoneGraphObject m_BoneGraph;
         public string m_RootBonePath = MeshNodePath.Root;
-        public int m_FbxControlPointCount = -1;
         public string[] m_BonePaths = System.Array.Empty<string>();
         public SkinWeightBindPoseData[] m_BindPoses = System.Array.Empty<SkinWeightBindPoseData>();
 
@@ -119,14 +118,12 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         public void SetSkinning(
             BoneGraphObject boneGraph,
             string rootBonePath,
-            int fbxControlPointCount,
             IEnumerable<string> bonePaths,
             IEnumerable<SkinWeightControlPointData> controlPointWeights,
             IEnumerable<SkinWeightBindPoseData> bindPoses = null)
         {
             m_BoneGraph = boneGraph;
             m_RootBonePath = MeshNodePath.Normalize(rootBonePath);
-            m_FbxControlPointCount = fbxControlPointCount;
             m_BonePaths = bonePaths?.ToArray() ?? System.Array.Empty<string>();
             m_ControlPointWeights = controlPointWeights?.Where(weights => weights != null).ToList() ??
                                     new List<SkinWeightControlPointData>();

@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Fbx.Unity;
+using Triturbo.BlendShare.Hashing;
 using UnityEngine;
 
 namespace Triturbo.BlendShare.Core
@@ -113,7 +114,7 @@ namespace Triturbo.BlendShare.Core
             var fbxMesh = context.GetOriginFbxMesh() ?? context.GetSourceFbxMesh();
             meshDataObject.Initialize(
                 context.GetResolvedFbxNodePath(),
-                fbxMesh?.ControlPointCount ?? -1);
+                FbxTopologyHash.Calculate(fbxMesh));
             return meshDataObject;
         }
 

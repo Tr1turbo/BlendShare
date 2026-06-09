@@ -333,7 +333,6 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             feature.SetSkinning(
                 boneGraph,
                 GetRootBonePath(context),
-                sourceMesh.ControlPointCount,
                 bonePaths,
                 controlPointWeights,
                 bindPoses);

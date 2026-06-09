@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Triturbo.BlendShare.Hashing;
 using UnityEngine;
 using UnityEngine.Scripting.APIUpdating;
 using UnityEngine.Serialization;
@@ -16,7 +17,7 @@ namespace Triturbo.BlendShare.Core
         // Canonical mesh identity. This is the FBX node path / Unity renderer path, not a Unity asset path.
         [FormerlySerializedAs("m_MeshPath")]
         public string m_Path;
-        public int m_FbxControlPointCount = -1;
+        public FbxTopologySignature m_FbxTopologySignature = new FbxTopologySignature();
 
         [SerializeField]
         private List<MeshFeatureObject> m_Features = new();
@@ -27,16 +28,23 @@ namespace Triturbo.BlendShare.Core
         public IReadOnlyList<MeshFeatureObject> Features =>
             m_Features != null ? m_Features : System.Array.Empty<MeshFeatureObject>();
 
+        public int FbxControlPointCount => m_FbxTopologySignature?.ControlPointCount ?? -1;
+
         /// <summary>
         /// Initializes this mesh data object with its canonical renderer/node path.
         /// </summary>
         /// <param name="path">FBX node path or matching Unity renderer path.</param>
-        /// <param name="fbxControlPointCount">Control point count read from the source FBX mesh.</param>
-        public void Initialize(string path, int fbxControlPointCount)
+        /// <param name="fbxTopologySignature">Topology signature calculated from the source FBX mesh.</param>
+        public void Initialize(string path, FbxTopologySignature fbxTopologySignature)
         {
             m_Path = MeshNodePath.Normalize(path);
-            m_FbxControlPointCount = fbxControlPointCount;
+            m_FbxTopologySignature = fbxTopologySignature ?? new FbxTopologySignature();
             Sanitize();
+        }
+
+        public void Initialize(string path, int fbxControlPointCount)
+        {
+            Initialize(path, new FbxTopologySignature(string.Empty, fbxControlPointCount, -1, false));
         }
 
         /// <summary>
