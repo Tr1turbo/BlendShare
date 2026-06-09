@@ -2,11 +2,11 @@
     "name": "Triturbo.BlendShapeShare.Data.Editor",
     "rootNamespace": "",
     "references": [
-        "GUID:518a499d71b640be98077a0a1d0eb856",
-        "GUID:e0cd26848372d4e5c891c569017e11f1",
-        "GUID:2b82e46c4ca0a4eb697ab8ccdfb39af1",
-        "GUID:d71592c589fe4e73b011d144a838d950",
-        "GUID:f18e22dd59a74ad408debd8b82f4a235"
+        "Unity.Collections",
+        "Triturbo.BlendShare.Runtime",
+        "Triturbo.BlendShapeShare.Localization",
+        "Triturbo.FBX",
+        "Autodesk.Fbx"
     ],
     "includePlatforms": [
         "Editor"

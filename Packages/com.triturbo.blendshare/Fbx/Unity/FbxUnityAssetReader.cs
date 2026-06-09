@@ -1,3 +1,4 @@
+#if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -78,3 +79,4 @@ namespace Triturbo.BlendShare.Fbx.Unity
         }
     }
 }
+#endif
