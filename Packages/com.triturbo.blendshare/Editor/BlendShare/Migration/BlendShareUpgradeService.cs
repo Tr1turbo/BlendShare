@@ -42,8 +42,8 @@ namespace Triturbo.BlendShare.Migration
             }
 
             var converted = ConvertLegacy(legacyAsset);
-            var presets = ConvertSelections(legacyAsset, converted);
-            return BlendShareAssetService.Save(converted, path, converted.Meshes, presets);
+            ConvertSelections(legacyAsset, converted);
+            return BlendShareAssetService.Save(converted, path, converted.Meshes);
         }
 
         public static BlendShareObject ConvertLegacy(BlendShapeDataSO legacyAsset)
@@ -180,15 +180,14 @@ namespace Triturbo.BlendShare.Migration
             return meshPaths;
         }
 
-        private static List<BlendShapePresetObject> ConvertSelections(BlendShapeDataSO legacyAsset, BlendShareObject converted)
+        private static void ConvertSelections(BlendShapeDataSO legacyAsset, BlendShareObject converted)
         {
             string path = AssetDatabase.GetAssetPath(legacyAsset);
             if (string.IsNullOrEmpty(path))
             {
-                return new List<BlendShapePresetObject>();
+                return;
             }
 
-            var presets = new List<BlendShapePresetObject>();
             var meshPaths = ResolveFbxMeshPaths(legacyAsset.m_Original, legacyAsset.m_MeshDataList);
             foreach (var selection in AssetDatabase.LoadAllAssetRepresentationsAtPath(path).OfType<BlendShapeSelectionSO>())
             {
@@ -221,13 +220,12 @@ namespace Triturbo.BlendShare.Migration
                     .Select(shapeName => indexLookup[shapeName])
                     .ToList();
 
-                var preset = ScriptableObject.CreateInstance<BlendShapePresetObject>();
-                preset.name = selection.DisplayName;
-                preset.Set(mesh.m_Path, indices, selection.m_BlendShapeNames);
-                presets.Add(preset);
+                var originalActive = blendShapeFeature.ActiveBlendShapeIndices.ToArray();
+                string originalSelectionSetId = blendShapeFeature.ActiveSelectionSetId;
+                blendShapeFeature.SetWorkingSelection(indices, string.Empty);
+                blendShapeFeature.SaveSelectionSet(selection.DisplayName);
+                blendShapeFeature.SetWorkingSelection(originalActive, originalSelectionSetId);
             }
-
-            return presets;
         }
 
         private static Dictionary<string, string> BuildUniqueNodeNamePathLookup(GameObject root)

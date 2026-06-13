@@ -11,6 +11,7 @@ namespace Triturbo.BlendShare.Core
     /// </summary>
     public class BlendShareObject : ScriptableObject
     {
+        [FbxAsset]
         public GameObject m_Original;
         public string m_DefaultGeneratedAssetName;
         public bool m_Applied = false;

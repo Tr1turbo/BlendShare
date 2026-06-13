@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShapeShare.BlendShapeData;
@@ -23,6 +24,40 @@ namespace Triturbo.BlendShare.Features.BlendShapes
         }
     }
 
+    [System.Serializable]
+    public sealed class BlendShapeSelectionState
+    {
+        public string m_Id;
+        public string m_DisplayName;
+        public List<int> m_OrderedBlendShapeIndices = new();
+        public List<string> m_NameSnapshots = new();
+
+        public string DisplayName => string.IsNullOrWhiteSpace(m_DisplayName) ? "Selection Set" : m_DisplayName;
+
+        public void Set(string displayName, IEnumerable<int> indices, IReadOnlyList<BlendShapeRecord> blendShapes)
+        {
+            if (string.IsNullOrWhiteSpace(m_Id))
+            {
+                m_Id = System.Guid.NewGuid().ToString("N");
+            }
+
+            if (!string.IsNullOrWhiteSpace(displayName))
+            {
+                m_DisplayName = displayName.Trim();
+            }
+
+            int count = blendShapes?.Count ?? 0;
+            m_OrderedBlendShapeIndices = indices?
+                .Where(index => index >= 0 && index < count)
+                .Distinct()
+                .ToList() ?? new List<int>();
+            m_NameSnapshots = m_OrderedBlendShapeIndices
+                .Select(index => blendShapes?[index]?.m_Name)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .ToList();
+        }
+    }
+
     [MovedFrom(true, "Triturbo.BlendShapeShare.BlendShapeData", "Triturbo.BlendShapeShare.Data.Editor")]
     public sealed class BlendShapeFeatureObject : MeshFeatureObject
     {
@@ -34,9 +69,17 @@ namespace Triturbo.BlendShare.Features.BlendShapes
         [SerializeField]
         private List<int> m_ActiveBlendShapeIndices = new();
 
+        [SerializeField]
+        private string m_ActiveSelectionSetId = string.Empty;
+
+        [SerializeField]
+        private List<BlendShapeSelectionState> m_SelectionSets = new();
+
         public override string FeatureId => Id;
         public IReadOnlyList<BlendShapeRecord> BlendShapes => m_BlendShapes;
         public IReadOnlyList<int> ActiveBlendShapeIndices => m_ActiveBlendShapeIndices;
+        public IReadOnlyList<BlendShapeSelectionState> SelectionSets => m_SelectionSets;
+        public string ActiveSelectionSetId => m_ActiveSelectionSetId ?? string.Empty;
 
         public override void Sanitize(MeshDataObject owner)
         {
@@ -119,6 +162,73 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                 .ToList() ?? new List<int>();
         }
 
+        public void SetWorkingSelection(IEnumerable<int> indices, string selectionSetId = null)
+        {
+            SetActiveBlendShapeIndices(indices);
+            m_ActiveSelectionSetId = selectionSetId ?? string.Empty;
+        }
+
+        public BlendShapeSelectionState GetSelectionSet(string id)
+        {
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                return null;
+            }
+
+            return (m_SelectionSets ?? new List<BlendShapeSelectionState>())
+                .FirstOrDefault(selection => selection != null && selection.m_Id == id);
+        }
+
+        public BlendShapeSelectionState SaveSelectionSet(string displayName, string existingId = null)
+        {
+            m_SelectionSets ??= new List<BlendShapeSelectionState>();
+            var selection = GetSelectionSet(existingId);
+            if (selection == null)
+            {
+                selection = new BlendShapeSelectionState();
+                m_SelectionSets.Add(selection);
+            }
+
+            selection.Set(displayName, m_ActiveBlendShapeIndices, m_BlendShapes);
+            m_ActiveSelectionSetId = selection.m_Id;
+            SanitizeShapeNames();
+            return selection;
+        }
+
+        public bool DeleteSelectionSet(string id)
+        {
+            if (string.IsNullOrWhiteSpace(id) || m_SelectionSets == null)
+            {
+                return false;
+            }
+
+            int removed = m_SelectionSets.RemoveAll(selection => selection != null && selection.m_Id == id);
+            if (m_ActiveSelectionSetId == id)
+            {
+                m_ActiveSelectionSetId = string.Empty;
+            }
+
+            return removed > 0;
+        }
+
+        public bool ApplySelectionSet(string id)
+        {
+            var selection = GetSelectionSet(id);
+            if (selection == null)
+            {
+                return false;
+            }
+
+            SetWorkingSelection(selection.m_OrderedBlendShapeIndices, selection.m_Id);
+            return true;
+        }
+
+        public bool WorkingSelectionMatches(BlendShapeSelectionState selection)
+        {
+            return selection != null &&
+                   m_ActiveBlendShapeIndices.SequenceEqual(selection.m_OrderedBlendShapeIndices ?? new List<int>());
+        }
+
         public void SetActiveBlendShapeNames(IEnumerable<string> shapeNames)
         {
             var lookup = m_BlendShapes
@@ -129,27 +239,6 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             SetActiveBlendShapeIndices((shapeNames ?? Enumerable.Empty<string>())
                 .Where(lookup.ContainsKey)
                 .Select(shapeName => lookup[shapeName]));
-        }
-
-        public void ApplyPreset(MeshDataObject owner, BlendShapePresetObject preset)
-        {
-            if (owner == null ||
-                preset == null ||
-                MeshNodePath.Normalize(preset.m_Path) != MeshNodePath.Normalize(owner.m_Path))
-            {
-                return;
-            }
-
-            SetActiveBlendShapeIndices(preset.m_BlendShapeIndices);
-        }
-
-        public BlendShapePresetObject CreatePreset(MeshDataObject owner, string presetName)
-        {
-            var preset = ScriptableObject.CreateInstance<BlendShapePresetObject>();
-            string path = owner != null ? owner.m_Path : string.Empty;
-            preset.name = string.IsNullOrWhiteSpace(presetName) ? $"{path} Preset" : presetName;
-            preset.Set(path, m_ActiveBlendShapeIndices, m_BlendShapes.Select(blendShape => blendShape?.m_Name));
-            return preset;
         }
 
         public int InferFbxControlPointCount()
@@ -175,6 +264,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
         {
             m_BlendShapes ??= new List<BlendShapeRecord>();
             m_ActiveBlendShapeIndices ??= new List<int>();
+            m_SelectionSets ??= new List<BlendShapeSelectionState>();
 
             int oldBlendShapeCount = m_BlendShapes.Count;
             m_BlendShapes = m_BlendShapes
@@ -194,16 +284,40 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                 validActive.Add(index);
             }
 
-            if (validActive.Count == 0 && m_BlendShapes.Count > 0)
-            {
-                validActive.AddRange(Enumerable.Range(0, m_BlendShapes.Count));
-            }
-
             bool changed = oldBlendShapeCount != m_BlendShapes.Count ||
                            validActive.Count != m_ActiveBlendShapeIndices.Count ||
                            !validActive.SequenceEqual(m_ActiveBlendShapeIndices);
 
             m_ActiveBlendShapeIndices = validActive;
+
+            var validSelectionIds = new HashSet<string>();
+            foreach (var selection in m_SelectionSets.Where(selection => selection != null))
+            {
+                if (string.IsNullOrWhiteSpace(selection.m_Id))
+                {
+                    selection.m_Id = System.Guid.NewGuid().ToString("N");
+                }
+
+                if (string.IsNullOrWhiteSpace(selection.m_DisplayName))
+                {
+                    selection.m_DisplayName = "Selection Set";
+                }
+
+                selection.Set(selection.m_DisplayName, selection.m_OrderedBlendShapeIndices, m_BlendShapes);
+                validSelectionIds.Add(selection.m_Id);
+            }
+
+            m_SelectionSets = m_SelectionSets
+                .Where(selection => selection != null)
+                .GroupBy(selection => selection.m_Id)
+                .Select(group => group.First())
+                .ToList();
+
+            if (!string.IsNullOrEmpty(m_ActiveSelectionSetId) && !validSelectionIds.Contains(m_ActiveSelectionSetId))
+            {
+                m_ActiveSelectionSetId = string.Empty;
+            }
+
             return changed;
         }
     }

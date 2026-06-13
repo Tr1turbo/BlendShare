@@ -1,4 +1,5 @@
 using System;
+using UnityEngine;
 
 namespace Triturbo.BlendShare.Hashing
 {
@@ -8,10 +9,10 @@ namespace Triturbo.BlendShare.Hashing
     [Serializable]
     public sealed class FbxTopologySignature
     {
-        public string m_Hash = string.Empty;
-        public int m_ControlPointCount = -1;
-        public int m_FaceCount = -1;
-        public bool m_IsValid;
+        [SerializeField] private string m_Hash = string.Empty;
+        [SerializeField] private int m_ControlPointCount = -1;
+        [SerializeField] private int m_FaceCount = -1;
+        [SerializeField] private bool m_IsValid;
 
         public string Hash => m_Hash ?? string.Empty;
         public int ControlPointCount => m_ControlPointCount;

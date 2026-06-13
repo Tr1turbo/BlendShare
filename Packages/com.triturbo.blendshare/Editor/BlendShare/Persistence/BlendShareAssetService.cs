@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Triturbo.BlendShare.Core;
-using Triturbo.BlendShare.Features.BlendShapes;
 using Triturbo.BlendShare.Features.SkinWeights;
 using UnityEditor;
 using UnityEngine;
@@ -15,8 +14,7 @@ namespace Triturbo.BlendShare.Persistence
         public static BlendShareObject Save(
             BlendShareObject source,
             string path,
-            IEnumerable<MeshDataObject> meshes,
-            IEnumerable<BlendShapePresetObject> presets = null)
+            IEnumerable<MeshDataObject> meshes)
         {
             if (source == null || string.IsNullOrWhiteSpace(path))
             {
@@ -26,7 +24,6 @@ namespace Triturbo.BlendShare.Persistence
             Directory.CreateDirectory(Path.GetDirectoryName(path) ?? "Assets");
 
             var meshArray = meshes?.Where(mesh => mesh != null).ToArray() ?? System.Array.Empty<MeshDataObject>();
-            var presetArray = presets?.Where(preset => preset != null).ToArray() ?? System.Array.Empty<BlendShapePresetObject>();
             var boneGraphs = CollectBoneGraphs(meshArray);
             var existing = AssetDatabase.LoadAssetAtPath<BlendShareObject>(path);
             BlendShareObject asset = existing != null ? existing : source;
@@ -52,13 +49,13 @@ namespace Triturbo.BlendShare.Persistence
                 for (int i = 0; i < boneGraphs.Length; i++)
                 {
                     boneGraphs[i].name = GetBoneGraphSubAssetName(i);
-                    AddHiddenSubAsset(boneGraphs[i], asset);
+                    AddSubAsset(boneGraphs[i], asset, true);
                 }
 
                 foreach (var mesh in meshArray)
                 {
                     mesh.name = GetMeshSubAssetName(mesh);
-                    AddHiddenSubAsset(mesh, asset);
+                    AddSubAsset(mesh, asset, false);
 
                     foreach (var feature in mesh.Features)
                     {
@@ -68,7 +65,7 @@ namespace Triturbo.BlendShare.Persistence
                         }
 
                         feature.name = GetFeatureSubAssetName(mesh, feature);
-                        AddHiddenSubAsset(feature, asset);
+                        AddSubAsset(feature, asset, true);
                     }
 
                     foreach (var mapping in mesh.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
@@ -79,14 +76,8 @@ namespace Triturbo.BlendShare.Persistence
                         }
 
                         mapping.name = GetMappingSubAssetName(mesh, mapping);
-                        AddHiddenSubAsset(mapping, asset);
+                        AddSubAsset(mapping, asset, true);
                     }
-                }
-
-                foreach (var preset in presetArray)
-                {
-                    preset.name = GetPresetSubAssetName(preset);
-                    AddHiddenSubAsset(preset, asset);
                 }
 
                 asset.SetMeshes(meshArray);
@@ -101,20 +92,6 @@ namespace Triturbo.BlendShare.Persistence
             }
 
             return asset;
-        }
-
-        public static List<BlendShapePresetObject> LoadPresets(BlendShareObject asset)
-        {
-            string path = AssetDatabase.GetAssetPath(asset);
-            if (string.IsNullOrEmpty(path))
-            {
-                return new List<BlendShapePresetObject>();
-            }
-
-            return AssetDatabase.LoadAllAssetRepresentationsAtPath(path)
-                .OfType<BlendShapePresetObject>()
-                .OrderBy(preset => preset.DisplayName)
-                .ToList();
         }
 
         public static void SaveMappings(BlendShareObject asset)
@@ -150,7 +127,7 @@ namespace Triturbo.BlendShare.Persistence
                         }
 
                         mapping.name = GetMappingSubAssetName(mesh, mapping);
-                        AddHiddenSubAsset(mapping, asset);
+                        AddSubAsset(mapping, asset, true);
                     }
 
                     EditorUtility.SetDirty(mesh);
@@ -180,14 +157,14 @@ namespace Triturbo.BlendShare.Persistence
             return AssetDatabase.GenerateUniqueAssetPath(Path.Combine(directory ?? "Assets", $"{fileName}{suffix}.asset"));
         }
 
-        private static void AddHiddenSubAsset(Object subAsset, Object mainAsset)
+        private static void AddSubAsset(Object subAsset, Object mainAsset, bool hidden)
         {
             if (subAsset == null || mainAsset == null)
             {
                 return;
             }
 
-            subAsset.hideFlags = HideFlags.None;
+            subAsset.hideFlags = hidden ? HideFlags.HideInHierarchy : HideFlags.None;
             if (!AssetDatabase.Contains(subAsset))
             {
                 AssetDatabase.AddObjectToAsset(subAsset, mainAsset);
@@ -219,7 +196,7 @@ namespace Triturbo.BlendShare.Persistence
                     subAsset is MeshFeatureObject ||
                     subAsset is BoneGraphObject ||
                     subAsset is UnityVertexMappingObject ||
-                    subAsset is BlendShapePresetObject)
+                    subAsset.name.StartsWith("Preset_"))
                 {
                     Object.DestroyImmediate(subAsset, true);
                 }
@@ -244,11 +221,6 @@ namespace Triturbo.BlendShare.Persistence
         private static string GetMappingSubAssetName(MeshDataObject mesh, UnityVertexMappingObject mapping)
         {
             return $"Mapping_{SanitizeName(mesh.m_Path)}_{mapping.UnityVerticesHashShort}";
-        }
-
-        private static string GetPresetSubAssetName(BlendShapePresetObject preset)
-        {
-            return $"Preset_{SanitizeName(preset.m_Path)}_{SanitizeName(preset.DisplayName)}";
         }
 
         private static string SanitizeName(string name)
