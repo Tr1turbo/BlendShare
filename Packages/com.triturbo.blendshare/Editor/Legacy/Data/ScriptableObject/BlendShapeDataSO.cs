@@ -366,9 +366,12 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             var vertexCount = targetMesh.vertexCount;
             targetMesh.AddBlendShapeFrame(name, m_FrameWeight,
                 GetDeltaVertices(vertexCount),
-                GetDeltaNormals(vertexCount),
-                GetDeltaTangents(vertexCount));
+                HasDeltaNormals ? GetDeltaNormals(vertexCount) : null,
+                HasDeltaTangents ? GetDeltaTangents(vertexCount) : null);
         }
+
+        private bool HasDeltaNormals => m_NormalIndices != null && m_NormalIndices.Count > 0;
+        private bool HasDeltaTangents => m_TangentIndices != null && m_TangentIndices.Count > 0;
 
   
 
@@ -393,12 +396,12 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                     this.m_VertexIndices.Add(i);
                     this.m_DeltaVertices.Add(deltaVertices[i]);
                 }
-                if (deltaNormals[i] != Vector3.zero)
+                if (deltaNormals != null && deltaNormals[i] != Vector3.zero)
                 {
                     this.m_NormalIndices.Add(i);
                     this.m_DeltaNormals.Add(deltaNormals[i]);
                 }
-                if (deltaTangents[i] != Vector3.zero)
+                if (deltaTangents != null && deltaTangents[i] != Vector3.zero)
                 {
                     this.m_TangentIndices.Add(i);
                     this.m_DeltaTangents.Add(deltaTangents[i]);

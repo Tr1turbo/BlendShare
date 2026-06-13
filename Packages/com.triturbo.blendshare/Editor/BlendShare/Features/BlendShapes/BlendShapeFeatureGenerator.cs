@@ -121,9 +121,6 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             for (int frameIndex = 0; frameIndex < frames.Length; frameIndex++)
             {
                 var deltaVertices = new Vector3[unityVertexCount];
-                var deltaNormals = new Vector3[unityVertexCount];
-                var deltaTangents = new Vector3[unityVertexCount];
-
                 for (int unityIndex = 0; unityIndex < unityVertexCount; unityIndex++)
                 {
                     if (!mapping.TryGetFbxGroup(unityIndex, out FbxIndexGroup group))
@@ -140,8 +137,8 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                     weight,
                     unityVertexCount,
                     deltaVertices,
-                    deltaNormals,
-                    deltaTangents));
+                    null,
+                    null));
             }
 
             return unityData;
