@@ -195,7 +195,6 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return MeshFeatureGenerationResult.FailedResult(skinError);
             }
 
-            RemoveBoneGraphNodesFromFbx(context, feature.m_BoneGraph);
             context.Session?.SetState(BuildSkinStateKey(context), skinState);
             return MeshFeatureGenerationResult.Success();
 #endif
@@ -313,7 +312,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     return false;
                 }
 
-                ApplyLocalTransformDelta(node, bone, false);
+                SetLocalTransform(node, bone);
             }
 
             return true;
@@ -369,144 +368,19 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 ? SdkSkeleton.EType.eRoot
                 : SdkSkeleton.EType.eLimbNode);
             created.SetNodeAttribute(skeleton);
-            ApplyLocalTransformDelta(created, bone, false);
             parent.AddChild(created);
             return created;
         }
 
-        private static bool RemoveBoneGraphNodesFromFbx(FbxGenerationContext context, BoneGraphObject boneGraph)
+        private static void SetLocalTransform(FbxNode node, BoneNodeData bone)
         {
-            bool modified = false;
-            foreach (var bone in boneGraph?.Bones ?? Array.Empty<BoneNodeData>())
-            {
-                if (bone == null)
-                {
-                    continue;
-                }
-
-                var node = FindFbxNodeByPath(GetRootNode(context), MeshNodePath.Normalize(bone.m_Path));
-                if (node == null)
-                {
-                    continue;
-                }
-
-                ApplyLocalTransformDelta(node, bone, true);
-                modified = true;
-            }
-
-            foreach (var bone in (boneGraph?.Bones ?? Array.Empty<BoneNodeData>())
-                         .Where(bone => bone != null && bone.m_CreateIfMissing)
-                         .OrderByDescending(bone => MeshNodePath.Normalize(bone.m_Path).Length))
-            {
-                var node = FindFbxNodeByPath(GetRootNode(context), MeshNodePath.Normalize(bone.m_Path));
-                if (node == null || node.GetChildCount() > 0 || IsNodeUsedBySkin(context, node))
-                {
-                    continue;
-                }
-
-                var parent = node.GetParent();
-                if (parent != null)
-                {
-                    parent.RemoveChild(node);
-                }
-
-                node.Destroy();
-                modified = true;
-            }
-
-            return modified;
-        }
-
-        private static void ApplyLocalTransformDelta(FbxNode node, BoneNodeData bone, bool invert)
-        {
-            var localPosition = ToVector3(node.LclTranslation.Get());
-            var localRotation = ToVector3(node.LclRotation.Get());
-            var localScale = ToVector3(node.LclScaling.Get());
-            var scaleDelta = bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale;
-
-            localPosition = invert
-                ? localPosition - bone.m_FbxLocalTranslation
-                : localPosition + bone.m_FbxLocalTranslation;
-            localRotation = invert
-                ? localRotation - bone.m_FbxLocalEulerRotation
-                : localRotation + bone.m_FbxLocalEulerRotation;
-            localScale = invert
-                ? DivideScale(localScale, scaleDelta)
-                : Vector3.Scale(localScale, scaleDelta);
+            var localPosition = bone.m_FbxLocalTranslation;
+            var localRotation = bone.m_FbxLocalEulerRotation;
+            var localScale = bone.m_FbxLocalScale;
 
             node.LclTranslation.Set(new FbxDouble3(localPosition.x, localPosition.y, localPosition.z));
             node.LclRotation.Set(new FbxDouble3(localRotation.x, localRotation.y, localRotation.z));
             node.LclScaling.Set(new FbxDouble3(localScale.x, localScale.y, localScale.z));
-        }
-
-        private static Vector3 ToVector3(FbxDouble3 value)
-        {
-            return new Vector3((float)value[0], (float)value[1], (float)value[2]);
-        }
-
-        private static Vector3 DivideScale(Vector3 value, Vector3 divisor)
-        {
-            return new Vector3(
-                Mathf.Approximately(divisor.x, 0f) ? value.x : value.x / divisor.x,
-                Mathf.Approximately(divisor.y, 0f) ? value.y : value.y / divisor.y,
-                Mathf.Approximately(divisor.z, 0f) ? value.z : value.z / divisor.z);
-        }
-
-        private static bool IsNodeUsedBySkin(FbxGenerationContext context, FbxNode node)
-        {
-            if (context == null || node == null)
-            {
-                return false;
-            }
-
-            var rootNode = GetRootNode(context);
-            foreach (var mesh in EnumerateMeshes(rootNode))
-            {
-                for (int skinIndex = 0; skinIndex < mesh.GetDeformerCount(SdkDeformer.EDeformerType.eSkin); skinIndex++)
-                {
-                    if (mesh.GetDeformer(skinIndex, SdkDeformer.EDeformerType.eSkin) is not FbxSkin skin)
-                    {
-                        continue;
-                    }
-
-                    for (int clusterIndex = 0; clusterIndex < 1024; clusterIndex++)
-                    {
-                        var cluster = skin.GetCluster(clusterIndex);
-                        if (cluster == null)
-                        {
-                            break;
-                        }
-
-                        if (cluster.GetLink() == node)
-                        {
-                            return true;
-                        }
-                    }
-                }
-            }
-
-            return false;
-        }
-
-        private static IEnumerable<FbxMesh> EnumerateMeshes(FbxNode node)
-        {
-            if (node == null)
-            {
-                yield break;
-            }
-
-            if (node.GetMesh() != null)
-            {
-                yield return node.GetMesh();
-            }
-
-            for (int i = 0; i < node.GetChildCount(); i++)
-            {
-                foreach (var mesh in EnumerateMeshes(node.GetChild(i)))
-                {
-                    yield return mesh;
-                }
-            }
         }
 
         private static bool TryGetCurrentSkinState(
@@ -711,7 +585,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 }
 
                 data.SetWeights(state.GetWeightsByControlPoint(data.Path));
-                ApplyClusterMatrixDelta(data, feature, data.Path, invertDeltas);
+                ApplyStoredClusterMatrices(data, feature, data.Path);
                 result.Add(data);
                 usedPaths.Add(data.Path);
             }
@@ -759,18 +633,17 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     out var fbxTransformLinkMatrix))
             {
                 return new ClusterMatrices(
-                    ComposeMatrixDelta(meshMatrix, fbxTransformMatrix, invertDeltas),
-                    ComposeMatrixDelta(linkMatrix, fbxTransformLinkMatrix, invertDeltas));
+                    ToFbxAMatrix(fbxTransformMatrix),
+                    ToFbxAMatrix(fbxTransformLinkMatrix));
             }
 
             return new ClusterMatrices(meshMatrix, linkMatrix);
         }
 
-        private static void ApplyClusterMatrixDelta(
+        private static void ApplyStoredClusterMatrices(
             FbxClusterRebuildData data,
             SkinWeightFeatureObject feature,
-            string path,
-            bool invertDeltas)
+            string path)
         {
             if (data == null ||
                 feature == null ||
@@ -782,17 +655,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return;
             }
 
-            data.TransformMatrix = ComposeMatrixDelta(data.TransformMatrix, fbxTransformMatrix, invertDeltas);
-            data.TransformLinkMatrix = ComposeMatrixDelta(data.TransformLinkMatrix, fbxTransformLinkMatrix, invertDeltas);
-        }
-
-        private static FbxAMatrix ComposeMatrixDelta(
-            FbxAMatrix current,
-            Triturbo.BlendShare.Fbx.FbxMatrix4x4 delta,
-            bool invert)
-        {
-            var deltaMatrix = ToFbxAMatrix(invert ? delta.Inverse : delta);
-            return deltaMatrix * (current ?? CreateIdentityFbxMatrix());
+            data.TransformMatrix = ToFbxAMatrix(fbxTransformMatrix);
+            data.TransformLinkMatrix = ToFbxAMatrix(fbxTransformLinkMatrix);
         }
 
         private static void RemoveSkinDeformers(FbxMesh targetMesh)
@@ -1266,7 +1130,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     return false;
                 }
 
-                bindPose = mapping.ConvertFbxMatrixToUnity(fbxTransformMatrix * inverseTransformLinkMatrix) * currentBindPose;
+                bindPose = mapping.ConvertFbxMatrixToUnity(fbxTransformMatrix * inverseTransformLinkMatrix);
                 return true;
             }
 
