@@ -563,7 +563,7 @@ namespace Triturbo.BlendShare.Inspector
             foldout.Add(new IMGUIContainer(() =>
             {
                 var patch = (BlendShareObject)target;
-                DrawSharedBoneGraphs(patch);
+                DrawSharedArmatures(patch);
             }));
             return foldout;
         }
@@ -579,7 +579,7 @@ namespace Triturbo.BlendShare.Inspector
 
             DrawMetadata();
             EditorGUILayout.Space();
-            DrawSharedBoneGraphs(patch);
+            DrawSharedArmatures(patch);
             EditorGUILayout.Space();
             DrawMeshes(patch);
             EditorGUILayout.Space();
@@ -646,26 +646,26 @@ namespace Triturbo.BlendShare.Inspector
             return hash.Length <= 8 ? hash : hash.Substring(0, 8);
         }
 
-        private void DrawSharedBoneGraphs(BlendShareObject patch)
+        private void DrawSharedArmatures(BlendShareObject patch)
         {
-            var boneGraphs = GetSharedBoneGraphs(patch);
-            if (boneGraphs.Count == 0)
+            var armatures = GetSharedArmatures(patch);
+            if (armatures.Count == 0)
             {
                 return;
             }
 
-            foreach (var boneGraph in boneGraphs)
+            foreach (var armature in armatures)
             {
-                DrawBoneGraphSummary(boneGraph);
+                DrawArmatureSummary(armature);
             }
         }
 
-        private void DrawBoneGraphSummary(BoneGraphObject boneGraph)
+        private void DrawArmatureSummary(ArmatureObject armature)
         {
-            EditorGUILayout.LabelField(Localization.G("data.bone_graph.title"), EditorStyles.boldLabel);
-            var bones = boneGraph?.Bones ?? System.Array.Empty<BoneNodeData>();
+            EditorGUILayout.LabelField(Localization.G("data.armature.title"), EditorStyles.boldLabel);
+            var bones = armature?.Bones ?? System.Array.Empty<ArmatureBoneData>();
             int createdCount = bones.Count(bone => bone != null && bone.m_CreateIfMissing);
-            EditorGUILayout.LabelField(Localization.S("data.bone_graph.created_count"), createdCount.ToString());
+            EditorGUILayout.LabelField(Localization.S("data.armature.created_count"), createdCount.ToString());
             EditorGUILayout.LabelField(Localization.S("data.skin_weights.bone_count"), bones.Count.ToString());
             EditorGUI.indentLevel++;
             foreach (var bone in bones)
@@ -680,12 +680,12 @@ namespace Triturbo.BlendShare.Inspector
             EditorGUI.indentLevel--;
         }
 
-        private static List<BoneGraphObject> GetSharedBoneGraphs(BlendShareObject patch)
+        private static List<ArmatureObject> GetSharedArmatures(BlendShareObject patch)
         {
             return (patch?.Meshes ?? System.Array.Empty<MeshDataObject>())
                 .Where(mesh => mesh != null)
-                .Select(mesh => mesh.GetFeature<SkinWeightFeatureObject>()?.m_BoneGraph)
-                .Where(graph => graph != null)
+                .Select(mesh => mesh.GetFeature<SkinWeightFeatureObject>()?.Armature)
+                .Where(armature => armature != null)
                 .Distinct()
                 .ToList();
         }
@@ -698,9 +698,9 @@ namespace Triturbo.BlendShare.Inspector
             }
 
             EditorGUILayout.LabelField(Localization.G("data.skin_weights.title"), EditorStyles.boldLabel);
-            EditorGUILayout.LabelField(Localization.S("data.skin_weights.bone_count"), skinWeightFeature.BoneSlotCount.ToString());
+            EditorGUILayout.LabelField(Localization.S("data.skin_weights.bone_count"), skinWeightFeature.ClusterCount.ToString());
             EditorGUILayout.LabelField(Localization.S("data.skin_weights.weighted_control_points"), skinWeightFeature.WeightedControlPointCount.ToString());
-            EditorGUILayout.LabelField(Localization.S("data.skin_weights.root_bone"), skinWeightFeature.m_RootBonePath);
+            EditorGUILayout.LabelField(Localization.S("data.skin_weights.root_bone"), skinWeightFeature.RootBonePath);
         }
 
         private void DrawMappings(MeshDataObject mesh)
