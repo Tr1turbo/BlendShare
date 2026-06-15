@@ -213,8 +213,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             string meshPath,
             string bonePath,
             SkinWeightComparisonStatus weightStatus,
-            IReadOnlyDictionary<string, SkinWeightBindPoseData> sourceBindPoses,
-            IReadOnlyDictionary<string, SkinWeightBindPoseData> originBindPoses)
+            IReadOnlyDictionary<string, SkinWeightClusterData> sourceBindPoses,
+            IReadOnlyDictionary<string, SkinWeightClusterData> originBindPoses)
         {
             bool hasSource = sourceBindPoses.TryGetValue(bonePath, out var source);
             bool hasOrigin = originBindPoses.TryGetValue(bonePath, out var origin);
@@ -394,11 +394,11 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return result;
         }
 
-        internal static Dictionary<string, SkinWeightBindPoseData> BuildBindPosesByPath(
+        internal static Dictionary<string, SkinWeightClusterData> BuildBindPosesByPath(
             UfbxSkinDeformer skin,
             IReadOnlyDictionary<int, string> bonePathByIndex)
         {
-            var result = new Dictionary<string, SkinWeightBindPoseData>(StringComparer.Ordinal);
+            var result = new Dictionary<string, SkinWeightClusterData>(StringComparer.Ordinal);
             if (skin == null || bonePathByIndex == null)
             {
                 return result;
@@ -414,10 +414,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 var cluster = skin.Clusters[boneIndex];
                 if (cluster != null)
                 {
-                    result[path] = new SkinWeightBindPoseData(
-                        path,
-                        cluster.MeshBindWorld,
-                        cluster.BindToWorld);
+                    var data = new SkinWeightClusterData { m_BonePath = path };
+                    data.SetFbxClusterMatrices(cluster.MeshBindWorld, cluster.BindToWorld);
+                    result[path] = data;
                 }
             }
 

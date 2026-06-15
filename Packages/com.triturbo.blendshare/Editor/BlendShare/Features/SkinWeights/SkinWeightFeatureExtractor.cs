@@ -180,7 +180,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
             foreach (string path in selectedNewBonePaths.ToArray())
             {
-                string parent = GetParentPath(path);
+                string parent = MeshNodePath.ParentPath(path);
                 while (parent != MeshNodePath.Root)
                 {
                     if (comparison.TryGetBone(parent, out var parentBone) &&
@@ -190,7 +190,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                         selectedTransformBonePaths.Add(parent);
                     }
 
-                    parent = GetParentPath(parent);
+                    parent = MeshNodePath.ParentPath(parent);
                 }
             }
         }
@@ -238,17 +238,6 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return MeshNodePath.Normalize(bonePath);
         }
 
-        private static string GetParentPath(string path)
-        {
-            string normalized = MeshNodePath.Normalize(path);
-            if (normalized == MeshNodePath.Root)
-            {
-                return MeshNodePath.Root;
-            }
-
-            int separator = normalized.LastIndexOf('/');
-            return separator > 0 ? normalized.Substring(0, separator) : MeshNodePath.Root;
-        }
     }
 
     public sealed class SkinWeightFeatureExtractor
@@ -285,55 +274,28 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 originWeights,
                 selectedWeightBonePaths);
 
-            var bonePaths = deltaWeights
-                .SelectMany(weights => weights.Value.Keys)
-                .Distinct()
-                .OrderBy(path => path, StringComparer.Ordinal)
-                .ToArray();
-            var localBoneIndexByPath = bonePaths
-                .Select((path, index) => new { path, index })
-                .ToDictionary(item => item.path, item => item.index);
-
             var bindPoses = ExtractSelectedBindPoses(
                 sourceSkin,
                 options.GetSelectedBindposeBonePaths(context.Path),
                 sourceBonesByIndex);
-            var boneGraph = BuildSelectedBoneGraph(
+            var armature = BuildSelectedArmature(
                 context.Session,
                 options.GetSelectedBoneTransformPaths(),
                 options.GetSelectedNewBonePaths());
 
-            var controlPointWeights = deltaWeights
-                .Select(pair => new SkinWeightControlPointData
-                {
-                    m_ControlPointIndex = pair.Key,
-                    m_Influences = pair.Value
-                        .Where(weight => localBoneIndexByPath.ContainsKey(weight.Key))
-                        .Select(weight => new SkinWeightInfluenceData
-                        {
-                            m_BoneIndex = localBoneIndexByPath[weight.Key],
-                            m_Weight = weight.Value
-                        })
-                        .OrderByDescending(influence => Mathf.Abs(influence.m_Weight))
-                        .ToArray()
-                })
-                .Where(weights => weights.m_Influences.Length > 0)
-                .ToList();
+            var clusters = BuildClusters(deltaWeights, bindPoses);
 
-            if (controlPointWeights.Count == 0 &&
-                bindPoses.Count == 0 &&
-                boneGraph == null)
+            if (clusters.Count == 0 &&
+                armature == null)
             {
                 return MeshFeatureExtractionResult.Skipped("No selected skin weight work was found for this mesh.");
             }
 
             feature = ScriptableObject.CreateInstance<SkinWeightFeatureObject>();
             feature.SetSkinning(
-                boneGraph,
+                armature,
                 GetRootBonePath(context),
-                bonePaths,
-                controlPointWeights,
-                bindPoses);
+                clusters);
             return MeshFeatureExtractionResult.Success();
         }
 
@@ -380,12 +342,12 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return result;
         }
 
-        private static List<SkinWeightBindPoseData> ExtractSelectedBindPoses(
+        private static List<SkinWeightClusterData> ExtractSelectedBindPoses(
             UfbxSkinDeformer sourceSkin,
             IEnumerable<string> selectedBonePaths,
             IReadOnlyDictionary<int, string> sourceBonesByIndex)
         {
-            var result = new List<SkinWeightBindPoseData>();
+            var result = new List<SkinWeightClusterData>();
             var sourceBindPoses = SkinWeightFbxComparison.BuildBindPosesByPath(sourceSkin, sourceBonesByIndex);
             foreach (string bonePath in (selectedBonePaths ?? Array.Empty<string>())
                          .Select(MeshNodePath.Normalize)
@@ -400,7 +362,82 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return result;
         }
 
-        private static BoneGraphObject BuildSelectedBoneGraph(
+        private static List<SkinWeightClusterData> BuildClusters(
+            IReadOnlyDictionary<int, Dictionary<string, float>> deltaWeights,
+            IEnumerable<SkinWeightClusterData> bindPoses)
+        {
+            var weightsByPath = new Dictionary<string, Dictionary<int, float>>(StringComparer.Ordinal);
+            foreach (var controlPointPair in deltaWeights ?? new Dictionary<int, Dictionary<string, float>>())
+            {
+                foreach (var weightPair in controlPointPair.Value ?? new Dictionary<string, float>())
+                {
+                    string path = MeshNodePath.Normalize(weightPair.Key);
+                    if (path == MeshNodePath.Root || Mathf.Abs(weightPair.Value) <= WeightEpsilon)
+                    {
+                        continue;
+                    }
+
+                    if (!weightsByPath.TryGetValue(path, out var weightsByIndex))
+                    {
+                        weightsByIndex = new Dictionary<int, float>();
+                        weightsByPath[path] = weightsByIndex;
+                    }
+
+                    weightsByIndex.TryGetValue(controlPointPair.Key, out float existing);
+                    weightsByIndex[controlPointPair.Key] = existing + weightPair.Value;
+                }
+            }
+
+            var clustersByPath = weightsByPath.ToDictionary(
+                pair => pair.Key,
+                pair =>
+                {
+                    var entries = pair.Value
+                        .Where(weight => Mathf.Abs(weight.Value) > WeightEpsilon)
+                        .OrderBy(weight => weight.Key)
+                        .ToArray();
+                    return new SkinWeightClusterData
+                    {
+                        m_BonePath = pair.Key,
+                        m_Indices = entries.Select(weight => weight.Key).ToArray(),
+                        m_Deltaweights = entries.Select(weight => weight.Value).ToArray()
+                    };
+                },
+                StringComparer.Ordinal);
+
+            foreach (var bindPose in bindPoses ?? Array.Empty<SkinWeightClusterData>())
+            {
+                if (bindPose == null)
+                {
+                    continue;
+                }
+
+                string path = bindPose.BonePath;
+                if (path == MeshNodePath.Root)
+                {
+                    continue;
+                }
+
+                if (!clustersByPath.TryGetValue(path, out var cluster))
+                {
+                    cluster = new SkinWeightClusterData { m_BonePath = path };
+                    clustersByPath[path] = cluster;
+                }
+
+                if (bindPose.m_HasFbxClusterMatrices)
+                {
+                    cluster.SetFbxClusterMatrices(
+                        bindPose.m_FbxTransformMatrix,
+                        bindPose.m_FbxTransformLinkMatrix);
+                }
+            }
+
+            return clustersByPath.Values
+                .OrderBy(cluster => cluster.BonePath, StringComparer.Ordinal)
+                .ToList();
+        }
+
+        private static ArmatureObject BuildSelectedArmature(
             MeshFeatureExtractionSession session,
             IEnumerable<string> selectedTransformBonePaths,
             IEnumerable<string> selectedNewBonePaths)
@@ -430,52 +467,50 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return null;
             }
 
-            var graph = ScriptableObject.CreateInstance<BoneGraphObject>();
-            graph.name = "BoneGraph";
+            var armature = ScriptableObject.CreateInstance<ArmatureObject>();
+            armature.name = "Armature";
             foreach (string bonePath in transformPaths.Concat(createPaths)
                          .Select(MeshNodePath.Normalize)
                          .Distinct(StringComparer.Ordinal))
             {
-                AddBoneGraphPatch(graph, session, bonePath, createPaths.Contains(bonePath));
+                AddArmaturePatch(armature, session, bonePath, createPaths.Contains(bonePath));
             }
 
-            return graph.BoneCount > 0 ? graph : null;
+            return armature.BoneCount > 0 ? armature : null;
         }
 
-        private static void AddBoneGraphPatch(
-            BoneGraphObject graph,
+        private static void AddArmaturePatch(
+            ArmatureObject armature,
             MeshFeatureExtractionSession session,
             string bonePath,
             bool createIfMissing)
         {
             string normalizedPath = MeshNodePath.Normalize(bonePath);
-            if (graph == null ||
+            if (armature == null ||
                 session == null ||
                 normalizedPath == MeshNodePath.Root ||
-                graph.HasBone(normalizedPath))
+                armature.HasBone(normalizedPath))
             {
                 return;
             }
 
-            string parentPath = GetParentPath(normalizedPath);
+            string parentPath = MeshNodePath.ParentPath(normalizedPath);
             if (createIfMissing && parentPath != MeshNodePath.Root && !session.OriginHasTransform(parentPath))
             {
-                AddBoneGraphPatch(graph, session, parentPath, true);
+                AddArmaturePatch(armature, session, parentPath, true);
             }
 
-            graph.GetOrAddBone(CreateBoneNode(session, normalizedPath, parentPath, createIfMissing));
+            armature.GetOrAddBone(CreateBoneNode(session, normalizedPath, createIfMissing));
         }
 
-        private static BoneNodeData CreateBoneNode(
+        private static ArmatureBoneData CreateBoneNode(
             MeshFeatureExtractionSession session,
             string path,
-            string parentPath,
             bool createIfMissing)
         {
-            var node = new BoneNodeData
+            var node = new ArmatureBoneData
             {
                 m_Path = MeshNodePath.Normalize(path),
-                m_ParentPath = MeshNodePath.Normalize(parentPath),
                 m_CreateIfMissing = createIfMissing
             };
 
@@ -492,18 +527,6 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             node.m_FbxLocalEulerRotation = Vector3.zero;
             node.m_FbxLocalScale = Vector3.one;
             return node;
-        }
-
-        private static string GetParentPath(string path)
-        {
-            string normalized = MeshNodePath.Normalize(path);
-            if (normalized == MeshNodePath.Root)
-            {
-                return MeshNodePath.Root;
-            }
-
-            int separator = normalized.LastIndexOf('/');
-            return separator > 0 ? normalized.Substring(0, separator) : MeshNodePath.Root;
         }
 
         private static string GetRootBonePath(MeshFeatureExtractionContext context)

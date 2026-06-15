@@ -117,28 +117,28 @@ namespace Triturbo.BlendShare.NDMF
                 foreach (var meshData in GetMeshDataForApplier(meshApplier))
                 {
                     var skin = meshData != null ? meshData.GetFeature<SkinWeightFeatureObject>() : null;
-                    if (skin?.m_BoneGraph == null)
+                    if (skin?.Armature == null)
                     {
                         continue;
                     }
 
                     var mapping = GetFbxToUnityMapping(meshApplier, meshData);
 
-                    foreach (string bonePath in GetNeededBonePathsInGraphOrder(skin))
+                    foreach (string bonePath in skin.GetNeededBonePathsInArmatureOrder())
                     {
                         if (existingRendererBonePaths.Contains(bonePath))
                         {
                             continue;
                         }
 
-                        var bone = skin.m_BoneGraph.GetBone(bonePath);
+                        var bone = skin.Armature.GetBone(bonePath);
                         if (bone == null || !bone.m_CreateIfMissing)
                         {
                             result.AddDiagnostic($"Bone '{bonePath}' is required but cannot be auto-created.");
                             continue;
                         }
 
-                        var parent = ResolveProxyParent(bone, skin.m_BoneGraph, targetRoot, transformsByPath, proxiesByBonePath);
+                        var parent = ResolveProxyParent(bone, skin.Armature, targetRoot, transformsByPath, proxiesByBonePath);
                         var localScale = bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale;
                         var localPosition = mapping != null
                             ? mapping.ConvertFbxVectorToUnity(bone.m_FbxLocalTranslation)
@@ -168,10 +168,10 @@ namespace Triturbo.BlendShare.NDMF
                         proxy.ResetTransformToBindPose();
                         EditorUtility.SetDirty(proxy);
                         result.AddBoneProxy(proxy);
-                        proxiesByBonePath[BuildBoneProxyBindingKey(skin.m_BoneGraph, bonePath)] = proxy;
+                        proxiesByBonePath[BuildBoneProxyBindingKey(skin.Armature, bonePath)] = proxy;
                         bindings.Add(new BlendShareBoneProxyBinding
                         {
-                            BoneGraph = skin.m_BoneGraph,
+                            Armature = skin.Armature,
                             SourceBonePath = bonePath,
                             Proxy = proxy
                         });
@@ -597,32 +597,14 @@ namespace Triturbo.BlendShare.NDMF
             return proxy;
         }
 
-        private static IEnumerable<string> GetNeededBonePathsInGraphOrder(SkinWeightFeatureObject skin)
-        {
-            var needed = new HashSet<string>((skin.m_BonePaths ?? Array.Empty<string>()).Select(MeshNodePath.Normalize));
-            foreach (var bone in skin.m_BoneGraph?.Bones ?? Array.Empty<BoneNodeData>())
-            {
-                if (bone == null)
-                {
-                    continue;
-                }
-
-                string path = MeshNodePath.Normalize(bone.m_Path);
-                if (needed.Contains(path))
-                {
-                    yield return path;
-                }
-            }
-        }
-
         private static Transform ResolveProxyParent(
-            BoneNodeData bone,
-            BoneGraphObject graph,
+            ArmatureBoneData bone,
+            ArmatureObject armature,
             Transform targetRoot,
             IReadOnlyDictionary<string, Transform> transformsByPath,
             IReadOnlyDictionary<string, BlendShareBoneProxy> proxiesByBonePath)
         {
-            string parentPath = MeshNodePath.Normalize(bone?.m_ParentPath);
+            string parentPath = bone?.ParentPath ?? MeshNodePath.Root;
             while (parentPath != MeshNodePath.Root)
             {
                 if (proxiesByBonePath.TryGetValue(parentPath, out var proxyParent) && proxyParent != null)
@@ -630,7 +612,7 @@ namespace Triturbo.BlendShare.NDMF
                     return proxyParent.transform;
                 }
 
-                if (proxiesByBonePath.TryGetValue(BuildBoneProxyBindingKey(graph, parentPath), out proxyParent) && proxyParent != null)
+                if (proxiesByBonePath.TryGetValue(BuildBoneProxyBindingKey(armature, parentPath), out proxyParent) && proxyParent != null)
                 {
                     return proxyParent.transform;
                 }
@@ -640,21 +622,21 @@ namespace Triturbo.BlendShare.NDMF
                     return parent;
                 }
 
-                var parentBone = graph != null ? graph.GetBone(parentPath) : null;
+                var parentBone = armature != null ? armature.GetBone(parentPath) : null;
                 if (parentBone == null)
                 {
                     break;
                 }
 
-                parentPath = MeshNodePath.Normalize(parentBone.m_ParentPath);
+                parentPath = parentBone.ParentPath;
             }
 
             return targetRoot;
         }
 
-        private static string BuildBoneProxyBindingKey(BoneGraphObject graph, string sourceBonePath)
+        private static string BuildBoneProxyBindingKey(ArmatureObject armature, string sourceBonePath)
         {
-            return $"{(graph != null ? graph.GetInstanceID() : 0)}:{MeshNodePath.Normalize(sourceBonePath)}";
+            return $"{(armature != null ? armature.GetInstanceID() : 0)}:{MeshNodePath.Normalize(sourceBonePath)}";
         }
 
         private static string BuildProxyKey(Transform parent, Vector3 localPosition, Vector3 localEulerRotation, Vector3 localScale)

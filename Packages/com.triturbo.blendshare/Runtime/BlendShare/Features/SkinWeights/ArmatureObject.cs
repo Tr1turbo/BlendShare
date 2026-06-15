@@ -6,27 +6,28 @@ using UnityEngine;
 namespace Triturbo.BlendShare.Features.SkinWeights
 {
     [System.Serializable]
-    public sealed class BoneNodeData
+    public sealed class ArmatureBoneData
     {
         public string m_Path;
-        public string m_ParentPath;
         public Vector3 m_FbxLocalTranslation;
         public Vector3 m_FbxLocalEulerRotation;
         public Vector3 m_FbxLocalScale = Vector3.one;
         public bool m_CreateIfMissing = true;
 
-        public BoneNodeData() { }
+        public string Path => MeshNodePath.Normalize(m_Path);
+        public string ParentPath => MeshNodePath.ParentPath(Path);
+        public string Name => MeshNodePath.LeafName(Path);
 
-        public BoneNodeData(
+        public ArmatureBoneData() { }
+
+        public ArmatureBoneData(
             string path,
-            string parentPath,
             Vector3 fbxLocalTranslation,
             Vector3 fbxLocalEulerRotation,
             Vector3 fbxLocalScale,
             bool createIfMissing)
         {
             m_Path = MeshNodePath.Normalize(path);
-            m_ParentPath = MeshNodePath.Normalize(parentPath);
             m_FbxLocalTranslation = fbxLocalTranslation;
             m_FbxLocalEulerRotation = fbxLocalEulerRotation;
             m_FbxLocalScale = fbxLocalScale;
@@ -35,14 +36,12 @@ namespace Triturbo.BlendShare.Features.SkinWeights
     }
 
     [PreferBinarySerialization]
-    public sealed class BoneGraphObject : ScriptableObject
+    public sealed class ArmatureObject : ScriptableObject
     {
-        public const string Id = "bone-graph";
-
         [SerializeField, NonReorderable]
-        private List<BoneNodeData> m_Bones = new();
+        private List<ArmatureBoneData> m_Bones = new();
 
-        public IReadOnlyList<BoneNodeData> Bones => m_Bones;
+        public IReadOnlyList<ArmatureBoneData> Bones => m_Bones;
         public int BoneCount => m_Bones?.Count ?? 0;
 
         public void Sanitize()
@@ -64,7 +63,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return -1;
         }
 
-        public BoneNodeData GetBone(string path)
+        public ArmatureBoneData GetBone(string path)
         {
             int index = GetBoneIndex(path);
             return index >= 0 ? m_Bones[index] : null;
@@ -75,7 +74,18 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return GetBoneIndex(path) >= 0;
         }
 
-        public int GetOrAddBone(BoneNodeData bone)
+        public IEnumerable<string> GetBonePathsInHierarchyOrder()
+        {
+            return (m_Bones ?? new List<ArmatureBoneData>())
+                .Where(bone => bone != null)
+                .Select(bone => bone.Path)
+                .Where(path => path != MeshNodePath.Root)
+                .Distinct()
+                .OrderBy(path => path.Count(character => character == '/'))
+                .ThenBy(path => path, System.StringComparer.Ordinal);
+        }
+
+        public int GetOrAddBone(ArmatureBoneData bone)
         {
             if (bone == null || string.IsNullOrWhiteSpace(bone.m_Path))
             {
@@ -89,25 +99,24 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return existingIndex;
             }
 
-            m_Bones ??= new List<BoneNodeData>();
+            m_Bones ??= new List<ArmatureBoneData>();
             m_Bones.Add(bone);
             return m_Bones.Count - 1;
         }
 
-        public void SetBones(IEnumerable<BoneNodeData> bones)
+        public void SetBones(IEnumerable<ArmatureBoneData> bones)
         {
             m_Bones = bones?
                 .Where(bone => bone != null && !string.IsNullOrWhiteSpace(bone.m_Path))
                 .Select(Normalize)
                 .GroupBy(bone => bone.m_Path)
                 .Select(group => group.First())
-                .ToList() ?? new List<BoneNodeData>();
+                .ToList() ?? new List<ArmatureBoneData>();
         }
 
-        private static BoneNodeData Normalize(BoneNodeData bone)
+        private static ArmatureBoneData Normalize(ArmatureBoneData bone)
         {
             bone.m_Path = MeshNodePath.Normalize(bone.m_Path);
-            bone.m_ParentPath = MeshNodePath.Normalize(bone.m_ParentPath);
             if (bone.m_FbxLocalScale == Vector3.zero)
             {
                 bone.m_FbxLocalScale = Vector3.one;

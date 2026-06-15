@@ -16,10 +16,10 @@ namespace Triturbo.BlendShare.Core
         private readonly List<Object> generatedObjects = new();
         private readonly Dictionary<string, Object> generatedObjectsByKey = new();
         private readonly Dictionary<string, UnityMeshSkinBindingOutput> skinBindingsByMeshKey = new();
-        private readonly Dictionary<string, BoneNodeData> armatureBonesByPath = new();
+        private readonly Dictionary<string, ArmatureBoneData> armatureBonesByPath = new();
         private readonly Dictionary<string, Transform> transformsByPath = new();
         private readonly HashSet<string> completedSteps = new();
-        private BoneGraphObject armature;
+        private ArmatureObject armature;
 
         public Object TargetMeshContainer { get; }
         public IReadOnlyList<BlendShareObject> Patches { get; }
@@ -28,7 +28,7 @@ namespace Triturbo.BlendShare.Core
         public IBlendShareProgress Progress { get; }
         public IReadOnlyList<Object> GeneratedObjects => generatedObjects;
         public IReadOnlyDictionary<string, UnityMeshSkinBindingOutput> SkinBindingsByMeshKey => skinBindingsByMeshKey;
-        public BoneGraphObject Armature => armature;
+        public ArmatureObject Armature => armature;
 
         /// <summary>
         /// Creates a generation session for a target mesh container and a set of BlendShare assets.
@@ -126,9 +126,9 @@ namespace Triturbo.BlendShare.Core
             return skinBindingsByMeshKey.TryGetValue(MeshNodePath.Normalize(meshKey), out binding);
         }
 
-        public void AddArmatureBones(IEnumerable<BoneNodeData> bones)
+        public void AddArmatureBones(IEnumerable<ArmatureBoneData> bones)
         {
-            foreach (var bone in bones ?? System.Array.Empty<BoneNodeData>())
+            foreach (var bone in bones ?? System.Array.Empty<ArmatureBoneData>())
             {
                 if (bone == null)
                 {
@@ -149,7 +149,7 @@ namespace Triturbo.BlendShare.Core
 
             if (armature == null)
             {
-                armature = ScriptableObject.CreateInstance<BoneGraphObject>();
+                armature = ScriptableObject.CreateInstance<ArmatureObject>();
                 armature.name = "Armature";
                 AddObject("Armature", armature);
             }

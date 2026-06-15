@@ -258,7 +258,7 @@ namespace Triturbo.BlendShare.NDMF
                     AppendObject(builder, ":meshData:", context.Observe(applier, item => item.MeshData));
                     foreach (var binding in applier?.BoneProxyBindings ?? System.Array.Empty<BlendShareBoneProxyBinding>())
                     {
-                        AppendObject(builder, ":bindingGraph:", binding?.BoneGraph);
+                        AppendObject(builder, ":bindingArmature:", binding?.Armature);
                         builder.Append(":bindingPath:").Append(binding?.SourceBonePath);
                         AppendObject(builder, ":bindingProxy:", binding?.Proxy);
                         AppendProxyState(builder, binding?.Proxy, context);
@@ -417,7 +417,7 @@ namespace Triturbo.BlendShare.NDMF
                         continue;
                     }
 
-                    context.Observe(binding.BoneGraph);
+                    context.Observe(binding.Armature);
                     context.Observe(binding.Proxy);
                 }
             }

@@ -144,12 +144,12 @@ namespace Triturbo.BlendShare.NDMF
                 var mapping = GetFbxToUnityMapping(meshApplier);
                 foreach (var binding in meshApplier.BoneProxyBindings)
                 {
-                    if (binding?.Proxy != proxy || binding.BoneGraph == null)
+                    if (binding?.Proxy != proxy || binding.Armature == null)
                     {
                         continue;
                     }
 
-                    var bone = binding.BoneGraph.GetBone(binding.SourceBonePath);
+                    var bone = binding.Armature.GetBone(binding.SourceBonePath);
                     if (bone == null)
                     {
                         continue;

@@ -430,7 +430,7 @@ namespace Triturbo.BlendShare.Persistence
             Object targetSource,
             IReadOnlyCollection<BlendShareObject> appliedPatches,
             IEnumerable<BlendShareMeshDescriptor> meshDescriptors,
-            BoneGraphObject armature,
+            ArmatureObject armature,
             string path)
         {
             var descriptors = (meshDescriptors ?? Enumerable.Empty<BlendShareMeshDescriptor>())
@@ -467,9 +467,9 @@ namespace Triturbo.BlendShare.Persistence
                     .GroupBy(mesh => mesh.name)
                     .ToDictionary(group => group.Key, group => group.First());
                 var existingArmature = existingSubAssets
-                    .OfType<BoneGraphObject>()
+                    .OfType<ArmatureObject>()
                     .FirstOrDefault(candidate => candidate.name == "Armature") ??
-                    existingSubAssets.OfType<BoneGraphObject>().FirstOrDefault();
+                    existingSubAssets.OfType<ArmatureObject>().FirstOrDefault();
 
                 foreach (var descriptor in descriptors)
                 {
@@ -501,14 +501,14 @@ namespace Triturbo.BlendShare.Persistence
 
                 var armatureToSave = existingArmature != null
                     ? existingArmature
-                    : ScriptableObject.CreateInstance<BoneGraphObject>();
+                    : ScriptableObject.CreateInstance<ArmatureObject>();
                 armatureToSave.name = "Armature";
-                armatureToSave.SetBones(armature?.Bones ?? Array.Empty<BoneNodeData>());
+                armatureToSave.SetBones(armature?.Bones ?? Array.Empty<ArmatureBoneData>());
                 if (existingArmature == null)
                 {
                     AssetDatabase.AddObjectToAsset(armatureToSave, artifact);
                 }
-                foreach (var staleArmature in existingSubAssets.OfType<BoneGraphObject>())
+                foreach (var staleArmature in existingSubAssets.OfType<ArmatureObject>())
                 {
                     if (staleArmature != armatureToSave)
                     {
@@ -554,7 +554,7 @@ namespace Triturbo.BlendShare.Persistence
         private static bool ApplySkinBinding(
             SkinnedMeshRenderer renderer,
             BlendShareSkinBindingDescriptor skinBinding,
-            BoneGraphObject armature,
+            ArmatureObject armature,
             Transform targetRoot,
             Transform bonePathRoot,
             Dictionary<string, Transform> transformsByPath,
@@ -617,7 +617,7 @@ namespace Triturbo.BlendShare.Persistence
 
         private static Transform ResolveBindingTransform(
             string path,
-            BoneGraphObject armature,
+            ArmatureObject armature,
             Transform targetRoot,
             Dictionary<string, Transform> transformsByPath,
             IReadOnlyDictionary<string, Transform> originalBonesByPath,
@@ -667,7 +667,7 @@ namespace Triturbo.BlendShare.Persistence
 
         private static Transform ResolveOrCreateGeneratedBone(
             string path,
-            BoneGraphObject armature,
+            ArmatureObject armature,
             Transform targetRoot,
             Dictionary<string, Transform> transformsByPath,
             IReadOnlyDictionary<string, Transform> originalBonesByPath,
@@ -712,11 +712,11 @@ namespace Triturbo.BlendShare.Persistence
 
             if (!resolving.Add(path))
             {
-                result.AddDiagnostic($"Bone graph contains a parent cycle at '{path}'.");
+                result.AddDiagnostic($"Armature contains a parent cycle at '{path}'.");
                 return null;
             }
 
-            string parentPath = MeshNodePath.Normalize(bone.m_ParentPath);
+            string parentPath = bone.ParentPath;
             var parent = ResolveGeneratedBoneParent(
                 parentPath,
                 armature,
@@ -768,7 +768,7 @@ namespace Triturbo.BlendShare.Persistence
 
         private static Transform ResolveGeneratedBoneParent(
             string parentPath,
-            BoneGraphObject armature,
+            ArmatureObject armature,
             Transform targetRoot,
             Dictionary<string, Transform> transformsByPath,
             IReadOnlyDictionary<string, Transform> originalBonesByPath,
@@ -807,7 +807,7 @@ namespace Triturbo.BlendShare.Persistence
             return ResolveTransform(transformsByPath, targetRoot, parentPath) ?? targetRoot;
         }
 
-        private static bool IsCompatibleGeneratedBone(Transform existing, Transform intendedParent, BoneNodeData bone)
+        private static bool IsCompatibleGeneratedBone(Transform existing, Transform intendedParent, ArmatureBoneData bone)
         {
             if (existing == null || bone == null || existing.parent != intendedParent)
             {
@@ -912,11 +912,11 @@ namespace Triturbo.BlendShare.Persistence
             public Dictionary<string, Transform> GeneratedBonesByArtifactPath { get; } = new();
         }
 
-        private static BoneGraphObject BuildArmatureArtifact(
+        private static ArmatureObject BuildArmatureArtifact(
             IEnumerable<BlendShareObject> patches,
             Func<BlendShareObject, MeshDataObject, bool> shouldGenerateMesh = null)
         {
-            var artifact = ScriptableObject.CreateInstance<BoneGraphObject>();
+            var artifact = ScriptableObject.CreateInstance<ArmatureObject>();
             artifact.name = "Armature";
             artifact.SetBones((patches ?? Enumerable.Empty<BlendShareObject>())
                 .Where(patch => patch != null)
@@ -928,8 +928,8 @@ namespace Triturbo.BlendShare.Persistence
                         Feature = meshData.GetFeature<SkinWeightFeatureObject>(),
                         Mapping = GetFbxToUnityMapping(meshData)
                     }))
-                .Where(item => item.Feature?.m_BoneGraph != null)
-                .SelectMany(item => (item.Feature.m_BoneGraph.Bones ?? Array.Empty<BoneNodeData>())
+                .Where(item => item.Feature?.Armature != null)
+                .SelectMany(item => (item.Feature.Armature.Bones ?? Array.Empty<ArmatureBoneData>())
                     .Where(bone => bone != null)
                     .Select(bone => new { Bone = bone, item.Mapping }))
                 .GroupBy(item => MeshNodePath.Normalize(item.Bone.m_Path))
@@ -937,9 +937,8 @@ namespace Triturbo.BlendShare.Persistence
                 {
                     var item = group.First();
                     var bone = item.Bone;
-                    return new BoneNodeData(
+                    return new ArmatureBoneData(
                         bone.m_Path,
-                        bone.m_ParentPath,
                         item.Mapping != null ? item.Mapping.ConvertFbxVectorToUnity(bone.m_FbxLocalTranslation) : bone.m_FbxLocalTranslation,
                         bone.m_FbxLocalEulerRotation,
                         bone.m_FbxLocalScale,

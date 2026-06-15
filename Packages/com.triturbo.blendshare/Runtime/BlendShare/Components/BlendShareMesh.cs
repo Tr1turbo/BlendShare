@@ -17,15 +17,15 @@ namespace Triturbo.BlendShare.Components
         private string m_SourceBonePath;
 
         [SerializeField, NotKeyable]
-        private BoneGraphObject m_BoneGraph;
+        private ArmatureObject m_Armature;
 
         [SerializeField, NotKeyable]
         private BlendShareBoneProxy m_Proxy;
 
-        public BoneGraphObject BoneGraph
+        public ArmatureObject Armature
         {
-            get => m_BoneGraph;
-            set => m_BoneGraph = value;
+            get => m_Armature;
+            set => m_Armature = value;
         }
 
         public string SourceBonePath
@@ -40,9 +40,9 @@ namespace Triturbo.BlendShare.Components
             set => m_Proxy = value;
         }
 
-        public bool Matches(BoneGraphObject boneGraph, string sourceBonePath)
+        public bool Matches(ArmatureObject armature, string sourceBonePath)
         {
-            return m_BoneGraph == boneGraph &&
+            return m_Armature == armature &&
                    SourceBonePath == MeshNodePath.Normalize(sourceBonePath);
         }
 
@@ -168,13 +168,13 @@ namespace Triturbo.BlendShare.Components
         public void SetBoneProxyBindings(IEnumerable<BlendShareBoneProxyBinding> bindings)
         {
             m_BoneProxyBindings = (bindings ?? Enumerable.Empty<BlendShareBoneProxyBinding>())
-                .Where(binding => binding != null && binding.BoneGraph != null && !string.IsNullOrWhiteSpace(binding.SourceBonePath))
+                .Where(binding => binding != null && binding.Armature != null && !string.IsNullOrWhiteSpace(binding.SourceBonePath))
                 .Select(binding =>
                 {
                     binding.Sanitize();
                     return binding;
                 })
-                .GroupBy(binding => $"{binding.BoneGraph.GetInstanceID()}:{binding.SourceBonePath}")
+                .GroupBy(binding => $"{binding.Armature.GetInstanceID()}:{binding.SourceBonePath}")
                 .Select(group => group.First())
                 .ToList();
         }
@@ -231,14 +231,14 @@ namespace Triturbo.BlendShare.Components
         }
 
         public bool TryGetBoneProxyBinding(
-            BoneGraphObject boneGraph,
+            ArmatureObject armature,
             string sourceBonePath,
             out BlendShareBoneProxyBinding binding)
         {
             string normalizedPath = MeshNodePath.Normalize(sourceBonePath);
             binding = BoneProxyBindings.FirstOrDefault(item =>
                 item != null &&
-                item.BoneGraph == boneGraph &&
+                item.Armature == armature &&
                 item.SourceBonePath == normalizedPath);
             return binding != null;
         }

@@ -824,7 +824,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     continue;
                 }
 
-                string parent = GetParentPath(selected);
+                string parent = MeshNodePath.ParentPath(selected);
                 while (parent != MeshNodePath.Root)
                 {
                     if (parent == normalized &&
@@ -834,23 +834,11 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                         return true;
                     }
 
-                    parent = GetParentPath(parent);
+                    parent = MeshNodePath.ParentPath(parent);
                 }
             }
 
             return false;
-        }
-
-        private static string GetParentPath(string path)
-        {
-            string normalized = MeshNodePath.Normalize(path);
-            if (normalized == MeshNodePath.Root)
-            {
-                return MeshNodePath.Root;
-            }
-
-            int separator = normalized.LastIndexOf('/');
-            return separator > 0 ? normalized.Substring(0, separator) : MeshNodePath.Root;
         }
 
         private static string GetBoneName(string path)

@@ -48,6 +48,18 @@ namespace Triturbo.BlendShare.Core
             return separator >= 0 ? normalized.Substring(separator + 1) : normalized;
         }
 
+        public static string ParentPath(string path)
+        {
+            string normalized = Normalize(path);
+            if (normalized == Root)
+            {
+                return Root;
+            }
+
+            int separator = normalized.LastIndexOf('/');
+            return separator >= 0 ? normalized.Substring(0, separator) : Root;
+        }
+
         public static string GetRelativePath(Transform target, Transform root)
         {
             if (target == null || root == null || target == root)

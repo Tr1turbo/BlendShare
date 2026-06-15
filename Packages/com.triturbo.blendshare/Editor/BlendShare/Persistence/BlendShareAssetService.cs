@@ -24,7 +24,7 @@ namespace Triturbo.BlendShare.Persistence
             Directory.CreateDirectory(Path.GetDirectoryName(path) ?? "Assets");
 
             var meshArray = meshes?.Where(mesh => mesh != null).ToArray() ?? System.Array.Empty<MeshDataObject>();
-            var boneGraphs = CollectBoneGraphs(meshArray);
+            var armatures = CollectArmatures(meshArray);
             var existing = AssetDatabase.LoadAssetAtPath<BlendShareObject>(path);
             BlendShareObject asset = existing != null ? existing : source;
 
@@ -46,10 +46,10 @@ namespace Triturbo.BlendShare.Persistence
                 asset.name = Path.GetFileNameWithoutExtension(path);
                 RemoveOldSubAssets(path, asset);
 
-                for (int i = 0; i < boneGraphs.Length; i++)
+                for (int i = 0; i < armatures.Length; i++)
                 {
-                    boneGraphs[i].name = GetBoneGraphSubAssetName(i);
-                    AddSubAsset(boneGraphs[i], asset, true);
+                    armatures[i].name = GetArmatureSubAssetName(i);
+                    AddSubAsset(armatures[i], asset, false);
                 }
 
                 foreach (var mesh in meshArray)
@@ -172,13 +172,13 @@ namespace Triturbo.BlendShare.Persistence
             EditorUtility.SetDirty(subAsset);
         }
 
-        private static BoneGraphObject[] CollectBoneGraphs(IEnumerable<MeshDataObject> meshes)
+        private static ArmatureObject[] CollectArmatures(IEnumerable<MeshDataObject> meshes)
         {
             return (meshes ?? Enumerable.Empty<MeshDataObject>())
                 .SelectMany(mesh => mesh?.Features ?? System.Array.Empty<MeshFeatureObject>())
                 .OfType<SkinWeightFeatureObject>()
-                .Select(feature => feature.m_BoneGraph)
-                .Where(graph => graph != null)
+                .Select(feature => feature.Armature)
+                .Where(armature => armature != null)
                 .Distinct()
                 .ToArray();
         }
@@ -194,7 +194,7 @@ namespace Triturbo.BlendShare.Persistence
 
                 if (subAsset is MeshDataObject ||
                     subAsset is MeshFeatureObject ||
-                    subAsset is BoneGraphObject ||
+                    subAsset is ArmatureObject ||
                     subAsset is UnityVertexMappingObject ||
                     subAsset.name.StartsWith("Preset_"))
                 {
@@ -203,9 +203,9 @@ namespace Triturbo.BlendShare.Persistence
             }
         }
 
-        private static string GetBoneGraphSubAssetName(int index)
+        private static string GetArmatureSubAssetName(int index)
         {
-            return index == 0 ? "BoneGraph" : $"BoneGraph_{index}";
+            return index == 0 ? "Armature" : $"Armature_{index}";
         }
 
         private static string GetMeshSubAssetName(MeshDataObject mesh)
