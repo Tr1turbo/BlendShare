@@ -1,0 +1,528 @@
+msgid ""
+msgstr ""
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: zh-Hant\n"
+
+msgid "locale:zh-Hant"
+msgstr "繁體中文"
+
+msgid "blendshape_selection.blendshape_names"
+msgstr "型態鍵名稱"
+
+msgid "blendshape_selection.mesh_name"
+msgstr "網格名稱"
+
+msgid "blendshape_selection.name"
+msgstr "名稱"
+
+msgid "blendshape_selection.title"
+msgstr "型態鍵選擇"
+
+msgid "blendshapes"
+msgstr "型態鍵"
+
+msgid "data.apply_blendshapes"
+msgstr "套用型態鍵"
+
+msgid "data.apply_blendshapes_as_new_fbx"
+msgstr "以新 FBX 套用型態鍵"
+
+msgid "data.apply_blendshapes_as_new_fbx.tooltip"
+msgstr "複製原始 FBX，並將型態鍵套用到新副本。"
+
+msgid "data.apply_blendshapes.tooltip"
+msgstr "將清單中的型態鍵套用到原始 FBX。"
+
+msgid "data.apply_blendshapes.tooltip_locked_message"
+msgstr "\n（此按鈕目前已停用，因為型態鍵已套用到 FBX。按下「編輯」可強制啟用。）"
+
+msgid "data.armature.created_count"
+msgstr "要建立的骨骼"
+
+msgid "data.armature.title"
+msgstr "骨骼圖"
+
+msgid "data.artifact_mapping.invalid"
+msgstr "有 {0} 個網格路徑沒有適用於原始 FBX 的有效 Unity 頂點映射。請先建立映射再生成成品。"
+
+msgid "data.artifact_mapping.mesh_missing"
+msgstr "有 {0} 個 BlendShare 網格路徑在原始 FBX 中找不到。"
+
+msgid "data.artifact_mapping.original_missing"
+msgstr "建立 BlendShare 成品前請選擇原始 FBX。"
+
+msgid "data.artifact_mapping.target_unreadable"
+msgstr "無法讀取原始 FBX 網格以驗證映射。"
+
+msgid "data.blendshape_count_summary"
+msgstr "型態鍵：已啟用 {0}/{1}"
+
+msgid "data.blendshape_filter"
+msgstr "篩選"
+
+msgid "data.blendshape_filter_no_results"
+msgstr "沒有型態鍵符合目前篩選條件。"
+
+msgid "data.blendshape_filter.tooltip"
+msgstr "依名稱篩選型態鍵。批次操作只會影響目前顯示的列。"
+
+msgid "data.blendshape_readonly_count_summary"
+msgstr "型態鍵：{0}"
+
+msgid "data.blendshape_selection.active"
+msgstr "目前選擇"
+
+msgid "data.blendshape_selection.all"
+msgstr "全部型態鍵"
+
+msgid "data.blendshape_selection.delete"
+msgstr "刪除"
+
+msgid "data.blendshape_selection.delete_message"
+msgstr "要刪除選擇「{0}」嗎？目前啟用的型態鍵清單會保持不變。"
+
+msgid "data.blendshape_selection.delete_title"
+msgstr "刪除型態鍵選擇"
+
+msgid "data.blendshape_selection.delete.tooltip"
+msgstr "刪除目前儲存的選擇。目前啟用的型態鍵清單會保持不變。"
+
+msgid "data.blendshape_selection.issue_warning"
+msgstr "所選網格選擇包含遺失或重複的型態鍵名稱。使用時將略過無效名稱。"
+
+msgid "data.blendshape_selection.name_prompt"
+msgstr "選擇名稱"
+
+msgid "data.blendshape_selection.revert_changes"
+msgstr "還原變更"
+
+msgid "data.blendshape_selection.save_as_new"
+msgstr "另存為新選擇..."
+
+msgid "data.blendshape_selection.save_changes"
+msgstr "儲存變更"
+
+msgid "data.blendshape_selection.save_title"
+msgstr "儲存型態鍵選擇"
+
+msgid "data.blendshape_selection.title"
+msgstr "型態鍵選擇"
+
+msgid "data.blendshape_selection.unsaved_working_set"
+msgstr "未儲存的工作集"
+
+msgid "data.blendshape_selection.unsaved_working_set.message"
+msgstr "網格「{0}」的目前工作集有未儲存的變更。是否在載入其他選擇前儲存？"
+
+msgid "data.blendshape_status"
+msgstr "共 {1} 個，已啟用 {0} 個（顯示 {2} 個）"
+
+msgid "data.bulk_toggle_mode_hint"
+msgstr "切換模式用於快速篩選以及批次啟用或禁用。重新啟用的型態鍵會加入目前啟用清單。"
+
+msgid "data.create_artifact"
+msgstr "建立 BlendShare 成品"
+
+msgid "data.create_artifact.tooltip"
+msgstr "建立包含生成網格與蒙皮綁定描述子的 BlendShare 成品。"
+
+msgid "data.create_mappings"
+msgstr "建立 Unity 頂點映射"
+
+msgid "data.create_mappings.failed.title"
+msgstr "映射建立失敗"
+
+msgid "data.create_mappings.success.message"
+msgstr "已建立 {0} 個 Unity 頂點映射。"
+
+msgid "data.create_mappings.success.title"
+msgstr "映射已建立"
+
+msgid "data.create_meshes"
+msgstr "生成網格"
+
+msgid "data.create_meshes.tooltip"
+msgstr "生成包含清單中型態鍵的新網格資產。"
+
+msgid "data.created_by"
+msgstr "Triturbo 製作的型態鍵分享工具"
+
+msgid "data.dialog.apply_blendshapes.message"
+msgstr "這將把清單中的型態鍵套用到原始 GameObject。是否繼續？"
+
+msgid "data.dialog.apply_blendshapes.title"
+msgstr "套用型態鍵"
+
+msgid "data.dialog.cancel"
+msgstr "取消"
+
+msgid "data.dialog.delete"
+msgstr "刪除"
+
+msgid "data.dialog.discard"
+msgstr "捨棄"
+
+msgid "data.dialog.fbx_missing.message"
+msgstr "原始 FBX 檔案遺失。請匯入資產或指定一個 FBX 至「原始」。"
+
+msgid "data.dialog.fbx_missing.title"
+msgstr "原始 FBX 遺失"
+
+msgid "data.dialog.mesh_vertices_not_match.message"
+msgstr "頂點不相符，無法建立網格。請匯入 FBX SDK 並建立 FBX 檔案。"
+
+msgid "data.dialog.mesh_vertices_not_match.title"
+msgstr "Unity 網格頂點不相符"
+
+msgid "data.dialog.ok"
+msgstr "確定"
+
+msgid "data.dialog.remove_blendshapes.message"
+msgstr "這將從原始 GameObject 中移除清單中的型態鍵。是否繼續？"
+
+msgid "data.dialog.remove_blendshapes.title"
+msgstr "移除型態鍵"
+
+msgid "data.dialog.save"
+msgstr "儲存"
+
+msgid "data.dialog.yes"
+msgstr "是"
+
+msgid "data.edit"
+msgstr "編輯"
+
+msgid "data.edit_mode"
+msgstr "編輯模式"
+
+msgid "data.edit_mode.bulk_toggle"
+msgstr "切換"
+
+msgid "data.edit_mode.order_adjust"
+msgstr "排序"
+
+msgid "data.edit_mode.tooltip"
+msgstr "在手動排序編輯與批次型態鍵切換之間切換。"
+
+msgid "data.enable_all_blendshapes"
+msgstr "全部啟用"
+
+msgid "data.enable_all_blendshapes.tooltip"
+msgstr "啟用此網格上的所有型態鍵。"
+
+msgid "data.enable_visible_blendshapes"
+msgstr "啟用可見項"
+
+msgid "data.enable_visible_blendshapes.tooltip"
+msgstr "啟用目前顯示的所有型態鍵。"
+
+msgid "data.fbx_sdk_missing"
+msgstr "缺少 Autodesk FBX SDK。FBX 操作功能將被停用。"
+
+msgid "data.hidden_settings"
+msgstr "隱藏設定"
+
+msgid "data.hidden_settings.applied"
+msgstr "已套用"
+
+msgid "data.hidden_settings.applied.tooltip"
+msgstr "表示使用者是否已將型態鍵套用到 FBX。"
+
+msgid "data.hidden_settings.default_asset_name"
+msgstr "預設資產名稱"
+
+msgid "data.hidden_settings.default_asset_name.tooltip"
+msgstr "生成資產的預設名稱。"
+
+msgid "data.hidden_settings.deformer_id"
+msgstr "變形器 ID"
+
+msgid "data.hidden_settings.patch_id"
+msgstr "修補 ID"
+
+msgid "data.lock"
+msgstr "鎖定"
+
+msgid "data.mute_all_blendshapes"
+msgstr "全部禁用"
+
+msgid "data.mute_all_blendshapes.tooltip"
+msgstr "禁用此網格上的所有型態鍵。"
+
+msgid "data.mute_blendshape"
+msgstr "禁用"
+
+msgid "data.mute_visible_blendshapes"
+msgstr "禁用可見項"
+
+msgid "data.mute_visible_blendshapes.tooltip"
+msgstr "禁用目前顯示的所有型態鍵。"
+
+msgid "data.open_advanced_generator"
+msgstr "開啟進階型態鍵生成器"
+
+msgid "data.open_advanced_generator.tooltip"
+msgstr "開啟進階型態鍵產生器，將多個 BlendShape 資料資產中的型態鍵合併生成新的網格。"
+
+msgid "data.order_adjust_mode_hint"
+msgstr "排序模式只編輯目前啟用清單。拖曳可排序，使用減號按鈕可禁用選取的型態鍵。"
+
+msgid "data.original_fbx"
+msgstr "原始 FBX"
+
+msgid "data.original_fbx.tooltip"
+msgstr "用於生成網格的原始 FBX GameObject 資產。"
+
+msgid "data.remove_blendshapes"
+msgstr "移除型態鍵"
+
+msgid "data.remove_blendshapes.tooltip"
+msgstr "移除原始FBX中清單中的型態鍵。"
+
+msgid "data.remove_blendshapes.tooltip_locked_message"
+msgstr "\n（此按鈕目前已停用，因為型態鍵未套用到 FBX。按下「編輯」可強制啟用。）"
+
+msgid "data.reset_blendshapes"
+msgstr "重設型態鍵"
+
+msgid "data.reset_blendshapes.tooltip"
+msgstr "將型態鍵清單還原至原始狀態。"
+
+msgid "data.save_artifact.title"
+msgstr "儲存 BlendShare 成品"
+
+msgid "data.save_fbx.title"
+msgstr "儲存 FBX"
+
+msgid "data.save_file.message"
+msgstr "請輸入檔案名稱"
+
+msgid "data.save_mesh.title"
+msgstr "儲存網格"
+
+msgid "data.skin_weights.bone_count"
+msgstr "叢集"
+
+msgid "data.skin_weights.root_bone"
+msgstr "根骨骼"
+
+msgid "data.skin_weights.title"
+msgstr "蒙皮權重"
+
+msgid "data.skin_weights.weighted_control_points"
+msgstr "帶權重控制點"
+
+msgid "extractor.apply_rotation"
+msgstr "套用旋轉"
+
+msgid "extractor.apply_scale"
+msgstr "套用縮放"
+
+msgid "extractor.apply_transform"
+msgstr "套用變換"
+
+msgid "extractor.apply_transform.tooltip"
+msgstr "在計算 BlendShape 頂點位移前，將 Object 的變換套用到網格上。如果 BlendShape 出現方向問題，請嘗試啟用「套用旋轉」以進行修正。"
+
+msgid "extractor.apply_translate"
+msgstr "套用位移"
+
+msgid "extractor.base_mesh"
+msgstr "基礎網格"
+
+msgid "extractor.base_mesh.tooltip"
+msgstr "用於計算 BlendShape 頂點位移的基礎網格"
+
+msgid "extractor.compare_method"
+msgstr "比較方式"
+
+msgid "extractor.default_asset_name"
+msgstr "預設資產名稱"
+
+msgid "extractor.deformer_id"
+msgstr "變形器 ID"
+
+msgid "extractor.enum.base_mesh.original"
+msgstr "原始"
+
+msgid "extractor.enum.base_mesh.source"
+msgstr "來源"
+
+msgid "extractor.enum.compare_method.custom"
+msgstr "自訂"
+
+msgid "extractor.enum.compare_method.custom.tooltip"
+msgstr "可手動切換要單獨提取的 BlendShape。"
+
+msgid "extractor.enum.compare_method.index"
+msgstr "索引"
+
+msgid "extractor.enum.compare_method.index.tooltip"
+msgstr "依索引比較。如果 BlendShape 數量多於原始 FBX，BlendShare 會從尾端提取 BlendShape。"
+
+msgid "extractor.enum.compare_method.name"
+msgstr "名稱"
+
+msgid "extractor.enum.compare_method.name.tooltip"
+msgstr "依名稱比較。如果來源 FBX 中有新的 BlendShape，BlendShare 將會提取它們。"
+
+msgid "extractor.file_unit_warning"
+msgstr "FBX 檔案單位不一致，可能會導致問題\n原始：{0}\n來源：{1}"
+
+msgid "extractor.patch_id"
+msgstr "補丁 ID"
+
+msgid "lang"
+msgstr "語言"
+
+msgid "mesh_asset.applied_blendshapes"
+msgstr "已套用的型態鍵資料"
+
+msgid "mesh_asset.assign_meshes"
+msgstr "指派網格"
+
+msgid "mesh_asset.assign_meshes.dialog.is_fbx.message"
+msgstr "所選物件為 FBX 資產。\nFBX 資產內網格資產為唯讀狀態，無法直接編輯。\n請在場景中實例化 FBX 遊戲物件以進行修改。"
+
+msgid "mesh_asset.assign_meshes.dialog.is_fbx.title"
+msgstr "已選取 FBX 資產"
+
+msgid "mesh_asset.assign_meshes.is_prefab"
+msgstr "所選物件為預製件。\n編輯此物件將會修改預製件本身，而非場景中的實例。\n是否要直接編輯預製件資產？"
+
+msgid "mesh_asset.assign_meshes.target_go"
+msgstr "目標遊戲物件"
+
+msgid "mesh_asset.assign_meshes.to_go_btn"
+msgstr "指派網格至目標遊戲物件"
+
+msgid "mesh_asset.assign_meshes.to_prefab_btn"
+msgstr "指派網格至目標預製件"
+
+msgid "mesh_asset.fbx_edited"
+msgstr "自從生成這些網格後，FBX 資產已被修改。\n對 FBX 的變更可能在重新生成或套用新的混合形狀時導致意外結果。"
+
+msgid "mesh_asset.read_only"
+msgstr "欄位為唯讀狀態。請按下「編輯」以修改中繼資料。"
+
+msgid "mesh_generator.blendshapes_data_list"
+msgstr "型態鍵資料清單"
+
+msgid "mesh_generator.blendshapes_data_list.tooltip"
+msgstr "清單中的所有型態鍵將被合併並套用至同一個模型。"
+
+msgid "mesh_generator.generate_fbx"
+msgstr "生成新的 FBX 資產"
+
+msgid "mesh_generator.generate_mesh"
+msgstr "生成新的網格資產"
+
+msgid "mesh_generator.mesh_generation_disable"
+msgstr "由於此資產的頂點順序不正確，無法用來生成網格資產。請改用 FBX 檔案。"
+
+msgid "mesh_generator.target_mesh_container"
+msgstr "目標網格容器"
+
+msgid "mesh_generator.target_mesh_container.tooltip"
+msgstr "指定要添加型態鍵的基礎模型。資產可以是 FBX 模型、由 BlendShare 生成的網格資產，或 Unity 網格。"
+
+msgid "new_extractor.assign_fbx_hint"
+msgstr "請指定原始 FBX 與來源 FBX 後再選擇功能。"
+
+msgid "new_extractor.failed.message"
+msgstr "BlendShare 提取失敗。"
+
+msgid "new_extractor.failed.title"
+msgstr "提取失敗"
+
+msgid "new_extractor.feature_options"
+msgstr "功能選項"
+
+msgid "new_extractor.invalid_mapping.message"
+msgstr "Unity 型態鍵生成可能會使用快取回退。FBX 型態鍵仍會儲存。"
+
+msgid "new_extractor.invalid_mapping.title"
+msgstr "Unity 頂點無法匹配"
+
+msgid "new_extractor.mesh_path"
+msgstr "網格路徑"
+
+msgid "new_extractor.meshes"
+msgstr "網格"
+
+msgid "new_extractor.missing_origin_mesh"
+msgstr "找不到「{0}」對應的原始網格。"
+
+msgid "new_extractor.no_meshes"
+msgstr "找不到相符的 Skinned Mesh。"
+
+msgid "new_extractor.no_selection.message"
+msgstr "儲存前請至少選擇一個功能。"
+
+msgid "new_extractor.no_selection.title"
+msgstr "未選擇功能"
+
+msgid "new_extractor.refresh"
+msgstr "重新整理網格"
+
+msgid "new_extractor.save_asset"
+msgstr "儲存 BlendShare 資產"
+
+msgid "new_extractor.save_title"
+msgstr "儲存 BlendShare 資產"
+
+msgid "new_extractor.title"
+msgstr "BlendShare 功能提取器"
+
+msgid "not_an_fbx_error"
+msgstr "所選檔案不是 FBX。"
+
+msgid "origin_fbx"
+msgstr "原始 FBX"
+
+msgid "origin_fbx.tooltip"
+msgstr "未經修改的原始 FBX 檔案。"
+
+msgid "skin_weights"
+msgstr "蒙皮權重"
+
+msgid "source_fbx"
+msgstr "來源 FBX"
+
+msgid "source_fbx.tooltip"
+msgstr "作為型態鍵來源的 FBX 檔案。"
+
+msgid "updater.dialog_cancel"
+msgstr "取消"
+
+msgid "updater.dialog_view_release"
+msgstr "查看發行版本"
+
+msgid "updater.dialog_yes_update"
+msgstr "是的，更新"
+
+msgid "updater.latest_version"
+msgstr "您已經擁有最新版本 ({0})。"
+
+msgid "updater.release_parse_failed"
+msgstr "無法解析 GitHub 發行版本資訊。"
+
+msgid "updater.update_available_body"
+msgstr "發現新版本可供更新！\n\n目前版本：{0}\n最新版本：{1}\n\n是否要下載並匯入更新？"
+
+msgid "updater.update_available_title"
+msgstr "BlendShare 有可用更新"
+
+msgid "updater.update_check_failed"
+msgstr "檢查更新失敗：\n{0}"
+
+msgid "updater.update_error"
+msgstr "發生錯誤：\n{0}"
+
+msgid "updater.update_no_unitypackage"
+msgstr "在最新版本中找不到 .unitypackage。"
+
+msgid "updater.update_title"
+msgstr "BlendShare 更新"

@@ -1,0 +1,528 @@
+msgid ""
+msgstr ""
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: en-US\n"
+
+msgid "locale:en-US"
+msgstr "English"
+
+msgid "blendshape_selection.blendshape_names"
+msgstr "BlendShape Names"
+
+msgid "blendshape_selection.mesh_name"
+msgstr "Mesh Name"
+
+msgid "blendshape_selection.name"
+msgstr "Name"
+
+msgid "blendshape_selection.title"
+msgstr "BlendShape Selection"
+
+msgid "blendshapes"
+msgstr "BlendShapes"
+
+msgid "data.apply_blendshapes"
+msgstr "Apply BlendShapes"
+
+msgid "data.apply_blendshapes_as_new_fbx"
+msgstr "Apply BlendShapes as new FBX"
+
+msgid "data.apply_blendshapes_as_new_fbx.tooltip"
+msgstr "Duplicate Original FBX and apply BlendShapes to the copy."
+
+msgid "data.apply_blendshapes.tooltip"
+msgstr "Add BlendShapes in the list to Original FBX."
+
+msgid "data.apply_blendshapes.tooltip_locked_message"
+msgstr "\n(Currently this button is disable since you are already apply BlendShapes to Fbx. Click Edit to force enable"
+
+msgid "data.armature.created_count"
+msgstr "Bones to Create"
+
+msgid "data.armature.title"
+msgstr "Armature"
+
+msgid "data.artifact_mapping.invalid"
+msgstr "{0} mesh path(s) do not have a valid Unity vertex mapping for the original FBX. Create mappings before generating an artifact."
+
+msgid "data.artifact_mapping.mesh_missing"
+msgstr "{0} BlendShare mesh path(s) were not found in the original FBX."
+
+msgid "data.artifact_mapping.original_missing"
+msgstr "Select an original FBX before creating a BlendShare artifact."
+
+msgid "data.artifact_mapping.target_unreadable"
+msgstr "The original FBX meshes could not be read for mapping validation."
+
+msgid "data.blendshape_count_summary"
+msgstr "BlendShapes: {0}/{1} enabled"
+
+msgid "data.blendshape_filter"
+msgstr "Filter"
+
+msgid "data.blendshape_filter_no_results"
+msgstr "No blendshapes match the current filter."
+
+msgid "data.blendshape_filter.tooltip"
+msgstr "Filter blendshapes by name. Bulk actions only affect the currently visible rows."
+
+msgid "data.blendshape_readonly_count_summary"
+msgstr "BlendShapes: {0}"
+
+msgid "data.blendshape_selection.active"
+msgstr "Active Selection"
+
+msgid "data.blendshape_selection.all"
+msgstr "All BlendShapes"
+
+msgid "data.blendshape_selection.delete"
+msgstr "Delete"
+
+msgid "data.blendshape_selection.delete_message"
+msgstr "Delete selection '{0}'? The current enabled BlendShape list will stay unchanged."
+
+msgid "data.blendshape_selection.delete_title"
+msgstr "Delete BlendShape Selection"
+
+msgid "data.blendshape_selection.delete.tooltip"
+msgstr "Delete the active saved selection. The current enabled BlendShape list stays unchanged."
+
+msgid "data.blendshape_selection.issue_warning"
+msgstr "The selected mesh selection contains missing or duplicate blendshape names. Invalid names will be skipped when used."
+
+msgid "data.blendshape_selection.name_prompt"
+msgstr "Selection Name"
+
+msgid "data.blendshape_selection.revert_changes"
+msgstr "Revert Changes"
+
+msgid "data.blendshape_selection.save_as_new"
+msgstr "Save As New..."
+
+msgid "data.blendshape_selection.save_changes"
+msgstr "Save Changes"
+
+msgid "data.blendshape_selection.save_title"
+msgstr "Save BlendShape Selection"
+
+msgid "data.blendshape_selection.title"
+msgstr "BlendShape Selections"
+
+msgid "data.blendshape_selection.unsaved_working_set"
+msgstr "Unsaved Working Set"
+
+msgid "data.blendshape_selection.unsaved_working_set.message"
+msgstr "The current working set for mesh '{0}' has unsaved changes. Save it before loading another selection?"
+
+msgid "data.blendshape_status"
+msgstr "{0} enabled of {1} total ({2} visible)"
+
+msgid "data.bulk_toggle_mode_hint"
+msgstr "Toggle mode is for fast filtering and mass enable or mute actions. Re-enabled blendshapes are appended to the active list."
+
+msgid "data.create_artifact"
+msgstr "Create BlendShare Artifact"
+
+msgid "data.create_artifact.tooltip"
+msgstr "Create a BlendShare artifact with generated meshes and skin binding descriptors."
+
+msgid "data.create_mappings"
+msgstr "Create Unity Vertex Mappings"
+
+msgid "data.create_mappings.failed.title"
+msgstr "Mapping Creation Failed"
+
+msgid "data.create_mappings.success.message"
+msgstr "Created {0} Unity vertex mapping(s)."
+
+msgid "data.create_mappings.success.title"
+msgstr "Mappings Created"
+
+msgid "data.create_meshes"
+msgstr "Create Meshes"
+
+msgid "data.create_meshes.tooltip"
+msgstr "Create new mesh assets with BlendShapes."
+
+msgid "data.created_by"
+msgstr "Blendshapes sharing tool created by Triturbo"
+
+msgid "data.dialog.apply_blendshapes.message"
+msgstr "This will add the listed BlendShapes to the original GameObject. Continue?"
+
+msgid "data.dialog.apply_blendshapes.title"
+msgstr "Apply BlendShapes"
+
+msgid "data.dialog.cancel"
+msgstr "Cancel"
+
+msgid "data.dialog.delete"
+msgstr "Delete"
+
+msgid "data.dialog.discard"
+msgstr "Discard"
+
+msgid "data.dialog.fbx_missing.message"
+msgstr "The original FBX file is missing. Please import the asset or assign an FBX to 'Original FBX'."
+
+msgid "data.dialog.fbx_missing.title"
+msgstr "Original FBX is missing."
+
+msgid "data.dialog.mesh_vertices_not_match.message"
+msgstr "Unable to create mesh since vertices not match. Please import FBX SDK and create FBX file"
+
+msgid "data.dialog.mesh_vertices_not_match.title"
+msgstr "Unity mesh vertices not match"
+
+msgid "data.dialog.ok"
+msgstr "OK"
+
+msgid "data.dialog.remove_blendshapes.message"
+msgstr "This will remove the listed BlendShapes from the original GameObject. Continue?"
+
+msgid "data.dialog.remove_blendshapes.title"
+msgstr "Remove BlendShapes"
+
+msgid "data.dialog.save"
+msgstr "Save"
+
+msgid "data.dialog.yes"
+msgstr "Yes"
+
+msgid "data.edit"
+msgstr " Edit "
+
+msgid "data.edit_mode"
+msgstr "Edit Mode"
+
+msgid "data.edit_mode.bulk_toggle"
+msgstr "Toggle"
+
+msgid "data.edit_mode.order_adjust"
+msgstr "Reorder"
+
+msgid "data.edit_mode.tooltip"
+msgstr "Switch between manual order editing and bulk blendshape toggling."
+
+msgid "data.enable_all_blendshapes"
+msgstr "Enable All"
+
+msgid "data.enable_all_blendshapes.tooltip"
+msgstr "Enable every blendshape on this mesh."
+
+msgid "data.enable_visible_blendshapes"
+msgstr "Enable Visible"
+
+msgid "data.enable_visible_blendshapes.tooltip"
+msgstr "Enable every currently visible blendshape."
+
+msgid "data.fbx_sdk_missing"
+msgstr "Autodesk FBX SDK is missing. FBX manipulate features will be disabled"
+
+msgid "data.hidden_settings"
+msgstr "Hidden Settings"
+
+msgid "data.hidden_settings.applied"
+msgstr "Applied"
+
+msgid "data.hidden_settings.applied.tooltip"
+msgstr "Indicate if user has applied BlendShapes to FBX."
+
+msgid "data.hidden_settings.default_asset_name"
+msgstr "Default Asset Name"
+
+msgid "data.hidden_settings.default_asset_name.tooltip"
+msgstr "Default name for generated asset."
+
+msgid "data.hidden_settings.deformer_id"
+msgstr "Deformer ID"
+
+msgid "data.hidden_settings.patch_id"
+msgstr "Patch ID"
+
+msgid "data.lock"
+msgstr "Lock"
+
+msgid "data.mute_all_blendshapes"
+msgstr "Mute All"
+
+msgid "data.mute_all_blendshapes.tooltip"
+msgstr "Mute every blendshape on this mesh."
+
+msgid "data.mute_blendshape"
+msgstr "Mute"
+
+msgid "data.mute_visible_blendshapes"
+msgstr "Mute Visible"
+
+msgid "data.mute_visible_blendshapes.tooltip"
+msgstr "Mute every currently visible blendshape."
+
+msgid "data.open_advanced_generator"
+msgstr "Open Advanced BlendShape Generator"
+
+msgid "data.open_advanced_generator.tooltip"
+msgstr "Open the Advanced BlendShape Generator to create a new mesh that combines BlendShapes from multiple BlendShape data assets."
+
+msgid "data.order_adjust_mode_hint"
+msgstr "Reorder mode edits the active list only. Drag to reorder, and use the minus button to mute selected blendshapes."
+
+msgid "data.original_fbx"
+msgstr "Original FBX"
+
+msgid "data.original_fbx.tooltip"
+msgstr "Original FBX GameObject asset used to generate meshes."
+
+msgid "data.remove_blendshapes"
+msgstr "Remove BlendShapes"
+
+msgid "data.remove_blendshapes.tooltip"
+msgstr "Remove BlendShapes in the list from Origin FBX."
+
+msgid "data.remove_blendshapes.tooltip_locked_message"
+msgstr "\n(Currently this button is disable since you are not apply BlendShapes to Fbx yet. Click Edit to force enable)"
+
+msgid "data.reset_blendshapes"
+msgstr "Reset BlendShapes"
+
+msgid "data.reset_blendshapes.tooltip"
+msgstr "Reset BlendShapes list to original"
+
+msgid "data.save_artifact.title"
+msgstr "Save BlendShare Artifact"
+
+msgid "data.save_fbx.title"
+msgstr "Save FBX"
+
+msgid "data.save_file.message"
+msgstr "Please enter a file name"
+
+msgid "data.save_mesh.title"
+msgstr "Save Mesh"
+
+msgid "data.skin_weights.bone_count"
+msgstr "Clusters"
+
+msgid "data.skin_weights.root_bone"
+msgstr "Root Bone"
+
+msgid "data.skin_weights.title"
+msgstr "Skin Weights"
+
+msgid "data.skin_weights.weighted_control_points"
+msgstr "Weighted Control Points"
+
+msgid "extractor.apply_rotation"
+msgstr "Apply Rotation"
+
+msgid "extractor.apply_scale"
+msgstr "Apply Scale"
+
+msgid "extractor.apply_transform"
+msgstr "Apply Transform"
+
+msgid "extractor.apply_transform.tooltip"
+msgstr "Apply the Object's transform to the meshes before calculating the BlendShapes vertices' offsets. If orientation issues occur with the BlendShapes, try enabling 'Apply Rotation' to correct them."
+
+msgid "extractor.apply_translate"
+msgstr "Apply Translate"
+
+msgid "extractor.base_mesh"
+msgstr "Base Mesh"
+
+msgid "extractor.base_mesh.tooltip"
+msgstr "Base mesh for calculating BlendShapes offset vertices"
+
+msgid "extractor.compare_method"
+msgstr "Compare Method"
+
+msgid "extractor.default_asset_name"
+msgstr "Default Asset Name"
+
+msgid "extractor.deformer_id"
+msgstr "Deformer ID"
+
+msgid "extractor.enum.base_mesh.original"
+msgstr "Original"
+
+msgid "extractor.enum.base_mesh.source"
+msgstr "Source"
+
+msgid "extractor.enum.compare_method.custom"
+msgstr "Custom"
+
+msgid "extractor.enum.compare_method.custom.tooltip"
+msgstr "Toggle which blendshapes should be extracted individually."
+
+msgid "extractor.enum.compare_method.index"
+msgstr "Index"
+
+msgid "extractor.enum.compare_method.index.tooltip"
+msgstr "Compare by index. If there are more blendshapes than the Original FBX, BlendShare will extract blendshapes from the tail end."
+
+msgid "extractor.enum.compare_method.name"
+msgstr "Name"
+
+msgid "extractor.enum.compare_method.name.tooltip"
+msgstr "Compare by name. If there are new blendshapes in the Source FBX, BlendShare will extract them."
+
+msgid "extractor.file_unit_warning"
+msgstr "FBX file units not same, may cause problem\nOriginal: {0}\nSource: {1}"
+
+msgid "extractor.patch_id"
+msgstr "Patch ID"
+
+msgid "lang"
+msgstr "Language"
+
+msgid "mesh_asset.applied_blendshapes"
+msgstr "Applied BlendShapes"
+
+msgid "mesh_asset.assign_meshes"
+msgstr "Assign Meshes"
+
+msgid "mesh_asset.assign_meshes.dialog.is_fbx.message"
+msgstr "The selected object is an FBX asset.\nFBX assets are read-only and cannot be edited directly.\nPlease instantiate the FBX in the scene to make modifications."
+
+msgid "mesh_asset.assign_meshes.dialog.is_fbx.title"
+msgstr "FBX Asset Selected"
+
+msgid "mesh_asset.assign_meshes.is_prefab"
+msgstr "The selected object is a prefab.\nEditing this object will modify the prefab itself, not a scene instance.\nDo you want to continue editing the prefab asset directly?"
+
+msgid "mesh_asset.assign_meshes.target_go"
+msgstr "Target GameObject"
+
+msgid "mesh_asset.assign_meshes.to_go_btn"
+msgstr "Assign Meshes to Target GameObject"
+
+msgid "mesh_asset.assign_meshes.to_prefab_btn"
+msgstr "Assign Meshes to Target Prefab"
+
+msgid "mesh_asset.fbx_edited"
+msgstr "The FBX asset has been modified since these meshes were generated.\nChanges to the FBX might cause unexpected results when regenerating or applying new blend shapes."
+
+msgid "mesh_asset.read_only"
+msgstr "Fields are read-only. Press 'Edit' to modify metadata."
+
+msgid "mesh_generator.blendshapes_data_list"
+msgstr "BlendShapes Data List"
+
+msgid "mesh_generator.blendshapes_data_list.tooltip"
+msgstr "All listed BlendShapes will be merged and applied to a single model."
+
+msgid "mesh_generator.generate_fbx"
+msgstr "Generate new FBX Asset"
+
+msgid "mesh_generator.generate_mesh"
+msgstr "Generate new Mesh Asset"
+
+msgid "mesh_generator.mesh_generation_disable"
+msgstr "This asset cannot be used to generate a mesh asset because the vertex order is incorrect. Please use an FBX file instead."
+
+msgid "mesh_generator.target_mesh_container"
+msgstr "Target Mesh Container"
+
+msgid "mesh_generator.target_mesh_container.tooltip"
+msgstr "Reference base model to which BlendShapes will be added. The asset can be an FBX model, a mesh asset generated by BlendShare, or an Unity mesh."
+
+msgid "new_extractor.assign_fbx_hint"
+msgstr "Assign both Original FBX and Source FBX to select features."
+
+msgid "new_extractor.failed.message"
+msgstr "BlendShare extraction failed."
+
+msgid "new_extractor.failed.title"
+msgstr "Extraction Failed"
+
+msgid "new_extractor.feature_options"
+msgstr "Feature Options"
+
+msgid "new_extractor.invalid_mapping.message"
+msgstr "Unity blendshape generation may use the cached fallback. FBX blendshapes are still saved."
+
+msgid "new_extractor.invalid_mapping.title"
+msgstr "Unity vertices cannot match"
+
+msgid "new_extractor.mesh_path"
+msgstr "Mesh Path"
+
+msgid "new_extractor.meshes"
+msgstr "Meshes"
+
+msgid "new_extractor.missing_origin_mesh"
+msgstr "Cannot find matching original mesh for '{0}'."
+
+msgid "new_extractor.no_meshes"
+msgstr "No matching skinned meshes were found."
+
+msgid "new_extractor.no_selection.message"
+msgstr "Select at least one feature before saving."
+
+msgid "new_extractor.no_selection.title"
+msgstr "No Features Selected"
+
+msgid "new_extractor.refresh"
+msgstr "Refresh Meshes"
+
+msgid "new_extractor.save_asset"
+msgstr "Save BlendShare Asset"
+
+msgid "new_extractor.save_title"
+msgstr "Save BlendShare Asset"
+
+msgid "new_extractor.title"
+msgstr "BlendShare Feature Extractor"
+
+msgid "not_an_fbx_error"
+msgstr "This is not an fbx file"
+
+msgid "origin_fbx"
+msgstr "Original FBX"
+
+msgid "origin_fbx.tooltip"
+msgstr "The unmodified original FBX file."
+
+msgid "skin_weights"
+msgstr "Skin Weights"
+
+msgid "source_fbx"
+msgstr "Source FBX"
+
+msgid "source_fbx.tooltip"
+msgstr "FBX file used as the source for BlendShapes."
+
+msgid "updater.dialog_cancel"
+msgstr "Cancel"
+
+msgid "updater.dialog_view_release"
+msgstr "View Release"
+
+msgid "updater.dialog_yes_update"
+msgstr "Yes, Update"
+
+msgid "updater.latest_version"
+msgstr "You already have the latest version ({0})."
+
+msgid "updater.release_parse_failed"
+msgstr "Could not parse GitHub release info."
+
+msgid "updater.update_available_body"
+msgstr "A new version is available!\n\nCurrent version: {0}\nLatest version: {1}\n\nDo you want to download and import the update?"
+
+msgid "updater.update_available_title"
+msgstr "BlendShare Update Available"
+
+msgid "updater.update_check_failed"
+msgstr "Failed to check update:\n{0}"
+
+msgid "updater.update_error"
+msgstr "An error occurred:\n{0}"
+
+msgid "updater.update_no_unitypackage"
+msgstr "No .unitypackage found in the latest release."
+
+msgid "updater.update_title"
+msgstr "BlendShare Update"

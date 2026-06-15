@@ -1,0 +1,528 @@
+msgid ""
+msgstr ""
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: ja-JP\n"
+
+msgid "locale:ja-JP"
+msgstr "日本語"
+
+msgid "blendshape_selection.blendshape_names"
+msgstr "シェイプキー名"
+
+msgid "blendshape_selection.mesh_name"
+msgstr "メッシュ名"
+
+msgid "blendshape_selection.name"
+msgstr "名前"
+
+msgid "blendshape_selection.title"
+msgstr "シェイプキー選択"
+
+msgid "blendshapes"
+msgstr "シェイプキー"
+
+msgid "data.apply_blendshapes"
+msgstr "シェイプキーを適用"
+
+msgid "data.apply_blendshapes_as_new_fbx"
+msgstr "新しい FBX としてシェイプキーを適用"
+
+msgid "data.apply_blendshapes_as_new_fbx.tooltip"
+msgstr "元の FBX を複製し、そのコピーにシェイプキーを適用します。"
+
+msgid "data.apply_blendshapes.tooltip"
+msgstr "リスト内のシェイプキーを元の FBX に追加します。"
+
+msgid "data.apply_blendshapes.tooltip_locked_message"
+msgstr "\n（現在このボタンは無効です。すでにシェイプキーを FBX に適用済みです。「編集」をクリックして強制的に有効化できます）"
+
+msgid "data.armature.created_count"
+msgstr "作成するボーン"
+
+msgid "data.armature.title"
+msgstr "ボーングラフ"
+
+msgid "data.artifact_mapping.invalid"
+msgstr "{0} 件のメッシュパスには、元の FBX 用の有効な Unity 頂点マッピングがありません。アーティファクト生成前にマッピングを作成してください。"
+
+msgid "data.artifact_mapping.mesh_missing"
+msgstr "{0} 件の BlendShare メッシュパスが元の FBX に見つかりません。"
+
+msgid "data.artifact_mapping.original_missing"
+msgstr "BlendShare アーティファクトを作成する前に元の FBX を選択してください。"
+
+msgid "data.artifact_mapping.target_unreadable"
+msgstr "マッピング検証用に元の FBX メッシュを読み取れませんでした。"
+
+msgid "data.blendshape_count_summary"
+msgstr "シェイプキー: {0}/{1} 有効"
+
+msgid "data.blendshape_filter"
+msgstr "フィルター"
+
+msgid "data.blendshape_filter_no_results"
+msgstr "現在のフィルターに一致するシェイプキーはありません。"
+
+msgid "data.blendshape_filter.tooltip"
+msgstr "名前でシェイプキーをフィルターします。一括操作は現在表示されている行にのみ適用されます。"
+
+msgid "data.blendshape_readonly_count_summary"
+msgstr "シェイプキー: {0}"
+
+msgid "data.blendshape_selection.active"
+msgstr "アクティブな選択"
+
+msgid "data.blendshape_selection.all"
+msgstr "すべてのシェイプキー"
+
+msgid "data.blendshape_selection.delete"
+msgstr "削除"
+
+msgid "data.blendshape_selection.delete_message"
+msgstr "選択「{0}」を削除しますか？現在有効なシェイプキーのリストは変更されません。"
+
+msgid "data.blendshape_selection.delete_title"
+msgstr "シェイプキー選択を削除"
+
+msgid "data.blendshape_selection.delete.tooltip"
+msgstr "現在保存されている選択を削除します。現在有効なシェイプキーのリストは変更されません。"
+
+msgid "data.blendshape_selection.issue_warning"
+msgstr "選択されたメッシュ選択には、見つからない、または重複したシェイプキー名が含まれています。使用時に無効な名前はスキップされます。"
+
+msgid "data.blendshape_selection.name_prompt"
+msgstr "選択名"
+
+msgid "data.blendshape_selection.revert_changes"
+msgstr "変更を元に戻す"
+
+msgid "data.blendshape_selection.save_as_new"
+msgstr "新規として保存..."
+
+msgid "data.blendshape_selection.save_changes"
+msgstr "変更を保存"
+
+msgid "data.blendshape_selection.save_title"
+msgstr "シェイプキー選択を保存"
+
+msgid "data.blendshape_selection.title"
+msgstr "シェイプキー選択"
+
+msgid "data.blendshape_selection.unsaved_working_set"
+msgstr "未保存の作業セット"
+
+msgid "data.blendshape_selection.unsaved_working_set.message"
+msgstr "メッシュ「{0}」の現在の作業セットには未保存の変更があります。別の選択を読み込む前に保存しますか？"
+
+msgid "data.blendshape_status"
+msgstr "{1} 件中 {0} 件が有効（{2} 件表示）"
+
+msgid "data.bulk_toggle_mode_hint"
+msgstr "切り替えモードでは、フィルターと一括有効化・ミュートをすばやく行えます。再度有効化したシェイプキーはアクティブなリストに追加されます。"
+
+msgid "data.create_artifact"
+msgstr "BlendShare アーティファクトを作成"
+
+msgid "data.create_artifact.tooltip"
+msgstr "生成メッシュとスキンバインディング記述子を含む BlendShare アーティファクトを作成します。"
+
+msgid "data.create_mappings"
+msgstr "Unity 頂点マッピングを作成"
+
+msgid "data.create_mappings.failed.title"
+msgstr "マッピング作成に失敗しました"
+
+msgid "data.create_mappings.success.message"
+msgstr "{0} 件の Unity 頂点マッピングを作成しました。"
+
+msgid "data.create_mappings.success.title"
+msgstr "マッピングを作成しました"
+
+msgid "data.create_meshes"
+msgstr "メッシュを作成"
+
+msgid "data.create_meshes.tooltip"
+msgstr "シェイプキーを含む新しいメッシュアセットを作成します。"
+
+msgid "data.created_by"
+msgstr "Triturbo が作成した Blendshapes 共有ツール"
+
+msgid "data.dialog.apply_blendshapes.message"
+msgstr "リストにあるシェイプキーを元の GameObject に追加します。続行しますか？"
+
+msgid "data.dialog.apply_blendshapes.title"
+msgstr "シェイプキーの適用"
+
+msgid "data.dialog.cancel"
+msgstr "キャンセル"
+
+msgid "data.dialog.delete"
+msgstr "削除"
+
+msgid "data.dialog.discard"
+msgstr "破棄"
+
+msgid "data.dialog.fbx_missing.message"
+msgstr "元の FBX ファイルが見つかりません。アセットをインポートするか、「元の FBX」に FBX を割り当ててください。"
+
+msgid "data.dialog.fbx_missing.title"
+msgstr "元の FBX が見つかりません。"
+
+msgid "data.dialog.mesh_vertices_not_match.message"
+msgstr "頂点が一致しないため、メッシュを作成できません。FBX SDK をインポートして FBX ファイルを作成してください。"
+
+msgid "data.dialog.mesh_vertices_not_match.title"
+msgstr "Unity メッシュの頂点が一致しません"
+
+msgid "data.dialog.ok"
+msgstr "OK"
+
+msgid "data.dialog.remove_blendshapes.message"
+msgstr "リストにあるシェイプキーを元の GameObject から削除します。続行しますか？"
+
+msgid "data.dialog.remove_blendshapes.title"
+msgstr "シェイプキーの削除"
+
+msgid "data.dialog.save"
+msgstr "保存"
+
+msgid "data.dialog.yes"
+msgstr "はい"
+
+msgid "data.edit"
+msgstr " 編集 "
+
+msgid "data.edit_mode"
+msgstr "編集モード"
+
+msgid "data.edit_mode.bulk_toggle"
+msgstr "切り替え"
+
+msgid "data.edit_mode.order_adjust"
+msgstr "並べ替え"
+
+msgid "data.edit_mode.tooltip"
+msgstr "手動の順序編集と一括シェイプキー切り替えを切り替えます。"
+
+msgid "data.enable_all_blendshapes"
+msgstr "すべて有効化"
+
+msgid "data.enable_all_blendshapes.tooltip"
+msgstr "このメッシュのすべてのシェイプキーを有効にします。"
+
+msgid "data.enable_visible_blendshapes"
+msgstr "表示中を有効化"
+
+msgid "data.enable_visible_blendshapes.tooltip"
+msgstr "現在表示されているすべてのシェイプキーを有効にします。"
+
+msgid "data.fbx_sdk_missing"
+msgstr "Autodesk FBX SDK が見つかりません。FBX 操作機能は無効になります。"
+
+msgid "data.hidden_settings"
+msgstr "隠し設定"
+
+msgid "data.hidden_settings.applied"
+msgstr "適用済み"
+
+msgid "data.hidden_settings.applied.tooltip"
+msgstr "ユーザーがシェイプキーを FBX に適用したかどうかを示します。"
+
+msgid "data.hidden_settings.default_asset_name"
+msgstr "デフォルトのアセット名"
+
+msgid "data.hidden_settings.default_asset_name.tooltip"
+msgstr "生成されるアセットのデフォルト名です。"
+
+msgid "data.hidden_settings.deformer_id"
+msgstr "デフォーマー ID"
+
+msgid "data.hidden_settings.patch_id"
+msgstr "パッチ ID"
+
+msgid "data.lock"
+msgstr "ロック"
+
+msgid "data.mute_all_blendshapes"
+msgstr "すべてミュート"
+
+msgid "data.mute_all_blendshapes.tooltip"
+msgstr "このメッシュのすべてのシェイプキーをミュートします。"
+
+msgid "data.mute_blendshape"
+msgstr "ミュート"
+
+msgid "data.mute_visible_blendshapes"
+msgstr "表示中をミュート"
+
+msgid "data.mute_visible_blendshapes.tooltip"
+msgstr "現在表示されているすべてのシェイプキーをミュートします。"
+
+msgid "data.open_advanced_generator"
+msgstr "アドバンスドシェイプキー生成ツールを開く"
+
+msgid "data.open_advanced_generator.tooltip"
+msgstr "複数の BlendShape データアセットからシェイプキーを組み合わせて、新しいメッシュを生成するためのアドバンスドシェイプキージェネレーターを開きます。"
+
+msgid "data.order_adjust_mode_hint"
+msgstr "並べ替えモードでは、アクティブなリストのみを編集します。ドラッグして並べ替え、マイナスボタンで選択したシェイプキーをミュートします。"
+
+msgid "data.original_fbx"
+msgstr "オリジナル FBX"
+
+msgid "data.original_fbx.tooltip"
+msgstr "メッシュ生成に使用される元の FBX の GameObject アセットです。"
+
+msgid "data.remove_blendshapes"
+msgstr "シェイプキーを削除"
+
+msgid "data.remove_blendshapes.tooltip"
+msgstr "リスト内のシェイプキーを元の FBX から削除します。"
+
+msgid "data.remove_blendshapes.tooltip_locked_message"
+msgstr "\n（現在このボタンは無効です。まだシェイプキーを FBX に適用していません。「編集」をクリックして強制的に有効化できます）"
+
+msgid "data.reset_blendshapes"
+msgstr "シェイプキーをリセット"
+
+msgid "data.reset_blendshapes.tooltip"
+msgstr "シェイプキーリストを元の状態にリセットします。"
+
+msgid "data.save_artifact.title"
+msgstr "BlendShare アーティファクトを保存"
+
+msgid "data.save_fbx.title"
+msgstr "FBX を保存"
+
+msgid "data.save_file.message"
+msgstr "ファイル名を入力してください"
+
+msgid "data.save_mesh.title"
+msgstr "メッシュを保存"
+
+msgid "data.skin_weights.bone_count"
+msgstr "クラスター"
+
+msgid "data.skin_weights.root_bone"
+msgstr "ルートボーン"
+
+msgid "data.skin_weights.title"
+msgstr "スキンウェイト"
+
+msgid "data.skin_weights.weighted_control_points"
+msgstr "ウェイト付き制御点"
+
+msgid "extractor.apply_rotation"
+msgstr "回転を適用"
+
+msgid "extractor.apply_scale"
+msgstr "スケールを適用"
+
+msgid "extractor.apply_transform"
+msgstr "トランスフォームを適用"
+
+msgid "extractor.apply_transform.tooltip"
+msgstr "BlendShape の頂点オフセットを計算する前に、Object のトランスフォームをメッシュに適用します。BlendShape の向きに問題がある場合は、「回転を適用」を有効にして修正してみてください。"
+
+msgid "extractor.apply_translate"
+msgstr "移動を適用"
+
+msgid "extractor.base_mesh"
+msgstr "ベースメッシュ"
+
+msgid "extractor.base_mesh.tooltip"
+msgstr "BlendShape の頂点オフセットを計算するためのベースメッシュ"
+
+msgid "extractor.compare_method"
+msgstr "比較方法"
+
+msgid "extractor.default_asset_name"
+msgstr "デフォルトアセット名"
+
+msgid "extractor.deformer_id"
+msgstr "デフォーマー ID"
+
+msgid "extractor.enum.base_mesh.original"
+msgstr "オリジナル"
+
+msgid "extractor.enum.base_mesh.source"
+msgstr "ソース"
+
+msgid "extractor.enum.compare_method.custom"
+msgstr "カスタム"
+
+msgid "extractor.enum.compare_method.custom.tooltip"
+msgstr "個別に抽出する BlendShape を手動で切り替えます。"
+
+msgid "extractor.enum.compare_method.index"
+msgstr "インデックス"
+
+msgid "extractor.enum.compare_method.index.tooltip"
+msgstr "インデックスで比較します。オリジナル FBX より BlendShape が多い場合、BlendShare は末尾から抽出します。"
+
+msgid "extractor.enum.compare_method.name"
+msgstr "名前"
+
+msgid "extractor.enum.compare_method.name.tooltip"
+msgstr "名前で比較します。ソース FBX に新しい BlendShape がある場合、BlendShare はそれらを抽出します。"
+
+msgid "extractor.file_unit_warning"
+msgstr "FBX ファイルの単位が一致していません。問題が発生する可能性があります。\n元の単位: {0}\nソース単位: {1}"
+
+msgid "extractor.patch_id"
+msgstr "パッチ ID"
+
+msgid "lang"
+msgstr "言語"
+
+msgid "mesh_asset.applied_blendshapes"
+msgstr "適用済み BlendShapes"
+
+msgid "mesh_asset.assign_meshes"
+msgstr "メッシュを割り当て"
+
+msgid "mesh_asset.assign_meshes.dialog.is_fbx.message"
+msgstr "選択されたオブジェクトは FBX アセットです。\nFBX アセットは読み取り専用のため、直接編集できません。\n変更を行う場合は、FBX をシーンにインスタンス化してください。"
+
+msgid "mesh_asset.assign_meshes.dialog.is_fbx.title"
+msgstr "FBX アセットが選択されました"
+
+msgid "mesh_asset.assign_meshes.is_prefab"
+msgstr "選択されたオブジェクトはプレハブです。\nこのオブジェクトを編集すると、プレハブ自体が変更され、シーンインスタンスには影響しません。\nプレハブアセットを直接編集しますか？"
+
+msgid "mesh_asset.assign_meshes.target_go"
+msgstr "対象の GameObject"
+
+msgid "mesh_asset.assign_meshes.to_go_btn"
+msgstr "メッシュを対象の GameObject に割り当て"
+
+msgid "mesh_asset.assign_meshes.to_prefab_btn"
+msgstr "メッシュを対象のプレハブに割り当て"
+
+msgid "mesh_asset.fbx_edited"
+msgstr "このメッシュが生成された後に FBX アセットが変更されています。\nFBX の変更により、再生成や新しいシェイプキーの適用時に予期しない結果が発生する可能性があります。"
+
+msgid "mesh_asset.read_only"
+msgstr "これらのフィールドは読み取り専用です。「編集」を押すとメタデータを変更できます。"
+
+msgid "mesh_generator.blendshapes_data_list"
+msgstr "シェイプキーデータリスト"
+
+msgid "mesh_generator.blendshapes_data_list.tooltip"
+msgstr "リスト内のすべてのシェイプキーが統合され、単一のモデルに適用されます。"
+
+msgid "mesh_generator.generate_fbx"
+msgstr "新しい FBX アセットを生成"
+
+msgid "mesh_generator.generate_mesh"
+msgstr "新しいメッシュアセットを生成"
+
+msgid "mesh_generator.mesh_generation_disable"
+msgstr "このアセットは頂点順序が正しくないため、メッシュアセットの生成に使用できません。代わりに FBX ファイルを使用してください。"
+
+msgid "mesh_generator.target_mesh_container"
+msgstr "ターゲットメッシュコンテナ"
+
+msgid "mesh_generator.target_mesh_container.tooltip"
+msgstr "シェイプキーを追加する基準モデルを指定します。アセットは FBX モデル、BlendShare によって生成されたメッシュアセット、または Unity メッシュのいずれかです。"
+
+msgid "new_extractor.assign_fbx_hint"
+msgstr "機能を選択するには、オリジナル FBX とソース FBX の両方を指定してください。"
+
+msgid "new_extractor.failed.message"
+msgstr "BlendShare の抽出に失敗しました。"
+
+msgid "new_extractor.failed.title"
+msgstr "抽出に失敗しました"
+
+msgid "new_extractor.feature_options"
+msgstr "機能オプション"
+
+msgid "new_extractor.invalid_mapping.message"
+msgstr "Unity BlendShape 生成ではキャッシュされたフォールバックを使用する可能性があります。FBX BlendShape は保存されています。"
+
+msgid "new_extractor.invalid_mapping.title"
+msgstr "Unity 頂点が一致しません"
+
+msgid "new_extractor.mesh_path"
+msgstr "メッシュパス"
+
+msgid "new_extractor.meshes"
+msgstr "メッシュ"
+
+msgid "new_extractor.missing_origin_mesh"
+msgstr "「{0}」に一致するオリジナルメッシュが見つかりません。"
+
+msgid "new_extractor.no_meshes"
+msgstr "一致する Skinned Mesh が見つかりません。"
+
+msgid "new_extractor.no_selection.message"
+msgstr "保存する前に少なくとも 1 つの機能を選択してください。"
+
+msgid "new_extractor.no_selection.title"
+msgstr "機能が選択されていません"
+
+msgid "new_extractor.refresh"
+msgstr "メッシュを更新"
+
+msgid "new_extractor.save_asset"
+msgstr "BlendShare アセットを保存"
+
+msgid "new_extractor.save_title"
+msgstr "BlendShare アセットを保存"
+
+msgid "new_extractor.title"
+msgstr "BlendShare 機能抽出ツール"
+
+msgid "not_an_fbx_error"
+msgstr "これは FBX ファイルではありません"
+
+msgid "origin_fbx"
+msgstr "オリジナルFBX"
+
+msgid "origin_fbx.tooltip"
+msgstr "変更されていない元の FBX ファイルです。"
+
+msgid "skin_weights"
+msgstr "スキンウェイト"
+
+msgid "source_fbx"
+msgstr "ソース FBX"
+
+msgid "source_fbx.tooltip"
+msgstr "シェイプキーのソースとして使用される FBX ファイルです。"
+
+msgid "updater.dialog_cancel"
+msgstr "キャンセル"
+
+msgid "updater.dialog_view_release"
+msgstr "リリースを見る"
+
+msgid "updater.dialog_yes_update"
+msgstr "はい、アップデートします"
+
+msgid "updater.latest_version"
+msgstr "すでに最新バージョン ({0}) を使用しています。"
+
+msgid "updater.release_parse_failed"
+msgstr "GitHub リリース情報を解析できませんでした。"
+
+msgid "updater.update_available_body"
+msgstr "新しいバージョンが利用可能です！\n\n現在のバージョン: {0}\n最新のバージョン: {1}\n\nダウンロードしてインポートしますか？"
+
+msgid "updater.update_available_title"
+msgstr "BlendShare のアップデートがあります"
+
+msgid "updater.update_check_failed"
+msgstr "アップデートの確認に失敗しました:\n{0}"
+
+msgid "updater.update_error"
+msgstr "エラーが発生しました:\n{0}"
+
+msgid "updater.update_no_unitypackage"
+msgstr "最新リリースに .unitypackage が見つかりません。"
+
+msgid "updater.update_title"
+msgstr "BlendShare アップデート"

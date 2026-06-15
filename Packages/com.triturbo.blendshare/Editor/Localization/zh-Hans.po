@@ -1,0 +1,528 @@
+msgid ""
+msgstr ""
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: zh-Hans\n"
+
+msgid "locale:zh-Hans"
+msgstr "简体中文"
+
+msgid "blendshape_selection.blendshape_names"
+msgstr "形态键名称"
+
+msgid "blendshape_selection.mesh_name"
+msgstr "网格名称"
+
+msgid "blendshape_selection.name"
+msgstr "名称"
+
+msgid "blendshape_selection.title"
+msgstr "形态键选择"
+
+msgid "blendshapes"
+msgstr "形态键"
+
+msgid "data.apply_blendshapes"
+msgstr "应用形态键"
+
+msgid "data.apply_blendshapes_as_new_fbx"
+msgstr "以新 FBX 应用形态键"
+
+msgid "data.apply_blendshapes_as_new_fbx.tooltip"
+msgstr "复制原始 FBX，并将形态键应用到新副本。"
+
+msgid "data.apply_blendshapes.tooltip"
+msgstr "将列表中的形态键应用到原始 FBX。"
+
+msgid "data.apply_blendshapes.tooltip_locked_message"
+msgstr "\n（此按钮目前已停用，因为形态键已应用到 FBX。按下“编辑”可强制启用。）"
+
+msgid "data.armature.created_count"
+msgstr "要创建的骨骼"
+
+msgid "data.armature.title"
+msgstr "骨骼图"
+
+msgid "data.artifact_mapping.invalid"
+msgstr "有 {0} 个网格路径没有适用于原始 FBX 的有效 Unity 顶点映射。请先创建映射再生成工件。"
+
+msgid "data.artifact_mapping.mesh_missing"
+msgstr "有 {0} 个 BlendShare 网格路径在原始 FBX 中找不到。"
+
+msgid "data.artifact_mapping.original_missing"
+msgstr "创建 BlendShare 工件前请选择原始 FBX。"
+
+msgid "data.artifact_mapping.target_unreadable"
+msgstr "无法读取原始 FBX 网格来验证映射。"
+
+msgid "data.blendshape_count_summary"
+msgstr "形态键：已启用 {0}/{1}"
+
+msgid "data.blendshape_filter"
+msgstr "筛选"
+
+msgid "data.blendshape_filter_no_results"
+msgstr "没有形态键符合当前筛选条件。"
+
+msgid "data.blendshape_filter.tooltip"
+msgstr "按名称筛选形态键。批量操作只影响当前显示的行。"
+
+msgid "data.blendshape_readonly_count_summary"
+msgstr "形态键：{0}"
+
+msgid "data.blendshape_selection.active"
+msgstr "当前选择"
+
+msgid "data.blendshape_selection.all"
+msgstr "全部形态键"
+
+msgid "data.blendshape_selection.delete"
+msgstr "删除"
+
+msgid "data.blendshape_selection.delete_message"
+msgstr "要删除选择“{0}”吗？当前启用的形态键列表会保持不变。"
+
+msgid "data.blendshape_selection.delete_title"
+msgstr "删除形态键选择"
+
+msgid "data.blendshape_selection.delete.tooltip"
+msgstr "删除当前保存的选择。当前启用的形态键列表会保持不变。"
+
+msgid "data.blendshape_selection.issue_warning"
+msgstr "所选网格选择包含缺失或重复的形态键名称。使用时将跳过无效名称。"
+
+msgid "data.blendshape_selection.name_prompt"
+msgstr "选择名称"
+
+msgid "data.blendshape_selection.revert_changes"
+msgstr "还原更改"
+
+msgid "data.blendshape_selection.save_as_new"
+msgstr "另存为新选择..."
+
+msgid "data.blendshape_selection.save_changes"
+msgstr "保存更改"
+
+msgid "data.blendshape_selection.save_title"
+msgstr "保存形态键选择"
+
+msgid "data.blendshape_selection.title"
+msgstr "形态键选择"
+
+msgid "data.blendshape_selection.unsaved_working_set"
+msgstr "未保存的工作集"
+
+msgid "data.blendshape_selection.unsaved_working_set.message"
+msgstr "网格“{0}”的当前工作集有未保存的更改。是否在载入其他选择前保存？"
+
+msgid "data.blendshape_status"
+msgstr "共 {1} 个，已启用 {0} 个（显示 {2} 个）"
+
+msgid "data.bulk_toggle_mode_hint"
+msgstr "切换模式用于快速筛选以及批量启用或禁用。重新启用的形态键会添加到当前启用列表。"
+
+msgid "data.create_artifact"
+msgstr "创建 BlendShare 工件"
+
+msgid "data.create_artifact.tooltip"
+msgstr "创建包含生成网格和蒙皮绑定描述符的 BlendShare 工件。"
+
+msgid "data.create_mappings"
+msgstr "创建 Unity 顶点映射"
+
+msgid "data.create_mappings.failed.title"
+msgstr "映射创建失败"
+
+msgid "data.create_mappings.success.message"
+msgstr "已创建 {0} 个 Unity 顶点映射。"
+
+msgid "data.create_mappings.success.title"
+msgstr "映射已创建"
+
+msgid "data.create_meshes"
+msgstr "生成网格"
+
+msgid "data.create_meshes.tooltip"
+msgstr "生成包含列表中形态键的新网格资产。"
+
+msgid "data.created_by"
+msgstr "Triturbo 制作的形态键分享工具"
+
+msgid "data.dialog.apply_blendshapes.message"
+msgstr "这将把列表中的形态键应用到原始 GameObject。是否继续？"
+
+msgid "data.dialog.apply_blendshapes.title"
+msgstr "应用形态键"
+
+msgid "data.dialog.cancel"
+msgstr "取消"
+
+msgid "data.dialog.delete"
+msgstr "删除"
+
+msgid "data.dialog.discard"
+msgstr "放弃"
+
+msgid "data.dialog.fbx_missing.message"
+msgstr "原始 FBX 文件丢失。请导入资产或指定一个 FBX 至“原始”。"
+
+msgid "data.dialog.fbx_missing.title"
+msgstr "原始 FBX 丢失"
+
+msgid "data.dialog.mesh_vertices_not_match.message"
+msgstr "顶点不匹配，无法创建网格。请导入 FBX SDK 并创建 FBX 文件。"
+
+msgid "data.dialog.mesh_vertices_not_match.title"
+msgstr "Unity 网格顶点不匹配"
+
+msgid "data.dialog.ok"
+msgstr "确定"
+
+msgid "data.dialog.remove_blendshapes.message"
+msgstr "这将从原始 GameObject 中移除列表中的形态键。是否继续？"
+
+msgid "data.dialog.remove_blendshapes.title"
+msgstr "移除形态键"
+
+msgid "data.dialog.save"
+msgstr "保存"
+
+msgid "data.dialog.yes"
+msgstr "是"
+
+msgid "data.edit"
+msgstr "编辑"
+
+msgid "data.edit_mode"
+msgstr "编辑模式"
+
+msgid "data.edit_mode.bulk_toggle"
+msgstr "切换"
+
+msgid "data.edit_mode.order_adjust"
+msgstr "排序"
+
+msgid "data.edit_mode.tooltip"
+msgstr "在手动排序编辑和批量形态键切换之间切换。"
+
+msgid "data.enable_all_blendshapes"
+msgstr "全部启用"
+
+msgid "data.enable_all_blendshapes.tooltip"
+msgstr "启用此网格上的所有形态键。"
+
+msgid "data.enable_visible_blendshapes"
+msgstr "启用可见项"
+
+msgid "data.enable_visible_blendshapes.tooltip"
+msgstr "启用当前显示的所有形态键。"
+
+msgid "data.fbx_sdk_missing"
+msgstr "缺少 Autodesk FBX SDK。FBX 操作功能将被停用。"
+
+msgid "data.hidden_settings"
+msgstr "隐藏设置"
+
+msgid "data.hidden_settings.applied"
+msgstr "已应用"
+
+msgid "data.hidden_settings.applied.tooltip"
+msgstr "表示用户是否已将形态键应用到 FBX。"
+
+msgid "data.hidden_settings.default_asset_name"
+msgstr "默认资产名称"
+
+msgid "data.hidden_settings.default_asset_name.tooltip"
+msgstr "生成资产的默认名称。"
+
+msgid "data.hidden_settings.deformer_id"
+msgstr "变形器 ID"
+
+msgid "data.hidden_settings.patch_id"
+msgstr "补丁 ID"
+
+msgid "data.lock"
+msgstr "锁定"
+
+msgid "data.mute_all_blendshapes"
+msgstr "全部禁用"
+
+msgid "data.mute_all_blendshapes.tooltip"
+msgstr "禁用此网格上的所有形态键。"
+
+msgid "data.mute_blendshape"
+msgstr "禁用"
+
+msgid "data.mute_visible_blendshapes"
+msgstr "禁用可见项"
+
+msgid "data.mute_visible_blendshapes.tooltip"
+msgstr "禁用当前显示的所有形态键。"
+
+msgid "data.open_advanced_generator"
+msgstr "打开高级形态键生成器"
+
+msgid "data.open_advanced_generator.tooltip"
+msgstr "打开高级形态键生成器，将多个 BlendShape 数据资产中的形态键合并生成新的网格。"
+
+msgid "data.order_adjust_mode_hint"
+msgstr "排序模式只编辑当前启用列表。拖动可排序，使用减号按钮可禁用选中的形态键。"
+
+msgid "data.original_fbx"
+msgstr "原始 FBX"
+
+msgid "data.original_fbx.tooltip"
+msgstr "用于生成网格的原始 FBX GameObject 资产。"
+
+msgid "data.remove_blendshapes"
+msgstr "移除形态键"
+
+msgid "data.remove_blendshapes.tooltip"
+msgstr "从原始 FBX 中移除列表中的形态键。"
+
+msgid "data.remove_blendshapes.tooltip_locked_message"
+msgstr "\n（此按钮目前已停用，因为形态键未应用到 FBX。按下“编辑”可强制启用。）"
+
+msgid "data.reset_blendshapes"
+msgstr "重置形态键"
+
+msgid "data.reset_blendshapes.tooltip"
+msgstr "将形态键列表还原至原始状态。"
+
+msgid "data.save_artifact.title"
+msgstr "保存 BlendShare 工件"
+
+msgid "data.save_fbx.title"
+msgstr "保存 FBX"
+
+msgid "data.save_file.message"
+msgstr "请输入文件名"
+
+msgid "data.save_mesh.title"
+msgstr "保存网格"
+
+msgid "data.skin_weights.bone_count"
+msgstr "簇"
+
+msgid "data.skin_weights.root_bone"
+msgstr "根骨骼"
+
+msgid "data.skin_weights.title"
+msgstr "蒙皮权重"
+
+msgid "data.skin_weights.weighted_control_points"
+msgstr "带权重控制点"
+
+msgid "extractor.apply_rotation"
+msgstr "应用旋转"
+
+msgid "extractor.apply_scale"
+msgstr "应用缩放"
+
+msgid "extractor.apply_transform"
+msgstr "应用变换"
+
+msgid "extractor.apply_transform.tooltip"
+msgstr "在计算 BlendShape 顶点偏移前，将 Object 的变换应用到网格上。如果 BlendShape 出现方向问题，请尝试启用“应用旋转”进行修正。"
+
+msgid "extractor.apply_translate"
+msgstr "应用位移"
+
+msgid "extractor.base_mesh"
+msgstr "基础网格"
+
+msgid "extractor.base_mesh.tooltip"
+msgstr "用于计算形态键顶点偏移的基础网格"
+
+msgid "extractor.compare_method"
+msgstr "比较方式"
+
+msgid "extractor.default_asset_name"
+msgstr "默认资产名称"
+
+msgid "extractor.deformer_id"
+msgstr "变形器 ID"
+
+msgid "extractor.enum.base_mesh.original"
+msgstr "原始"
+
+msgid "extractor.enum.base_mesh.source"
+msgstr "来源"
+
+msgid "extractor.enum.compare_method.custom"
+msgstr "自定义"
+
+msgid "extractor.enum.compare_method.custom.tooltip"
+msgstr "可手动切换要单独提取的形态键。"
+
+msgid "extractor.enum.compare_method.index"
+msgstr "索引"
+
+msgid "extractor.enum.compare_method.index.tooltip"
+msgstr "按索引比较。如果形态键数量多于原始 FBX，BlendShare 会从尾端提取形态键。"
+
+msgid "extractor.enum.compare_method.name"
+msgstr "名称"
+
+msgid "extractor.enum.compare_method.name.tooltip"
+msgstr "按名称比较。如果来源 FBX 中有新的形态键，BlendShare 将提取它们。"
+
+msgid "extractor.file_unit_warning"
+msgstr "FBX 文件单位不一致，可能会导致问题\n原始：{0}\n来源：{1}"
+
+msgid "extractor.patch_id"
+msgstr "补丁 ID"
+
+msgid "lang"
+msgstr "语言"
+
+msgid "mesh_asset.applied_blendshapes"
+msgstr "已应用的形态键数据"
+
+msgid "mesh_asset.assign_meshes"
+msgstr "分配网格"
+
+msgid "mesh_asset.assign_meshes.dialog.is_fbx.message"
+msgstr "所选对象为 FBX 资产。\nFBX 资产内网格为只读状态，无法直接编辑。\n请在场景中实例化 FBX 游戏对象以进行修改。"
+
+msgid "mesh_asset.assign_meshes.dialog.is_fbx.title"
+msgstr "已选取 FBX 资产"
+
+msgid "mesh_asset.assign_meshes.is_prefab"
+msgstr "所选对象为预制件。\n编辑此对象将会修改预制件本身，而非场景中的实例。\n是否直接编辑预制件资产？"
+
+msgid "mesh_asset.assign_meshes.target_go"
+msgstr "目标游戏对象"
+
+msgid "mesh_asset.assign_meshes.to_go_btn"
+msgstr "分配网格至目标游戏对象"
+
+msgid "mesh_asset.assign_meshes.to_prefab_btn"
+msgstr "分配网格至目标预制件"
+
+msgid "mesh_asset.fbx_edited"
+msgstr "自从生成这些网格以来，FBX 资源已被修改。\n对 FBX 的更改可能在重新生成或应用新的混合形状时导致意外结果。"
+
+msgid "mesh_asset.read_only"
+msgstr "字段为只读状态。请按“编辑”以修改元数据。"
+
+msgid "mesh_generator.blendshapes_data_list"
+msgstr "形态键数据列表"
+
+msgid "mesh_generator.blendshapes_data_list.tooltip"
+msgstr "列表中的所有形态键将被合并并应用到同一个模型。"
+
+msgid "mesh_generator.generate_fbx"
+msgstr "生成新的 FBX 资产"
+
+msgid "mesh_generator.generate_mesh"
+msgstr "生成新的网格资产"
+
+msgid "mesh_generator.mesh_generation_disable"
+msgstr "由于此资产的顶点顺序不正确，无法用于生成网格资产。请改用 FBX 文件。"
+
+msgid "mesh_generator.target_mesh_container"
+msgstr "目标网格容器"
+
+msgid "mesh_generator.target_mesh_container.tooltip"
+msgstr "指定要添加形态键的基础模型。资产可以是 FBX 模型、由 BlendShare 生成的网格资产，或 Unity 网格。"
+
+msgid "new_extractor.assign_fbx_hint"
+msgstr "请指定原始 FBX 和来源 FBX 后再选择功能。"
+
+msgid "new_extractor.failed.message"
+msgstr "BlendShare 提取失败。"
+
+msgid "new_extractor.failed.title"
+msgstr "提取失败"
+
+msgid "new_extractor.feature_options"
+msgstr "功能选项"
+
+msgid "new_extractor.invalid_mapping.message"
+msgstr "Unity 形态键生成可能会使用缓存回退。FBX 形态键仍会保存。"
+
+msgid "new_extractor.invalid_mapping.title"
+msgstr "Unity 顶点无法匹配"
+
+msgid "new_extractor.mesh_path"
+msgstr "网格路径"
+
+msgid "new_extractor.meshes"
+msgstr "网格"
+
+msgid "new_extractor.missing_origin_mesh"
+msgstr "找不到“{0}”对应的原始网格。"
+
+msgid "new_extractor.no_meshes"
+msgstr "未找到匹配的 Skinned Mesh。"
+
+msgid "new_extractor.no_selection.message"
+msgstr "保存前请至少选择一个功能。"
+
+msgid "new_extractor.no_selection.title"
+msgstr "未选择功能"
+
+msgid "new_extractor.refresh"
+msgstr "刷新网格"
+
+msgid "new_extractor.save_asset"
+msgstr "保存 BlendShare 资产"
+
+msgid "new_extractor.save_title"
+msgstr "保存 BlendShare 资产"
+
+msgid "new_extractor.title"
+msgstr "BlendShare 功能提取器"
+
+msgid "not_an_fbx_error"
+msgstr "所选文件不是 FBX。"
+
+msgid "origin_fbx"
+msgstr "原始 FBX"
+
+msgid "origin_fbx.tooltip"
+msgstr "未经修改的原始 FBX 文件。"
+
+msgid "skin_weights"
+msgstr "蒙皮权重"
+
+msgid "source_fbx"
+msgstr "来源 FBX"
+
+msgid "source_fbx.tooltip"
+msgstr "作为形态键来源的 FBX 文件。"
+
+msgid "updater.dialog_cancel"
+msgstr "取消"
+
+msgid "updater.dialog_view_release"
+msgstr "查看发布"
+
+msgid "updater.dialog_yes_update"
+msgstr "是的，更新"
+
+msgid "updater.latest_version"
+msgstr "您已经拥有最新版本 ({0})。"
+
+msgid "updater.release_parse_failed"
+msgstr "无法解析 GitHub 发布信息。"
+
+msgid "updater.update_available_body"
+msgstr "发现新版本！\n\n当前版本：{0}\n最新版本：{1}\n\n是否要下载并导入更新？"
+
+msgid "updater.update_available_title"
+msgstr "BlendShare 有可用更新"
+
+msgid "updater.update_check_failed"
+msgstr "检查更新失败：\n{0}"
+
+msgid "updater.update_error"
+msgstr "发生错误：\n{0}"
+
+msgid "updater.update_no_unitypackage"
+msgstr "在最新发布中未找到 .unitypackage。"
+
+msgid "updater.update_title"
+msgstr "BlendShare 更新"
