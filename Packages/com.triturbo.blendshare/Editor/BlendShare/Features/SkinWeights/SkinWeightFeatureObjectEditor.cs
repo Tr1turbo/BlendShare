@@ -85,16 +85,13 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
 
         private static VisualElement CreateArmatureObjectRow(ArmatureObject armature)
         {
-            var field = new ObjectField
+            var field = BlendShareInspectorUi.RowField(new ObjectField
             {
                 objectType = typeof(ArmatureObject),
                 allowSceneObjects = false,
                 value = armature
-            };
+            });
             field.SetEnabled(false);
-            field.style.flexGrow = 1;
-            field.style.flexShrink = 1;
-            field.style.minWidth = 0;
             return BlendShareInspectorUi.LabeledRow(Localization.S("features.skin-weights.shared_armature"), field);
         }
 

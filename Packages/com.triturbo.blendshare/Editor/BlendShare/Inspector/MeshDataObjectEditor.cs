@@ -19,15 +19,19 @@ namespace Triturbo.BlendShare.Inspector
             var patch = BlendShareInspectorUtility.FindOwnerPatch(mesh);
             var root = BlendShareInspectorUi.CreateRoot();
 
-            root.Add(CreateEmbeddedInspector(mesh, patch, () => Rebuild(root, mesh, patch), true));
-            Localization.RebuildOnLanguageChange(root, () => Rebuild(root, mesh, patch));
+            root.Add(new IMGUIContainer(Localization.DrawLanguageSelection));
+            var content = new VisualElement();
+            root.Add(content);
+
+            Rebuild(content, mesh, patch);
+            Localization.RebuildOnLanguageChange(root, () => Rebuild(content, mesh, patch));
             return root;
         }
 
-        private void Rebuild(VisualElement root, MeshDataObject mesh, BlendShareObject patch)
+        private void Rebuild(VisualElement content, MeshDataObject mesh, BlendShareObject patch)
         {
-            root.Clear();
-            root.Add(CreateEmbeddedInspector(mesh, patch, () => Rebuild(root, mesh, patch), true));
+            content.Clear();
+            content.Add(CreateEmbeddedInspector(mesh, patch, () => Rebuild(content, mesh, patch), true));
         }
 
         internal static VisualElement CreateEmbeddedInspector(MeshDataObject mesh, BlendShareObject patch, Action refresh, bool showParentPatch)
@@ -141,15 +145,13 @@ namespace Triturbo.BlendShare.Inspector
         {
             var row = new VisualElement { style = { flexDirection = FlexDirection.Row, alignItems = Align.Center } };
             row.style.minWidth = 0;
-            var meshField = new ObjectField
+            var meshField = BlendShareInspectorUi.RowField(new ObjectField
             {
                 objectType = typeof(Mesh),
                 allowSceneObjects = false,
                 value = targetMesh
-            };
+            });
             meshField.SetEnabled(false);
-            meshField.style.flexGrow = 1;
-            meshField.style.flexShrink = 1;
             meshField.style.minWidth = 120;
             row.Add(meshField);
 

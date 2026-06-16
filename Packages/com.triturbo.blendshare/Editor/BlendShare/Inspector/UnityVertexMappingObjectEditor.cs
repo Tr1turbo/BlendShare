@@ -64,16 +64,13 @@ namespace Triturbo.BlendShare.Inspector
                 EditorGUIUtility.PingObject(mapping);
             });
 
-            var meshField = new ObjectField
+            var meshField = BlendShareInspectorUi.RowField(new ObjectField
             {
                 objectType = typeof(Mesh),
                 allowSceneObjects = false,
                 value = mapping.m_UnityMesh
-            };
+            });
             meshField.SetEnabled(false);
-            meshField.style.flexGrow = 1;
-            meshField.style.flexShrink = 1;
-            meshField.style.minWidth = 0;
 
 
             root.Add(BlendShareInspectorUi.Row(Localization.S("patch.mapping.vertex_hash"), mapping.UnityVerticesHashShort));

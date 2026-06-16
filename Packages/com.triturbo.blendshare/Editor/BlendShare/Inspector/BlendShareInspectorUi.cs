@@ -9,6 +9,7 @@ namespace Triturbo.BlendShare.Inspector
     public static class BlendShareInspectorUi
     {
         private const string ClickableObjectClass = "blendshare-clickable-object";
+        private const float DefaultPrefixLabelWidth = 150f;
 
         public static VisualElement CreateRoot()
         {
@@ -182,8 +183,27 @@ namespace Triturbo.BlendShare.Inspector
         public static Label ValueLabel(string value)
         {
             var label = new Label(string.IsNullOrEmpty(value) ? "-" : value);
+            label.style.minHeight = EditorGUIUtility.singleLineHeight;
+            label.style.unityTextAlign = TextAnchor.MiddleLeft;
             label.style.whiteSpace = WhiteSpace.Normal;
             return label;
+        }
+
+        public static T RowField<T>(T field) where T : VisualElement
+        {
+            if (field == null)
+            {
+                return null;
+            }
+
+            field.style.flexGrow = 1;
+            field.style.flexShrink = 1;
+            field.style.minWidth = 0;
+            field.style.marginLeft = 0;
+            field.style.marginRight = 0;
+            field.style.marginTop = 0;
+            field.style.marginBottom = 0;
+            return field;
         }
 
         public static VisualElement LabeledRow(string label, VisualElement content, VisualElement suffixIcon = null)
@@ -192,14 +212,19 @@ namespace Triturbo.BlendShare.Inspector
             row.style.flexDirection = FlexDirection.Row;
             row.style.alignItems = Align.Center;
 
+            float prefixLabelWidth = GetPrefixLabelWidth();
             var left = new Label(label);
-            left.style.minWidth = 130;
+            left.style.width = prefixLabelWidth;
+            left.style.minWidth = prefixLabelWidth;
+            left.style.maxWidth = prefixLabelWidth;
+            left.style.flexGrow = 0;
+            left.style.flexShrink = 0;
             left.style.opacity = 0.72f;
             row.Add(left);
 
             content.style.flexGrow = 1;
             content.style.flexShrink = 1;
-            content.style.marginLeft = 8;
+            content.style.marginLeft = EditorGUIUtility.standardVerticalSpacing;
             content.style.minWidth = 0;
             row.Add(content);
 
@@ -209,6 +234,13 @@ namespace Triturbo.BlendShare.Inspector
             }
 
             return row;
+        }
+
+        private static float GetPrefixLabelWidth()
+        {
+            return EditorGUIUtility.labelWidth > 0f
+                ? EditorGUIUtility.labelWidth
+                : DefaultPrefixLabelWidth;
         }
 
         public static void AddIconToPrefixLabel<TValue>(BaseField<TValue> field, GUIContent iconContent, float iconSize = 16f, float spacing = 4f)
