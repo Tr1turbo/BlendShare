@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShapeShare;
 using Triturbo.BlendShare.Core;
+using Triturbo.BlendShare.Inspector;
 using UnityEditor;
 using UnityEditor.UIElements;
 using UnityEngine;
@@ -21,7 +22,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
         private float blendShapeScrollHeight = 240f;
 
         public override string FeatureId => BlendShapeFeatureObject.Id;
-        public override string TabLabel => "BlendShapes";
+        public override string TabLabel => Localization.FeatureName(FeatureId, "BlendShapes");
         public override int DisplayOrder => -100;
 
         protected override BlendShapeExtractionOptions CreateDefault()
@@ -63,7 +64,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             var root = new VisualElement();
             root.style.marginBottom = 6f;
 
-            var enabledToggle = new Toggle(Localization.S("blendshapes"))
+            var enabledToggle = new Toggle(Localization.S("features.blend-shapes.toggle"))
             {
                 value = options.Enabled
             };
@@ -76,26 +77,31 @@ namespace Triturbo.BlendShare.Features.BlendShapes
 
             var transformFoldout = new Foldout
             {
-                text = Localization.S("extractor.apply_transform"),
+                text = Localization.S("patch_creator.blend_shapes.apply_transform"),
                 value = showApplyTransform
             };
             transformFoldout.RegisterValueChangedCallback(evt => showApplyTransform = evt.newValue);
             controls.Add(transformFoldout);
 
             transformFoldout.Add(CreateOptionToggle(
-                Localization.S("extractor.apply_translate"),
+                Localization.S("patch_creator.blend_shapes.apply_translate"),
                 options.ApplyTranslate,
                 value => options.ApplyTranslate = value));
             transformFoldout.Add(CreateOptionToggle(
-                Localization.S("extractor.apply_rotation"),
+                Localization.S("patch_creator.blend_shapes.apply_rotation"),
                 options.ApplyRotation,
                 value => options.ApplyRotation = value));
             transformFoldout.Add(CreateOptionToggle(
-                Localization.S("extractor.apply_scale"),
+                Localization.S("patch_creator.blend_shapes.apply_scale"),
                 options.ApplyScale,
                 value => options.ApplyScale = value));
 
-            var baseMeshField = new EnumField(Localization.S("extractor.base_mesh"), options.BaseMesh);
+            var baseMeshField = new PopupField<BlendShapeBaseMesh>(
+                Localization.S("patch_creator.blend_shapes.base_mesh"),
+                System.Enum.GetValues(typeof(BlendShapeBaseMesh)).Cast<BlendShapeBaseMesh>().ToList(),
+                options.BaseMesh,
+                FormatBaseMesh,
+                FormatBaseMesh);
             baseMeshField.RegisterValueChangedCallback(evt =>
             {
                 if (evt.newValue is BlendShapeBaseMesh baseMesh)
@@ -123,11 +129,11 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             root.style.flexGrow = 1f;
             root.style.minHeight = 0f;
             root.style.flexDirection = FlexDirection.Column;
-            root.Add(CreateHeaderLabel(Localization.S("new_extractor.meshes")));
+            root.Add(CreateHeaderLabel(Localization.S("common.meshes")));
 
             if (context?.SourceFbxGo == null || context.OriginFbxGo == null)
             {
-                root.Add(new HelpBox(Localization.S("new_extractor.assign_fbx_hint"), HelpBoxMessageType.Info));
+                root.Add(new HelpBox(Localization.S("patch_creator.assign_fbx_hint"), HelpBoxMessageType.Info));
                 return root;
             }
 
@@ -136,7 +142,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                 .ToArray() ?? System.Array.Empty<MeshFeatureExtractionMeshRequest>();
             if (requests.Length == 0)
             {
-                root.Add(new HelpBox(Localization.S("new_extractor.no_meshes"), HelpBoxMessageType.Info));
+                root.Add(new HelpBox(Localization.S("patch_creator.no_meshes"), HelpBoxMessageType.Info));
                 return root;
             }
 
@@ -177,11 +183,11 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             if (sections.Count == 0)
             {
                 stickyHeader.style.display = DisplayStyle.None;
-                scrollView.Add(new HelpBox(Localization.S("new_extractor.no_meshes"), HelpBoxMessageType.Info));
+                scrollView.Add(new HelpBox(Localization.S("patch_creator.no_meshes"), HelpBoxMessageType.Info));
                 return root;
             }
 
-            var overview = StickyHeaderOverview.Create(sections, () => Localization.S("new_extractor.meshes"));
+            var overview = StickyHeaderOverview.Create(sections, () => Localization.S("common.meshes"));
             stickyHeader.Bind(scrollView, sections, overview);
             requestStickyRefresh = stickyHeader.Refresh;
             return root;
@@ -228,7 +234,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             UpdateTitle();
             foldout.style.marginBottom = 6f;
 
-            var meshEnabled = new Toggle("Enable Mesh")
+            var meshEnabled = new Toggle(Localization.S("features.skin-weights.mesh"))
             {
                 value = options.IsMeshEnabled(request.Path)
             };
@@ -238,8 +244,8 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             meshControls.SetEnabled(meshEnabled.value);
             foldout.Add(meshControls);
 
-            var pathLabel = new Label($"{Localization.S("new_extractor.mesh_path")}: {request.Path}");
-            pathLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
+            var pathLabel = new Label($"{Localization.S("common.mesh_path")}: {request.Path}");
+            BlendShareInspectorUi.StyleStrong(pathLabel);
             meshControls.Add(pathLabel);
 
             if (!string.IsNullOrEmpty(meshComparison?.Message))
@@ -284,19 +290,19 @@ namespace Triturbo.BlendShare.Features.BlendShapes
 
             var enableAll = new Button(EnableAll)
             {
-                text = "Enable All"
+                text = Localization.S("common.enable_all")
             };
             var disableAll = new Button(DisableAll)
             {
-                text = "Disable All"
+                text = Localization.S("common.disable_all")
             };
             var restore = new Button(RestoreDefaults)
             {
-                text = "Auto"
+                text = Localization.S("common.auto")
             };
             var disableChanged = new Button(DisableChanged)
             {
-                text = "Disable Diff"
+                text = Localization.S("common.disable_diff")
             };
             enableAll.style.marginRight = 4f;
             disableAll.style.marginRight = 4f;
@@ -397,7 +403,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
         private static Label CreateHeaderLabel(string text)
         {
             var label = new Label(text);
-            label.style.unityFontStyleAndWeight = FontStyle.Bold;
+            BlendShareInspectorUi.StyleStrong(label);
             label.style.marginBottom = 4f;
             return label;
         }
@@ -424,21 +430,21 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             var row = CreateBlendShapeTableRow(-1);
             row.style.backgroundColor = new Color(0.23f, 0.23f, 0.23f);
 
-            var nameLabel = new Label("BlendShape");
-            nameLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
+            var nameLabel = new Label(Localization.S("features.blend-shapes.table.name"));
+            BlendShareInspectorUi.StyleStrong(nameLabel);
             ApplyBlendShapeNameColumnStyle(nameLabel);
 
-            var statusLabel = new Label("Status");
+            var statusLabel = new Label(Localization.S("common.status"));
             statusLabel.style.width = ComparisonPillSlotWidth;
             statusLabel.style.flexShrink = 0f;
-            statusLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
+            BlendShareInspectorUi.StyleStrong(statusLabel);
             statusLabel.style.unityTextAlign = TextAnchor.MiddleRight;
 
-            var toggleLabel = new Label("Use");
+            var toggleLabel = new Label(Localization.S("common.use"));
             toggleLabel.style.width = 22f;
             toggleLabel.style.marginLeft = 14f;
             toggleLabel.style.flexShrink = 0f;
-            toggleLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
+            BlendShareInspectorUi.StyleStrong(toggleLabel);
             toggleLabel.style.unityTextAlign = TextAnchor.MiddleCenter;
 
             row.Add(nameLabel);
@@ -573,23 +579,23 @@ namespace Triturbo.BlendShare.Features.BlendShapes
 
         private void DrawGeneralOptions(BlendShapeExtractionOptions options)
         {
-            options.Enabled = EditorGUILayout.ToggleLeft(Localization.S("blendshapes"), options.Enabled);
+            options.Enabled = EditorGUILayout.ToggleLeft(Localization.S("features.blend-shapes.toggle"), options.Enabled);
             EditorGUI.BeginDisabledGroup(!options.Enabled);
 
-            showApplyTransform = EditorGUILayout.Foldout(showApplyTransform, Localization.G("extractor.apply_transform"));
+            showApplyTransform = EditorGUILayout.Foldout(showApplyTransform, Localization.G("patch_creator.blend_shapes.apply_transform"));
             if (showApplyTransform)
             {
                 EditorGUI.indentLevel++;
-                options.ApplyTranslate = EditorGUILayout.Toggle(Localization.G("extractor.apply_translate"), options.ApplyTranslate);
-                options.ApplyRotation = EditorGUILayout.Toggle(Localization.G("extractor.apply_rotation"), options.ApplyRotation);
-                options.ApplyScale = EditorGUILayout.Toggle(Localization.G("extractor.apply_scale"), options.ApplyScale);
+                options.ApplyTranslate = EditorGUILayout.Toggle(Localization.G("patch_creator.blend_shapes.apply_translate"), options.ApplyTranslate);
+                options.ApplyRotation = EditorGUILayout.Toggle(Localization.G("patch_creator.blend_shapes.apply_rotation"), options.ApplyRotation);
+                options.ApplyScale = EditorGUILayout.Toggle(Localization.G("patch_creator.blend_shapes.apply_scale"), options.ApplyScale);
                 EditorGUI.indentLevel--;
             }
 
             options.BaseMesh = Localization.LocalizedEnumPopup(
-                Localization.G("extractor.base_mesh"),
+                Localization.G("patch_creator.blend_shapes.base_mesh"),
                 options.BaseMesh,
-                "extractor.enum.base_mesh");
+                "patch_creator.blend_shapes.base_mesh");
 
             EditorGUI.EndDisabledGroup();
         }
@@ -600,11 +606,11 @@ namespace Triturbo.BlendShare.Features.BlendShapes
         {
             EditorGUI.BeginDisabledGroup(!options.Enabled);
             EditorGUILayout.Space(6);
-            EditorGUILayout.LabelField(Localization.G("new_extractor.meshes"), EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(Localization.G("common.meshes"), EditorStyles.boldLabel);
 
             if (context?.SourceFbxGo == null || context.OriginFbxGo == null)
             {
-                EditorGUILayout.HelpBox(Localization.S("new_extractor.assign_fbx_hint"), MessageType.Info);
+                EditorGUILayout.HelpBox(Localization.S("patch_creator.assign_fbx_hint"), MessageType.Info);
                 EditorGUI.EndDisabledGroup();
                 return;
             }
@@ -614,7 +620,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                 .ToArray() ?? System.Array.Empty<MeshFeatureExtractionMeshRequest>();
             if (requests.Length == 0)
             {
-                EditorGUILayout.HelpBox(Localization.S("new_extractor.no_meshes"), MessageType.Info);
+                EditorGUILayout.HelpBox(Localization.S("patch_creator.no_meshes"), MessageType.Info);
                 EditorGUI.EndDisabledGroup();
                 return;
             }
@@ -685,19 +691,19 @@ namespace Triturbo.BlendShare.Features.BlendShapes
 
             EditorGUI.indentLevel++;
             EditorGUILayout.BeginVertical(GUI.skin.box);
-            EditorGUILayout.LabelField(Localization.G("new_extractor.mesh_path"), new GUIContent(request.Path));
+            EditorGUILayout.LabelField(Localization.G("common.mesh_path"), new GUIContent(request.Path));
             if (!string.IsNullOrEmpty(meshComparison?.Message))
             {
                 EditorGUILayout.HelpBox(meshComparison.Message, MessageType.Warning);
             }
 
             EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button(Localization.S("data.enable_all_blendshapes")))
+            if (GUILayout.Button(Localization.S("common.enable_all")))
             {
                 selected = new HashSet<string>(blendShapeNames);
             }
 
-            if (GUILayout.Button(Localization.S("data.mute_all_blendshapes")))
+            if (GUILayout.Button(Localization.S("common.disable_all")))
             {
                 selected.Clear();
             }
@@ -824,12 +830,17 @@ namespace Triturbo.BlendShare.Features.BlendShapes
         {
             return status switch
             {
-                BlendShapeComparisonStatus.New => "New",
-                BlendShapeComparisonStatus.Changed => "Diff",
-                BlendShapeComparisonStatus.Same => "Same",
-                BlendShapeComparisonStatus.Unavailable => "N/A",
-                _ => "Unknown"
+                BlendShapeComparisonStatus.New => Localization.S("common.status.new"),
+                BlendShapeComparisonStatus.Changed => Localization.S("common.status.diff"),
+                BlendShapeComparisonStatus.Same => Localization.S("common.status.same"),
+                BlendShapeComparisonStatus.Unavailable => Localization.S("common.status.unavailable"),
+                _ => Localization.S("common.status.unknown")
             };
+        }
+
+        private static string FormatBaseMesh(BlendShapeBaseMesh baseMesh)
+        {
+            return Localization.S($"patch_creator.blend_shapes.base_mesh.{baseMesh.ToString().ToLowerInvariant()}");
         }
     }
 }

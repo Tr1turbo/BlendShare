@@ -18,6 +18,9 @@ namespace Triturbo.BlendShare.Inspector
     [CustomEditor(typeof(BlendShareObject))]
     public class BlendShareObjectEditor : UnityEditor.Editor
     {
+        private const int UninitializedTargetLookupId = int.MinValue;
+        private const int MaxTargetLookupRetryCount = 3;
+
         private static readonly Dictionary<string, Dictionary<MeshDataObject, MeshFbxCompatibilityStatus>> sharedCompatibilityStatusCache = new();
 
         private readonly Dictionary<MeshDataObject, bool> meshFoldouts = new();
@@ -27,7 +30,9 @@ namespace Triturbo.BlendShare.Inspector
         private readonly Dictionary<string, MeshMappingStatus> cachedMappingStatuses = new();
         private readonly Dictionary<string, string> cachedUnityVertexHashes = new();
         private UnityMeshTargetLookup cachedTargetLookup;
-        private int cachedTargetLookupOriginalId;
+        private int cachedTargetLookupTargetId = UninitializedTargetLookupId;
+        private int targetLookupRetryCount;
+        private bool targetLookupRetryScheduled;
         private ArtifactMappingStatus cachedArtifactMappingStatus;
         private string cachedArtifactMappingStatusKey;
         private bool hasCachedArtifactMappingStatus;
@@ -50,7 +55,7 @@ namespace Triturbo.BlendShare.Inspector
 
             var content = new VisualElement();
             root.Add(content);
-            int renderedOriginalId = GetOriginalId(patch);
+            int renderedTargetId = GetTargetId(patch);
 
             void RebuildContent()
             {
@@ -63,7 +68,8 @@ namespace Triturbo.BlendShare.Inspector
                 content.Clear();
                 var compatibilityStatuses = GetCompatibilityStatuses(patch, RebuildContent);
                 var targetLookup = GetTargetLookup(patch);
-                content.Add(CreateHeader(patch, compatibilityStatuses, RefreshWhenOriginalChanges));
+                ScheduleTargetLookupRetry(patch, content, RebuildContent);
+                content.Add(CreateHeader(patch, compatibilityStatuses, RefreshWhenTargetChanges));
                 content.Add(CreateContentSummary(patch, compatibilityStatuses, targetLookup));
                 content.Add(CreateMeshList(patch, targetLookup, () =>
                 {
@@ -72,14 +78,14 @@ namespace Triturbo.BlendShare.Inspector
                 }));
                 content.Add(CreateActionsSection(patch));
                 content.Add(CreateAdvancedSection());
-                renderedOriginalId = GetOriginalId(patch);
+                renderedTargetId = GetTargetId(patch);
             }
 
-            void RefreshWhenOriginalChanges()
+            void RefreshWhenTargetChanges()
             {
                 serializedObject.Update();
-                int currentOriginalId = GetOriginalId(patch);
-                if (currentOriginalId == renderedOriginalId)
+                int currentTargetId = GetTargetId(patch);
+                if (currentTargetId == renderedTargetId)
                 {
                     return;
                 }
@@ -89,6 +95,7 @@ namespace Triturbo.BlendShare.Inspector
             }
 
             RebuildContent();
+            Localization.RebuildOnLanguageChange(root, RebuildContent);
             return root;
         }
 
@@ -97,22 +104,22 @@ namespace Triturbo.BlendShare.Inspector
             IReadOnlyDictionary<MeshDataObject, MeshFbxCompatibilityStatus> compatibilityStatuses,
             System.Action refresh)
         {
-            var section = BlendShareInspectorUi.Section("BlendShare Patch");
+            var section = BlendShareInspectorUi.Section(Localization.S("patch.inspector.title"));
 
-            var originalField = new PropertyField(serializedObject.FindProperty(nameof(BlendShareObject.m_Original)), string.Empty);
-            originalField.Bind(serializedObject);
-            originalField.RegisterCallback<SerializedPropertyChangeEvent>(_ => originalField.schedule.Execute(() => refresh?.Invoke()));
+            var targetField = new PropertyField(serializedObject.FindProperty(nameof(BlendShareObject.m_Target)), string.Empty);
+            targetField.Bind(serializedObject);
+            targetField.RegisterCallback<SerializedPropertyChangeEvent>(_ => targetField.schedule.Execute(() => refresh?.Invoke()));
             var statusIcon = CreatePatchCompatibilityIcon(compatibilityStatuses);
-            section.Add(BlendShareInspectorUi.LabeledRow("Original FBX", originalField, statusIcon));
+            section.Add(BlendShareInspectorUi.LabeledRow(Localization.S("common.target_fbx"), targetField, statusIcon));
             section.Add(CreateFbxPatchMetadata(patch));
 
-            if (patch.m_Original == null)
+            if (patch.m_Target == null)
             {
-                section.Add(new HelpBox("Assign the target/original FBX before applying or verifying this patch.", HelpBoxMessageType.Warning));
+                section.Add(new HelpBox(Localization.S("patch.target_missing"), HelpBoxMessageType.Warning));
             }
 
 #if !ENABLE_FBX_SDK
-            section.Add(new HelpBox(Localization.S("data.fbx_sdk_missing"), HelpBoxMessageType.Warning));
+            section.Add(new HelpBox(Localization.S("common.fbx_sdk_missing"), HelpBoxMessageType.Warning));
 #endif
 
             return section;
@@ -120,7 +127,7 @@ namespace Triturbo.BlendShare.Inspector
 
         private VisualElement CreateFbxPatchMetadata(BlendShareObject patch)
         {
-            var state = patch != null && patch.m_Original != null
+            var state = patch != null && patch.m_Target != null
                 ? GetPatchStateCached(patch)
                 : default;
             var records = state.Metadata?.activeRecords ?? System.Array.Empty<BlendShareFbxPatchRecord>();
@@ -131,7 +138,7 @@ namespace Triturbo.BlendShare.Inspector
 
             var list = new VisualElement();
             list.style.marginTop = 3;
-            list.Add(BlendShareInspectorUi.Row("Applied Patches", records.Length.ToString()));
+            list.Add(BlendShareInspectorUi.Row(Localization.S("patch.metadata.applied_patches"), records.Length.ToString()));
 
             foreach (var record in records.Where(record => record != null))
             {
@@ -147,7 +154,7 @@ namespace Triturbo.BlendShare.Inspector
             IReadOnlyDictionary<MeshDataObject, MeshFbxCompatibilityStatus> compatibilityStatuses,
             UnityMeshTargetLookup targetLookup)
         {
-            var section = BlendShareInspectorUi.Section("Patch Contents");
+            var section = BlendShareInspectorUi.Section(Localization.S("patch.contents.title"));
             var meshes = (patch.Meshes ?? System.Array.Empty<MeshDataObject>())
                 .Where(mesh => mesh != null)
                 .ToArray();
@@ -177,8 +184,8 @@ namespace Triturbo.BlendShare.Inspector
                 estimatedVideoMemoryBytes += EstimateVideoMemoryBytes(mesh, targetLookup);
             }
 
-            section.Add(BlendShareInspectorUi.Row("FBX Compatibility", $"{verifiedMeshes} verified / {meshes.Length} meshes"));
-            section.Add(BlendShareInspectorUi.Row("Unity Mappings", $"{readyMappings} ready / {requiredMappings} required"));
+            section.Add(BlendShareInspectorUi.Row(Localization.S("patch.compatibility.title"), Localization.SF("patch.compatibility.summary", verifiedMeshes, meshes.Length)));
+            section.Add(BlendShareInspectorUi.Row(Localization.S("patch.mapping.title"), Localization.SF("patch.mapping.summary", readyMappings, requiredMappings)));
             //section.Add(BlendShareInspectorUi.Row("VRAM", FormatBytes(estimatedGraphicsMemoryBytes)));
             return section;
         }
@@ -222,14 +229,14 @@ namespace Triturbo.BlendShare.Inspector
 
         private VisualElement CreateMeshList(BlendShareObject patch, UnityMeshTargetLookup targetLookup, System.Action refresh)
         {
-            var section = BlendShareInspectorUi.Section("Meshes");
+            var section = BlendShareInspectorUi.Section(Localization.S("common.meshes"));
             var meshes = (patch.Meshes ?? System.Array.Empty<MeshDataObject>())
                 .Where(mesh => mesh != null)
                 .ToArray();
 
             if (meshes.Length == 0)
             {
-                section.Add(new HelpBox("This patch does not contain mesh data.", HelpBoxMessageType.Info));
+                section.Add(new HelpBox(Localization.S("patch.contents.no_mesh_data"), HelpBoxMessageType.Info));
                 return section;
             }
 
@@ -250,12 +257,12 @@ namespace Triturbo.BlendShare.Inspector
             var editor = MeshFeatureEditorRegistry.GetEmbeddedEditor(mesh);
             if (editor != null)
             {
-                var context = new BlendShareEmbeddedEditorContext(mesh, mesh, patch, refresh, patch != null ? patch.m_Original : null, targetLookup);
+                var context = new BlendShareEmbeddedEditorContext(mesh, mesh, patch, refresh, patch != null ? patch.m_Target : null, targetLookup, false);
                 return MeshDataObjectEditor.CreateCompactEmbeddedInspector(mesh, context);
             }
 
             var row = BlendShareInspectorUi.Box();
-            row.Add(new HelpBox("No custom embedded editor is registered for this mesh.", HelpBoxMessageType.Info));
+            row.Add(new HelpBox(Localization.S("patch.mesh_data.no_embedded_editor"), HelpBoxMessageType.Info));
             return row;
         }
 
@@ -294,8 +301,8 @@ namespace Triturbo.BlendShare.Inspector
 
                 statuses[mesh] = new MeshFbxCompatibilityStatus(
                     MeshFbxCompatibilityState.Unknown,
-                    "Checking",
-                    "FBX topology verification is pending.");
+                    Localization.S("common.status.checking"),
+                    Localization.S("patch.compatibility.pending"));
             }
 
             return statuses;
@@ -337,7 +344,7 @@ namespace Triturbo.BlendShare.Inspector
         private static string CreateCompatibilityCacheKey(BlendShareObject patch, IReadOnlyList<MeshDataObject> meshes)
         {
             var builder = new System.Text.StringBuilder();
-            builder.Append(patch != null && patch.m_Original != null ? AssetDatabase.GetAssetPath(patch.m_Original) : string.Empty);
+            builder.Append(patch != null && patch.m_Target != null ? AssetDatabase.GetAssetPath(patch.m_Target) : string.Empty);
             builder.Append('|');
             foreach (var mesh in meshes ?? System.Array.Empty<MeshDataObject>())
             {
@@ -361,15 +368,40 @@ namespace Triturbo.BlendShare.Inspector
 
         private UnityMeshTargetLookup GetTargetLookup(BlendShareObject patch)
         {
-            int originalId = GetOriginalId(patch);
-            if (cachedTargetLookupOriginalId == originalId)
+            int targetId = GetTargetId(patch);
+            if (cachedTargetLookupTargetId == targetId && (targetId == 0 || cachedTargetLookup != null))
             {
                 return cachedTargetLookup;
             }
 
-            cachedTargetLookup = patch != null ? UnityMeshTargetLookup.Create(patch.m_Original) : null;
-            cachedTargetLookupOriginalId = originalId;
+            cachedTargetLookup = patch != null && patch.m_Target != null ? UnityMeshTargetLookup.Create(patch.m_Target) : null;
+            cachedTargetLookupTargetId = targetId;
+            if (cachedTargetLookup != null || targetId == 0)
+            {
+                targetLookupRetryCount = 0;
+            }
+
+            ClearMappingStatusCaches();
             return cachedTargetLookup;
+        }
+
+        private void ScheduleTargetLookupRetry(BlendShareObject patch, VisualElement scheduler, System.Action rebuild)
+        {
+            if (patch == null || patch.m_Target == null || scheduler == null || cachedTargetLookup != null || targetLookupRetryScheduled || targetLookupRetryCount >= MaxTargetLookupRetryCount)
+            {
+                return;
+            }
+
+            targetLookupRetryScheduled = true;
+            targetLookupRetryCount++;
+            scheduler.schedule.Execute(() =>
+            {
+                targetLookupRetryScheduled = false;
+                if (target != null)
+                {
+                    rebuild?.Invoke();
+                }
+            }).StartingIn(100);
         }
 
         private void ClearCompatibilityCaches()
@@ -384,7 +416,8 @@ namespace Triturbo.BlendShare.Inspector
             cachedPatchStateKey = null;
             hasCachedPatchState = false;
             cachedTargetLookup = null;
-            cachedTargetLookupOriginalId = -1;
+            cachedTargetLookupTargetId = UninitializedTargetLookupId;
+            targetLookupRetryCount = 0;
         }
 
         private void ClearMappingStatusCaches()
@@ -401,9 +434,9 @@ namespace Triturbo.BlendShare.Inspector
             hasCachedPatchState = false;
         }
 
-        private static int GetOriginalId(BlendShareObject patch)
+        private static int GetTargetId(BlendShareObject patch)
         {
-            return patch != null && patch.m_Original != null ? patch.m_Original.GetInstanceID() : 0;
+            return patch != null && patch.m_Target != null ? patch.m_Target.GetInstanceID() : 0;
         }
 
         private static MeshFbxCompatibilityStatus GetCompatibilityStatus(
@@ -412,7 +445,7 @@ namespace Triturbo.BlendShare.Inspector
         {
             return statuses != null && mesh != null && statuses.TryGetValue(mesh, out var status)
                 ? status
-                : new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.Unknown, "Unknown", "Compatibility was not evaluated.");
+                : new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.Unknown, Localization.S("common.status.unknown"), Localization.S("patch.compatibility.not_evaluated"));
         }
 
         private static VisualElement CreatePatchCompatibilityIcon(
@@ -428,30 +461,30 @@ namespace Triturbo.BlendShare.Inspector
             {
                 return BlendShareInspectorUi.CompatibilityIcon(new MeshFbxCompatibilityStatus(
                     MeshFbxCompatibilityState.Verified,
-                    "Verified",
-                    "All meshes verified for this FBX."));
+                    Localization.S("common.status.verified"),
+                    Localization.S("patch.compatibility.all_verified")));
             }
 
             if (statuses.Any(status => status.State == MeshFbxCompatibilityState.Incompatible))
             {
                 return BlendShareInspectorUi.CompatibilityIcon(new MeshFbxCompatibilityStatus(
                     MeshFbxCompatibilityState.Incompatible,
-                    "Incompatible",
-                    "One or more meshes are incompatible with this FBX."));
+                    Localization.S("common.status.incompatible"),
+                    Localization.S("patch.compatibility.has_incompatible")));
             }
 
             if (statuses.Any(status => status.State == MeshFbxCompatibilityState.MissingTargetMesh))
             {
                 return BlendShareInspectorUi.CompatibilityIcon(new MeshFbxCompatibilityStatus(
                     MeshFbxCompatibilityState.MissingTargetMesh,
-                    "Missing Target Mesh",
-                    "One or more mesh paths are missing from this FBX."));
+                    Localization.S("common.status.missing_target_mesh"),
+                    Localization.S("patch.compatibility.missing_paths")));
             }
 
             return BlendShareInspectorUi.CompatibilityIcon(new MeshFbxCompatibilityStatus(
                 MeshFbxCompatibilityState.Unknown,
-                "Unknown",
-                "One or more mesh compatibility checks are unknown."));
+                Localization.S("common.status.unknown"),
+                Localization.S("patch.compatibility.unknown_checks")));
         }
 
         private MeshMappingStatus GetMappingStatusCached(
@@ -476,7 +509,7 @@ namespace Triturbo.BlendShare.Inspector
             UnityMeshTargetLookup targetLookup)
         {
             var builder = new System.Text.StringBuilder();
-            builder.Append(GetOriginalId(patch));
+            builder.Append(GetTargetId(patch));
             builder.Append('|');
             builder.Append(mesh != null ? mesh.GetInstanceID() : 0);
             builder.Append('|');
@@ -511,22 +544,22 @@ namespace Triturbo.BlendShare.Inspector
         {
             if (mesh == null)
             {
-                return new MeshMappingStatus("Unknown", "Mesh data is missing.", false, StatusKind.Neutral);
+                return new MeshMappingStatus(Localization.S("common.status.unknown"), Localization.S("patch.mesh_data.missing"), false, StatusKind.Neutral);
             }
 
-            if (patch == null || patch.m_Original == null)
+            if (patch == null || patch.m_Target == null)
             {
-                return new MeshMappingStatus("Missing Target", "Original FBX is not assigned.", false, StatusKind.Warning);
+                return new MeshMappingStatus(Localization.S("common.status.missing_target"), Localization.S("patch.mapping.target_missing"), false, StatusKind.Warning);
             }
 
             if (targetLookup == null)
             {
-                return new MeshMappingStatus("Unknown", "Unity mesh target cannot be read.", false, StatusKind.Neutral);
+                return new MeshMappingStatus(Localization.S("common.status.unknown"), Localization.S("patch.mapping.target_unreadable"), false, StatusKind.Neutral);
             }
 
             if (!targetLookup.TryGetMesh(mesh, out var targetMesh))
             {
-                return new MeshMappingStatus("Missing", targetLookup.GetResolutionError(mesh), false, StatusKind.Warning);
+                return new MeshMappingStatus(Localization.S("common.status.missing"), targetLookup.GetResolutionError(mesh), false, StatusKind.Warning);
             }
 
             var mappings = mesh.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>();
@@ -534,30 +567,30 @@ namespace Triturbo.BlendShare.Inspector
             bool hasValidMapping = mappings.Any(mapping => IsCompatibleMapping(mapping, mesh, targetMesh));
             if (hasValidMapping)
             {
-                return new MeshMappingStatus("Ready", targetMesh.name, false, StatusKind.Success);
+                return new MeshMappingStatus(Localization.S("common.status.ready"), targetMesh.name, false, StatusKind.Success);
             }
 
             return new MeshMappingStatus(
-                hasMapping ? "Invalid" : "Missing",
-                hasMapping ? "No stored mapping matches the current Unity mesh import." : "No Unity mapping is stored for this mesh.",
+                hasMapping ? Localization.S("common.status.invalid") : Localization.S("common.status.missing"),
+                hasMapping ? Localization.S("patch.mapping.no_stored_match") : Localization.S("patch.mapping.no_mapping"),
                 true,
                 StatusKind.Warning);
         }
 
         private VisualElement CreateActionsSection(BlendShareObject patch)
         {
-            var section = BlendShareInspectorUi.Section("Actions");
+            var section = BlendShareInspectorUi.Section(Localization.S("patch.actions.title"));
             section.Add(new IMGUIContainer(() => DrawActions(patch)));
             return section;
         }
 
         private VisualElement CreateAdvancedSection()
         {
-            var foldout = new Foldout { text = "Advanced" };
-            var defaultName = new PropertyField(serializedObject.FindProperty(nameof(BlendShareObject.m_DefaultGeneratedAssetName)), "Default Generated Asset Name");
+            var foldout = new Foldout { text = Localization.S("patch.advanced") };
+            var defaultName = new PropertyField(serializedObject.FindProperty(nameof(BlendShareObject.m_DefaultGeneratedAssetName)), Localization.S("common.default_asset_name"));
             defaultName.Bind(serializedObject);
             foldout.Add(defaultName);
-            var patchId = new PropertyField(serializedObject.FindProperty(nameof(BlendShareObject.m_PatchId)), "Patch ID");
+            var patchId = new PropertyField(serializedObject.FindProperty(nameof(BlendShareObject.m_PatchId)), Localization.S("common.patch_id"));
             patchId.Bind(serializedObject);
             foldout.Add(patchId);
             foldout.Add(new IMGUIContainer(() =>
@@ -590,8 +623,8 @@ namespace Triturbo.BlendShare.Inspector
 
         private void DrawMetadata()
         {
-            EditorGUILayout.LabelField("BlendShare Object", EditorStyles.boldLabel);
-            EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(BlendShareObject.m_Original)), Localization.G("data.original_fbx"));
+            EditorGUILayout.LabelField(Localization.S("patch.inspector.title"), EditorStyles.boldLabel);
+            EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(BlendShareObject.m_Target)), Localization.G("common.target_fbx"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(BlendShareObject.m_DefaultGeneratedAssetName)), Localization.G("data.hidden_settings.default_asset_name"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty(nameof(BlendShareObject.m_PatchId)), Localization.G("data.hidden_settings.patch_id"));
         }
@@ -626,9 +659,9 @@ namespace Triturbo.BlendShare.Inspector
                 }
 
                 EditorGUI.indentLevel++;
-                EditorGUILayout.LabelField("Path", mesh.m_Path);
-                EditorGUILayout.LabelField("FBX Control Points", mesh.FbxControlPointCount.ToString());
-                EditorGUILayout.LabelField("FBX Topology Hash", ShortHash(mesh.m_FbxTopologySignature?.Hash));
+                EditorGUILayout.LabelField(Localization.S("common.path"), mesh.m_Path);
+                EditorGUILayout.LabelField(Localization.S("patch.mesh_data.fbx_control_points"), mesh.FbxControlPointCount.ToString());
+                EditorGUILayout.LabelField(Localization.S("patch.mesh_data.fbx_topology_hash"), ShortHash(mesh.m_FbxTopologySignature?.Hash));
                 DrawMappings(mesh);
                 DrawSkinWeightSummary(mesh.GetFeature<SkinWeightFeatureObject>());
                 DrawBlendShapeToggles(blendShapeFeature);
@@ -706,7 +739,7 @@ namespace Triturbo.BlendShare.Inspector
         private void DrawMappings(MeshDataObject mesh)
         {
             var mappings = mesh.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>();
-            EditorGUILayout.LabelField("Unity Mappings", mappings.Length.ToString());
+            EditorGUILayout.LabelField(Localization.S("patch.mapping.title"), mappings.Length.ToString());
             EditorGUI.indentLevel++;
             foreach (var mapping in mappings)
             {
@@ -715,9 +748,9 @@ namespace Triturbo.BlendShare.Inspector
                     continue;
                 }
 
-                EditorGUILayout.ObjectField("Unity Mesh", mapping.m_UnityMesh, typeof(Mesh), false);
-                EditorGUILayout.LabelField("Unity Vertices", mapping.m_UnityVertexCount.ToString());
-                EditorGUILayout.LabelField("Mapping Valid", mapping.m_IsValid.ToString());
+                EditorGUILayout.ObjectField(Localization.S("patch.mapping.unity_mesh"), mapping.m_UnityMesh, typeof(Mesh), false);
+                EditorGUILayout.LabelField(Localization.S("patch.mapping.unity_vertices"), mapping.m_UnityVertexCount.ToString());
+                EditorGUILayout.LabelField(Localization.S("patch.mapping.valid"), mapping.m_IsValid.ToString());
                 if (!mapping.m_IsValid && !string.IsNullOrEmpty(mapping.m_Report))
                 {
                     EditorGUILayout.HelpBox(mapping.m_Report, MessageType.Warning);
@@ -730,7 +763,7 @@ namespace Triturbo.BlendShare.Inspector
         {
             if (blendShapeFeature == null)
             {
-                EditorGUILayout.HelpBox("No BlendShape feature found for this mesh.", MessageType.Info);
+                EditorGUILayout.HelpBox(Localization.S("features.blend-shapes.no_feature_for_mesh"), MessageType.Info);
                 return;
             }
 
@@ -769,17 +802,17 @@ namespace Triturbo.BlendShare.Inspector
 
         private void DrawActions(BlendShareObject patch)
         {
-            bool hasOriginal = patch.m_Original != null;
-            var patchState = hasOriginal
+            bool hasTarget = patch.m_Target != null;
+            var patchState = hasTarget
                 ? GetPatchStateCached(patch)
                 : default;
             var artifactMappingStatus = GetArtifactMappingStatus(patch);
 
 #if !ENABLE_FBX_SDK
-            EditorGUILayout.HelpBox(Localization.S("data.fbx_sdk_missing"), MessageType.Warning);
+            EditorGUILayout.HelpBox(Localization.S("common.fbx_sdk_missing"), MessageType.Warning);
 #endif
 
-            using (new EditorGUI.DisabledScope(!hasOriginal))
+            using (new EditorGUI.DisabledScope(!hasTarget))
             {
                 DrawPatchActions(patch, patchState);
                 DrawCreateFbxControl(patch, patchState);
@@ -792,16 +825,16 @@ namespace Triturbo.BlendShare.Inspector
 
             if (artifactMappingStatus.CanCreateMappings)
             {
-                if (GUILayout.Button(Localization.G("data.create_mappings")))
+                if (GUILayout.Button(Localization.G("patch.mapping.create")))
                 {
-                    using var progress = BlendShareEditorProgress.Create(Localization.S("data.create_mappings"));
+                    using var progress = BlendShareEditorProgress.Create(Localization.S("patch.mapping.create"));
                     try
                     {
-                        CreateMappingsForOriginal(patch, progress);
+                        CreateMappingsForTarget(patch, progress);
                     }
                     catch (BlendShareOperationCanceledException)
                     {
-                        EditorUtility.DisplayDialog(Localization.S("data.create_mappings"), BlendShareProgressUtility.CanceledMessage, Localization.S("data.dialog.ok"));
+                        EditorUtility.DisplayDialog(Localization.S("patch.mapping.create"), BlendShareProgressUtility.CanceledMessage, Localization.S("common.ok"));
                     }
                     ClearMappingStatusCaches();
                     artifactMappingStatus = GetArtifactMappingStatus(patch);
@@ -810,31 +843,31 @@ namespace Triturbo.BlendShare.Inspector
 
             using (new EditorGUI.DisabledScope(!artifactMappingStatus.CanGenerateArtifact))
             {
-                if (GUILayout.Button(Localization.G("data.create_artifact")))
+                if (GUILayout.Button(Localization.G("asset.create")))
                 {
-                    if (patch.m_Original == null)
+                    if (patch.m_Target == null)
                     {
-                        Localization.DisplayDialog("data.dialog.fbx_missing", Localization.S("data.dialog.ok"));
+                        Localization.DisplayDialog("patch.fbx_missing", Localization.S("common.ok"));
                         return;
                     }
 
                     string folderPath = Path.GetDirectoryName(AssetDatabase.GetAssetPath(patch));
                     string path = EditorUtility.SaveFilePanelInProject(
-                        Localization.S("data.save_artifact.title"),
-                        $"{patch.DefaultMeshAssetName}_Artifact",
+                        Localization.S("asset.save_title"),
+                        $"{patch.DefaultMeshAssetName}_Assets",
                         "asset",
                         Localization.S("data.save_file.message"),
                         folderPath);
                     if (!string.IsNullOrEmpty(path))
                     {
-                        using var progress = BlendShareEditorProgress.Create("Create BlendShare Artifact");
+                        using var progress = BlendShareEditorProgress.Create(Localization.S("asset.create"));
                         try
                         {
-                            BlendShareArtifactService.CreateArtifact(patch.m_Original, new[] { patch }, path, progress);
+                            BlendShareArtifactService.CreateArtifact(patch.m_Target, new[] { patch }, path, progress);
                         }
                         catch (BlendShareOperationCanceledException)
                         {
-                            EditorUtility.DisplayDialog("Create BlendShare Artifact", BlendShareProgressUtility.CanceledMessage, "OK");
+                            EditorUtility.DisplayDialog(Localization.S("asset.create"), BlendShareProgressUtility.CanceledMessage, Localization.S("common.ok"));
                         }
                     }
                 }
@@ -857,14 +890,14 @@ namespace Triturbo.BlendShare.Inspector
             if (applyLocked)
             {
                 string lockMessage = patchState.HasExactPatch
-                    ? "This BlendShare patch is already recorded on the original FBX. Unlock to apply it again; this may accumulate changes."
-                    : "Another BlendShare patch with the same patch id is already recorded on the original FBX. Unlock to apply this patch anyway; this may accumulate changes or conflict with the recorded patch.";
+                    ? Localization.S("patch.apply.locked_exact")
+                    : Localization.S("patch.apply.locked_conflict");
                 EditorGUILayout.HelpBox(lockMessage, MessageType.Info);
             }
 
             if (patchState.HasExactPatch && patchState.ActiveRecordCount > 1 && !patchState.CanRevertPatch)
             {
-                EditorGUILayout.HelpBox("A recorded BlendShare patch needed for replay is missing, so this patch cannot be reverted. Restore to Original is still available.", MessageType.Warning);
+                EditorGUILayout.HelpBox(Localization.S("patch.revert.missing_record"), MessageType.Warning);
             }
         }
 
@@ -892,7 +925,7 @@ namespace Triturbo.BlendShare.Inspector
 
             using (new EditorGUI.DisabledScope(applyLocked))
             {
-                if (GUI.Button(buttonRect, "Apply BlendShare Patch"))
+                if (GUI.Button(buttonRect, Localization.S("patch.apply")))
                 {
                     RunApplyPatch(patch, patchState);
                 }
@@ -903,29 +936,29 @@ namespace Triturbo.BlendShare.Inspector
         {
             bool force = patchState.HasPatch && forceApplyUnlocked;
             if (force && !EditorUtility.DisplayDialog(
-                    "Apply BlendShare Patch",
-                    "This patch id is already recorded on the FBX. Applying again may accumulate changes. Restore to original first if you do not want accumulation.",
-                    "Apply",
-                    "Cancel"))
+                    Localization.S("patch.apply.confirm.title"),
+                    Localization.S("patch.apply.confirm.message"),
+                    Localization.S("common.apply"),
+                    Localization.S("common.cancel")))
             {
                 return;
             }
 
-            using var progress = BlendShareEditorProgress.Create("Apply BlendShare Patch");
-            if (BlendShareGenerationService.ApplyPatch(patch.m_Original, patch, force, progress, out string message))
+            using var progress = BlendShareEditorProgress.Create(Localization.S("patch.apply"));
+            if (BlendShareGenerationService.ApplyPatch(patch.m_Target, patch, force, progress, out string message))
             {
                 forceApplyUnlocked = false;
                 ClearPatchStateCache();
             }
             else
             {
-                EditorUtility.DisplayDialog("Apply BlendShare Patch", message ?? "Failed to apply BlendShare patch.", "OK");
+                EditorUtility.DisplayDialog(Localization.S("patch.apply"), message ?? Localization.S("patch.apply.failed"), Localization.S("common.ok"));
             }
         }
 
         private void DrawCreateFbxControl(BlendShareObject patch, BlendShareFbxPatchState patchState)
         {
-            if (GUILayout.Button("Apply BlendShare Patch as New FBX"))
+            if (GUILayout.Button(Localization.S("patch.create_fbx")))
             {
                 RunCreateFbx(patch, patchState);
             }
@@ -935,10 +968,10 @@ namespace Triturbo.BlendShare.Inspector
         {
             if (patchState.HasPatch &&
                 !EditorUtility.DisplayDialog(
-                    "Apply BlendShare Patch as New FBX",
-                    "This patch id is already recorded on the original FBX. The generated FBX will inherit that history, and applying this patch again may accumulate changes. Restore to original first if you do not want accumulation.",
-                    "Generate",
-                    "Cancel"))
+                    Localization.S("patch.create_fbx.confirm.title"),
+                    Localization.S("patch.create_fbx.confirm.message"),
+                    Localization.S("common.generate"),
+                    Localization.S("common.cancel")))
             {
                 return;
             }
@@ -952,20 +985,20 @@ namespace Triturbo.BlendShare.Inspector
                 folderPath);
             if (!string.IsNullOrEmpty(path))
             {
-                using var progress = BlendShareEditorProgress.Create("Apply BlendShare Patch as New FBX");
+                using var progress = BlendShareEditorProgress.Create(Localization.S("patch.create_fbx"));
                 try
                 {
-                    bool created = BlendShareGenerationService.CreateFbx(patch.m_Original, new[] { patch }, path, progress: progress);
+                    bool created = BlendShareGenerationService.CreateFbx(patch.m_Target, new[] { patch }, path, progress: progress);
                     if (!created)
                     {
-                        EditorUtility.DisplayDialog("Apply BlendShare Patch as New FBX", "Failed to create FBX.", "OK");
+                        EditorUtility.DisplayDialog(Localization.S("patch.create_fbx"), Localization.S("patch.create_fbx.failed"), Localization.S("common.ok"));
                     }
 
                     ClearPatchStateCache();
                 }
                 catch (BlendShareOperationCanceledException)
                 {
-                    EditorUtility.DisplayDialog("Apply BlendShare Patch as New FBX", BlendShareProgressUtility.CanceledMessage, "OK");
+                    EditorUtility.DisplayDialog(Localization.S("patch.create_fbx"), BlendShareProgressUtility.CanceledMessage, Localization.S("common.ok"));
                 }
             }
         }
@@ -989,7 +1022,7 @@ namespace Triturbo.BlendShare.Inspector
             using (new EditorGUI.DisabledScope(!showRestore))
             {
                 GUIStyle restoreStyle = showDropdown ? EditorStyles.miniButtonLeft : GUI.skin.button;
-                if (GUI.Button(restoreButtonRect, "Restore to Original", restoreStyle))
+                if (GUI.Button(restoreButtonRect, Localization.S("patch.restore_to_original"), restoreStyle))
                 {
                     RunRestoreToOriginal(patch);
                 }
@@ -1000,11 +1033,11 @@ namespace Triturbo.BlendShare.Inspector
                 var menu = new GenericMenu();
                 if (patchState.CanRevertPatch)
                 {
-                    menu.AddItem(new GUIContent("Revert This Patch"), false, () => RunRevertPatch(patch));
+                    menu.AddItem(new GUIContent(Localization.S("patch.revert_this")), false, () => RunRevertPatch(patch));
                 }
                 else
                 {
-                    menu.AddDisabledItem(new GUIContent("Revert This Patch"));
+                    menu.AddDisabledItem(new GUIContent(Localization.S("patch.revert_this")));
                 }
 
                 menu.DropDown(dropdownRect);
@@ -1014,46 +1047,46 @@ namespace Triturbo.BlendShare.Inspector
         private void RunRevertPatch(BlendShareObject patch)
         {
             if (!EditorUtility.DisplayDialog(
-                    "Revert BlendShare Patch",
-                    "This will restore the FBX baseline backup, then reapply every other recorded BlendShare patch. Continue?",
-                    "Revert",
-                    "Cancel"))
+                    Localization.S("patch.revert.title"),
+                    Localization.S("patch.revert.message"),
+                    Localization.S("common.revert"),
+                    Localization.S("common.cancel")))
             {
                 return;
             }
 
-            using var progress = BlendShareEditorProgress.Create("Revert BlendShare Patch");
-            if (BlendShareGenerationService.RevertPatch(patch.m_Original, patch, progress, out string message))
+            using var progress = BlendShareEditorProgress.Create(Localization.S("patch.revert.title"));
+            if (BlendShareGenerationService.RevertPatch(patch.m_Target, patch, progress, out string message))
             {
                 forceApplyUnlocked = false;
                 ClearPatchStateCache();
             }
             else
             {
-                EditorUtility.DisplayDialog("Revert BlendShare Patch", message ?? "Failed to revert BlendShare patch.", "OK");
+                EditorUtility.DisplayDialog(Localization.S("patch.revert.title"), message ?? Localization.S("patch.revert.failed"), Localization.S("common.ok"));
             }
         }
 
         private void RunRestoreToOriginal(BlendShareObject patch)
         {
             if (!EditorUtility.DisplayDialog(
-                    "Restore to Original",
-                    "This will restore the FBX baseline backup and remove all BlendShare patch metadata. Continue?",
-                    "Restore",
-                    "Cancel"))
+                    Localization.S("patch.restore.title"),
+                    Localization.S("patch.restore.message"),
+                    Localization.S("common.restore"),
+                    Localization.S("common.cancel")))
             {
                 return;
             }
 
-            using var progress = BlendShareEditorProgress.Create("Restore to Original");
-            if (BlendShareGenerationService.RestoreToOriginal(patch.m_Original, progress, out string message))
+            using var progress = BlendShareEditorProgress.Create(Localization.S("patch.restore.title"));
+            if (BlendShareGenerationService.RestoreToOriginal(patch.m_Target, progress, out string message))
             {
                 forceApplyUnlocked = false;
                 ClearPatchStateCache();
             }
             else
             {
-                EditorUtility.DisplayDialog("Restore to Original", message ?? "Failed to restore original FBX.", "OK");
+                EditorUtility.DisplayDialog(Localization.S("patch.restore.title"), message ?? Localization.S("patch.restore.failed"), Localization.S("common.ok"));
             }
         }
 
@@ -1079,7 +1112,7 @@ namespace Triturbo.BlendShare.Inspector
                 return cachedPatchState;
             }
 
-            cachedPatchState = BlendShareFbxMetadataService.GetPatchState(patch.m_Original, patch);
+            cachedPatchState = BlendShareFbxMetadataService.GetPatchState(patch.m_Target, patch);
             cachedPatchStateKey = key;
             hasCachedPatchState = true;
             return cachedPatchState;
@@ -1087,22 +1120,22 @@ namespace Triturbo.BlendShare.Inspector
 
         private static string CreatePatchStateKey(BlendShareObject patch)
         {
-            string originalPath = patch != null && patch.m_Original != null
-                ? AssetDatabase.GetAssetPath(patch.m_Original)
+            string targetPath = patch != null && patch.m_Target != null
+                ? AssetDatabase.GetAssetPath(patch.m_Target)
                 : string.Empty;
-            string userData = !string.IsNullOrEmpty(originalPath)
-                ? AssetImporter.GetAtPath(originalPath)?.userData ?? string.Empty
+            string userData = !string.IsNullOrEmpty(targetPath)
+                ? AssetImporter.GetAtPath(targetPath)?.userData ?? string.Empty
                 : string.Empty;
             string patchId = patch?.m_PatchId ?? string.Empty;
             string patchPath = patch != null ? AssetDatabase.GetAssetPath(patch) : string.Empty;
 
-            return $"{GetOriginalId(patch)}|{patchId}|{patchPath}|{userData}";
+            return $"{GetTargetId(patch)}|{patchId}|{patchPath}|{userData}";
         }
 
         private static string CreateArtifactMappingStatusKey(BlendShareObject patch)
         {
             var builder = new System.Text.StringBuilder();
-            builder.Append(GetOriginalId(patch));
+            builder.Append(GetTargetId(patch));
             builder.Append('|');
             foreach (var mesh in patch?.Meshes ?? System.Array.Empty<MeshDataObject>())
             {
@@ -1131,15 +1164,15 @@ namespace Triturbo.BlendShare.Inspector
 
         private ArtifactMappingStatus CalculateArtifactMappingStatus(BlendShareObject patch)
         {
-            if (patch == null || patch.m_Original == null)
+            if (patch == null || patch.m_Target == null)
             {
-                return ArtifactMappingStatus.Blocked(Localization.S("data.artifact_mapping.original_missing"), false);
+                return ArtifactMappingStatus.Blocked(Localization.S("asset.mapping.target_missing"), false);
             }
 
-            var targetLookup = UnityMeshTargetLookup.Create(patch.m_Original);
+            var targetLookup = UnityMeshTargetLookup.Create(patch.m_Target);
             if (targetLookup == null)
             {
-                return ArtifactMappingStatus.Blocked(Localization.S("data.artifact_mapping.target_unreadable"), false);
+                return ArtifactMappingStatus.Blocked(Localization.S("asset.mapping.target_unreadable"), false);
             }
 
             int invalidCount = 0;
@@ -1168,14 +1201,14 @@ namespace Triturbo.BlendShare.Inspector
             if (missingMeshCount > 0)
             {
                 return ArtifactMappingStatus.Blocked(
-                    string.Format(Localization.S("data.artifact_mapping.mesh_missing"), missingMeshCount),
+                    string.Format(Localization.S("asset.mapping.mesh_missing"), missingMeshCount),
                     false);
             }
 
             if (invalidCount > 0)
             {
                 return ArtifactMappingStatus.Blocked(
-                    string.Format(Localization.S("data.artifact_mapping.invalid"), invalidCount),
+                    string.Format(Localization.S("asset.mapping.invalid"), invalidCount),
                     true);
             }
 
@@ -1242,21 +1275,21 @@ namespace Triturbo.BlendShare.Inspector
             return mapping.m_Indices == null || mapping.m_Indices.All(index => index < 0 || index < fbxControlPointCount);
         }
 
-        private static void CreateMappingsForOriginal(BlendShareObject patch, IBlendShareProgress progress)
+        private static void CreateMappingsForTarget(BlendShareObject patch, IBlendShareProgress progress)
         {
-            if (patch == null || patch.m_Original == null)
+            if (patch == null || patch.m_Target == null)
             {
-                Localization.DisplayDialog("data.dialog.fbx_missing", Localization.S("data.dialog.ok"));
+                Localization.DisplayDialog("patch.fbx_missing", Localization.S("common.ok"));
                 return;
             }
 
-            var targetLookup = UnityMeshTargetLookup.Create(patch.m_Original);
+            var targetLookup = UnityMeshTargetLookup.Create(patch.m_Target);
             if (targetLookup == null)
             {
                 EditorUtility.DisplayDialog(
-                    Localization.S("data.create_mappings.failed.title"),
-                    Localization.S("data.artifact_mapping.target_unreadable"),
-                    Localization.S("data.dialog.ok"));
+                    Localization.S("patch.mapping.create.failed.title"),
+                    Localization.S("asset.mapping.target_unreadable"),
+                    Localization.S("common.ok"));
                 return;
             }
 
@@ -1272,8 +1305,8 @@ namespace Triturbo.BlendShare.Inspector
                     var mesh = meshes[meshIndex];
                     BlendShareProgressUtility.Report(
                         progress,
-                        Localization.S("data.create_mappings"),
-                        $"Creating mapping for {mesh.m_Path}...",
+                        Localization.S("patch.mapping.create"),
+                        Localization.SF("patch.mapping.progress", mesh.m_Path),
                         meshes.Length > 0 ? (float)meshIndex / meshes.Length : 0f,
                         true);
 
@@ -1289,10 +1322,10 @@ namespace Triturbo.BlendShare.Inspector
                         continue;
                     }
 
-                    var mapping = UnityFbxVertexMappingBuilder.BuildFromFbx(mesh.m_Path, targetMesh, patch.m_Original);
+                    var mapping = UnityFbxVertexMappingBuilder.BuildFromFbx(mesh.m_Path, targetMesh, patch.m_Target);
                     if (mapping == null || !mapping.m_IsValid)
                     {
-                        failures.Add($"{mesh.m_Path}: {mapping?.m_Report ?? "mapping generation failed"}");
+                        failures.Add($"{mesh.m_Path}: {mapping?.m_Report ?? Localization.S("patch.mapping.generation_failed")}");
                         continue;
                     }
 
@@ -1314,7 +1347,7 @@ namespace Triturbo.BlendShare.Inspector
 
             if (createdMappings.Count > 0)
             {
-                BlendShareProgressUtility.Report(progress, Localization.S("data.create_mappings"), "Saving mappings...", 0.95f, false);
+                BlendShareProgressUtility.Report(progress, Localization.S("patch.mapping.create"), Localization.S("patch.mapping.saving"), 0.95f, false);
                 foreach (var createdMapping in createdMappings)
                 {
                     createdMapping.Mesh.m_Mappings = (createdMapping.Mesh.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
@@ -1329,16 +1362,16 @@ namespace Triturbo.BlendShare.Inspector
             if (failures.Count > 0)
             {
                 EditorUtility.DisplayDialog(
-                    Localization.S("data.create_mappings.failed.title"),
+                    Localization.S("patch.mapping.create.failed.title"),
                     string.Join("\n", failures),
-                    Localization.S("data.dialog.ok"));
+                    Localization.S("common.ok"));
                 return;
             }
 
             EditorUtility.DisplayDialog(
-                Localization.S("data.create_mappings.success.title"),
-                string.Format(Localization.S("data.create_mappings.success.message"), createdMappings.Count),
-                Localization.S("data.dialog.ok"));
+                Localization.S("patch.mapping.create.success.title"),
+                string.Format(Localization.S("patch.mapping.create.success.message"), createdMappings.Count),
+                Localization.S("common.ok"));
         }
 
         private readonly struct ArtifactMappingStatus

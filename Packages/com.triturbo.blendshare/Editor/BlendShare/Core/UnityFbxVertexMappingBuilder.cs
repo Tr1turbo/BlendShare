@@ -97,8 +97,8 @@ namespace Triturbo.BlendShare.Core
             string nodePath = MeshNodePath.Normalize(unityRendererPath);
             fbxMesh = fbxScene?.FindMeshByNodePath(MeshNodePath.ToFbxPath(nodePath));
             LogTiming("FbxAsset", nodePath,
-                "Resolve FBX control point positions and blendshapes by node path", stopwatch, ref lastLogMs,
-                $"found={(fbxMesh != null ? 1 : 0)}, controlPoints={fbxMesh?.ControlPointCount ?? 0}, blendShapes={CountBlendShapeChannels(fbxMesh)}");
+                "Resolve FBX vertex positions and blendshapes by node path", stopwatch, ref lastLogMs,
+                $"found={(fbxMesh != null ? 1 : 0)}, fbxVertices={fbxMesh?.ControlPointCount ?? 0}, blendShapes={CountBlendShapeChannels(fbxMesh)}");
 
             var mapping = ScriptableObject.CreateInstance<UnityVertexMappingObject>();
             mapping.m_UnityMesh = unityMesh;
@@ -127,7 +127,7 @@ namespace Triturbo.BlendShare.Core
 
             if (fbxMesh == null || fbxMesh.ControlPointCount == 0)
             {
-                SetMappingStatus(mapping, false, "FBX asset mapping could not read matching FBX control point positions.");
+                SetMappingStatus(mapping, false, "FBX asset mapping could not read matching FBX vertex positions.");
                 LogCompletion("FbxAsset", nodePath, stopwatch, mapping);
                 return mapping;
             }
@@ -159,12 +159,12 @@ namespace Triturbo.BlendShare.Core
                 mapping.m_IndexGroups,
                 pair.UnityFingerprints,
                 pair.FbxFingerprints);
-            LogTiming("FbxGo", nodePath, "Match Unity vertices to FBX control points", stopwatch, ref lastLogMs,
+            LogTiming("FbxGo", nodePath, "Match Unity vertices to FBX vertices", stopwatch, ref lastLogMs,
                 $"unresolved={unresolved}");
 
             if (unresolved != 0)
             {
-                SetMappingStatus(mapping, false, $"FBX asset mapping has {unresolved} Unity vertices without matching FBX control point positions.");
+                SetMappingStatus(mapping, false, $"FBX asset mapping has {unresolved} Unity vertices without matching FBX vertex positions.");
                 LogCompletion("FbxAsset", nodePath, stopwatch, mapping);
                 return mapping;
             }

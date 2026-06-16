@@ -10,7 +10,7 @@ using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Fbx.Ufbx;
 using Triturbo.BlendShare.Fbx.Unity;
 using Triturbo.BlendShare.Hashing;
-
+//
 namespace Triturbo.BlendShare.Migration
 {
     public static class BlendShareUpgradeService
@@ -55,7 +55,7 @@ namespace Triturbo.BlendShare.Migration
 
             var asset = ScriptableObject.CreateInstance<BlendShareObject>();
             asset.name = legacyAsset.name;
-            asset.m_Original = legacyAsset.m_Original;
+            asset.m_Target = legacyAsset.m_Original;
             asset.m_DefaultGeneratedAssetName = legacyAsset.m_DefaultGeneratedAssetName;
             asset.m_Applied = legacyAsset.m_Applied;
             asset.m_PatchId = legacyAsset.m_DeformerID;

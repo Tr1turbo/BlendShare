@@ -1,4 +1,5 @@
 using System.Linq;
+using Triturbo.BlendShapeShare;
 using Triturbo.BlendShare.Components;
 using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Features.SkinWeights;
@@ -15,28 +16,28 @@ namespace Triturbo.BlendShare.NDMF
             var proxy = (BlendShareBoneProxy)target;
             serializedObject.Update();
 
-            EditorGUILayout.LabelField("BlendShare Bone Proxy", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(Localization.S("ndmf.bone_proxy.title"), EditorStyles.boldLabel);
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_Owner"));
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_TargetParentReference"), new GUIContent("Target Parent"));
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_RecalculateBindpose"), new GUIContent("Recalculate Bindpose"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_TargetParentReference"), new GUIContent(Localization.S("ndmf.bone_proxy.target_parent")));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_RecalculateBindpose"), new GUIContent(Localization.S("ndmf.bone_proxy.recalculate_bindpose")));
             serializedObject.ApplyModifiedProperties();
 
             EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Final Parent", proxy.TargetParent != null ? proxy.TargetParent.name : "<none>");
-            EditorGUILayout.LabelField("Final Bone Name", proxy.name);
+            EditorGUILayout.LabelField(Localization.S("ndmf.bone_proxy.final_parent"), proxy.TargetParent != null ? proxy.TargetParent.name : Localization.S("common.none"));
+            EditorGUILayout.LabelField(Localization.S("ndmf.bone_proxy.final_bone_name"), proxy.name);
             using (new EditorGUI.DisabledScope(true))
             {
-                EditorGUILayout.Vector3Field("Binding Local Position", proxy.LocalPosition);
-                EditorGUILayout.Vector3Field("Binding Local Rotation", proxy.LocalEulerRotation);
-                EditorGUILayout.Vector3Field("Binding Local Scale", proxy.LocalScale);
-                EditorGUILayout.Vector3Field("Parenting Local Position", proxy.ParentingLocalPosition);
-                EditorGUILayout.Vector3Field("Parenting Local Rotation", proxy.ParentingLocalEulerRotation);
-                EditorGUILayout.Vector3Field("Parenting Local Scale", proxy.ParentingLocalScale);
+                EditorGUILayout.Vector3Field(Localization.S("ndmf.bone_proxy.binding_local_position"), proxy.LocalPosition);
+                EditorGUILayout.Vector3Field(Localization.S("ndmf.bone_proxy.binding_local_rotation"), proxy.LocalEulerRotation);
+                EditorGUILayout.Vector3Field(Localization.S("ndmf.bone_proxy.binding_local_scale"), proxy.LocalScale);
+                EditorGUILayout.Vector3Field(Localization.S("ndmf.bone_proxy.parenting_local_position"), proxy.ParentingLocalPosition);
+                EditorGUILayout.Vector3Field(Localization.S("ndmf.bone_proxy.parenting_local_rotation"), proxy.ParentingLocalEulerRotation);
+                EditorGUILayout.Vector3Field(Localization.S("ndmf.bone_proxy.parenting_local_scale"), proxy.ParentingLocalScale);
             }
 
             if (proxy.TryGetBindPoseWorldTransform(out Vector3 bindPosition, out _, out _))
             {
-                EditorGUILayout.Vector3Field("Bind World Position", bindPosition);
+                EditorGUILayout.Vector3Field(Localization.S("ndmf.bone_proxy.bind_world_position"), bindPosition);
             }
 
             EditorGUILayout.Space();
@@ -48,7 +49,7 @@ namespace Triturbo.BlendShare.NDMF
                 out string sourceDiagnostic);
             using (new EditorGUI.DisabledScope(proxy.TargetParent == null))
             {
-                if (GUILayout.Button("Update Bindpose From Current Transform"))
+                if (GUILayout.Button(Localization.S("ndmf.bone_proxy.update_bindpose")))
                 {
                     Undo.RecordObject(proxy, "Update BlendShare Bone Proxy Bindpose");
                     if (proxy.CaptureBindingTransformFromCurrentTransform())
@@ -59,7 +60,7 @@ namespace Triturbo.BlendShare.NDMF
 
                 using (new EditorGUI.DisabledScope(!hasSourceBindingTransform))
                 {
-                    if (GUILayout.Button("Restore Binding Transform From Source"))
+                    if (GUILayout.Button(Localization.S("ndmf.bone_proxy.restore_from_source")))
                     {
                         Undo.RecordObject(proxy, "Restore BlendShare Bone Proxy Source Bindpose");
                         proxy.LocalPosition = sourcePosition;
@@ -70,7 +71,7 @@ namespace Triturbo.BlendShare.NDMF
                     }
                 }
 
-                if (GUILayout.Button("Reset Transform To Bind Pose"))
+                if (GUILayout.Button(Localization.S("ndmf.bone_proxy.reset_to_bind_pose")))
                 {
                     Undo.RecordObject(proxy.transform, "Reset BlendShare Bone Proxy Transform");
                     proxy.ResetTransformToBindPose();
@@ -129,7 +130,7 @@ namespace Triturbo.BlendShare.NDMF
             diagnostic = null;
             if (proxy == null || proxy.Owner == null)
             {
-                diagnostic = "No owning BlendShare applier was found.";
+                diagnostic = Localization.S("ndmf.bone_proxy.no_owner");
                 return false;
             }
 
@@ -164,7 +165,7 @@ namespace Triturbo.BlendShare.NDMF
 
             if (matches.Count == 0)
             {
-                diagnostic = "No source bone binding was found for this proxy.";
+                diagnostic = Localization.S("ndmf.bone_proxy.no_source_binding");
                 return false;
             }
 
@@ -175,7 +176,7 @@ namespace Triturbo.BlendShare.NDMF
                     Vector3.Distance(first.Rotation, matches[i].Rotation) > 0.0001f ||
                     Vector3.Distance(first.Scale, matches[i].Scale) > 0.0001f)
                 {
-                    diagnostic = "This proxy is shared by source bones with different binding transforms.";
+                    diagnostic = Localization.S("ndmf.bone_proxy.shared_different_transforms");
                     return false;
                 }
             }

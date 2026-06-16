@@ -215,7 +215,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 {
                     if (index >= controlPointCount)
                     {
-                        error = $"Skin weight control point {index} is outside target mesh control point count {controlPointCount}.";
+                        error = $"Skin weight FBX vertex {index} is outside target mesh FBX vertex count {controlPointCount}.";
                         return false;
                     }
                 }
@@ -1369,7 +1369,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             {
                 if (!mapping.TryGetFbxGroup(unityIndex, out var group))
                 {
-                    error = $"Cannot map Unity vertex {unityIndex} to FBX control points.";
+                    error = $"Cannot map Unity vertex {unityIndex} to FBX vertices.";
                     return false;
                 }
 

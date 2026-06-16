@@ -1,3 +1,4 @@
+using Triturbo.BlendShapeShare;
 using Triturbo.BlendShapeShare.BlendShapeData;
 using Triturbo.BlendShare.Core;
 using UnityEditor;
@@ -14,7 +15,7 @@ namespace Triturbo.BlendShare.Inspector
         {
             if (property.propertyType != SerializedPropertyType.ObjectReference)
             {
-                return new Label("Use FbxAsset with object references.");
+                return new Label(Localization.S("common.fbx_asset.object_reference_only"));
             }
 
             var field = new ObjectField
@@ -47,7 +48,7 @@ namespace Triturbo.BlendShare.Inspector
             {
                 if (property.propertyType != SerializedPropertyType.ObjectReference)
                 {
-                    EditorGUI.LabelField(position, label.text, "Use FbxAsset with object references.");
+                    EditorGUI.LabelField(position, label.text, Localization.S("common.fbx_asset.object_reference_only"));
                     return;
                 }
 

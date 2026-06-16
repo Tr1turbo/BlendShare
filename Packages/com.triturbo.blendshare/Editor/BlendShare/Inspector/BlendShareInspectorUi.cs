@@ -1,4 +1,5 @@
 using System;
+using Triturbo.BlendShapeShare;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -25,7 +26,7 @@ namespace Triturbo.BlendShare.Inspector
             header.style.marginBottom = 2;
 
             var titleLabel = new Label(title);
-            titleLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
+            StyleHeading(titleLabel);
             titleLabel.style.fontSize = 15;
             header.Add(titleLabel);
 
@@ -50,10 +51,25 @@ namespace Triturbo.BlendShare.Inspector
             section.style.paddingBottom = 6;
 
             var label = new Label(title);
-            label.style.unityFontStyleAndWeight = FontStyle.Bold;
+            StyleHeading(label);
             label.style.marginBottom = 4;
             section.Add(label);
             return section;
+        }
+
+        public static void StyleHeading(Label label)
+        {
+            StyleStrong(label);
+        }
+
+        public static void StyleStrong(Label label)
+        {
+            if (label == null)
+            {
+                return;
+            }
+
+            label.style.unityFontStyleAndWeight = Localization.IsCjkLanguage ? FontStyle.Normal : FontStyle.Bold;
         }
 
         public static VisualElement Box()
@@ -244,7 +260,7 @@ namespace Triturbo.BlendShare.Inspector
                 fallback.style.marginLeft = 4;
                 fallback.style.marginRight = 2;
                 fallback.style.alignSelf = Align.Center;
-                fallback.style.unityFontStyleAndWeight = FontStyle.Bold;
+                StyleStrong(fallback);
                 fallback.style.unityTextAlign = TextAnchor.MiddleCenter;
                 fallback.style.opacity = 0.82f;
                 return fallback;
@@ -275,7 +291,7 @@ namespace Triturbo.BlendShare.Inspector
             badge.style.borderTopRightRadius = 3;
             badge.style.borderBottomLeftRadius = 3;
             badge.style.borderBottomRightRadius = 3;
-            badge.style.unityFontStyleAndWeight = FontStyle.Bold;
+            StyleStrong(badge);
             badge.style.fontSize = 10;
             badge.style.backgroundColor = BadgeColor(kind);
             return badge;
@@ -383,7 +399,7 @@ namespace Triturbo.BlendShare.Inspector
             }
 
             header.pickingMode = PickingMode.Position;
-            header.tooltip = "Click to expand";
+            header.tooltip = Localization.S("common.expand");
             this.expandedContent.style.display = DisplayStyle.None;
             this.expandedContent.style.marginTop = 6;
             Add(this.expandedContent);
@@ -395,7 +411,7 @@ namespace Triturbo.BlendShare.Inspector
                 }
 
                 SetExpanded(!expanded);
-                header.tooltip = expanded ? "Click to collapse" : "Click to expand";
+                header.tooltip = expanded ? Localization.S("common.collapse") : Localization.S("common.expand");
                 evt.StopPropagation();
             });
         }

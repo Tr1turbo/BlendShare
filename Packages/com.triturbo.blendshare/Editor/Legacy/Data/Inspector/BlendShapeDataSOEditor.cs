@@ -1002,8 +1002,8 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             Localization.DrawLanguageSelection();
             EditorGUILayout.Separator();
 
-            EditorGUILayout.HelpBox("This is a legacy BlendShapeDataSO asset. Use the new BlendShareObject format for new workflows.", MessageType.Info);
-            if (GUILayout.Button("Upgrade to BlendShareObject"))
+            EditorGUILayout.HelpBox(Localization.S("legacy.blendshape_data.legacy_notice"), MessageType.Info);
+            if (GUILayout.Button(Localization.G("legacy.blendshape_data.upgrade")))
             {
                 var upgraded = BlendShareUpgradeService.UpgradeSideBySide(dataAsset);
                 if (upgraded != null)

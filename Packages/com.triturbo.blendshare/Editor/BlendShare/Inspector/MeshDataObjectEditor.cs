@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using Triturbo.BlendShapeShare;
 using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Persistence;
 using UnityEditor;
@@ -19,6 +20,7 @@ namespace Triturbo.BlendShare.Inspector
             var root = BlendShareInspectorUi.CreateRoot();
 
             root.Add(CreateEmbeddedInspector(mesh, patch, () => Rebuild(root, mesh, patch), true));
+            Localization.RebuildOnLanguageChange(root, () => Rebuild(root, mesh, patch));
             return root;
         }
 
@@ -64,7 +66,7 @@ namespace Triturbo.BlendShare.Inspector
             var mapping = GetMappingStatus(mesh, context, out var targetMesh);
 
             root.Add(BlendShareInspectorUi.LabeledRow(
-                "Path",
+                Localization.S("common.path"),
                 CreateTextWithStatusRow(mesh.m_Path, BlendShareInspectorUi.CompatibilityIcon(compatibility))));
             root.Add(CreateUnityMeshRow(mesh, context, mapping, targetMesh));
 
@@ -122,13 +124,13 @@ namespace Triturbo.BlendShare.Inspector
         {
             if (targetMesh != null)
             {
-                return BlendShareInspectorUi.LabeledRow("Unity Mesh", CreateUnityMeshReferenceRow(mesh, context, mapping, targetMesh));
+                return BlendShareInspectorUi.LabeledRow(Localization.S("patch.mapping.unity_mesh"), CreateUnityMeshReferenceRow(mesh, context, mapping, targetMesh));
             }
 
             string message = context.FbxGo != null
-                ? context.GetUnityMeshResolutionError(mesh) ?? "Not resolved from current FBX"
-                : "Original FBX is not assigned";
-            return BlendShareInspectorUi.Row("Unity Mesh", message);
+                ? context.GetUnityMeshResolutionError(mesh) ?? Localization.S("patch.mapping.not_resolved")
+                : Localization.S("patch.mapping.target_missing");
+            return BlendShareInspectorUi.Row(Localization.S("patch.mapping.unity_mesh"), message);
         }
 
         private static VisualElement CreateUnityMeshReferenceRow(
@@ -156,14 +158,14 @@ namespace Triturbo.BlendShare.Inspector
             {
                 var icon = BlendShareInspectorUi.CompatibilityIcon(new MeshFbxCompatibilityStatus(
                     MeshFbxCompatibilityState.Verified,
-                    "Verified",
-                    $"Mapping verified for {targetMesh.name}. Vertex hash: {compatibleMapping.UnityVerticesHashShort}"));
+                    Localization.S("common.status.verified"),
+                    Localization.SF("patch.mapping.verified", targetMesh.name, compatibleMapping.UnityVerticesHashShort)));
                 icon.style.flexShrink = 0;
                 row.Add(icon);
                 return row;
             }
 
-            var button = BlendShareInspectorUi.SmallButton("Create Mapping", () => CreateMapping(mesh, context, targetMesh));
+            var button = BlendShareInspectorUi.SmallButton(Localization.S("patch.mapping.create"), () => CreateMapping(mesh, context, targetMesh));
             button.SetEnabled(mapping.CanCreateMappings && context.FbxGo != null && context.OwnerPatch != null);
             button.style.marginLeft = 6;
             button.style.flexShrink = 0;
@@ -193,12 +195,12 @@ namespace Triturbo.BlendShare.Inspector
 
         private static VisualElement CreateSummary(MeshDataObject mesh, BlendShareEmbeddedEditorContext context, bool showParentPatch)
         {
-            var section = BlendShareInspectorUi.Section("Mesh Summary");
+            var section = BlendShareInspectorUi.Section(Localization.S("patch.mesh_data.summary"));
             var compatibility = BlendShareInspectorUtility.GetFbxCompatibilityStatus(context.OwnerPatch, mesh);
             var mapping = GetMappingStatus(mesh, context, out var targetMesh);
 
             section.Add(BlendShareInspectorUi.LabeledRow(
-                "Mesh",
+                Localization.S("features.skin-weights.mesh"),
                 CreateTextWithStatusRow(mesh.m_Path, BlendShareInspectorUi.CompatibilityIcon(compatibility))));
             section.Add(CreateUnityMeshRow(mesh, context, mapping, targetMesh));
 
@@ -209,7 +211,7 @@ namespace Triturbo.BlendShare.Inspector
                 parentRow.style.alignItems = Align.Center;
                 parentRow.style.flexShrink = 1;
 
-                var label = BlendShareInspectorUi.ValueLabel(context.OwnerPatch != null ? context.OwnerPatch.name : "Not found");
+                var label = BlendShareInspectorUi.ValueLabel(context.OwnerPatch != null ? context.OwnerPatch.name : Localization.S("common.status.not_found"));
                 label.style.minWidth = 100;
                 label.style.flexGrow = 1;
                 label.style.flexShrink = 1;
@@ -217,13 +219,13 @@ namespace Triturbo.BlendShare.Inspector
                 parentRow.Add(label);
                 if (context.OwnerPatch != null)
                 {
-                    parentRow.Add(BlendShareInspectorUi.InlineButton("Select", () => Selection.activeObject = context.OwnerPatch));
+                    parentRow.Add(BlendShareInspectorUi.InlineButton(Localization.S("common.select"), () => Selection.activeObject = context.OwnerPatch));
                 }
 
-                section.Add(BlendShareInspectorUi.LabeledRow("Parent Patch", parentRow));
+                section.Add(BlendShareInspectorUi.LabeledRow(Localization.S("patch.mesh_data.parent_patch"), parentRow));
             }
 
-            section.Add(BlendShareInspectorUi.BadgeRow(BlendShareInspectorUi.Badge($"Mapping: {mapping.Label}", mapping.Kind)));
+            section.Add(BlendShareInspectorUi.BadgeRow(BlendShareInspectorUi.Badge(Localization.SF("patch.mapping.badge", mapping.Label), mapping.Kind)));
 
             if (compatibility.State != MeshFbxCompatibilityState.Verified)
             {
@@ -247,7 +249,7 @@ namespace Triturbo.BlendShare.Inspector
 
             if (features.Length == 0)
             {
-                section.Add(new HelpBox("This mesh does not contain extracted features.", HelpBoxMessageType.Info));
+                section.Add(new HelpBox(Localization.S("patch.mesh_data.no_data"), HelpBoxMessageType.Info));
                 return section;
             }
 
@@ -261,8 +263,8 @@ namespace Triturbo.BlendShare.Inspector
                 else
                 {
                     var featureSection = BlendShareInspectorUi.Section(feature.FeatureId);
-                    featureSection.Add(BlendShareInspectorUi.Row("Feature ID", feature.FeatureId));
-                    featureSection.Add(new HelpBox("No custom feature editor is registered for this feature.", HelpBoxMessageType.Info));
+                    featureSection.Add(BlendShareInspectorUi.Row(Localization.S("patch.mesh_data.data_id"), feature.FeatureId));
+                    featureSection.Add(new HelpBox(Localization.S("patch.mesh_data.no_data_editor"), HelpBoxMessageType.Info));
                     section.Add(featureSection);
                 }
             }
@@ -280,7 +282,7 @@ namespace Triturbo.BlendShare.Inspector
                 return new VisualElement();
             }
 
-            var section = BlendShareInspectorUi.Section("Unity Mappings");
+            var section = BlendShareInspectorUi.Section(Localization.S("patch.mapping.title"));
             context.TryGetUnityMesh(mesh, out var targetMesh);
             foreach (var mapping in mappings)
             {
@@ -297,7 +299,7 @@ namespace Triturbo.BlendShare.Inspector
                 }
                 else
                 {
-                    section.Add(new HelpBox("No custom embedded editor is registered for this mapping.", HelpBoxMessageType.Info));
+                    section.Add(new HelpBox(Localization.S("patch.mapping.no_editor"), HelpBoxMessageType.Info));
                 }
             }
 
@@ -312,7 +314,7 @@ namespace Triturbo.BlendShare.Inspector
             }
 
             element.style.position = Position.Relative;
-            var badge = BlendShareInspectorUi.Badge("Active", StatusKind.Success);
+            var badge = BlendShareInspectorUi.Badge(Localization.S("common.status.active"), StatusKind.Success);
             badge.style.position = Position.Absolute;
             badge.style.top = 5;
             badge.style.right = 6;
@@ -321,11 +323,11 @@ namespace Triturbo.BlendShare.Inspector
 
         private static VisualElement CreateAdvancedSection(MeshDataObject mesh, BlendShareEmbeddedEditorContext context)
         {
-            var foldout = new Foldout { text = "Advanced" };
+            var foldout = new Foldout { text = Localization.S("common.advanced") };
             foldout.Add(CreateTopologyFingerprintDrawer(mesh));
             foldout.Add(CreateMappingSections(mesh, context));
-            foldout.Add(BlendShareInspectorUi.Row("Features", CountValid(mesh.Features).ToString()));
-            foldout.Add(BlendShareInspectorUi.Row("Mappings", CountValid(mesh.m_Mappings).ToString()));
+            foldout.Add(BlendShareInspectorUi.Row(Localization.S("patch.mesh_data.data"), CountValid(mesh.Features).ToString()));
+            foldout.Add(BlendShareInspectorUi.Row(Localization.S("patch.mapping.count"), CountValid(mesh.m_Mappings).ToString()));
             return foldout;
         }
 
@@ -337,22 +339,22 @@ namespace Triturbo.BlendShare.Inspector
             targetMesh = null;
             if (mesh == null)
             {
-                return new MeshMappingStatus("Unknown", "Mesh data is missing.", false, StatusKind.Neutral);
+                return new MeshMappingStatus(Localization.S("common.status.unknown"), Localization.S("patch.mesh_data.missing"), false, StatusKind.Neutral);
             }
 
             if (context.FbxGo == null)
             {
-                return new MeshMappingStatus("Missing Target", "Original FBX is not assigned.", false, StatusKind.Warning);
+                return new MeshMappingStatus(Localization.S("common.status.missing_target"), Localization.S("patch.mapping.target_missing"), false, StatusKind.Warning);
             }
 
             if (context.UnityMeshLookup == null)
             {
-                return new MeshMappingStatus("Unknown", "Unity mesh target cannot be read.", false, StatusKind.Neutral);
+                return new MeshMappingStatus(Localization.S("common.status.unknown"), Localization.S("patch.mapping.target_unreadable"), false, StatusKind.Neutral);
             }
 
             if (!context.TryGetUnityMesh(mesh, out targetMesh))
             {
-                return new MeshMappingStatus("Missing", context.GetUnityMeshResolutionError(mesh), false, StatusKind.Warning);
+                return new MeshMappingStatus(Localization.S("common.status.missing"), context.GetUnityMeshResolutionError(mesh), false, StatusKind.Warning);
             }
 
             var resolvedTargetMesh = targetMesh;
@@ -361,12 +363,12 @@ namespace Triturbo.BlendShare.Inspector
             bool hasValidMapping = mappings.Any(mapping => mapping != null && mapping.IsCompatibleWith(mesh, resolvedTargetMesh));
             if (hasValidMapping)
             {
-                return new MeshMappingStatus("Ready", targetMesh.name, false, StatusKind.Success);
+                return new MeshMappingStatus(Localization.S("common.status.ready"), targetMesh.name, false, StatusKind.Success);
             }
 
             return new MeshMappingStatus(
-                hasMapping ? "Invalid" : "Missing",
-                hasMapping ? "No stored mapping matches the current Unity mesh import." : "No Unity mapping is stored for this mesh.",
+                hasMapping ? Localization.S("common.status.invalid") : Localization.S("common.status.missing"),
+                hasMapping ? Localization.S("patch.mapping.no_stored_match") : Localization.S("patch.mapping.no_mapping"),
                 true,
                 StatusKind.Warning);
         }
@@ -387,13 +389,13 @@ namespace Triturbo.BlendShare.Inspector
             var mapping = UnityFbxVertexMappingBuilder.BuildFromFbx(mesh.m_Path, targetMesh, context.FbxGo);
             if (mapping == null || !mapping.m_IsValid)
             {
-                string message = mapping != null ? mapping.m_Report : "mapping generation failed";
+                string message = mapping != null ? mapping.m_Report : Localization.S("patch.mapping.generation_failed");
                 if (mapping != null)
                 {
                     UnityEngine.Object.DestroyImmediate(mapping);
                 }
 
-                EditorUtility.DisplayDialog("Create Unity Mapping", message, "OK");
+                EditorUtility.DisplayDialog(Localization.S("patch.mapping.create"), message, Localization.S("common.ok"));
                 return;
             }
 
@@ -422,11 +424,11 @@ namespace Triturbo.BlendShare.Inspector
 
         private static VisualElement CreateTopologyFingerprintDrawer(MeshDataObject mesh)
         {
-            var section = BlendShareInspectorUi.Section("Topology Fingerprint");
+            var section = BlendShareInspectorUi.Section(Localization.S("patch.mesh_data.topology_fingerprint"));
             var signature = mesh?.m_FbxTopologySignature;
-            section.Add(BlendShareInspectorUi.Row("Hash", signature != null ? BlendShareInspectorUtility.ShortHash(signature.Hash) : "-"));
-            section.Add(BlendShareInspectorUi.Row("Control Points", signature != null ? signature.ControlPointCount.ToString() : "-"));
-            section.Add(BlendShareInspectorUi.Row("Faces", signature != null ? signature.FaceCount.ToString() : "-"));
+            section.Add(BlendShareInspectorUi.Row(Localization.S("patch.mesh_data.hash"), signature != null ? BlendShareInspectorUtility.ShortHash(signature.Hash) : "-"));
+            section.Add(BlendShareInspectorUi.Row(Localization.S("patch.mesh_data.control_points"), signature != null ? signature.ControlPointCount.ToString() : "-"));
+            section.Add(BlendShareInspectorUi.Row(Localization.S("patch.mesh_data.faces"), signature != null ? signature.FaceCount.ToString() : "-"));
             return section;
         }
 
@@ -439,14 +441,14 @@ namespace Triturbo.BlendShare.Inspector
     public sealed class MeshDataObjectEmbeddedEditor : IBlendShareEmbeddedEditor
     {
         public Type TargetType => typeof(MeshDataObject);
-        public string DisplayName => "Mesh Data";
+        public string DisplayName => Localization.S("patch.mesh_data.display_name");
 
         public VisualElement CreateEmbeddedInspector(BlendShareEmbeddedEditorContext context)
         {
             var mesh = context.EmbeddedObject as MeshDataObject ?? context.OwnerMeshData;
             if (mesh == null)
             {
-                return new HelpBox("Mesh data is missing.", HelpBoxMessageType.Warning);
+                return new HelpBox(Localization.S("patch.mesh_data.missing"), HelpBoxMessageType.Warning);
             }
 
             return MeshDataObjectEditor.CreateEmbeddedInspector(mesh, context, false);

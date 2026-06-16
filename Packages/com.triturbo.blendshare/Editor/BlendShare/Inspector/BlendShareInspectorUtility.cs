@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Triturbo.BlendShapeShare;
 using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Fbx.Unity;
 using Triturbo.BlendShare.Hashing;
@@ -203,21 +204,21 @@ namespace Triturbo.BlendShare.Inspector
         {
             if (mesh == null)
             {
-                return new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.Unknown, "Unknown", "Mesh data is missing.");
+                return new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.Unknown, Localization.S("common.status.unknown"), Localization.S("patch.mesh_data.missing"));
             }
 
             var stored = mesh.m_FbxTopologySignature;
             if (stored == null || !stored.IsValid || stored.ControlPointCount < 0 || string.IsNullOrEmpty(stored.Hash))
             {
-                return new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.Unknown, "Unknown", "Stored topology signature is missing. Re-extract or rebuild the signature from the source FBX.");
+                return new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.Unknown, Localization.S("common.status.unknown"), Localization.S("patch.compatibility.signature_missing"));
             }
 
-            if (patch == null || patch.m_Original == null)
+            if (patch == null || patch.m_Target == null)
             {
-                return new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.Unknown, "Unknown", "Target FBX is not assigned.");
+                return new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.Unknown, Localization.S("common.status.unknown"), Localization.S("patch.mapping.target_missing"));
             }
 
-            var sceneResult = FbxUnityAssetReader.ReadScene(patch.m_Original);
+            var sceneResult = FbxUnityAssetReader.ReadScene(patch.m_Target);
             if (!sceneResult.Success)
             {
                 return new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.Unknown, "Unknown", sceneResult.Message);
@@ -227,7 +228,7 @@ namespace Triturbo.BlendShare.Inspector
             var meshResult = FbxUnityAssetReader.FindMesh(scene, mesh.m_Path);
             if (!meshResult.Success)
             {
-                return new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.MissingTargetMesh, "Missing Target Mesh", meshResult.Message);
+                return new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.MissingTargetMesh, Localization.S("common.status.missing_target_mesh"), meshResult.Message);
             }
 
             var targetSignature = FbxTopologyHash.Calculate(meshResult.Value, stored.ControlPointCount);
@@ -235,24 +236,24 @@ namespace Triturbo.BlendShare.Inspector
             {
                 return new MeshFbxCompatibilityStatus(
                     MeshFbxCompatibilityState.Incompatible,
-                    "Incompatible",
-                    $"Target mesh has fewer control points ({meshResult.Value.ControlPointCount}) than the stored source mesh ({stored.ControlPointCount}).");
+                    Localization.S("common.status.incompatible"),
+                    Localization.SF("patch.compatibility.control_points_fewer", meshResult.Value.ControlPointCount, stored.ControlPointCount));
             }
 
             if (!targetSignature.IsValid)
             {
-                return new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.Unknown, "Unknown", "Target topology signature could not be calculated.");
+                return new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.Unknown, Localization.S("common.status.unknown"), Localization.S("patch.compatibility.signature_unavailable"));
             }
 
             if (!StringComparer.Ordinal.Equals(stored.Hash, targetSignature.Hash))
             {
                 return new MeshFbxCompatibilityStatus(
                     MeshFbxCompatibilityState.Incompatible,
-                    "Incompatible",
-                    "Target mesh does not match the stored source topology signature.");
+                    Localization.S("common.status.incompatible"),
+                    Localization.S("patch.compatibility.signature_mismatch"));
             }
 
-            return new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.Verified, "Verified", "Target FBX topology matches the stored mesh signature.");
+            return new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.Verified, Localization.S("common.status.verified"), Localization.S("patch.compatibility.verified"));
         }
 
         public static Dictionary<MeshDataObject, MeshFbxCompatibilityStatus> GetFbxCompatibilityStatuses(
@@ -271,7 +272,7 @@ namespace Triturbo.BlendShare.Inspector
                 var stored = mesh.m_FbxTopologySignature;
                 if (stored == null || !stored.IsValid || stored.ControlPointCount < 0 || string.IsNullOrEmpty(stored.Hash))
                 {
-                    statuses[mesh] = new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.Unknown, "Unknown", "Stored topology signature is missing. Re-extract or rebuild the signature from the source FBX.");
+                    statuses[mesh] = new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.Unknown, Localization.S("common.status.unknown"), Localization.S("patch.compatibility.signature_missing"));
                     continue;
                 }
 
@@ -283,17 +284,17 @@ namespace Triturbo.BlendShare.Inspector
                 return statuses;
             }
 
-            if (patch == null || patch.m_Original == null)
+            if (patch == null || patch.m_Target == null)
             {
                 foreach (var mesh in pending)
                 {
-                    statuses[mesh] = new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.Unknown, "Unknown", "Target FBX is not assigned.");
+                    statuses[mesh] = new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.Unknown, Localization.S("common.status.unknown"), Localization.S("patch.mapping.target_missing"));
                 }
 
                 return statuses;
             }
 
-            var sceneResult = FbxUnityAssetReader.ReadScene(patch.m_Original);
+            var sceneResult = FbxUnityAssetReader.ReadScene(patch.m_Target);
             if (!sceneResult.Success)
             {
                 foreach (var mesh in pending)
@@ -311,7 +312,7 @@ namespace Triturbo.BlendShare.Inspector
                 var meshResult = FbxUnityAssetReader.FindMesh(scene, mesh.m_Path);
                 if (!meshResult.Success)
                 {
-                    statuses[mesh] = new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.MissingTargetMesh, "Missing Target Mesh", meshResult.Message);
+                    statuses[mesh] = new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.MissingTargetMesh, Localization.S("common.status.missing_target_mesh"), meshResult.Message);
                     continue;
                 }
 
@@ -320,23 +321,23 @@ namespace Triturbo.BlendShare.Inspector
                 {
                     statuses[mesh] = new MeshFbxCompatibilityStatus(
                         MeshFbxCompatibilityState.Incompatible,
-                        "Incompatible",
-                        $"Target mesh has fewer control points ({meshResult.Value.ControlPointCount}) than the stored source mesh ({stored.ControlPointCount}).");
+                        Localization.S("common.status.incompatible"),
+                        Localization.SF("patch.compatibility.control_points_fewer", meshResult.Value.ControlPointCount, stored.ControlPointCount));
                     continue;
                 }
 
                 if (!targetSignature.IsValid)
                 {
-                    statuses[mesh] = new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.Unknown, "Unknown", "Target topology signature could not be calculated.");
+                    statuses[mesh] = new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.Unknown, Localization.S("common.status.unknown"), Localization.S("patch.compatibility.signature_unavailable"));
                     continue;
                 }
 
                 statuses[mesh] = StringComparer.Ordinal.Equals(stored.Hash, targetSignature.Hash)
-                    ? new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.Verified, "Verified", "Target FBX topology matches the stored mesh signature.")
+                    ? new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.Verified, Localization.S("common.status.verified"), Localization.S("patch.compatibility.verified"))
                     : new MeshFbxCompatibilityStatus(
                         MeshFbxCompatibilityState.Incompatible,
-                        "Incompatible",
-                        "Target mesh does not match the stored source topology signature.");
+                        Localization.S("common.status.incompatible"),
+                        Localization.S("patch.compatibility.signature_mismatch"));
             }
 
             return statuses;
@@ -346,23 +347,23 @@ namespace Triturbo.BlendShare.Inspector
         {
             if (mesh == null)
             {
-                return new MeshMappingStatus("Unknown", "Mesh data is missing.", false, StatusKind.Neutral);
+                return new MeshMappingStatus(Localization.S("common.status.unknown"), Localization.S("patch.mesh_data.missing"), false, StatusKind.Neutral);
             }
 
-            if (patch == null || patch.m_Original == null)
+            if (patch == null || patch.m_Target == null)
             {
-                return new MeshMappingStatus("Missing Target", "Original FBX is not assigned.", false, StatusKind.Warning);
+                return new MeshMappingStatus(Localization.S("common.status.missing_target"), Localization.S("patch.mapping.target_missing"), false, StatusKind.Warning);
             }
 
-            var targetLookup = UnityMeshTargetLookup.Create(patch.m_Original);
+            var targetLookup = UnityMeshTargetLookup.Create(patch.m_Target);
             if (targetLookup == null)
             {
-                return new MeshMappingStatus("Unknown", "Unity mesh target cannot be read.", false, StatusKind.Neutral);
+                return new MeshMappingStatus(Localization.S("common.status.unknown"), Localization.S("patch.mapping.target_unreadable"), false, StatusKind.Neutral);
             }
 
             if (!targetLookup.TryGetMesh(mesh, out var targetMesh))
             {
-                return new MeshMappingStatus("Missing", targetLookup.GetResolutionError(mesh), false, StatusKind.Warning);
+                return new MeshMappingStatus(Localization.S("common.status.missing"), targetLookup.GetResolutionError(mesh), false, StatusKind.Warning);
             }
 
             var mappings = mesh.m_Mappings ?? Array.Empty<UnityVertexMappingObject>();
@@ -370,12 +371,12 @@ namespace Triturbo.BlendShare.Inspector
             bool hasValidMapping = mappings.Any(mapping => mapping != null && mapping.IsCompatibleWith(mesh, targetMesh));
             if (hasValidMapping)
             {
-                return new MeshMappingStatus("Ready", targetMesh.name, false, StatusKind.Success);
+                return new MeshMappingStatus(Localization.S("common.status.ready"), targetMesh.name, false, StatusKind.Success);
             }
 
             return new MeshMappingStatus(
-                hasMapping ? "Invalid" : "Missing",
-                hasMapping ? "No stored mapping matches the current Unity mesh import." : "No Unity mapping is stored for this mesh.",
+                hasMapping ? Localization.S("common.status.invalid") : Localization.S("common.status.missing"),
+                hasMapping ? Localization.S("patch.mapping.no_stored_match") : Localization.S("patch.mapping.no_mapping"),
                 true,
                 StatusKind.Warning);
         }

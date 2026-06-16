@@ -5,8 +5,9 @@
         "GUID:518a499d71b640be98077a0a1d0eb856",
         "GUID:36c306fbfd17b8a4a8443f67f3991996",
         "GUID:d71592c589fe4e73b011d144a838d950",
-        "Unity.Collections",
-        "nadena.dev.ndmf"
+        "GUID:e0cd26848372d4e5c891c569017e11f1",
+        "GUID:62ced99b048af7f4d8dfe4bed8373d76",
+        "GUID:f18e22dd59a74ad408debd8b82f4a235"
     ],
     "includePlatforms": [
         "Editor"

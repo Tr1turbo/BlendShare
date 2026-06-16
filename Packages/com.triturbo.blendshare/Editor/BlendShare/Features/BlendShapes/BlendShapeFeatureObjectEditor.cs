@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Triturbo.BlendShapeShare;
 using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Features.BlendShapes;
 using Triturbo.BlendShare.Inspector;
@@ -15,7 +16,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes.Editor
     public sealed class BlendShapeFeatureObjectEditor : MeshFeatureObjectEditor<BlendShapeFeatureObject>
     {
         public override string FeatureId => BlendShapeFeatureObject.Id;
-        public override string DisplayName => "BlendShapes";
+        public override string DisplayName => Localization.FeatureName(FeatureId);
 
         public override VisualElement CreateElement(MeshFeatureEditorContext context)
         {
@@ -29,7 +30,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes.Editor
         private const bool DefaultLocked = true;
 
         public string FeatureId => BlendShapeFeatureObject.Id;
-        public string DisplayName => "BlendShapes";
+        public string DisplayName => Localization.FeatureName(FeatureId);
         public Type TargetType => typeof(BlendShapeFeatureObject);
 
         public VisualElement CreateElement(MeshFeatureEditorContext context)
@@ -56,7 +57,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes.Editor
         {
             var feature = context.Feature as BlendShapeFeatureObject;
             string label = feature != null
-                ? $"BlendShapes {feature.ActiveBlendShapeIndices.Count}/{feature.BlendShapes.Count}"
+                ? Localization.SF("features.blend-shapes.status.compact", feature.ActiveBlendShapeIndices.Count, feature.BlendShapes.Count)
                 : DisplayName;
             return new BlendShareFeatureBadge(label, BlendShapeFeatureEditorElement.Create(context, true, false));
         }
@@ -98,7 +99,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes.Editor
             header.style.marginBottom = 4;
 
             var title = new Label(DisplayName);
-            title.style.unityFontStyleAndWeight = FontStyle.Bold;
+            BlendShareInspectorUi.StyleStrong(title);
             title.style.flexGrow = 1;
             header.Add(title);
 
@@ -120,7 +121,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes.Editor
             void Rebuild()
             {
                 UpdateLockButton(lockButton, locked);
-                lockButton.tooltip = locked ? "Unlock BlendShapes editing" : "Lock BlendShapes editing";
+                lockButton.tooltip = locked ? Localization.S("features.blend-shapes.unlock_tooltip") : Localization.S("features.blend-shapes.lock_tooltip");
                 content.Clear();
                 content.Add(BlendShapeFeatureEditorElement.Create(context, locked, true));
             }
@@ -156,7 +157,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes.Editor
                 return;
             }
 
-            button.text = locked ? "Lock" : "Unlock";
+            button.text = locked ? Localization.S("common.lock") : Localization.S("common.unlock");
         }
     }
 
@@ -186,8 +187,8 @@ namespace Triturbo.BlendShare.Features.BlendShapes.Editor
         private readonly BlendShapeListView disabledBlendShapeList;
         private readonly bool lockedMode;
 
-        private const string DefaultChoice = "Default";
-        private const string UnsavedChoice = "Unsaved";
+        private static string DefaultChoice => Localization.S("features.blend-shapes.selection.default");
+        private static string UnsavedChoice => Localization.S("features.blend-shapes.selection.unsaved");
 
         private BlendShapeFeatureEditorElement(MeshFeatureEditorContext context, bool lockedMode, bool showActiveListHeader)
         {
@@ -199,7 +200,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes.Editor
 
             if (feature == null)
             {
-                Add(new HelpBox("BlendShape feature data is missing.", HelpBoxMessageType.Warning));
+                Add(new HelpBox(Localization.S("features.blend-shapes.missing_data"), HelpBoxMessageType.Warning));
                 return;
             }
 
@@ -210,13 +211,13 @@ namespace Triturbo.BlendShare.Features.BlendShapes.Editor
 
             if (!lockedMode)
             {
-                setPopup = new PopupField<string>("Selection Set", BuildPopupChoices(), GetCurrentPopupChoice());
+                setPopup = new PopupField<string>(Localization.S("features.blend-shapes.selection_set"), BuildPopupChoices(), GetCurrentPopupChoice());
                 setPopup.RegisterValueChangedCallback(evt => ApplySelectionChoice(evt.newValue));
                 Add(setPopup);
 
                 Add(CreateSelectionSetButtons());
 
-                filterField = new TextField("Filter");
+                filterField = new TextField(Localization.S("common.filter"));
                 AddFilterIcon(filterField);
                 filterField.RegisterValueChangedCallback(_ => RefreshAfterSelectionChange());
                 Add(filterField);
@@ -230,7 +231,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes.Editor
             activeBlendShapeList = new BlendShapeListView(
                 visibleActiveIndices,
                 GetBlendShapeName,
-                lockedMode ? null : "Mute",
+                lockedMode ? null : Localization.S("features.blend-shapes.mute"),
                 lockedMode ? null : indices => MuteActive(indices),
                 showActiveListHeader,
                 GetActiveListHeader,
@@ -243,12 +244,12 @@ namespace Triturbo.BlendShare.Features.BlendShapes.Editor
                 disabledBlendShapeList = new BlendShapeListView(
                     visibleAvailableIndices,
                     GetBlendShapeName,
-                    "Enable",
+                    Localization.S("features.blend-shapes.enable_action"),
                     indices => AddAvailable(indices),
                     false,
                     null,
                     RefreshSelectedActionButtons);
-                disabledFoldout = new Foldout { text = "Disabled BlendShapes", value = false };
+                disabledFoldout = new Foldout { text = Localization.S("features.blend-shapes.selection.disabled_header"), value = false };
                 disabledFoldout.style.marginLeft = 0;
                 disabledFoldout.style.paddingLeft = 10;
                 disabledFoldout.contentContainer.style.marginLeft = 0;
@@ -290,10 +291,10 @@ namespace Triturbo.BlendShare.Features.BlendShapes.Editor
             var row = new VisualElement();
             row.style.flexDirection = FlexDirection.Row;
             row.style.flexWrap = Wrap.Wrap;
-            saveButton = BlendShareInspectorUi.SmallButton("Save", SaveCurrentSet);
-            saveAsButton = BlendShareInspectorUi.SmallButton("Save As", SaveAsNewSet);
-            revertButton = BlendShareInspectorUi.SmallButton("Revert", RevertCurrentSet);
-            deleteButton = BlendShareInspectorUi.SmallButton("Delete", DeleteCurrentSet);
+            saveButton = BlendShareInspectorUi.SmallButton(Localization.S("common.save"), SaveCurrentSet);
+            saveAsButton = BlendShareInspectorUi.SmallButton(Localization.S("common.save_as"), SaveAsNewSet);
+            revertButton = BlendShareInspectorUi.SmallButton(Localization.S("common.revert"), RevertCurrentSet);
+            deleteButton = BlendShareInspectorUi.SmallButton(Localization.S("common.delete"), DeleteCurrentSet);
             row.Add(saveButton);
             row.Add(saveAsButton);
             row.Add(revertButton);
@@ -315,10 +316,10 @@ namespace Triturbo.BlendShare.Features.BlendShapes.Editor
             row.style.flexWrap = Wrap.Wrap;
             row.style.marginTop = 4;
             activeSelectedActionButton = CreateSelectedActionButton(
-                "Mute",
+                Localization.S("features.blend-shapes.mute"),
                 () => activeBlendShapeList.SelectedVisibleIndices(),
                 indices => MuteActive(indices));
-            muteVisibleButton = BlendShareInspectorUi.SmallButton("Mute Visible", () => MuteActive(visibleActiveIndices));
+            muteVisibleButton = BlendShareInspectorUi.SmallButton(Localization.S("features.blend-shapes.mute_visible"), () => MuteActive(visibleActiveIndices));
             row.Add(muteVisibleButton);
             row.Add(activeSelectedActionButton);
             return row;
@@ -331,11 +332,11 @@ namespace Triturbo.BlendShare.Features.BlendShapes.Editor
             row.style.flexWrap = Wrap.Wrap;
             //row.style.marginTop = 4;
             disabledSelectedActionButton = CreateSelectedActionButton(
-                "Enable",
+                Localization.S("features.blend-shapes.enable_action"),
                 () => disabledBlendShapeList.SelectedVisibleIndices(),
                 indices => AddAvailable(indices));
-            enableVisibleButton = BlendShareInspectorUi.SmallButton("Enable Visible", () => AddAvailable(visibleAvailableIndices));
-            enableAllButton = BlendShareInspectorUi.SmallButton("Enable All", () => ApplyEditedActiveIndices(Enumerable.Range(0, feature.BlendShapes.Count), "Enable BlendShapes"));
+            enableVisibleButton = BlendShareInspectorUi.SmallButton(Localization.S("features.blend-shapes.enable_visible"), () => AddAvailable(visibleAvailableIndices));
+            enableAllButton = BlendShareInspectorUi.SmallButton(Localization.S("features.blend-shapes.enable_all"), () => ApplyEditedActiveIndices(Enumerable.Range(0, feature.BlendShapes.Count), "Enable BlendShapes"));
             row.Add(enableVisibleButton);
             row.Add(disabledSelectedActionButton);
             row.Add(enableAllButton);
@@ -369,15 +370,16 @@ namespace Triturbo.BlendShare.Features.BlendShapes.Editor
                 return;
             }
 
-            string actionLabel = button.userData as string ?? "Apply";
-            button.text = $"{actionLabel} {selectedCount} Selected";
+            string actionLabel = button.userData as string ?? Localization.S("common.apply");
+            button.text = Localization.SF("features.blend-shapes.selection.selected_action", actionLabel, selectedCount);
             button.SetEnabled(selectedCount > 0);
         }
 
         private string GetActiveListHeader()
         {
-            string suffix = IsFilterActive() ? " (filtered, reorder disabled)" : string.Empty;
-            return $"Active BlendShapes{suffix}";
+            return IsFilterActive()
+                ? Localization.S("features.blend-shapes.selection.active_header_filtered")
+                : Localization.S("features.blend-shapes.selection.active_header");
         }
 
         private void RefreshVisibleAvailableIndices()
@@ -491,7 +493,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes.Editor
         {
             var existing = feature.GetSelectionSet(existingId);
             string defaultName = existing != null ? existing.DisplayName : GetNextSetName();
-            string setName = SelectionSetNamePrompt.Show("Selection Set Name", defaultName);
+            string setName = SelectionSetNamePrompt.Show(Localization.S("features.blend-shapes.selection.name_prompt"), defaultName);
             if (string.IsNullOrWhiteSpace(setName))
             {
                 return;
@@ -530,7 +532,11 @@ namespace Triturbo.BlendShare.Features.BlendShapes.Editor
                 return;
             }
 
-            if (!EditorUtility.DisplayDialog("Delete Selection Set", $"Delete '{selection.DisplayName}'?", "Delete", "Cancel"))
+            if (!EditorUtility.DisplayDialog(
+                    Localization.S("features.blend-shapes.selection.delete_title"),
+                    Localization.SF("features.blend-shapes.selection.delete_message", selection.DisplayName),
+                    Localization.S("common.delete"),
+                    Localization.S("common.cancel")))
             {
                 return;
             }
@@ -603,12 +609,12 @@ namespace Triturbo.BlendShare.Features.BlendShapes.Editor
         {
             if (lockedMode)
             {
-                statusLabel.text = $"{activeIndices.Count} active / {feature.BlendShapes.Count} total";
+                statusLabel.text = Localization.SF("features.blend-shapes.status.locked", activeIndices.Count, feature.BlendShapes.Count);
                 return;
             }
 
             string choice = GetCurrentPopupChoice();
-            statusLabel.text = $"{activeIndices.Count} active / {feature.BlendShapes.Count} total / {visibleActiveIndices.Count} active visible / {visibleAvailableIndices.Count} available visible / {choice}";
+            statusLabel.text = Localization.SF("features.blend-shapes.status.editing", activeIndices.Count, feature.BlendShapes.Count, visibleActiveIndices.Count, visibleAvailableIndices.Count, choice);
         }
 
         private List<string> BuildPopupChoices()
@@ -680,7 +686,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes.Editor
 
         private string GetNextSetName()
         {
-            const string baseName = "Selection Set";
+            string baseName = Localization.S("features.blend-shapes.selection.default_name");
             var usedNames = new HashSet<string>(feature.SelectionSets.Select(selection => selection.DisplayName));
             if (!usedNames.Contains(baseName))
             {
@@ -700,8 +706,8 @@ namespace Triturbo.BlendShare.Features.BlendShapes.Editor
         private string GetBlendShapeName(int index)
         {
             return index >= 0 && index < feature.BlendShapes.Count
-                ? feature.BlendShapes[index]?.m_Name ?? $"BlendShape {index}"
-                : $"BlendShape {index}";
+                ? feature.BlendShapes[index]?.m_Name ?? Localization.SF("features.blend-shapes.fallback_name", index)
+                : Localization.SF("features.blend-shapes.fallback_name", index);
         }
 
     }
@@ -901,14 +907,14 @@ namespace Triturbo.BlendShare.Features.BlendShapes.Editor
 
         private void OnGUI()
         {
-            EditorGUILayout.LabelField("Name");
+            EditorGUILayout.LabelField(Localization.S("common.name"));
             GUI.SetNextControlName("SelectionSetName");
             value = EditorGUILayout.TextField(value);
 
             using (new EditorGUILayout.HorizontalScope())
             {
                 GUILayout.FlexibleSpace();
-                if (GUILayout.Button("Cancel", GUILayout.Width(80)))
+                if (GUILayout.Button(Localization.S("common.cancel"), GUILayout.Width(80)))
                 {
                     submitted = false;
                     Close();
@@ -916,7 +922,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes.Editor
 
                 using (new EditorGUI.DisabledScope(string.IsNullOrWhiteSpace(value)))
                 {
-                    if (GUILayout.Button("Save", GUILayout.Width(80)))
+                    if (GUILayout.Button(Localization.S("common.save"), GUILayout.Width(80)))
                     {
                         submitted = true;
                         Close();

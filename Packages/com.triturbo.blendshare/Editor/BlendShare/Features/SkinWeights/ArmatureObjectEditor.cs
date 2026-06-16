@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using Triturbo.BlendShapeShare;
 using Triturbo.BlendShare.Inspector;
 using UnityEditor;
 using UnityEngine;
@@ -16,28 +17,36 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
         public override VisualElement CreateInspectorGUI()
         {
             var root = BlendShareInspectorUi.CreateRoot();
-
             ArmatureObject armature = target as ArmatureObject;
-            var titleLabel = new Label("Armature");
-            titleLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
-            titleLabel.style.marginBottom = 4;
-            root.Add(titleLabel);
 
-            if (armature == null)
+            void Rebuild()
             {
-                root.Add(new HelpBox("Armature data is missing.", HelpBoxMessageType.Warning));
-                return root;
+                root.Clear();
+
+                var titleLabel = new Label(Localization.S("features.skin-weights.armature.title"));
+                BlendShareInspectorUi.StyleHeading(titleLabel);
+                titleLabel.style.marginBottom = 4;
+                root.Add(titleLabel);
+
+                if (armature == null)
+                {
+                    root.Add(new HelpBox(Localization.S("features.skin-weights.armature.missing"), HelpBoxMessageType.Warning));
+                    return;
+                }
+
+                BlendShareInspectorUi.RegisterDoubleClickAction(root, () =>
+                {
+                    Selection.activeObject = armature;
+                    EditorGUIUtility.PingObject(armature);
+                });
+
+                var bones = armature.Bones ?? Array.Empty<ArmatureBoneData>();
+                root.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.bones"), armature.BoneCount.ToString()));
+                root.Add(CreateBonesFoldout(bones));
             }
 
-            BlendShareInspectorUi.RegisterDoubleClickAction(root, () =>
-            {
-                Selection.activeObject = armature;
-                EditorGUIUtility.PingObject(armature);
-            });
-
-            var bones = armature.Bones ?? Array.Empty<ArmatureBoneData>();
-            root.Add(BlendShareInspectorUi.Row("Bones", armature.BoneCount.ToString()));
-            root.Add(CreateBonesFoldout(bones));
+            Rebuild();
+            Localization.RebuildOnLanguageChange(root, Rebuild);
             return root;
         }
 
@@ -45,22 +54,22 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
         {
             var foldout = new Foldout
             {
-                text = "Bones",
+                text = Localization.S("features.skin-weights.bones"),
                 value = false
             };
 
             if (bones.Count == 0)
             {
-                foldout.Add(new HelpBox("No bones are stored for this armature.", HelpBoxMessageType.Info));
+                foldout.Add(new HelpBox(Localization.S("features.skin-weights.armature.no_bones"), HelpBoxMessageType.Info));
                 return foldout;
             }
 
             foreach (var bone in bones.Where(bone => bone != null))
             {
                 var item = SkinWeightInspectorLayout.CreatePlainItem();
-                item.Add(BlendShareInspectorUi.Row("Path", bone.Path));
-                item.Add(BlendShareInspectorUi.Row("Parent", bone.ParentPath));
-                item.Add(BlendShareInspectorUi.Row("Create If Missing", bone.m_CreateIfMissing ? "Yes" : "No"));
+                item.Add(BlendShareInspectorUi.Row(Localization.S("common.path"), bone.Path));
+                item.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.armature.parent"), bone.ParentPath));
+                item.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.armature.create_if_missing"), bone.m_CreateIfMissing ? Localization.S("common.yes") : Localization.S("common.no")));
                 item.Add(CreateTransformRows(bone));
                 foldout.Add(item);
             }
@@ -72,9 +81,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
         {
             var root = new VisualElement();
             root.style.marginTop = 2;
-            root.Add(CreateTransformRow("Position", bone.m_FbxLocalTranslation));
-            root.Add(CreateTransformRow("Rotation", bone.m_FbxLocalEulerRotation));
-            root.Add(CreateTransformRow("Scale", bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale));
+            root.Add(CreateTransformRow(Localization.S("features.skin-weights.armature.position"), bone.m_FbxLocalTranslation));
+            root.Add(CreateTransformRow(Localization.S("features.skin-weights.armature.rotation"), bone.m_FbxLocalEulerRotation));
+            root.Add(CreateTransformRow(Localization.S("features.skin-weights.armature.scale"), bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale));
             return root;
         }
 

@@ -4,6 +4,7 @@
 
 using System;
 using System.Collections.Generic;
+using Triturbo.BlendShapeShare;
 using Triturbo.BlendShare.Components;
 using UnityEditor;
 using UnityEngine;
@@ -140,12 +141,12 @@ namespace Triturbo.BlendShare.Inspector
         {
             if (acceptedType == typeof(SkinnedMeshRenderer))
             {
-                return "Skinned Mesh Renderer";
+                return Localization.S("common.skinned_mesh_renderer");
             }
 
             if (acceptedType == typeof(GameObject))
             {
-                return "Game Object";
+                return Localization.S("common.game_object");
             }
 
             return ObjectNames.NicifyVariableName(acceptedType.Name);
@@ -199,7 +200,7 @@ namespace Triturbo.BlendShare.Inspector
                 return directTarget.name;
             }
 
-            return "None";
+            return Localization.S("common.none");
         }
 
         private Type GetAcceptedObjectType()

@@ -38,7 +38,7 @@ namespace Triturbo.BlendShare.Inspector
             EditorWidgets.ShowBlendShareBanner();
             GUILayout.BeginHorizontal("box");
             GUILayout.FlexibleSpace();
-            GUILayout.Label("A mesh assets container");
+            GUILayout.Label(Localization.S("legacy.generated_mesh_asset.description"));
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
             serializedObject.Update();
@@ -46,7 +46,7 @@ namespace Triturbo.BlendShare.Inspector
 
             Localization.DrawLanguageSelection();
             EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Metadata", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(Localization.S("legacy.generated_mesh_asset.metadata"), EditorStyles.boldLabel);
             
             EditorGUILayout.BeginVertical(GUI.skin.box);
             bool isEditing = EditorPrefs.GetBool(prefKey, false);
@@ -71,18 +71,18 @@ namespace Triturbo.BlendShare.Inspector
                 );
                 GUI.enabled = prevEnabled;
                 
-                EditorGUILayout.TextField("Original", originalHashProp.stringValue);
-                EditorGUILayout.TextField("Current",currentFbxHash);
+                EditorGUILayout.TextField(Localization.S("legacy.generated_mesh_asset.original"), originalHashProp.stringValue);
+                EditorGUILayout.TextField(Localization.S("legacy.generated_mesh_asset.current"), currentFbxHash);
             }
             
             if (isEditing)
             {
-                EditorGUILayout.PropertyField(appliedBlendSharesProp, new GUIContent("Applied BlendShare Objects"), true);
+                EditorGUILayout.PropertyField(appliedBlendSharesProp, Localization.G("legacy.generated_mesh_asset.applied_patches"), true);
                 EditorGUILayout.PropertyField(appliedBlendShapesProp, Localization.G("mesh_asset.applied_blendshapes"), true);
             }
             else if (appliedBlendSharesProp.arraySize > 0)
             {
-                EditorGUILayout.LabelField("Applied BlendShare Objects", EditorStyles.boldLabel);
+                EditorGUILayout.LabelField(Localization.S("legacy.generated_mesh_asset.applied_patches"), EditorStyles.boldLabel);
                 EditorGUI.indentLevel++;
                 for (int i = 0; i < appliedBlendSharesProp.arraySize; i++)
                 {

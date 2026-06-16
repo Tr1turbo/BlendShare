@@ -30,7 +30,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             }
             else if (controlPointCount != baseMesh.ControlPointCount)
             {
-                Debug.LogWarning("Base mesh control point count does not match the source mesh control point count. Use blendshape source as basis");
+                Debug.LogWarning("Base mesh FBX vertex count does not match the source mesh FBX vertex count. Use blendshape source as basis");
                 baseMesh = sourceMesh;
             }
 

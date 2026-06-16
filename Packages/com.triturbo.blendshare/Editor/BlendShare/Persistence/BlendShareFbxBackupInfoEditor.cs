@@ -1,4 +1,5 @@
 using Triturbo.BlendShapeShare.BlendShapeData;
+using Triturbo.BlendShapeShare;
 using UnityEditor;
 using UnityEngine;
 
@@ -22,28 +23,28 @@ namespace Triturbo.BlendShare.Persistence
 
         internal static void DrawInfo(BlendShareFbxBackupInfo info)
         {
-            DrawObjectReference("Source FBX", info.m_SourceFbx);
+            DrawObjectReference(Localization.S("backup.source_fbx"), info.m_SourceFbx);
             DrawDerivedFbxReferences(info);
 
             EditorGUILayout.Space();
-            DrawReadOnlyText("Metadata Version", info.m_MetadataVersion.ToString());
-            DrawReadOnlyText("Source FBX Hash", info.m_SourceFbxHash);
-            DrawReadOnlyText("Created At UTC", info.m_CreatedAtUtc);
-            DrawReadOnlyText("Original File Name", info.m_OriginalFileName);
-            DrawReadOnlyText("Backup Path", info.m_BackupPath);
-            DrawReadOnlyText("Backup Hash", info.m_BackupHash);
-            DrawReadOnlyText("Backup Size Bytes", info.m_BackupSizeBytes.ToString());
+            DrawReadOnlyText(Localization.S("backup.metadata_version"), info.m_MetadataVersion.ToString());
+            DrawReadOnlyText(Localization.S("backup.source_fbx_hash"), info.m_SourceFbxHash);
+            DrawReadOnlyText(Localization.S("backup.created_at_utc"), info.m_CreatedAtUtc);
+            DrawReadOnlyText(Localization.S("backup.original_file_name"), info.m_OriginalFileName);
+            DrawReadOnlyText(Localization.S("backup.path"), info.m_BackupPath);
+            DrawReadOnlyText(Localization.S("backup.hash"), info.m_BackupHash);
+            DrawReadOnlyText(Localization.S("backup.size_bytes"), info.m_BackupSizeBytes.ToString());
         }
 
         private static void DrawDerivedFbxReferences(BlendShareFbxBackupInfo info)
         {
             var fbxs = info.m_DerivedFbxs ?? new GameObject[0];
-            EditorGUILayout.LabelField("Derived FBXs", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(Localization.S("backup.derived_fbxs"), EditorStyles.boldLabel);
             if (fbxs.Length == 0)
             {
                 using (new EditorGUI.DisabledScope(true))
                 {
-                    EditorGUILayout.TextField("None", string.Empty);
+                    EditorGUILayout.TextField(Localization.S("common.none"), string.Empty);
                 }
 
                 return;
@@ -51,7 +52,7 @@ namespace Triturbo.BlendShare.Persistence
 
             for (int i = 0; i < fbxs.Length; i++)
             {
-                DrawDerivedFbxReference($"FBX {i + 1}", fbxs[i], info.m_BackupPath);
+                DrawDerivedFbxReference(Localization.SF("backup.derived_fbx", i + 1), fbxs[i], info.m_BackupPath);
             }
         }
 
@@ -69,7 +70,7 @@ namespace Triturbo.BlendShare.Persistence
                 try
                 {
                     bool canRestoreFromBackup = CanRestoreFromBackup(value, backupPath);
-                    if (GUILayout.Button("Select", GUILayout.Width(64)))
+                    if (GUILayout.Button(Localization.S("common.select"), GUILayout.Width(64)))
                     {
                         Selection.activeObject = value;
                         EditorGUIUtility.PingObject(value);
@@ -77,7 +78,7 @@ namespace Triturbo.BlendShare.Persistence
 
                     using (new EditorGUI.DisabledScope(!canRestoreFromBackup))
                     {
-                        if (GUILayout.Button("Restore", GUILayout.Width(72)))
+                        if (GUILayout.Button(Localization.S("common.restore"), GUILayout.Width(72)))
                         {
                             RunRestoreToOriginal(value);
                         }
@@ -109,7 +110,7 @@ namespace Triturbo.BlendShare.Persistence
                 GUI.enabled = value != null;
                 try
                 {
-                    if (GUILayout.Button("Select", GUILayout.Width(64)))
+                    if (GUILayout.Button(Localization.S("common.select"), GUILayout.Width(64)))
                     {
                         Selection.activeObject = value;
                         EditorGUIUtility.PingObject(value);
@@ -131,10 +132,10 @@ namespace Triturbo.BlendShare.Persistence
 
             string targetName = targetFbx.name;
             if (!EditorUtility.DisplayDialog(
-                    "Restore FBX to Original",
-                    $"This will restore '{targetName}' from this BlendShare backup and clear its active BlendShare patch metadata. The backup is deleted when no derived FBX still references it.",
-                    "Restore",
-                    "Cancel"))
+                    Localization.S("backup.restore.title"),
+                    Localization.SF("backup.restore.message", targetName),
+                    Localization.S("common.restore"),
+                    Localization.S("common.cancel")))
             {
                 return;
             }
@@ -145,7 +146,7 @@ namespace Triturbo.BlendShare.Persistence
                 return;
             }
 
-            EditorUtility.DisplayDialog("Restore Failed", message, "OK");
+            EditorUtility.DisplayDialog(Localization.S("backup.restore.failed"), message, Localization.S("common.ok"));
         }
 
         private static void DrawReadOnlyText(string label, string value)

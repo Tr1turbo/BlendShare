@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.Scripting.APIUpdating;
+using UnityEngine.Serialization;
 
 
 namespace Triturbo.BlendShare.Core
@@ -11,8 +12,8 @@ namespace Triturbo.BlendShare.Core
     /// </summary>
     public class BlendShareObject : ScriptableObject
     {
-        [FbxAsset]
-        public GameObject m_Original;
+        [FbxAsset, FormerlySerializedAs("m_Original")]
+        public GameObject m_Target;
         public string m_DefaultGeneratedAssetName;
         public bool m_Applied = false;
         public string m_PatchId = "+BlendShare";
@@ -28,9 +29,9 @@ namespace Triturbo.BlendShare.Core
             {
                 if (string.IsNullOrEmpty(m_DefaultGeneratedAssetName))
                 {
-                    if (m_Original != null)
+                    if (m_Target != null)
                     {
-                        return m_Original.name;
+                        return m_Target.name;
                     }
 
                     return "MeshAsset";
@@ -45,9 +46,9 @@ namespace Triturbo.BlendShare.Core
             {
                 if (string.IsNullOrEmpty(m_DefaultGeneratedAssetName))
                 {
-                    if (m_Original != null)
+                    if (m_Target != null)
                     {
-                        return $"{m_Original.name}_BlendShare";
+                        return $"{m_Target.name}_BlendShare";
                     }
 
                     return "BlendShareFbx";

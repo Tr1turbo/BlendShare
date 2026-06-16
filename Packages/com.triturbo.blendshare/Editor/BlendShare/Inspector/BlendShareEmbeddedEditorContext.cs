@@ -1,4 +1,5 @@
 using System;
+using Triturbo.BlendShapeShare;
 using Triturbo.BlendShare.Core;
 using UnityEngine;
 
@@ -12,14 +13,17 @@ namespace Triturbo.BlendShare.Inspector
             BlendShareObject ownerPatch,
             Action refresh,
             GameObject fbxGo = null,
-            UnityMeshTargetLookup unityMeshLookup = null)
+            UnityMeshTargetLookup unityMeshLookup = null,
+            bool createUnityMeshLookup = true)
         {
             EmbeddedObject = embeddedObject;
             OwnerMeshData = ownerMesh;
             OwnerPatch = ownerPatch;
             Refresh = refresh;
-            FbxGo = fbxGo != null ? fbxGo : ownerPatch != null ? ownerPatch.m_Original : null;
-            UnityMeshLookup = unityMeshLookup ?? UnityMeshTargetLookup.Create(FbxGo);
+            FbxGo = fbxGo != null ? fbxGo : ownerPatch != null ? ownerPatch.m_Target : null;
+            UnityMeshLookup = FbxGo != null
+                ? unityMeshLookup ?? (createUnityMeshLookup ? UnityMeshTargetLookup.Create(FbxGo) : null)
+                : null;
         }
 
         public UnityEngine.Object EmbeddedObject { get; }
@@ -45,7 +49,7 @@ namespace Triturbo.BlendShare.Inspector
         {
             return UnityMeshLookup != null
                 ? UnityMeshLookup.GetResolutionError(meshData)
-                : "Unity mesh target cannot be read.";
+                : Localization.S("patch.mapping.target_unreadable");
         }
     }
 }

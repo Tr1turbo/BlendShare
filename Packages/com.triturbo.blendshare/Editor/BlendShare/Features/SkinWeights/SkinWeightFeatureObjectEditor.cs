@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using Triturbo.BlendShapeShare;
 using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Features.SkinWeights;
 using Triturbo.BlendShare.Inspector;
@@ -14,7 +15,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
     public sealed class SkinWeightFeatureObjectEditor : MeshFeatureObjectEditor<SkinWeightFeatureObject>
     {
         public override string FeatureId => SkinWeightFeatureObject.Id;
-        public override string DisplayName => "Skin Weights";
+        public override string DisplayName => Localization.FeatureName(FeatureId);
 
         public override VisualElement CreateElement(MeshFeatureEditorContext context)
         {
@@ -27,7 +28,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
     public sealed class SkinWeightFeatureEditorFactory : IMeshFeatureObjectEditor
     {
         public string FeatureId => SkinWeightFeatureObject.Id;
-        public string DisplayName => "Skin Weights";
+        public string DisplayName => Localization.FeatureName(FeatureId);
         public Type TargetType => typeof(SkinWeightFeatureObject);
 
         public VisualElement CreateElement(MeshFeatureEditorContext context)
@@ -50,7 +51,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
             var box = BlendShareInspectorUi.Box();
             BlendShareInspectorUi.RegisterDoubleClickAction(box, () => Selection.activeObject = context.EmbeddedObject);
             var title = new Label(DisplayName);
-            title.style.unityFontStyleAndWeight = UnityEngine.FontStyle.Bold;
+            BlendShareInspectorUi.StyleStrong(title);
             title.style.marginBottom = 4;
             box.Add(title);
             box.Add(CreateElement(new MeshFeatureEditorContext(
@@ -69,14 +70,14 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
             var root = new VisualElement();
             if (feature == null)
             {
-                root.Add(new HelpBox("Skin weight feature data is missing.", HelpBoxMessageType.Warning));
+                root.Add(new HelpBox(Localization.S("features.skin-weights.missing_data"), HelpBoxMessageType.Warning));
                 return root;
             }
 
-            root.Add(BlendShareInspectorUi.Row("Clusters", feature.ClusterCount.ToString()));
-            root.Add(BlendShareInspectorUi.Row("Weighted Points", feature.WeightedControlPointCount.ToString()));
-            root.Add(BlendShareInspectorUi.Row("Root Bone", feature.RootBonePath));
-            root.Add(BlendShareInspectorUi.Row("Bind Poses", feature.Clusters.Count(cluster => cluster != null && cluster.m_HasFbxClusterMatrices).ToString()));
+            root.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.clusters"), feature.ClusterCount.ToString()));
+            root.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.weighted_control_points"), feature.WeightedControlPointCount.ToString()));
+            root.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.root_bone"), feature.RootBonePath));
+            root.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.bindposes"), feature.Clusters.Count(cluster => cluster != null && cluster.m_HasFbxClusterMatrices).ToString()));
             root.Add(CreateArmatureObjectRow(feature.Armature));
             root.Add(CreateClusterFoldout(feature, new SerializedObject(feature)));
             return root;
@@ -94,7 +95,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
             field.style.flexGrow = 1;
             field.style.flexShrink = 1;
             field.style.minWidth = 0;
-            return BlendShareInspectorUi.LabeledRow("Shared Armature", field);
+            return BlendShareInspectorUi.LabeledRow(Localization.S("features.skin-weights.shared_armature"), field);
         }
 
         private static VisualElement CreateClusterFoldout(SkinWeightFeatureObject feature, SerializedObject serializedFeature)
@@ -103,14 +104,14 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
             var clustersProperty = serializedFeature.FindProperty(nameof(SkinWeightFeatureObject.m_Clusters));
             var foldout = new Foldout
             {
-                text = "Clusters",
+                text = Localization.S("features.skin-weights.clusters"),
                 value = false
             };
             foldout.style.paddingLeft = 10;
 
             if (clusters.Count == 0)
             {
-                foldout.Add(new HelpBox("No clusters are stored for this feature.", HelpBoxMessageType.Info));
+                foldout.Add(new HelpBox(Localization.S("features.skin-weights.no_clusters"), HelpBoxMessageType.Info));
                 return foldout;
             }
 
@@ -123,16 +124,16 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
                 }
 
                 var item = SkinWeightInspectorLayout.CreatePlainItem();
-                item.Add(BlendShareInspectorUi.Row("Bone", cluster.BonePath));
-                item.Add(BlendShareInspectorUi.Row("Weights", cluster.WeightCount.ToString()));
-                item.Add(BlendShareInspectorUi.Row("FBX Cluster Matrices", cluster.m_HasFbxClusterMatrices ? "Yes" : "No"));
+                item.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.bone"), cluster.BonePath));
+                item.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.weights"), cluster.WeightCount.ToString()));
+                item.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.fbx_cluster_matrices"), cluster.m_HasFbxClusterMatrices ? Localization.S("common.yes") : Localization.S("common.no")));
                 if (cluster.m_HasFbxClusterMatrices)
                 {
                     var clusterProperty = clustersProperty != null && i < clustersProperty.arraySize
                         ? clustersProperty.GetArrayElementAtIndex(i)
                         : null;
-                    item.Add(CreateMatrixPropertyField(serializedFeature, clusterProperty, nameof(SkinWeightClusterData.m_FbxTransformMatrix), "Transform Matrix"));
-                    item.Add(CreateMatrixPropertyField(serializedFeature, clusterProperty, nameof(SkinWeightClusterData.m_FbxTransformLinkMatrix), "Transform Link Matrix"));
+                    item.Add(CreateMatrixPropertyField(serializedFeature, clusterProperty, nameof(SkinWeightClusterData.m_FbxTransformMatrix), Localization.S("features.skin-weights.transform_matrix")));
+                    item.Add(CreateMatrixPropertyField(serializedFeature, clusterProperty, nameof(SkinWeightClusterData.m_FbxTransformLinkMatrix), Localization.S("features.skin-weights.transform_link_matrix")));
                 }
                 foldout.Add(item);
             }
@@ -149,7 +150,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
             var matrixProperty = clusterProperty?.FindPropertyRelative(propertyName);
             if (matrixProperty == null)
             {
-                return new HelpBox($"{label} data is missing.", HelpBoxMessageType.Warning);
+                return new HelpBox(Localization.SF("features.skin-weights.matrix_data_missing", label), HelpBoxMessageType.Warning);
             }
 
             var field = new PropertyField(matrixProperty, label);

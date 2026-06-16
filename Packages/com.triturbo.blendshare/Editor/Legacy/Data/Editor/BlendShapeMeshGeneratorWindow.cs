@@ -8,10 +8,8 @@ using Triturbo.BlendShare.Migration;
 using Triturbo.BlendShare.Persistence;
 using UnityEditorInternal;
 
-
 namespace Triturbo.BlendShapeShare.BlendShapeData
 {
-    [System.Obsolete("BlendShapeMeshGeneratorWindow is a legacy editor. Use the new BlendShareObject workflow for new assets.")]
     public class BlendShapeMeshGeneratorWindow : EditorWindow 
     { 
         private Object targetMeshContainer;
@@ -34,10 +32,10 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             }
         }
 
-        [MenuItem("Tools/BlendShare/Advanced Mesh Generator")]
+        [MenuItem("Tools/BlendShare/Advanced Mesh Creator")]
         public static void ShowWindow()
         {
-           GetWindow<BlendShapeMeshGeneratorWindow>("BlendShare");
+           GetWindow<BlendShapeMeshGeneratorWindow>(Localization.S("advanced_mesh_creator.title"));
         }
 
         private Object[] GetValidBlendShapeAssets()
@@ -61,7 +59,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
             reorderableList.drawHeaderCallback = rect =>
             {
-                EditorGUI.LabelField(rect, Localization.G("mesh_generator.blendshapes_data_list"));
+                EditorGUI.LabelField(rect, Localization.G("advanced_mesh_creator.blendshare_data_list"));
             };
 
             reorderableList.drawElementCallback = (Rect rect, int index, bool isActive, bool isFocused) =>
@@ -135,14 +133,14 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         private void OnGUI()
         {
             EditorWidgets.ShowBlendShareBanner();
-            EditorGUILayout.LabelField("Advanced BlendShape Mesh Generator", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(Localization.S("advanced_mesh_creator.title"), EditorStyles.boldLabel);
             
             Localization.DrawLanguageSelection();
             EditorGUILayout.Space(8);
             
             EditorGUI.BeginChangeCheck();
             targetMeshContainer = EditorWidgets.MeshAssetObjectField(
-                Localization.G("mesh_generator.target_mesh_container"), targetMeshContainer);
+                Localization.G("advanced_mesh_creator.target_mesh_container"), targetMeshContainer);
             
             if (EditorGUI.EndChangeCheck())
             {
@@ -177,19 +175,19 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             if (HasDuplicatePatchIdsForWarning())
             {
                 EditorGUILayout.HelpBox(
-                    "Multiple BlendShare patches in the list use the same patch id. Generation will use only one patch per id; the latest entry with that id wins.",
+                    Localization.S("advanced_mesh_creator.duplicate_patch_ids"),
                     MessageType.Warning);
             }
             
             if (isValidInput && !isAbleToGenerateFbx && !isAbleToGenerateMesh)
             {
                 EditorGUILayout.HelpBox(
-                    Localization.S("mesh_generator.mesh_generation_disable"), 
+                    Localization.S("advanced_mesh_creator.mesh_generation_disable"),
                     MessageType.Error);
             }
             
             GUI.enabled = isValidInput && (isAbleToGenerateFbx || isAbleToGenerateMesh);
-            if (GUILayout.Button(Localization.G("mesh_generator.generate_mesh"), GUILayout.Height(32)))
+            if (GUILayout.Button(Localization.G("advanced_mesh_creator.generate_mesh_assets"), GUILayout.Height(32)))
             {
                 var validBlendShapes =  GetValidBlendShapeAssets();
                 var savePath = GetFileSavePath(validBlendShapes, "asset");
@@ -200,7 +198,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             }
             
             GUI.enabled = isValidInput && isAbleToGenerateFbx;
-            if (GUILayout.Button(Localization.G("mesh_generator.generate_fbx"), GUILayout.Height(32)))
+            if (GUILayout.Button(Localization.G("advanced_mesh_creator.generate_fbx"), GUILayout.Height(32)))
             {
                 var validBlendShapes =  GetValidBlendShapeAssets();
                 var savePath = GetFileSavePath(validBlendShapes,"fbx");
@@ -223,7 +221,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 defaultName += GetDefaultAssetName(blendShape);
             }
             string savePath = EditorUtility.SaveFilePanel(
-                "Save Mesh Asset",
+                Localization.S("advanced_mesh_creator.save_mesh_assets.title"),
                 Application.dataPath,
                 defaultName,
                 extension
@@ -265,7 +263,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 AssetDatabase.SaveAssets();
                 AssetDatabase.Refresh();
             
-                EditorUtility.DisplayDialog("Success", $"Generated artifact saved at:\n{filePath}", "OK");
+                EditorUtility.DisplayDialog("Success", $"Generated mesh asset saved at:\n{filePath}", "OK");
                 Selection.activeObject = result;
             }
             catch (System.Exception ex)

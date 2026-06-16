@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShapeShare;
 using Triturbo.BlendShare.Core;
+using Triturbo.BlendShare.Inspector;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -18,7 +19,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         private readonly Dictionary<string, bool> boneFoldouts = new();
 
         public override string FeatureId => SkinWeightFeatureObject.Id;
-        public override string TabLabel => "Skin Weights";
+        public override string TabLabel => Localization.FeatureName(FeatureId, "Skin Weights");
         public override int DisplayOrder => -50;
 
         protected override SkinWeightExtractionOptions CreateDefault()
@@ -47,7 +48,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             root.style.minHeight = 0f;
             root.style.flexDirection = FlexDirection.Column;
 
-            var enabledToggle = new Toggle(Localization.S("skin_weights"))
+            var enabledToggle = new Toggle(Localization.S("features.skin-weights.toggle"))
             {
                 value = options.Enabled
             };
@@ -74,7 +75,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return;
             }
 
-            options.Enabled = EditorGUILayout.ToggleLeft(Localization.S("skin_weights"), options.Enabled);
+            options.Enabled = EditorGUILayout.ToggleLeft(Localization.S("features.skin-weights.toggle"), options.Enabled);
         }
 
         private VisualElement CreateSkinWeightListElement(
@@ -85,11 +86,11 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             root.style.flexGrow = 1f;
             root.style.minHeight = 0f;
             root.style.flexDirection = FlexDirection.Column;
-            root.Add(CreateHeaderLabel("Bones"));
+            root.Add(CreateHeaderLabel(Localization.S("features.skin-weights.bones")));
 
             if (context?.SourceFbxGo == null || context.OriginFbxGo == null)
             {
-                root.Add(new HelpBox(Localization.S("new_extractor.assign_fbx_hint"), HelpBoxMessageType.Info));
+                root.Add(new HelpBox(Localization.S("patch_creator.assign_fbx_hint"), HelpBoxMessageType.Info));
                 return root;
             }
 
@@ -97,7 +98,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 comparison == null ||
                 comparison.Bones.Count == 0)
             {
-                root.Add(new HelpBox("No skin weight differences were found.", HelpBoxMessageType.Info));
+                root.Add(new HelpBox(Localization.S("features.skin-weights.no_differences"), HelpBoxMessageType.Info));
                 return root;
             }
 
@@ -106,10 +107,10 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             AddDiagnostics(root, comparison);
 
             var stickyHeader = StickyHeaderElement.CreateCommandBar(
-                "Select All",
-                "Clear All",
-                "Auto",
-                "Disable Diff");
+                Localization.S("common.select_all"),
+                Localization.S("common.clear_all"),
+                Localization.S("common.auto"),
+                Localization.S("common.disable_diff"));
             root.Add(stickyHeader);
 
             var scrollView = new ScrollView(ScrollViewMode.Vertical);
@@ -130,7 +131,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 scrollView.Add(section.Root);
             }
 
-            var overview = StickyHeaderOverview.Create(sections, () => "Bones");
+            var overview = StickyHeaderOverview.Create(sections, () => Localization.S("features.skin-weights.bones"));
             stickyHeader.Bind(scrollView, sections, overview);
             requestStickyRefresh = stickyHeader.RequestRefresh;
             return root;
@@ -214,7 +215,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 if (createBoneToggle != null)
                 {
                     bool requiredParent = IsRequiredParent(options, comparison, bone.BonePath);
-                    createBoneToggle.label = requiredParent ? "Create bone (required parent)" : "Create bone";
+                    createBoneToggle.label = requiredParent
+                        ? Localization.S("features.skin-weights.create_bone_required_parent")
+                        : Localization.S("features.skin-weights.create_bone");
                     createBoneToggle.SetEnabled(!requiredParent);
                     createBoneToggle.SetValueWithoutNotify(options.IsNewBoneSelected(bone.BonePath));
                 }
@@ -330,15 +333,17 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 }
 
                 contentBuilt = true;
-                var pathLabel = new Label($"Path: {bone.BonePath}");
-                pathLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
+                var pathLabel = new Label($"{Localization.S("common.path")}: {bone.BonePath}");
+                BlendShareInspectorUi.StyleStrong(pathLabel);
                 pathLabel.style.marginBottom = 4f;
                 foldout.Add(pathLabel);
 
                 if (bone.RequiresCreateBone)
                 {
                     bool requiredParent = IsRequiredParent(options, comparison, bone.BonePath);
-                    createBoneToggle = new Toggle(requiredParent ? "Create bone (required parent)" : "Create bone")
+                    createBoneToggle = new Toggle(requiredParent
+                        ? Localization.S("features.skin-weights.create_bone_required_parent")
+                        : Localization.S("features.skin-weights.create_bone"))
                     {
                         value = options.IsNewBoneSelected(bone.BonePath)
                     };
@@ -447,9 +452,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return;
             }
 
-            root.Add(CreateSectionLabel("Bone Transform"));
+            root.Add(CreateSectionLabel(Localization.S("features.skin-weights.bone_transform")));
             var table = CreateTable();
-            table.Add(CreateTableHeader("Pose", "Status", "Use"));
+            table.Add(CreateTableHeader(Localization.S("features.skin-weights.pose"), Localization.S("common.status"), Localization.S("common.use")));
 
             var toggle = new Toggle
             {
@@ -463,7 +468,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             registerToggle?.Invoke(toggle);
 
             var row = CreateTableRow(0);
-            row.Add(CreateNameLabel("Local translation / rotation / scale"));
+            row.Add(CreateNameLabel(Localization.S("features.skin-weights.local_trs")));
             row.Add(CreateStatusSlot(bone.Transform.Status));
             row.Add(CreateToggleSlot(toggle));
             table.Add(row);
@@ -482,9 +487,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return;
             }
 
-            root.Add(CreateSectionLabel("Weights"));
+            root.Add(CreateSectionLabel(Localization.S("features.skin-weights.weights")));
             var table = CreateTable();
-            table.Add(CreateTableHeader("Mesh", "Status", "Use"));
+            table.Add(CreateTableHeader(Localization.S("features.skin-weights.mesh"), Localization.S("common.status"), Localization.S("common.use")));
             for (int i = 0; i < bone.WeightClusters.Count; i++)
             {
                 var cluster = bone.WeightClusters[i];
@@ -500,7 +505,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 toggles.Add((toggle, cluster));
 
                 var row = CreateTableRow(i);
-                row.Add(CreateNameLabel($"{cluster.MeshPath}  ({cluster.AffectedControlPointCount} CP, max {cluster.MaxDelta:0.#####})"));
+                row.Add(CreateNameLabel($"{cluster.MeshPath}  ({cluster.AffectedControlPointCount} FBX vertices, max {cluster.MaxDelta:0.#####})"));
                 row.Add(CreateStatusSlot(cluster.Status));
                 row.Add(CreateToggleSlot(toggle));
                 table.Add(row);
@@ -521,9 +526,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return;
             }
 
-            root.Add(CreateSectionLabel("Bindposes"));
+            root.Add(CreateSectionLabel(Localization.S("features.skin-weights.bindposes")));
             var table = CreateTable();
-            table.Add(CreateTableHeader("Mesh", "Status", "Use"));
+            table.Add(CreateTableHeader(Localization.S("features.skin-weights.mesh"), Localization.S("common.status"), Localization.S("common.use")));
             for (int i = 0; i < bone.Bindposes.Count; i++)
             {
                 var bindPose = bone.Bindposes[i];
@@ -562,7 +567,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         private static Label CreateHeaderLabel(string text)
         {
             var label = new Label(text);
-            label.style.unityFontStyleAndWeight = FontStyle.Bold;
+            BlendShareInspectorUi.StyleStrong(label);
             label.style.marginBottom = 4f;
             return label;
         }
@@ -570,7 +575,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         private static Label CreateSectionLabel(string text)
         {
             var label = new Label(text);
-            label.style.unityFontStyleAndWeight = FontStyle.Bold;
+            BlendShareInspectorUi.StyleStrong(label);
             label.style.marginTop = 5f;
             label.style.marginBottom = 2f;
             return label;
@@ -602,19 +607,19 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             row.style.backgroundColor = new Color(0.23f, 0.23f, 0.23f);
 
             var nameLabel = CreateNameLabel(name);
-            nameLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
+            BlendShareInspectorUi.StyleStrong(nameLabel);
 
             var statusLabel = new Label(status);
             statusLabel.style.width = StatusSlotWidth;
             statusLabel.style.flexShrink = 0f;
-            statusLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
+            BlendShareInspectorUi.StyleStrong(statusLabel);
             statusLabel.style.unityTextAlign = TextAnchor.MiddleRight;
 
             var toggleLabel = new Label(use);
             toggleLabel.style.width = 22f;
             toggleLabel.style.marginLeft = 14f;
             toggleLabel.style.flexShrink = 0f;
-            toggleLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
+            BlendShareInspectorUi.StyleStrong(toggleLabel);
             toggleLabel.style.unityTextAlign = TextAnchor.MiddleCenter;
 
             row.Add(nameLabel);
@@ -750,7 +755,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         {
             if (bone.RequiresCreateBone)
             {
-                return "New Bone";
+                return Localization.S("features.skin-weights.status.new_bone");
             }
 
             bool changedWeights = (bone.WeightClusters ?? Array.Empty<SkinWeightMeshClusterComparison>())
@@ -762,52 +767,52 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             bool changedTransform = bone.Transform?.Status == SkinWeightComparisonStatus.Changed;
             if (changedWeights && changedBindposes && changedTransform)
             {
-                return "Changed Weights + Bindpose + Pose";
+                return Localization.S("features.skin-weights.status.changed_weights_bindpose_pose");
             }
 
             if (changedWeights && changedBindposes)
             {
-                return "Changed Weights + Bindpose";
+                return Localization.S("features.skin-weights.status.changed_weights_bindpose");
             }
 
             if (changedWeights && changedTransform)
             {
-                return "Changed Weights + Pose";
+                return Localization.S("features.skin-weights.status.changed_weights_pose");
             }
 
             if (changedBindposes && changedTransform)
             {
-                return "Changed Bindpose + Pose";
+                return Localization.S("features.skin-weights.status.changed_bindpose_pose");
             }
 
             if (changedWeights)
             {
-                return "Changed Weights";
+                return Localization.S("features.skin-weights.status.changed_weights");
             }
 
             if (changedBindposes)
             {
-                return "Changed Bindpose";
+                return Localization.S("features.skin-weights.status.changed_bindpose");
             }
 
             if (changedTransform)
             {
-                return "Changed Pose";
+                return Localization.S("features.skin-weights.status.changed_pose");
             }
 
-            return "Same";
+            return Localization.S("common.status.same");
         }
 
         private static string GetStatusText(SkinWeightComparisonStatus status)
         {
             return status switch
             {
-                SkinWeightComparisonStatus.New => "New",
-                SkinWeightComparisonStatus.Changed => "Diff",
-                SkinWeightComparisonStatus.Same => "Same",
-                SkinWeightComparisonStatus.MissingSource => "Missing Source",
-                SkinWeightComparisonStatus.Unavailable => "N/A",
-                _ => "Unknown"
+                SkinWeightComparisonStatus.New => Localization.S("common.status.new"),
+                SkinWeightComparisonStatus.Changed => Localization.S("common.status.diff"),
+                SkinWeightComparisonStatus.Same => Localization.S("common.status.same"),
+                SkinWeightComparisonStatus.MissingSource => Localization.S("common.status.missing_source"),
+                SkinWeightComparisonStatus.Unavailable => Localization.S("common.status.unavailable"),
+                _ => Localization.S("common.status.unknown")
             };
         }
 

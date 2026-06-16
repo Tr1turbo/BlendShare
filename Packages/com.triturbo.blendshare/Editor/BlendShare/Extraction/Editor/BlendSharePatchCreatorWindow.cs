@@ -11,7 +11,7 @@ using UnityEngine.UIElements;
 
 namespace Triturbo.BlendShare.Editor
 {
-    public sealed class BlendShareNewExtractorEditor : EditorWindow
+    public sealed class BlendSharePatchCreatorWindow : EditorWindow
     {
         private GameObject originFBX;
         private GameObject sourceFBX;
@@ -27,15 +27,27 @@ namespace Triturbo.BlendShare.Editor
         private VisualElement tabContent;
         private readonly List<ToolbarButton> tabButtons = new();
 
-        [MenuItem("Tools/BlendShare/Feature Extractor")]
+        [MenuItem("Tools/BlendShare/Patch Creator")]
         public static void ShowWindow()
         {
-            GetWindow<BlendShareNewExtractorEditor>("BlendShare Extractor");
+            GetWindow<BlendSharePatchCreatorWindow>(Localization.S("patch_creator.window_title"));
         }
 
         private void OnEnable()
         {
             EnsureFeatureOptions();
+            Localization.LanguageChanged += OnLanguageChanged;
+        }
+
+        private void OnDisable()
+        {
+            Localization.LanguageChanged -= OnLanguageChanged;
+        }
+
+        private void OnLanguageChanged()
+        {
+            titleContent = new GUIContent(Localization.S("patch_creator.window_title"));
+            rootVisualElement.schedule.Execute(RefreshUi);
         }
 
         public void CreateGUI()
@@ -46,6 +58,7 @@ namespace Triturbo.BlendShare.Editor
         private void RefreshUi()
         {
             EnsureFeatureProviders();
+            titleContent = new GUIContent(Localization.S("patch_creator.window_title"));
             rootVisualElement.Clear();
             rootVisualElement.style.flexDirection = FlexDirection.Column;
             rootVisualElement.style.flexGrow = 1f;
@@ -94,8 +107,8 @@ namespace Triturbo.BlendShare.Editor
                 parent.Add(banner);
             }
 
-            var title = new Label(Localization.S("new_extractor.title"));
-            title.style.unityFontStyleAndWeight = FontStyle.Bold;
+            var title = new Label(Localization.S("patch_creator.title"));
+            Inspector.BlendShareInspectorUi.StyleHeading(title);
             title.style.marginTop = 6f;
             title.style.marginBottom = 6f;
             parent.Add(title);
@@ -107,7 +120,7 @@ namespace Triturbo.BlendShare.Editor
 
         private void BuildTabs(VisualElement parent)
         {
-            string[] tabLabels = new[] { "Global" }
+            string[] tabLabels = new[] { Localization.S("patch_creator.global_tab") }
                 .Concat(featureProviders.Select(provider => provider.TabLabel))
                 .ToArray();
             if (selectedTab >= tabLabels.Length)
@@ -149,9 +162,9 @@ namespace Triturbo.BlendShare.Editor
         {
             var scrollView = new ScrollView();
             scrollView.style.flexGrow = 1f;
-            scrollView.Add(CreateHelpBox("Global Settings", HelpBoxMessageType.None));
+            scrollView.Add(CreateHelpBox(Localization.S("patch_creator.global_settings"), HelpBoxMessageType.None));
             scrollView.Add(CreateHelpBox(
-                "Select the original FBX and source FBX, compare importer settings, refresh meshes, then configure each feature tab.",
+                Localization.S("patch_creator.global_help"),
                 HelpBoxMessageType.Info));
             scrollView.Add(CreateFbxFieldsElement());
             scrollView.Add(CreateImporterComparisonElement());
@@ -163,12 +176,12 @@ namespace Triturbo.BlendShare.Editor
         private VisualElement CreateFbxFieldsElement()
         {
             var container = CreateSection();
-            var originField = CreateFbxObjectField(Localization.S("origin_fbx"), originFBX, value =>
+            var originField = CreateFbxObjectField(Localization.S("common.original_fbx"), originFBX, value =>
             {
                 originFBX = value;
                 OnFbxSelectionChanged();
             });
-            var sourceField = CreateFbxObjectField(Localization.S("source_fbx"), sourceFBX, value =>
+            var sourceField = CreateFbxObjectField(Localization.S("common.source_fbx"), sourceFBX, value =>
             {
                 sourceFBX = value;
                 if (sourceFBX != null && string.IsNullOrWhiteSpace(defaultName))
@@ -178,11 +191,11 @@ namespace Triturbo.BlendShare.Editor
 
                 OnFbxSelectionChanged();
             });
-            var defaultNameField = new TextField(Localization.S("extractor.default_asset_name"))
+            var defaultNameField = new TextField(Localization.S("common.default_asset_name"))
             {
                 value = defaultName
             };
-            var patchIdField = new TextField(Localization.S("extractor.patch_id"))
+            var patchIdField = new TextField(Localization.S("common.patch_id"))
             {
                 value = "+BlendShare-" + defaultName
             };
@@ -240,13 +253,13 @@ namespace Triturbo.BlendShare.Editor
         private VisualElement CreateImporterComparisonElement()
         {
             var container = CreateSection();
-            container.Add(CreateHeaderLabel("Importer Settings Comparison"));
+            container.Add(CreateHeaderLabel(Localization.S("patch_creator.importer_comparison.title")));
             importerComparison ??= FbxImporterSettingsComparison.Compare(originFBX, sourceFBX);
             container.Add(CreateHelpBox(
                 importerComparison.Message,
                 importerComparison.HasDifferences ? HelpBoxMessageType.Warning : HelpBoxMessageType.Info));
-            container.Add(new Label($"Global Scale    Original: {importerComparison.OriginGlobalScale}    Source: {importerComparison.SourceGlobalScale}"));
-            container.Add(new Label($"Bake Axis Conversion    Original: {importerComparison.OriginBakeAxisConversion}    Source: {importerComparison.SourceBakeAxisConversion}"));
+            container.Add(new Label($"{Localization.S("patch_creator.importer_comparison.global_scale")}    {Localization.SF("patch_creator.importer_comparison.original_value", importerComparison.OriginGlobalScale)}    {Localization.SF("patch_creator.importer_comparison.source_value", importerComparison.SourceGlobalScale)}"));
+            container.Add(new Label($"{Localization.S("patch_creator.importer_comparison.bake_axis_conversion")}    {Localization.SF("patch_creator.importer_comparison.original_value", importerComparison.OriginBakeAxisConversion)}    {Localization.SF("patch_creator.importer_comparison.source_value", importerComparison.SourceBakeAxisConversion)}"));
 
             var copyButton = new Button(() =>
             {
@@ -258,7 +271,7 @@ namespace Triturbo.BlendShare.Editor
                 }
             })
             {
-                text = "Make source importer settings same as original"
+                text = Localization.S("patch_creator.importer_comparison.copy_to_source")
             };
             copyButton.SetEnabled(importerComparison.HasDifferences);
             container.Add(copyButton);
@@ -270,7 +283,7 @@ namespace Triturbo.BlendShare.Editor
             var container = CreateSection();
             if (sourceFBX == null || originFBX == null)
             {
-                container.Add(CreateHelpBox(Localization.S("new_extractor.assign_fbx_hint"), HelpBoxMessageType.Info));
+                container.Add(CreateHelpBox(Localization.S("patch_creator.assign_fbx_hint"), HelpBoxMessageType.Info));
                 return container;
             }
 
@@ -281,7 +294,7 @@ namespace Triturbo.BlendShare.Editor
                 RefreshUi();
             })
             {
-                text = Localization.S("new_extractor.refresh")
+                text = Localization.S("patch_creator.refresh_meshes")
             });
 
             foreach (string skipped in skippedMeshes)
@@ -300,11 +313,11 @@ namespace Triturbo.BlendShare.Editor
                            HasSelectedFeatures();
 #if !ENABLE_FBX_SDK
             enabled = false;
-            container.Add(CreateHelpBox(Localization.S("data.fbx_sdk_missing"), HelpBoxMessageType.Warning));
+            container.Add(CreateHelpBox(Localization.S("common.fbx_sdk_missing"), HelpBoxMessageType.Warning));
 #endif
             var saveButton = new Button(SaveBlendShareAsset)
             {
-                text = Localization.S("new_extractor.save_asset")
+                text = Localization.S("patch_creator.save_patch")
             };
             saveButton.SetEnabled(enabled);
             container.Add(saveButton);
@@ -322,7 +335,7 @@ namespace Triturbo.BlendShare.Editor
 
             if (sourceFBX == null || originFBX == null)
             {
-                return CreateHelpBox(Localization.S("new_extractor.assign_fbx_hint"), HelpBoxMessageType.Info);
+                return CreateHelpBox(Localization.S("patch_creator.assign_fbx_hint"), HelpBoxMessageType.Info);
             }
 
             var context = new MeshFeatureOptionsEditorContext(
@@ -367,7 +380,7 @@ namespace Triturbo.BlendShare.Editor
         private static Label CreateHeaderLabel(string text)
         {
             var label = new Label(text);
-            label.style.unityFontStyleAndWeight = FontStyle.Bold;
+            Inspector.BlendShareInspectorUi.StyleStrong(label);
             label.style.marginBottom = 4f;
             return label;
         }
@@ -384,9 +397,9 @@ namespace Triturbo.BlendShare.Editor
 
         private void DrawGlobalPage()
         {
-            EditorGUILayout.LabelField("Global Settings", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(Localization.S("patch_creator.global_settings"), EditorStyles.boldLabel);
             EditorGUILayout.HelpBox(
-                "Select the original FBX and source FBX, compare importer settings, refresh meshes, then configure each feature tab.",
+                Localization.S("patch_creator.global_help"),
                 MessageType.Info);
             DrawFbxFields();
             DrawImporterComparison();
@@ -397,8 +410,8 @@ namespace Triturbo.BlendShare.Editor
         private void DrawFbxFields()
         {
             EditorGUI.BeginChangeCheck();
-            originFBX = EditorWidgets.FBXGameObjectField(Localization.G("origin_fbx"), originFBX);
-            sourceFBX = EditorWidgets.FBXGameObjectField(Localization.G("source_fbx"), sourceFBX);
+            originFBX = EditorWidgets.FBXGameObjectField(Localization.G("common.original_fbx"), originFBX);
+            sourceFBX = EditorWidgets.FBXGameObjectField(Localization.G("common.source_fbx"), sourceFBX);
             if (EditorGUI.EndChangeCheck())
             {
                 if (sourceFBX != null && string.IsNullOrWhiteSpace(defaultName))
@@ -410,27 +423,27 @@ namespace Triturbo.BlendShare.Editor
                 RefreshExtractionState();
             }
 
-            defaultName = EditorGUILayout.TextField(Localization.G("extractor.default_asset_name"), defaultName);
+            defaultName = EditorGUILayout.TextField(Localization.G("common.default_asset_name"), defaultName);
 
             EditorGUI.BeginDisabledGroup(true);
-            EditorGUILayout.TextField(Localization.G("extractor.patch_id"), "+BlendShare-" + defaultName);
+            EditorGUILayout.TextField(Localization.G("common.patch_id"), "+BlendShare-" + defaultName);
             EditorGUI.EndDisabledGroup();
         }
 
         private void DrawImporterComparison()
         {
             EditorGUILayout.Space(6);
-            EditorGUILayout.LabelField("Importer Settings Comparison", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(Localization.S("patch_creator.importer_comparison.title"), EditorStyles.boldLabel);
             importerComparison ??= FbxImporterSettingsComparison.Compare(originFBX, sourceFBX);
             EditorGUILayout.HelpBox(importerComparison.Message, importerComparison.HasDifferences ? MessageType.Warning : MessageType.Info);
 
             EditorGUI.BeginDisabledGroup(!importerComparison.CanCompare);
-            EditorGUILayout.LabelField("Global Scale", $"Original: {importerComparison.OriginGlobalScale}  Source: {importerComparison.SourceGlobalScale}");
-            EditorGUILayout.LabelField("Bake Axis Conversion", $"Original: {importerComparison.OriginBakeAxisConversion}  Source: {importerComparison.SourceBakeAxisConversion}");
+            EditorGUILayout.LabelField(Localization.S("patch_creator.importer_comparison.global_scale"), $"{Localization.SF("patch_creator.importer_comparison.original_value", importerComparison.OriginGlobalScale)}  {Localization.SF("patch_creator.importer_comparison.source_value", importerComparison.SourceGlobalScale)}");
+            EditorGUILayout.LabelField(Localization.S("patch_creator.importer_comparison.bake_axis_conversion"), $"{Localization.SF("patch_creator.importer_comparison.original_value", importerComparison.OriginBakeAxisConversion)}  {Localization.SF("patch_creator.importer_comparison.source_value", importerComparison.SourceBakeAxisConversion)}");
             EditorGUI.EndDisabledGroup();
 
             EditorGUI.BeginDisabledGroup(!importerComparison.HasDifferences);
-            if (GUILayout.Button("Make source importer settings same as original"))
+            if (GUILayout.Button(Localization.S("patch_creator.importer_comparison.copy_to_source")))
             {
                 if (FbxImporterSettingsComparison.CopyGeometrySettings(originFBX, sourceFBX))
                 {
@@ -447,11 +460,11 @@ namespace Triturbo.BlendShare.Editor
 
             if (sourceFBX == null || originFBX == null)
             {
-                EditorGUILayout.HelpBox(Localization.S("new_extractor.assign_fbx_hint"), MessageType.Info);
+                EditorGUILayout.HelpBox(Localization.S("patch_creator.assign_fbx_hint"), MessageType.Info);
                 return;
             }
 
-            if (GUILayout.Button(Localization.S("new_extractor.refresh")))
+            if (GUILayout.Button(Localization.S("patch_creator.refresh_meshes")))
             {
                 ResetFeatureOptions();
                 RefreshExtractionState();
@@ -475,7 +488,7 @@ namespace Triturbo.BlendShare.Editor
 
             if (sourceFBX == null || originFBX == null)
             {
-                EditorGUILayout.HelpBox(Localization.S("new_extractor.assign_fbx_hint"), MessageType.Info);
+                EditorGUILayout.HelpBox(Localization.S("patch_creator.assign_fbx_hint"), MessageType.Info);
                 return;
             }
 
@@ -502,11 +515,11 @@ namespace Triturbo.BlendShare.Editor
                            HasSelectedFeatures();
 #if !ENABLE_FBX_SDK
             enabled = false;
-            EditorGUILayout.HelpBox(Localization.S("data.fbx_sdk_missing"), MessageType.Warning);
+            EditorGUILayout.HelpBox(Localization.S("common.fbx_sdk_missing"), MessageType.Warning);
 #endif
 
             EditorGUI.BeginDisabledGroup(!enabled);
-            if (GUILayout.Button(Localization.S("new_extractor.save_asset")))
+            if (GUILayout.Button(Localization.S("patch_creator.save_patch")))
             {
                 SaveBlendShareAsset();
             }
@@ -524,14 +537,14 @@ namespace Triturbo.BlendShare.Editor
             if (selectedRequests.Count == 0)
             {
                 EditorUtility.DisplayDialog(
-                    Localization.S("new_extractor.no_selection.title"),
-                    Localization.S("new_extractor.no_selection.message"),
-                    Localization.S("data.dialog.ok"));
+                    Localization.S("patch_creator.no_contents.title"),
+                    Localization.S("patch_creator.no_contents.message"),
+                    Localization.S("common.ok"));
                 return;
             }
 
             string path = EditorUtility.SaveFilePanelInProject(
-                Localization.S("new_extractor.save_title"),
+                Localization.S("patch_creator.save_title"),
                 $"{defaultName}_BlendShare",
                 "asset",
                 Localization.S("data.save_file.message"));
@@ -551,9 +564,9 @@ namespace Triturbo.BlendShare.Editor
             if (patch == null)
             {
                 EditorUtility.DisplayDialog(
-                    Localization.S("new_extractor.failed.title"),
-                    Localization.S("new_extractor.failed.message"),
-                    Localization.S("data.dialog.ok"));
+                    Localization.S("patch_creator.failed.title"),
+                    Localization.S("patch_creator.failed.message"),
+                    Localization.S("common.ok"));
                 return;
             }
 
@@ -602,9 +615,9 @@ namespace Triturbo.BlendShare.Editor
             }
 
             EditorUtility.DisplayDialog(
-                Localization.S("new_extractor.invalid_mapping.title"),
-                Localization.S("new_extractor.invalid_mapping.message"),
-                Localization.S("data.dialog.ok"));
+                Localization.S("patch_creator.invalid_mapping.title"),
+                Localization.S("patch_creator.invalid_mapping.message"),
+                Localization.S("common.ok"));
         }
 
         private void RefreshMeshRequests()
@@ -631,14 +644,14 @@ namespace Triturbo.BlendShare.Editor
                 var originMesh = originRenderer != null ? originRenderer.sharedMesh : null;
                 if (originMesh == null)
                 {
-                    skippedMeshes.Add(Localization.SF("new_extractor.missing_origin_mesh", sourcePath));
+                    skippedMeshes.Add(Localization.SF("patch_creator.missing_original_mesh", sourcePath));
                     continue;
                 }
 
                 string originPath = MeshNodePath.GetRelativePath(originRenderer.transform, originFBX.transform);
                 if (originPath != sourcePath)
                 {
-                    skippedMeshes.Add(Localization.SF("new_extractor.missing_origin_mesh", sourcePath));
+                    skippedMeshes.Add(Localization.SF("patch_creator.missing_original_mesh", sourcePath));
                     continue;
                 }
 

@@ -1,4 +1,5 @@
 using System;
+using Triturbo.BlendShapeShare;
 using Triturbo.BlendShare.Core;
 using UnityEngine.UIElements;
 
@@ -23,13 +24,20 @@ namespace Triturbo.BlendShare.Inspector
         {
             var feature = target as TFeature;
             var root = BlendShareInspectorUi.CreateRoot();
-            root.Add(BlendShareInspectorUi.Header(DisplayName));
 
-            root.Add(CreateEmbeddedInspector(new BlendShareEmbeddedEditorContext(
-                feature,
-                BlendShareInspectorUtility.FindOwnerMesh(feature),
-                BlendShareInspectorUtility.FindOwnerPatch(feature),
-                null)));
+            void Rebuild()
+            {
+                root.Clear();
+                root.Add(BlendShareInspectorUi.Header(DisplayName));
+                root.Add(CreateEmbeddedInspector(new BlendShareEmbeddedEditorContext(
+                    feature,
+                    BlendShareInspectorUtility.FindOwnerMesh(feature),
+                    BlendShareInspectorUtility.FindOwnerPatch(feature),
+                    null)));
+            }
+
+            Rebuild();
+            Localization.RebuildOnLanguageChange(root, Rebuild);
             return root;
         }
 

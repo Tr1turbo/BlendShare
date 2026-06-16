@@ -83,7 +83,7 @@ namespace Triturbo.BlendShare.Core
                 }
 
                 var patch = ScriptableObject.CreateInstance<BlendShareObject>();
-                patch.m_Original = origin;
+                patch.m_Target = origin;
                 patch.SetMeshes(extractedMeshes);
                 return patch;
             }

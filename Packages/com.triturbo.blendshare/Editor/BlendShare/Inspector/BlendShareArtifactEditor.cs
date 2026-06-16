@@ -20,10 +20,10 @@ namespace Triturbo.BlendShare.Inspector
             DrawDefaultInspector();
 
             EditorGUILayout.Space(10);
-            EditorGUILayout.LabelField(Localization.G("mesh_asset.assign_meshes"), EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(Localization.G("asset.assign_meshes"), EditorStyles.boldLabel);
 
             selectedGameObject = (GameObject)EditorGUILayout.ObjectField(
-                Localization.G("mesh_asset.assign_meshes.target_go"),
+                Localization.G("asset.assign_meshes.target_go"),
                 selectedGameObject,
                 typeof(GameObject),
                 true);
@@ -34,16 +34,16 @@ namespace Triturbo.BlendShare.Inspector
                 if (EditorWidgets.IsFBXGameObject(selectedGameObject))
                 {
                     selectedGameObject = null;
-                    Localization.DisplayDialog("mesh_asset.assign_meshes.dialog.is_fbx");
+                    Localization.DisplayDialog("asset.assign_meshes.dialog.is_fbx");
                 }
 
-                EditorGUILayout.HelpBox(Localization.S("mesh_asset.assign_meshes.is_prefab"), MessageType.Warning);
+                EditorGUILayout.HelpBox(Localization.S("asset.assign_meshes.is_prefab"), MessageType.Warning);
             }
 
             GUI.enabled = selectedGameObject != null;
             if (GUILayout.Button(isPrefab
-                    ? Localization.G("mesh_asset.assign_meshes.to_prefab_btn")
-                    : Localization.G("mesh_asset.assign_meshes.to_go_btn")))
+                    ? Localization.G("asset.assign_meshes.to_prefab_btn")
+                    : Localization.G("asset.assign_meshes.to_go_btn")))
             {
                 BlendShareArtifactService.ApplyArtifact((BlendShareArtifact)target, selectedGameObject.transform);
                 selectedGameObject = null;

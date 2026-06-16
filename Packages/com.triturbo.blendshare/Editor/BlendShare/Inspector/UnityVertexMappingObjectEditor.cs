@@ -1,4 +1,5 @@
 using System;
+using Triturbo.BlendShapeShare;
 using Triturbo.BlendShare.Core;
 using UnityEditor;
 using UnityEditor.UIElements;
@@ -14,22 +15,30 @@ namespace Triturbo.BlendShare.Inspector
         {
             var mapping = target as UnityVertexMappingObject;
             var root = BlendShareInspectorUi.CreateRoot();
-            var embeddedEditor = new UnityVertexMappingEmbeddedEditor();
             var mesh = BlendShareInspectorUtility.FindOwnerMesh(mapping);
             var patch = BlendShareInspectorUtility.FindOwnerPatch(mapping);
-            root.Add(BlendShareInspectorUi.Header(embeddedEditor.DisplayName));
-            root.Add(embeddedEditor.CreateEmbeddedInspector(new BlendShareEmbeddedEditorContext(
-                mapping,
-                mesh,
-                patch,
-                null)));
 
-            var advanced = new Foldout { text = "Advanced" };
-            advanced.Add(BlendShareInspectorUi.Row("FBX to Unity Scale", mapping != null ? mapping.FbxToUnityScale.ToString("0.###") : "-"));
-            advanced.Add(BlendShareInspectorUi.Row("Bake Axis Conversion", mapping != null && mapping.m_BakeAxisConversion ? "Yes" : "No"));
-            advanced.Add(BlendShareInspectorUi.Row("Index Entries", mapping?.m_Indices != null ? mapping.m_Indices.Length.ToString() : "0"));
-            advanced.Add(BlendShareInspectorUi.Row("Grouped Entries", mapping?.m_IndexGroups != null ? mapping.m_IndexGroups.Length.ToString() : "0"));
-            root.Add(advanced);
+            void Rebuild()
+            {
+                root.Clear();
+                var embeddedEditor = new UnityVertexMappingEmbeddedEditor();
+                root.Add(BlendShareInspectorUi.Header(embeddedEditor.DisplayName));
+                root.Add(embeddedEditor.CreateEmbeddedInspector(new BlendShareEmbeddedEditorContext(
+                    mapping,
+                    mesh,
+                    patch,
+                    null)));
+
+                var advanced = new Foldout { text = Localization.S("common.advanced") };
+                advanced.Add(BlendShareInspectorUi.Row(Localization.S("patch.mapping.fbx_to_unity_scale"), mapping != null ? mapping.FbxToUnityScale.ToString("0.###") : "-"));
+                advanced.Add(BlendShareInspectorUi.Row(Localization.S("patch.mapping.bake_axis_conversion"), mapping != null && mapping.m_BakeAxisConversion ? Localization.S("common.yes") : Localization.S("common.no")));
+                advanced.Add(BlendShareInspectorUi.Row(Localization.S("patch.mapping.index_entries"), mapping?.m_Indices != null ? mapping.m_Indices.Length.ToString() : "0"));
+                advanced.Add(BlendShareInspectorUi.Row(Localization.S("patch.mapping.grouped_entries"), mapping?.m_IndexGroups != null ? mapping.m_IndexGroups.Length.ToString() : "0"));
+                root.Add(advanced);
+            }
+
+            Rebuild();
+            Localization.RebuildOnLanguageChange(root, Rebuild);
             return root;
         }
     }
@@ -37,7 +46,7 @@ namespace Triturbo.BlendShare.Inspector
     public sealed class UnityVertexMappingEmbeddedEditor : IBlendShareEmbeddedEditor
     {
         public Type TargetType => typeof(UnityVertexMappingObject);
-        public string DisplayName => "Unity Mapping";
+        public string DisplayName => Localization.S("patch.mapping.display_name");
 
         public VisualElement CreateEmbeddedInspector(BlendShareEmbeddedEditorContext context)
         {
@@ -45,7 +54,7 @@ namespace Triturbo.BlendShare.Inspector
             var root = BlendShareInspectorUi.Box();
             if (mapping == null)
             {
-                root.Add(new HelpBox("Unity mapping data is missing.", HelpBoxMessageType.Warning));
+                root.Add(new HelpBox(Localization.S("patch.mapping.missing"), HelpBoxMessageType.Warning));
                 return root;
             }
 
@@ -67,10 +76,10 @@ namespace Triturbo.BlendShare.Inspector
             meshField.style.minWidth = 0;
 
 
-            root.Add(BlendShareInspectorUi.Row("Vertex Hash", mapping.UnityVerticesHashShort));
-            root.Add(BlendShareInspectorUi.Row("Status", mapping.m_IsValid ? "Valid" : "Invalid"));
-            root.Add(BlendShareInspectorUi.Row("Unity Vertices", mapping.m_UnityVertexCount.ToString()));
-            root.Add(BlendShareInspectorUi.LabeledRow("Unity Mesh", meshField));
+            root.Add(BlendShareInspectorUi.Row(Localization.S("patch.mapping.vertex_hash"), mapping.UnityVerticesHashShort));
+            root.Add(BlendShareInspectorUi.Row(Localization.S("common.status"), mapping.m_IsValid ? Localization.S("common.status.valid") : Localization.S("common.status.invalid")));
+            root.Add(BlendShareInspectorUi.Row(Localization.S("patch.mapping.unity_vertices"), mapping.m_UnityVertexCount.ToString()));
+            root.Add(BlendShareInspectorUi.LabeledRow(Localization.S("patch.mapping.unity_mesh"), meshField));
 
             if (!string.IsNullOrWhiteSpace(mapping.m_Report))
             {

@@ -524,7 +524,7 @@ namespace Triturbo.BlendShare.NDMF
         {
             return (owner?.Patches ?? Array.Empty<BlendShareObject>())
                 .Where(patch => patch != null)
-                .Select(patch => patch.m_Original)
+                .Select(patch => patch.m_Target)
                 .FirstOrDefault(original => original != null);
         }
 

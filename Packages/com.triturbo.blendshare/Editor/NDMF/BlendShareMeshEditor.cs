@@ -1,3 +1,4 @@
+using Triturbo.BlendShapeShare;
 using Triturbo.BlendShare.Components;
 using UnityEditor;
 using UnityEngine;
@@ -23,9 +24,9 @@ namespace Triturbo.BlendShare.NDMF
 
             serializedObject.Update();
 
-            EditorGUILayout.LabelField("BlendShare Mesh Applier", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField(Localization.S("ndmf.mesh.title"), EditorStyles.boldLabel);
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_Owner"));
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_TargetRendererReference"), new GUIContent("Target Renderer"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_TargetRendererReference"), new GUIContent(Localization.S("ndmf.mesh.target_renderer")));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_MeshData"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_EnabledForBuild"));
 
@@ -72,7 +73,7 @@ namespace Triturbo.BlendShare.NDMF
             }
 
             EditorGUILayout.Space();
-            GUIContent label = new GUIContent("BlendShapes");
+            GUIContent label = Localization.G("features.blend-shapes.name");
             Rect rect = EditorGUILayout.GetControlRect();
             label = EditorGUI.BeginProperty(rect, label, weightsProperty);
             weightsProperty.isExpanded = EditorGUI.Foldout(rect, weightsProperty.isExpanded, label, true);
@@ -204,37 +205,37 @@ namespace Triturbo.BlendShare.NDMF
             if (BlendShareAnimationHelper.CanEditActiveBlendShapeCurve(applier, shapeName))
             {
                 menu.AddItem(
-                    new GUIContent("Add Key"),
+                    Localization.G("ndmf.mesh.animation.add_key"),
                     false,
                     () => BlendShareAnimationHelper.AddBlendShapeKey(applier, shapeName, value));
             }
             else
             {
-                menu.AddDisabledItem(new GUIContent("Add Key"));
+                menu.AddDisabledItem(Localization.G("ndmf.mesh.animation.add_key"));
             }
 
             if (BlendShareAnimationHelper.HasBlendShapeKeyAtCurrentTime(applier, shapeName))
             {
                 menu.AddItem(
-                    new GUIContent("Remove Key"),
+                    Localization.G("ndmf.mesh.animation.remove_key"),
                     false,
                     () => BlendShareAnimationHelper.RemoveBlendShapeKey(applier, shapeName));
             }
             else
             {
-                menu.AddDisabledItem(new GUIContent("Remove Key"));
+                menu.AddDisabledItem(Localization.G("ndmf.mesh.animation.remove_key"));
             }
 
             if (BlendShareAnimationHelper.HasBlendShapeCurve(applier, shapeName))
             {
                 menu.AddItem(
-                    new GUIContent("Remove All Keys"),
+                    Localization.G("ndmf.mesh.animation.remove_all_keys"),
                     false,
                     () => BlendShareAnimationHelper.RemoveAllBlendShapeKeys(applier, shapeName));
             }
             else
             {
-                menu.AddDisabledItem(new GUIContent("Remove All Keys"));
+                menu.AddDisabledItem(Localization.G("ndmf.mesh.animation.remove_all_keys"));
             }
         }
     }

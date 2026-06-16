@@ -20,9 +20,6 @@ msgstr "名称"
 msgid "blendshape_selection.title"
 msgstr "形态键选择"
 
-msgid "blendshapes"
-msgstr "形态键"
-
 msgid "data.apply_blendshapes"
 msgstr "应用形态键"
 
@@ -36,25 +33,15 @@ msgid "data.apply_blendshapes.tooltip"
 msgstr "将列表中的形态键应用到原始 FBX。"
 
 msgid "data.apply_blendshapes.tooltip_locked_message"
-msgstr "\n（此按钮目前已停用，因为形态键已应用到 FBX。按下“编辑”可强制启用。）"
+msgstr ""
+"\n"
+"（此按钮目前已停用，因为形态键已应用到 FBX。按下“编辑”可强制启用。）"
 
 msgid "data.armature.created_count"
 msgstr "要创建的骨骼"
 
 msgid "data.armature.title"
-msgstr "骨骼图"
-
-msgid "data.artifact_mapping.invalid"
-msgstr "有 {0} 个网格路径没有适用于原始 FBX 的有效 Unity 顶点映射。请先创建映射再生成工件。"
-
-msgid "data.artifact_mapping.mesh_missing"
-msgstr "有 {0} 个 BlendShare 网格路径在原始 FBX 中找不到。"
-
-msgid "data.artifact_mapping.original_missing"
-msgstr "创建 BlendShare 工件前请选择原始 FBX。"
-
-msgid "data.artifact_mapping.target_unreadable"
-msgstr "无法读取原始 FBX 网格来验证映射。"
+msgstr "骨架"
 
 msgid "data.blendshape_count_summary"
 msgstr "形态键：已启用 {0}/{1}"
@@ -119,32 +106,11 @@ msgstr "网格“{0}”的当前工作集有未保存的更改。是否在载入
 msgid "data.blendshape_status"
 msgstr "共 {1} 个，已启用 {0} 个（显示 {2} 个）"
 
-msgid "data.bulk_toggle_mode_hint"
-msgstr "切换模式用于快速筛选以及批量启用或禁用。重新启用的形态键会添加到当前启用列表。"
-
 msgid "data.create_artifact"
-msgstr "创建 BlendShare 工件"
+msgstr "创建网格资产"
 
 msgid "data.create_artifact.tooltip"
-msgstr "创建包含生成网格和蒙皮绑定描述符的 BlendShare 工件。"
-
-msgid "data.create_mappings"
-msgstr "创建 Unity 顶点映射"
-
-msgid "data.create_mappings.failed.title"
-msgstr "映射创建失败"
-
-msgid "data.create_mappings.success.message"
-msgstr "已创建 {0} 个 Unity 顶点映射。"
-
-msgid "data.create_mappings.success.title"
-msgstr "映射已创建"
-
-msgid "data.create_meshes"
-msgstr "生成网格"
-
-msgid "data.create_meshes.tooltip"
-msgstr "生成包含列表中形态键的新网格资产。"
+msgstr "创建包含生成网格和蒙皮绑定数据的网格资产。"
 
 msgid "data.created_by"
 msgstr "Triturbo 制作的形态键分享工具"
@@ -188,9 +154,6 @@ msgstr "移除形态键"
 msgid "data.dialog.save"
 msgstr "保存"
 
-msgid "data.dialog.yes"
-msgstr "是"
-
 msgid "data.edit"
 msgstr "编辑"
 
@@ -219,7 +182,7 @@ msgid "data.enable_visible_blendshapes.tooltip"
 msgstr "启用当前显示的所有形态键。"
 
 msgid "data.fbx_sdk_missing"
-msgstr "缺少 Autodesk FBX SDK。FBX 操作功能将被停用。"
+msgstr "缺少 Autodesk FBX® SDK。FBX 操作功能将被停用。"
 
 msgid "data.hidden_settings"
 msgstr "隐藏设置"
@@ -261,13 +224,10 @@ msgid "data.mute_visible_blendshapes.tooltip"
 msgstr "禁用当前显示的所有形态键。"
 
 msgid "data.open_advanced_generator"
-msgstr "打开高级形态键生成器"
+msgstr "打开高级网格生成"
 
 msgid "data.open_advanced_generator.tooltip"
-msgstr "打开高级形态键生成器，将多个 BlendShape 数据资产中的形态键合并生成新的网格。"
-
-msgid "data.order_adjust_mode_hint"
-msgstr "排序模式只编辑当前启用列表。拖动可排序，使用减号按钮可禁用选中的形态键。"
+msgstr "打开高级网格生成，从多个 BlendShare 资源生成网格。"
 
 msgid "data.original_fbx"
 msgstr "原始 FBX"
@@ -282,7 +242,9 @@ msgid "data.remove_blendshapes.tooltip"
 msgstr "从原始 FBX 中移除列表中的形态键。"
 
 msgid "data.remove_blendshapes.tooltip_locked_message"
-msgstr "\n（此按钮目前已停用，因为形态键未应用到 FBX。按下“编辑”可强制启用。）"
+msgstr ""
+"\n"
+"（此按钮目前已停用，因为形态键未应用到 FBX。按下“编辑”可强制启用。）"
 
 msgid "data.reset_blendshapes"
 msgstr "重置形态键"
@@ -291,16 +253,13 @@ msgid "data.reset_blendshapes.tooltip"
 msgstr "将形态键列表还原至原始状态。"
 
 msgid "data.save_artifact.title"
-msgstr "保存 BlendShare 工件"
+msgstr "保存网格资产"
 
 msgid "data.save_fbx.title"
 msgstr "保存 FBX"
 
 msgid "data.save_file.message"
 msgstr "请输入文件名"
-
-msgid "data.save_mesh.title"
-msgstr "保存网格"
 
 msgid "data.skin_weights.bone_count"
 msgstr "簇"
@@ -312,70 +271,7 @@ msgid "data.skin_weights.title"
 msgstr "蒙皮权重"
 
 msgid "data.skin_weights.weighted_control_points"
-msgstr "带权重控制点"
-
-msgid "extractor.apply_rotation"
-msgstr "应用旋转"
-
-msgid "extractor.apply_scale"
-msgstr "应用缩放"
-
-msgid "extractor.apply_transform"
-msgstr "应用变换"
-
-msgid "extractor.apply_transform.tooltip"
-msgstr "在计算 BlendShape 顶点偏移前，将 Object 的变换应用到网格上。如果 BlendShape 出现方向问题，请尝试启用“应用旋转”进行修正。"
-
-msgid "extractor.apply_translate"
-msgstr "应用位移"
-
-msgid "extractor.base_mesh"
-msgstr "基础网格"
-
-msgid "extractor.base_mesh.tooltip"
-msgstr "用于计算形态键顶点偏移的基础网格"
-
-msgid "extractor.compare_method"
-msgstr "比较方式"
-
-msgid "extractor.default_asset_name"
-msgstr "默认资产名称"
-
-msgid "extractor.deformer_id"
-msgstr "变形器 ID"
-
-msgid "extractor.enum.base_mesh.original"
-msgstr "原始"
-
-msgid "extractor.enum.base_mesh.source"
-msgstr "来源"
-
-msgid "extractor.enum.compare_method.custom"
-msgstr "自定义"
-
-msgid "extractor.enum.compare_method.custom.tooltip"
-msgstr "可手动切换要单独提取的形态键。"
-
-msgid "extractor.enum.compare_method.index"
-msgstr "索引"
-
-msgid "extractor.enum.compare_method.index.tooltip"
-msgstr "按索引比较。如果形态键数量多于原始 FBX，BlendShare 会从尾端提取形态键。"
-
-msgid "extractor.enum.compare_method.name"
-msgstr "名称"
-
-msgid "extractor.enum.compare_method.name.tooltip"
-msgstr "按名称比较。如果来源 FBX 中有新的形态键，BlendShare 将提取它们。"
-
-msgid "extractor.file_unit_warning"
-msgstr "FBX 文件单位不一致，可能会导致问题\n原始：{0}\n来源：{1}"
-
-msgid "extractor.patch_id"
-msgstr "补丁 ID"
-
-msgid "lang"
-msgstr "语言"
+msgstr "带权重 FBX 顶点"
 
 msgid "mesh_asset.applied_blendshapes"
 msgstr "已应用的形态键数据"
@@ -384,13 +280,19 @@ msgid "mesh_asset.assign_meshes"
 msgstr "分配网格"
 
 msgid "mesh_asset.assign_meshes.dialog.is_fbx.message"
-msgstr "所选对象为 FBX 资产。\nFBX 资产内网格为只读状态，无法直接编辑。\n请在场景中实例化 FBX 游戏对象以进行修改。"
+msgstr ""
+"所选对象为 FBX 资产。\n"
+"FBX 资产内网格为只读状态，无法直接编辑。\n"
+"请在场景中实例化 FBX 游戏对象以进行修改。"
 
 msgid "mesh_asset.assign_meshes.dialog.is_fbx.title"
 msgstr "已选取 FBX 资产"
 
 msgid "mesh_asset.assign_meshes.is_prefab"
-msgstr "所选对象为预制件。\n编辑此对象将会修改预制件本身，而非场景中的实例。\n是否直接编辑预制件资产？"
+msgstr ""
+"所选对象为预制件。\n"
+"编辑此对象将会修改预制件本身，而非场景中的实例。\n"
+"是否直接编辑预制件资产？"
 
 msgid "mesh_asset.assign_meshes.target_go"
 msgstr "目标游戏对象"
@@ -402,97 +304,12 @@ msgid "mesh_asset.assign_meshes.to_prefab_btn"
 msgstr "分配网格至目标预制件"
 
 msgid "mesh_asset.fbx_edited"
-msgstr "自从生成这些网格以来，FBX 资源已被修改。\n对 FBX 的更改可能在重新生成或应用新的混合形状时导致意外结果。"
+msgstr ""
+"自从生成这些网格以来，FBX 资源已被修改。\n"
+"对 FBX 的更改可能在重新生成或应用新的混合形状时导致意外结果。"
 
 msgid "mesh_asset.read_only"
 msgstr "字段为只读状态。请按“编辑”以修改元数据。"
-
-msgid "mesh_generator.blendshapes_data_list"
-msgstr "形态键数据列表"
-
-msgid "mesh_generator.blendshapes_data_list.tooltip"
-msgstr "列表中的所有形态键将被合并并应用到同一个模型。"
-
-msgid "mesh_generator.generate_fbx"
-msgstr "生成新的 FBX 资产"
-
-msgid "mesh_generator.generate_mesh"
-msgstr "生成新的网格资产"
-
-msgid "mesh_generator.mesh_generation_disable"
-msgstr "由于此资产的顶点顺序不正确，无法用于生成网格资产。请改用 FBX 文件。"
-
-msgid "mesh_generator.target_mesh_container"
-msgstr "目标网格容器"
-
-msgid "mesh_generator.target_mesh_container.tooltip"
-msgstr "指定要添加形态键的基础模型。资产可以是 FBX 模型、由 BlendShare 生成的网格资产，或 Unity 网格。"
-
-msgid "new_extractor.assign_fbx_hint"
-msgstr "请指定原始 FBX 和来源 FBX 后再选择功能。"
-
-msgid "new_extractor.failed.message"
-msgstr "BlendShare 提取失败。"
-
-msgid "new_extractor.failed.title"
-msgstr "提取失败"
-
-msgid "new_extractor.feature_options"
-msgstr "功能选项"
-
-msgid "new_extractor.invalid_mapping.message"
-msgstr "Unity 形态键生成可能会使用缓存回退。FBX 形态键仍会保存。"
-
-msgid "new_extractor.invalid_mapping.title"
-msgstr "Unity 顶点无法匹配"
-
-msgid "new_extractor.mesh_path"
-msgstr "网格路径"
-
-msgid "new_extractor.meshes"
-msgstr "网格"
-
-msgid "new_extractor.missing_origin_mesh"
-msgstr "找不到“{0}”对应的原始网格。"
-
-msgid "new_extractor.no_meshes"
-msgstr "未找到匹配的 Skinned Mesh。"
-
-msgid "new_extractor.no_selection.message"
-msgstr "保存前请至少选择一个功能。"
-
-msgid "new_extractor.no_selection.title"
-msgstr "未选择功能"
-
-msgid "new_extractor.refresh"
-msgstr "刷新网格"
-
-msgid "new_extractor.save_asset"
-msgstr "保存 BlendShare 资产"
-
-msgid "new_extractor.save_title"
-msgstr "保存 BlendShare 资产"
-
-msgid "new_extractor.title"
-msgstr "BlendShare 功能提取器"
-
-msgid "not_an_fbx_error"
-msgstr "所选文件不是 FBX。"
-
-msgid "origin_fbx"
-msgstr "原始 FBX"
-
-msgid "origin_fbx.tooltip"
-msgstr "未经修改的原始 FBX 文件。"
-
-msgid "skin_weights"
-msgstr "蒙皮权重"
-
-msgid "source_fbx"
-msgstr "来源 FBX"
-
-msgid "source_fbx.tooltip"
-msgstr "作为形态键来源的 FBX 文件。"
 
 msgid "updater.dialog_cancel"
 msgstr "取消"
@@ -510,19 +327,1004 @@ msgid "updater.release_parse_failed"
 msgstr "无法解析 GitHub 发布信息。"
 
 msgid "updater.update_available_body"
-msgstr "发现新版本！\n\n当前版本：{0}\n最新版本：{1}\n\n是否要下载并导入更新？"
+msgstr ""
+"发现新版本！\n"
+"\n"
+"当前版本：{0}\n"
+"最新版本：{1}\n"
+"\n"
+"是否要下载并导入更新？"
 
 msgid "updater.update_available_title"
 msgstr "BlendShare 有可用更新"
 
 msgid "updater.update_check_failed"
-msgstr "检查更新失败：\n{0}"
+msgstr ""
+"检查更新失败：\n"
+"{0}"
 
 msgid "updater.update_error"
-msgstr "发生错误：\n{0}"
+msgstr ""
+"发生错误：\n"
+"{0}"
 
 msgid "updater.update_no_unitypackage"
 msgstr "在最新发布中未找到 .unitypackage。"
 
 msgid "updater.update_title"
 msgstr "BlendShare 更新"
+
+msgid "advanced_mesh_creator.blendshare_data_list"
+msgstr "BlendShare 补丁列表"
+
+msgid "advanced_mesh_creator.blendshare_data_list.tooltip"
+msgstr "列表中的所有补丁会合并并应用到同一个模型。"
+
+msgid "advanced_mesh_creator.duplicate_patch_ids"
+msgstr "多个补丁使用相同补丁 ID。生成时每个 ID 只会使用最后一个补丁。"
+
+msgid "advanced_mesh_creator.generate_mesh_assets"
+msgstr "生成网格资产"
+
+msgid "advanced_mesh_creator.save_mesh_assets.title"
+msgstr "保存网格资产"
+
+msgid "advanced_mesh_creator.title"
+msgstr "高级网格生成"
+
+msgid "asset.assign_meshes"
+msgstr "分配网格"
+
+msgid "asset.assign_meshes.dialog.is_fbx.message"
+msgstr ""
+"所选对象是 FBX 资产。\n"
+"FBX 资产是只读的，无法直接编辑。\n"
+"请在场景中实例化 FBX 后再修改。"
+
+msgid "asset.assign_meshes.dialog.is_fbx.title"
+msgstr "已选择 FBX 资产"
+
+msgid "asset.assign_meshes.is_prefab"
+msgstr ""
+"所选对象是 Prefab。\n"
+"编辑此对象会修改 Prefab 本身，而不是场景实例。\n"
+"是否继续直接编辑 Prefab 资产？"
+
+msgid "asset.assign_meshes.target_go"
+msgstr "目标 GameObject"
+
+msgid "asset.assign_meshes.to_go_btn"
+msgstr "将网格分配到目标 GameObject"
+
+msgid "asset.assign_meshes.to_prefab_btn"
+msgstr "将网格分配到目标 Prefab"
+
+msgid "asset.create"
+msgstr "生成网格资产"
+
+msgid "asset.create.tooltip"
+msgstr "生成包含蒙皮绑定数据的网格资产。"
+
+msgid "asset.mapping.invalid"
+msgstr "生成网格资产前，{0} 个网格需要有效的 Unity 映射。"
+
+msgid "asset.mapping.mesh_missing"
+msgstr "目标 FBX 中找不到 {0} 个 BlendShare 网格路径。"
+
+msgid "asset.mapping.target_missing"
+msgstr "生成网格资产前请选择目标 FBX。"
+
+msgid "asset.mapping.target_unreadable"
+msgstr "无法读取目标 FBX 的网格。"
+
+msgid "asset.save_title"
+msgstr "保存网格资产"
+
+msgid "common.auto"
+msgstr "自动"
+
+msgid "common.cancel"
+msgstr "取消"
+
+msgid "common.clear_all"
+msgstr "全部清除"
+
+msgid "common.default_asset_name"
+msgstr "默认资产名"
+
+msgid "common.disable_all"
+msgstr "全部禁用"
+
+msgid "common.disable_diff"
+msgstr "禁用差异"
+
+msgid "common.enable_all"
+msgstr "全部启用"
+
+msgid "common.fbx_sdk_missing"
+msgstr "未找到 Autodesk FBX® SDK。FBX 编辑功能将被禁用。"
+
+msgid "common.language"
+msgstr "语言"
+
+msgid "common.meshes"
+msgstr "网格"
+
+msgid "common.mesh_path"
+msgstr "网格路径"
+
+msgid "common.ok"
+msgstr "确定"
+
+msgid "common.original_fbx"
+msgstr "原始 FBX"
+
+msgid "common.original_fbx.tooltip"
+msgstr "未经修改的原始 FBX 文件。"
+
+msgid "common.patch_id"
+msgstr "补丁 ID"
+
+msgid "common.save"
+msgstr "保存"
+
+msgid "common.delete"
+msgstr "删除"
+
+msgid "common.select_all"
+msgstr "全部选择"
+
+msgid "common.source_fbx"
+msgstr "来源 FBX"
+
+msgid "common.source_fbx.tooltip"
+msgstr "作为补丁数据来源的 FBX 文件。"
+
+msgid "common.status"
+msgstr "状态"
+
+msgid "common.target_fbx"
+msgstr "目标 FBX"
+
+msgid "common.target_fbx.tooltip"
+msgstr "接收或验证补丁数据的 FBX 资源。"
+
+msgid "common.use"
+msgstr "使用"
+
+msgid "features.blend-shapes.name"
+msgstr "BlendShape"
+
+msgid "features.blend-shapes.table.name"
+msgstr "BlendShape"
+
+msgid "features.blend-shapes.toggle"
+msgstr "BlendShape"
+
+msgid "features.skin-weights.bindposes"
+msgstr "绑定姿势"
+
+msgid "features.skin-weights.bone_transform"
+msgstr "骨骼变换"
+
+msgid "features.skin-weights.bones"
+msgstr "骨骼"
+
+msgid "features.skin-weights.create_bone"
+msgstr "创建骨骼"
+
+msgid "features.skin-weights.create_bone_required_parent"
+msgstr "创建骨骼（必需父级）"
+
+msgid "features.skin-weights.local_trs"
+msgstr "本地平移 / 旋转 / 缩放"
+
+msgid "features.skin-weights.mesh"
+msgstr "网格"
+
+msgid "features.skin-weights.name"
+msgstr "蒙皮权重"
+
+msgid "features.skin-weights.no_differences"
+msgstr "未找到蒙皮权重差异。"
+
+msgid "features.skin-weights.pose"
+msgstr "姿势"
+
+msgid "features.skin-weights.toggle"
+msgstr "蒙皮权重"
+
+msgid "features.skin-weights.weights"
+msgstr "权重"
+
+msgid "patch.apply"
+msgstr "应用 BlendShare 补丁"
+
+msgid "patch.create_fbx"
+msgstr "将 BlendShare 补丁应用为新 FBX"
+
+msgid "patch.fbx_missing.message"
+msgstr "目标 FBX 文件缺失。请导入资产，或将 FBX 分配到“目标 FBX”。"
+
+msgid "patch.fbx_missing.title"
+msgstr "目标 FBX 缺失。"
+
+msgid "patch.inspector.title"
+msgstr "BlendShare 补丁"
+
+msgid "patch.mapping.create"
+msgstr "创建 Unity 顶点映射"
+
+msgid "patch.mapping.create.failed.title"
+msgstr "映射创建失败"
+
+msgid "patch.mapping.create.success.message"
+msgstr "已创建 {0} 个 Unity 顶点映射。"
+
+msgid "patch.mapping.create.success.title"
+msgstr "映射已创建"
+
+msgid "patch.mapping.saving"
+msgstr "正在保存映射..."
+
+msgid "patch.target_missing"
+msgstr "应用或验证此补丁前请分配目标 FBX。"
+
+msgid "patch_creator.assign_fbx_hint"
+msgstr "请同时分配原始 FBX 和来源 FBX，以选择补丁数据。"
+
+msgid "patch_creator.blend_shapes.apply_rotation"
+msgstr "应用旋转"
+
+msgid "patch_creator.blend_shapes.apply_scale"
+msgstr "应用缩放"
+
+msgid "patch_creator.blend_shapes.apply_transform"
+msgstr "应用变换"
+
+msgid "patch_creator.blend_shapes.apply_transform.tooltip"
+msgstr "计算 BlendShape 偏移前，将对象变换应用到网格。若 BlendShape 方向异常，请尝试启用“应用旋转”。"
+
+msgid "patch_creator.blend_shapes.apply_translate"
+msgstr "应用平移"
+
+msgid "patch_creator.blend_shapes.base_mesh"
+msgstr "基础网格"
+
+msgid "patch_creator.blend_shapes.base_mesh.tooltip"
+msgstr "用于计算 BlendShape 偏移顶点的基础网格。"
+
+msgid "patch_creator.blend_shapes.base_mesh.original"
+msgstr "原始"
+
+msgid "patch_creator.blend_shapes.base_mesh.source"
+msgstr "来源"
+
+msgid "patch_creator.failed.message"
+msgstr "BlendShare 补丁创建失败。"
+
+msgid "patch_creator.failed.title"
+msgstr "补丁创建失败"
+
+msgid "patch_creator.global_help"
+msgstr "选择原始 FBX 和来源 FBX，比较导入器设置，刷新网格，然后选择补丁数据。"
+
+msgid "patch_creator.global_settings"
+msgstr "全局设置"
+
+msgid "patch_creator.global_tab"
+msgstr "全局"
+
+msgid "patch_creator.importer_comparison.assign_hint"
+msgstr "请分配原始 FBX 和来源 FBX 资产以比较导入器设置。"
+
+msgid "patch_creator.importer_comparison.bake_axis_conversion"
+msgstr "烘焙轴转换"
+
+msgid "patch_creator.importer_comparison.copy_to_source"
+msgstr "让来源匹配原始"
+
+msgid "patch_creator.importer_comparison.different"
+msgstr "几何导入器设置不同。"
+
+msgid "patch_creator.importer_comparison.global_scale"
+msgstr "全局缩放"
+
+msgid "patch_creator.importer_comparison.match"
+msgstr "几何导入器设置一致。"
+
+msgid "patch_creator.importer_comparison.original_value"
+msgstr "原始：{0}"
+
+msgid "patch_creator.importer_comparison.source_value"
+msgstr "来源：{0}"
+
+msgid "patch_creator.importer_comparison.title"
+msgstr "导入器设置比较"
+
+msgid "patch_creator.invalid_mapping.message"
+msgstr "Unity BlendShape 生成可能会使用缓存的回退数据。FBX BlendShape 仍会保存。"
+
+msgid "patch_creator.invalid_mapping.title"
+msgstr "Unity 顶点无法匹配"
+
+msgid "patch_creator.missing_original_mesh"
+msgstr "找不到“{0}”对应的原始网格。"
+
+msgid "patch_creator.no_contents.message"
+msgstr "保存前请至少选择一个项目。"
+
+msgid "patch_creator.no_contents.title"
+msgstr "未选择数据"
+
+msgid "patch_creator.no_meshes"
+msgstr "未找到匹配的 Skinned Mesh。"
+
+msgid "patch_creator.refresh_meshes"
+msgstr "刷新网格"
+
+msgid "patch_creator.save_patch"
+msgstr "保存 BlendShare 补丁"
+
+msgid "patch_creator.save_title"
+msgstr "保存 BlendShare 补丁"
+
+msgid "patch_creator.title"
+msgstr "BlendShare 补丁创建器"
+
+msgid "patch_creator.window_title"
+msgstr "BlendShare 补丁创建器"
+
+msgid "common.status.diff"
+msgstr "差异"
+
+msgid "common.status.missing_source"
+msgstr "缺少来源"
+
+msgid "common.status.new"
+msgstr "新增"
+
+msgid "common.status.same"
+msgstr "相同"
+
+msgid "common.status.unavailable"
+msgstr "不可用"
+
+msgid "common.status.unknown"
+msgstr "未知"
+
+msgid "features.skin-weights.status.changed_bindpose"
+msgstr "Bindpose 已变化"
+
+msgid "features.skin-weights.status.changed_bindpose_pose"
+msgstr "Bindpose + 姿势已变化"
+
+msgid "features.skin-weights.status.changed_pose"
+msgstr "姿势已变化"
+
+msgid "features.skin-weights.status.changed_weights"
+msgstr "权重已变化"
+
+msgid "features.skin-weights.status.changed_weights_bindpose"
+msgstr "权重 + Bindpose 已变化"
+
+msgid "features.skin-weights.status.changed_weights_bindpose_pose"
+msgstr "权重 + Bindpose + 姿势已变化"
+
+msgid "features.skin-weights.status.changed_weights_pose"
+msgstr "权重 + 姿势已变化"
+
+msgid "features.skin-weights.status.new_bone"
+msgstr "新增骨骼"
+
+msgid "advanced_mesh_creator.generate_fbx"
+msgstr "生成 FBX 资源"
+
+msgid "advanced_mesh_creator.mesh_generation_disable"
+msgstr "此资源的顶点顺序不正确，无法用于生成网格资源。请改用 FBX 文件。"
+
+msgid "advanced_mesh_creator.target_mesh_container"
+msgstr "目标模型"
+
+msgid "advanced_mesh_creator.target_mesh_container.tooltip"
+msgstr "要应用补丁的基础模型。可使用 FBX、BlendShare 网格资产或 Unity 网格。"
+
+msgid "common.advanced"
+msgstr "高级"
+
+msgid "common.apply"
+msgstr "应用"
+
+msgid "common.collapse"
+msgstr "点击折叠"
+
+msgid "common.expand"
+msgstr "点击展开"
+
+msgid "common.fbx_asset.object_reference_only"
+msgstr "使用带对象引用的 FbxAsset。"
+
+msgid "common.game_object"
+msgstr "游戏对象"
+
+msgid "common.generate"
+msgstr "生成"
+
+msgid "common.no"
+msgstr "否"
+
+msgid "common.none"
+msgstr "无"
+
+msgid "common.path"
+msgstr "路径"
+
+msgid "common.restore"
+msgstr "还原"
+
+msgid "common.revert"
+msgstr "撤销"
+
+msgid "common.select"
+msgstr "选择"
+
+msgid "common.skinned_mesh_renderer"
+msgstr "蒙皮网格渲染器"
+
+msgid "common.status.active"
+msgstr "活动"
+
+msgid "common.status.checking"
+msgstr "检查中"
+
+msgid "common.status.incompatible"
+msgstr "不兼容"
+
+msgid "common.status.invalid"
+msgstr "无效"
+
+msgid "common.status.missing"
+msgstr "缺少"
+
+msgid "common.status.missing_target"
+msgstr "缺少目标"
+
+msgid "common.status.missing_target_mesh"
+msgstr "缺少目标网格"
+
+msgid "common.status.not_found"
+msgstr "未找到"
+
+msgid "common.status.ready"
+msgstr "就绪"
+
+msgid "common.status.valid"
+msgstr "有效"
+
+msgid "common.status.verified"
+msgstr "已验证"
+
+msgid "common.yes"
+msgstr "是"
+
+msgid "features.blend-shapes.no_feature_for_mesh"
+msgstr "此网格没有 BlendShape 数据。"
+
+msgid "legacy.blendshape_data.legacy_notice"
+msgstr "这是旧版 BlendShapeDataSO 资源。新的工作流程请使用新的 BlendShareObject 格式。"
+
+msgid "legacy.blendshape_data.upgrade"
+msgstr "升级到 BlendShareObject"
+
+msgid "legacy.generated_mesh_asset.applied_patches"
+msgstr "已应用的 BlendShare 对象"
+
+msgid "legacy.generated_mesh_asset.current"
+msgstr "当前"
+
+msgid "legacy.generated_mesh_asset.description"
+msgstr "网格资产容器"
+
+msgid "legacy.generated_mesh_asset.metadata"
+msgstr "元数据"
+
+msgid "legacy.generated_mesh_asset.original"
+msgstr "原始"
+
+msgid "patch.actions.title"
+msgstr "操作"
+
+msgid "patch.advanced"
+msgstr "高级"
+
+msgid "patch.apply.confirm.message"
+msgstr "此补丁 ID 已记录在 FBX。再次应用可能累积更改。若要避免累积，请先还原目标。"
+
+msgid "patch.apply.confirm.title"
+msgstr "应用 BlendShare 补丁"
+
+msgid "patch.apply.failed"
+msgstr "应用 BlendShare 补丁失败。"
+
+msgid "patch.apply.locked_conflict"
+msgstr "目标 FBX 已记录相同补丁 ID。解锁后仍可应用，但可能累积更改或产生冲突。"
+
+msgid "patch.apply.locked_exact"
+msgstr "此补丁已记录在目标 FBX。解锁后可再次应用，但可能累积更改。"
+
+msgid "patch.compatibility.all_verified"
+msgstr "此 FBX 的所有网格均已验证。"
+
+msgid "patch.compatibility.control_points_fewer"
+msgstr "目标网格的 FBX 顶点数 ({0}) 少于已存储的源网格 ({1})。"
+
+msgid "patch.compatibility.has_incompatible"
+msgstr "有一个或多个网格与此 FBX 不兼容。"
+
+msgid "patch.compatibility.missing_paths"
+msgstr "此 FBX 中缺少一个或多个网格路径。"
+
+msgid "patch.compatibility.not_evaluated"
+msgstr "尚未评估兼容性。"
+
+msgid "patch.compatibility.pending"
+msgstr "正在检查 FBX 拓扑..."
+
+msgid "patch.compatibility.signature_mismatch"
+msgstr "目标网格与已保存的源拓扑信息不匹配。"
+
+msgid "patch.compatibility.signature_missing"
+msgstr "缺少已保存的拓扑信息。请重新创建此补丁。"
+
+msgid "patch.compatibility.signature_unavailable"
+msgstr "无法检查目标拓扑。"
+
+msgid "patch.compatibility.summary"
+msgstr "{0} 已验证 / {1} 网格"
+
+msgid "patch.compatibility.title"
+msgstr "FBX 兼容性"
+
+msgid "patch.compatibility.unknown_checks"
+msgstr "一个或多个网格兼容性检查结果未知。"
+
+msgid "patch.compatibility.verified"
+msgstr "目标 FBX 拓扑与已保存的网格信息匹配。"
+
+msgid "patch.contents.no_mesh_data"
+msgstr "此补丁不包含网格数据。"
+
+msgid "patch.contents.title"
+msgstr "补丁内容"
+
+msgid "patch.create_fbx.confirm.message"
+msgstr "目标 FBX 已记录此补丁 ID。新 FBX 会保留此记录；再次应用可能累积更改。"
+
+msgid "patch.create_fbx.confirm.title"
+msgstr "将 BlendShare 补丁应用为新 FBX"
+
+msgid "patch.create_fbx.failed"
+msgstr "创建 FBX 失败。"
+
+msgid "patch.mapping.badge"
+msgstr "映射：{0}"
+
+msgid "patch.mapping.bake_axis_conversion"
+msgstr "烘焙轴转换"
+
+msgid "patch.mapping.count"
+msgstr "映射"
+
+msgid "patch.mapping.display_name"
+msgstr "Unity 映射"
+
+msgid "patch.mapping.fbx_to_unity_scale"
+msgstr "FBX 到 Unity 缩放"
+
+msgid "patch.mapping.generation_failed"
+msgstr "映射生成失败。"
+
+msgid "patch.mapping.grouped_entries"
+msgstr "分组条目"
+
+msgid "patch.mapping.index_entries"
+msgstr "索引条目"
+
+msgid "patch.mapping.missing"
+msgstr "缺少 Unity 映射数据。"
+
+msgid "patch.mapping.no_editor"
+msgstr "没有为此映射注册自定义嵌入式编辑器。"
+
+msgid "patch.mapping.no_mapping"
+msgstr "此网格没有 Unity 映射。"
+
+msgid "patch.mapping.no_stored_match"
+msgstr "已保存的映射与当前 Unity 网格不匹配。"
+
+msgid "patch.mapping.not_resolved"
+msgstr "未从当前 FBX 解析"
+
+msgid "patch.mapping.progress"
+msgstr "正在为 {0} 创建映射..."
+
+msgid "patch.mapping.summary"
+msgstr "{0} 可用 / {1} 需要"
+
+msgid "patch.mapping.target_missing"
+msgstr "未分配目标 FBX。"
+
+msgid "patch.mapping.target_unreadable"
+msgstr "无法读取 Unity 网格。"
+
+msgid "patch.mapping.title"
+msgstr "Unity 映射"
+
+msgid "patch.mapping.unity_mesh"
+msgstr "Unity 网格"
+
+msgid "patch.mapping.unity_vertices"
+msgstr "Unity 顶点"
+
+msgid "patch.mapping.valid"
+msgstr "映射有效"
+
+msgid "patch.mapping.verified"
+msgstr "{0} 映射已验证。哈希：{1}"
+
+msgid "patch.mapping.vertex_hash"
+msgstr "顶点哈希"
+
+msgid "patch.mesh_data.control_points"
+msgstr "FBX 顶点"
+
+msgid "patch.mesh_data.data"
+msgstr "数据"
+
+msgid "patch.mesh_data.data_id"
+msgstr "数据 ID"
+
+msgid "patch.mesh_data.display_name"
+msgstr "网格数据"
+
+msgid "patch.mesh_data.faces"
+msgstr "面"
+
+msgid "patch.mesh_data.fbx_control_points"
+msgstr "FBX 顶点"
+
+msgid "patch.mesh_data.fbx_topology_hash"
+msgstr "FBX 拓扑哈希"
+
+msgid "patch.mesh_data.hash"
+msgstr "哈希"
+
+msgid "patch.mesh_data.missing"
+msgstr "缺少网格数据。"
+
+msgid "patch.mesh_data.no_data"
+msgstr "此网格不包含已提取数据。"
+
+msgid "patch.mesh_data.no_data_editor"
+msgstr "没有为此数据注册自定义数据编辑器。"
+
+msgid "patch.mesh_data.no_embedded_editor"
+msgstr "没有为此网格注册自定义嵌入式编辑器。"
+
+msgid "patch.mesh_data.parent_patch"
+msgstr "父补丁"
+
+msgid "patch.mesh_data.summary"
+msgstr "网格摘要"
+
+msgid "patch.mesh_data.topology_fingerprint"
+msgstr "拓扑指纹"
+
+msgid "patch.metadata.applied_patches"
+msgstr "已应用补丁"
+
+msgid "patch.restore.failed"
+msgstr "还原原始 FBX 失败。"
+
+msgid "patch.restore.message"
+msgstr "这将还原 FBX 基线备份，并移除所有 BlendShare 补丁元数据。是否继续？"
+
+msgid "patch.restore.title"
+msgstr "恢复原始 FBX"
+
+msgid "patch.restore_to_original"
+msgstr "恢复原始 FBX"
+
+msgid "patch.revert.failed"
+msgstr "撤销 BlendShare 补丁失败。"
+
+msgid "patch.revert.message"
+msgstr "这将还原 FBX 基线备份，然后重新应用其他所有已记录的 BlendShare 补丁。是否继续？"
+
+msgid "patch.revert.missing_record"
+msgstr "缺少已记录的补丁，无法撤销此补丁。仍可还原原始状态。"
+
+msgid "patch.revert.title"
+msgstr "撤销 BlendShare 补丁"
+
+msgid "patch.revert_this"
+msgstr "撤销此补丁"
+
+msgid "common.filter"
+msgstr "筛选"
+
+msgid "common.lock"
+msgstr "锁定"
+
+msgid "common.name"
+msgstr "名称"
+
+msgid "common.save_as"
+msgstr "另存为"
+
+msgid "common.unlock"
+msgstr "解锁"
+
+msgid "features.blend-shapes.enable_action"
+msgstr "启用"
+
+msgid "features.blend-shapes.enable_all"
+msgstr "全部启用"
+
+msgid "features.blend-shapes.enable_visible"
+msgstr "启用可见项"
+
+msgid "features.blend-shapes.fallback_name"
+msgstr "BlendShape {0}"
+
+msgid "features.blend-shapes.lock_tooltip"
+msgstr "锁定 BlendShape 编辑"
+
+msgid "features.blend-shapes.missing_data"
+msgstr "缺少 BlendShape 数据。"
+
+msgid "features.blend-shapes.mute"
+msgstr "静音"
+
+msgid "features.blend-shapes.mute_visible"
+msgstr "静音可见项"
+
+msgid "features.blend-shapes.selection.active_header"
+msgstr "启用的 BlendShape"
+
+msgid "features.blend-shapes.selection.active_header_filtered"
+msgstr "启用的 BlendShape（已筛选，排序已禁用）"
+
+msgid "features.blend-shapes.selection.default"
+msgstr "默认"
+
+msgid "features.blend-shapes.selection.default_name"
+msgstr "选择集"
+
+msgid "features.blend-shapes.selection.delete_message"
+msgstr "删除“{0}”？"
+
+msgid "features.blend-shapes.selection.delete_title"
+msgstr "删除选择集"
+
+msgid "features.blend-shapes.selection.disabled_header"
+msgstr "已禁用的 BlendShape"
+
+msgid "features.blend-shapes.selection.name_prompt"
+msgstr "选择集名称"
+
+msgid "features.blend-shapes.selection.selected_action"
+msgstr "对 {1} 个已选项执行{0}"
+
+msgid "features.blend-shapes.selection.unsaved"
+msgstr "未保存"
+
+msgid "features.blend-shapes.selection_set"
+msgstr "选择集"
+
+msgid "features.blend-shapes.status.compact"
+msgstr "BlendShape {0}/{1}"
+
+msgid "features.blend-shapes.status.editing"
+msgstr "{0} 已启用 / {1} 总计 / {2} 个已启用可见 / {3} 个可用可见 / {4}"
+
+msgid "features.blend-shapes.status.locked"
+msgstr "{0} 已启用 / {1} 总计"
+
+msgid "features.blend-shapes.unlock_tooltip"
+msgstr "解锁 BlendShape 编辑"
+
+msgid "features.skin-weights.armature.create_if_missing"
+msgstr "缺失时创建"
+
+msgid "features.skin-weights.armature.missing"
+msgstr "缺少骨架数据。"
+
+msgid "features.skin-weights.armature.no_bones"
+msgstr "此骨架没有存储骨骼。"
+
+msgid "features.skin-weights.armature.parent"
+msgstr "父对象"
+
+msgid "features.skin-weights.armature.position"
+msgstr "位置"
+
+msgid "features.skin-weights.armature.rotation"
+msgstr "旋转"
+
+msgid "features.skin-weights.armature.scale"
+msgstr "缩放"
+
+msgid "features.skin-weights.armature.title"
+msgstr "骨架"
+
+msgid "features.skin-weights.bone"
+msgstr "骨骼"
+
+msgid "features.skin-weights.clusters"
+msgstr "簇"
+
+msgid "features.skin-weights.fbx_cluster_matrices"
+msgstr "FBX 簇矩阵"
+
+msgid "features.skin-weights.matrix_data_missing"
+msgstr "缺少 {0} 数据。"
+
+msgid "features.skin-weights.missing_data"
+msgstr "缺少蒙皮权重数据。"
+
+msgid "features.skin-weights.no_clusters"
+msgstr "此数据没有存储簇。"
+
+msgid "features.skin-weights.root_bone"
+msgstr "根骨骼"
+
+msgid "features.skin-weights.shared_armature"
+msgstr "共享骨架"
+
+msgid "features.skin-weights.transform_link_matrix"
+msgstr "变换链接矩阵"
+
+msgid "features.skin-weights.transform_matrix"
+msgstr "变换矩阵"
+
+msgid "features.skin-weights.weighted_control_points"
+msgstr "带权重点"
+
+msgid "common.patches"
+msgstr "补丁"
+
+msgid "common.enabled"
+msgstr "已启用"
+
+msgid "common.disabled"
+msgstr "已禁用"
+
+msgid "backup.source_fbx"
+msgstr "源 FBX"
+
+msgid "backup.metadata_version"
+msgstr "元数据版本"
+
+msgid "backup.source_fbx_hash"
+msgstr "源 FBX 哈希"
+
+msgid "backup.created_at_utc"
+msgstr "创建时间 (UTC)"
+
+msgid "backup.original_file_name"
+msgstr "原始文件名"
+
+msgid "backup.path"
+msgstr "备份路径"
+
+msgid "backup.hash"
+msgstr "备份哈希"
+
+msgid "backup.size_bytes"
+msgstr "备份大小（字节）"
+
+msgid "backup.derived_fbxs"
+msgstr "派生 FBX"
+
+msgid "backup.derived_fbx"
+msgstr "FBX {0}"
+
+msgid "backup.restore.title"
+msgstr "恢复原始 FBX"
+
+msgid "backup.restore.message"
+msgstr "这将从此 BlendShare 备份还原“{0}”，并清除其活动 BlendShare 补丁元数据。当没有派生 FBX 仍引用它时，该备份会被删除。"
+
+msgid "backup.restore.failed"
+msgstr "还原失败"
+
+msgid "ndmf.core.target_root"
+msgstr "目标根"
+
+msgid "ndmf.core.bindings"
+msgstr "绑定"
+
+msgid "ndmf.core.mesh_appliers"
+msgstr "网格应用组件"
+
+msgid "ndmf.core.bone_proxies"
+msgstr "骨骼代理"
+
+msgid "ndmf.core.rebuild_mesh_bindings"
+msgstr "重建网格绑定"
+
+msgid "ndmf.core.rebuild_bone_proxies"
+msgstr "重建骨骼代理"
+
+msgid "ndmf.mesh.title"
+msgstr "BlendShare 网格应用"
+
+msgid "ndmf.mesh.target_renderer"
+msgstr "目标渲染器"
+
+msgid "ndmf.mesh.missing_renderer"
+msgstr "<缺失渲染器>"
+
+msgid "ndmf.mesh.animation.add_key"
+msgstr "添加键"
+
+msgid "ndmf.mesh.animation.remove_key"
+msgstr "移除键"
+
+msgid "ndmf.mesh.animation.remove_all_keys"
+msgstr "移除所有键"
+
+msgid "ndmf.bone_proxy.title"
+msgstr "BlendShare 骨骼代理"
+
+msgid "ndmf.bone_proxy.target_parent"
+msgstr "目标父对象"
+
+msgid "ndmf.bone_proxy.recalculate_bindpose"
+msgstr "重新计算绑定姿势"
+
+msgid "ndmf.bone_proxy.final_parent"
+msgstr "最终父对象"
+
+msgid "ndmf.bone_proxy.final_bone_name"
+msgstr "最终骨骼名称"
+
+msgid "ndmf.bone_proxy.binding_local_position"
+msgstr "绑定时本地位置"
+
+msgid "ndmf.bone_proxy.binding_local_rotation"
+msgstr "绑定时本地旋转"
+
+msgid "ndmf.bone_proxy.binding_local_scale"
+msgstr "绑定时本地缩放"
+
+msgid "ndmf.bone_proxy.parenting_local_position"
+msgstr "设为父对象后的本地位置"
+
+msgid "ndmf.bone_proxy.parenting_local_rotation"
+msgstr "设为父对象后的本地旋转"
+
+msgid "ndmf.bone_proxy.parenting_local_scale"
+msgstr "设为父对象后的本地缩放"
+
+msgid "ndmf.bone_proxy.bind_world_position"
+msgstr "绑定世界位置"
+
+msgid "ndmf.bone_proxy.update_bindpose"
+msgstr "从当前变换更新绑定姿势"
+
+msgid "ndmf.bone_proxy.restore_from_source"
+msgstr "从源恢复绑定变换"
+
+msgid "ndmf.bone_proxy.reset_to_bind_pose"
+msgstr "将变换重置为绑定姿势"
+
+msgid "ndmf.bone_proxy.no_owner"
+msgstr "未找到拥有此对象的 BlendShare 应用组件。"
+
+msgid "ndmf.bone_proxy.no_source_binding"
+msgstr "未找到此代理的源骨骼绑定。"
+
+msgid "ndmf.bone_proxy.shared_different_transforms"
+msgstr "此代理由具有不同绑定变换的多个源骨骼共享。"

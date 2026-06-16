@@ -1,3 +1,4 @@
+using Triturbo.BlendShapeShare;
 using UnityEditor;
 using UnityEngine;
 
@@ -27,7 +28,7 @@ namespace Triturbo.BlendShare.Core
             var result = new FbxImporterSettingsComparison();
             if (originImporter == null || sourceImporter == null)
             {
-                result.Message = "Assign original and source FBX assets to compare importer settings.";
+                result.Message = Localization.S("patch_creator.importer_comparison.assign_hint");
                 return result;
             }
 
@@ -40,8 +41,8 @@ namespace Triturbo.BlendShare.Core
             result.BakeAxisConversionMatches =
                 result.OriginBakeAxisConversion == result.SourceBakeAxisConversion;
             result.Message = result.Matches
-                ? "Geometry importer settings match."
-                : "Geometry importer settings differ.";
+                ? Localization.S("patch_creator.importer_comparison.match")
+                : Localization.S("patch_creator.importer_comparison.different");
             return result;
         }
 
