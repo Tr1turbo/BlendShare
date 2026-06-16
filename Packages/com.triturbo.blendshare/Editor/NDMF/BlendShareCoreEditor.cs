@@ -15,6 +15,8 @@ namespace Triturbo.BlendShare.NDMF
         {
             serializedObject.Update();
             EditorWidgets.ShowBlendShareBanner();
+            Localization.DrawLanguageSelection();
+            EditorGUILayout.Space();
 
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_TargetRootReference"), new GUIContent(Localization.S("ndmf.core.target_root")));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_Patches"), new GUIContent(Localization.S("common.patches")), true);

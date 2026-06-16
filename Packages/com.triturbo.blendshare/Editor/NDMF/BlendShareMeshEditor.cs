@@ -24,6 +24,8 @@ namespace Triturbo.BlendShare.NDMF
 
             serializedObject.Update();
 
+            Localization.DrawLanguageSelection();
+            EditorGUILayout.Space();
             EditorGUILayout.LabelField(Localization.S("ndmf.mesh.title"), EditorStyles.boldLabel);
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_Owner"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_TargetRendererReference"), new GUIContent(Localization.S("ndmf.mesh.target_renderer")));

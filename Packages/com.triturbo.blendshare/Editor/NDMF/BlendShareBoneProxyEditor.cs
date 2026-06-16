@@ -16,6 +16,8 @@ namespace Triturbo.BlendShare.NDMF
             var proxy = (BlendShareBoneProxy)target;
             serializedObject.Update();
 
+            Localization.DrawLanguageSelection();
+            EditorGUILayout.Space();
             EditorGUILayout.LabelField(Localization.S("ndmf.bone_proxy.title"), EditorStyles.boldLabel);
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_Owner"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_TargetParentReference"), new GUIContent(Localization.S("ndmf.bone_proxy.target_parent")));
