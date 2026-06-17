@@ -115,6 +115,9 @@ msgstr "生成メッシュとスキンバインド情報を含むメッシュア
 msgid "data.created_by"
 msgstr "Triturbo が作成した Blendshapes 共有ツール"
 
+msgid "patch.created_by"
+msgstr "Triturbo が作成した FBX パッチツール"
+
 msgid "data.dialog.apply_blendshapes.message"
 msgstr "リストにあるシェイプキーを元の GameObject に追加します。続行しますか？"
 
@@ -383,6 +386,24 @@ msgstr "パッチ ID"
 
 msgid "common.fbx_sdk_missing"
 msgstr "Autodesk FBX® SDK が見つかりません。FBX 編集機能は無効になります。"
+
+msgid "common.github"
+msgstr "GitHub"
+
+msgid "common.github.tooltip"
+msgstr "GitHub で BlendShare リポジトリを開く"
+
+msgid "common.x"
+msgstr "X"
+
+msgid "common.x.tooltip"
+msgstr "X で @TR1TURBO をフォローする"
+
+msgid "common.booth"
+msgstr "BOOTH"
+
+msgid "common.booth.tooltip"
+msgstr "Triturbo の BOOTH ショップを開く"
 
 msgid "common.ok"
 msgstr "OK"

@@ -115,6 +115,9 @@ msgstr "建立包含生成網格和蒙皮綁定資料的網格資產。"
 msgid "data.created_by"
 msgstr "Triturbo 製作的型態鍵分享工具"
 
+msgid "patch.created_by"
+msgstr "Triturbo 製作的 FBX 補丁工具"
+
 msgid "data.dialog.apply_blendshapes.message"
 msgstr "這將把清單中的型態鍵套用到原始 GameObject。是否繼續？"
 
@@ -443,6 +446,24 @@ msgstr "全部啟用"
 
 msgid "common.fbx_sdk_missing"
 msgstr "找不到 Autodesk FBX® SDK。FBX 編輯功能將被停用。"
+
+msgid "common.github"
+msgstr "GitHub"
+
+msgid "common.github.tooltip"
+msgstr "在 GitHub 上造訪 BlendShare 儲存庫"
+
+msgid "common.x"
+msgstr "X"
+
+msgid "common.x.tooltip"
+msgstr "在 X 上追蹤 @TR1TURBO"
+
+msgid "common.booth"
+msgstr "BOOTH"
+
+msgid "common.booth.tooltip"
+msgstr "造訪 Triturbo 的 BOOTH 商店"
 
 msgid "common.language"
 msgstr "語言"

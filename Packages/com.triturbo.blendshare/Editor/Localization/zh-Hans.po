@@ -115,6 +115,9 @@ msgstr "创建包含生成网格和蒙皮绑定数据的网格资产。"
 msgid "data.created_by"
 msgstr "Triturbo 制作的形态键分享工具"
 
+msgid "patch.created_by"
+msgstr "Triturbo 制作的 FBX 补丁工具"
+
 msgid "data.dialog.apply_blendshapes.message"
 msgstr "这将把列表中的形态键应用到原始 GameObject。是否继续？"
 
@@ -443,6 +446,24 @@ msgstr "全部启用"
 
 msgid "common.fbx_sdk_missing"
 msgstr "未找到 Autodesk FBX® SDK。FBX 编辑功能将被禁用。"
+
+msgid "common.github"
+msgstr "GitHub"
+
+msgid "common.github.tooltip"
+msgstr "在 GitHub 上访问 BlendShare 仓库"
+
+msgid "common.x"
+msgstr "X"
+
+msgid "common.x.tooltip"
+msgstr "在 X 上关注 @TR1TURBO"
+
+msgid "common.booth"
+msgstr "BOOTH"
+
+msgid "common.booth.tooltip"
+msgstr "访问 Triturbo 的 BOOTH 商店"
 
 msgid "common.language"
 msgstr "语言"

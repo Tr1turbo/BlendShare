@@ -98,6 +98,85 @@ namespace Triturbo.BlendShare.Inspector
             return box;
         }
 
+        public static VisualElement FooterBox(string text, params (string Label, string Url, string IconPath, string Tooltip)[] links)
+        {
+            var root = new VisualElement();
+            root.style.marginTop = 8;
+            root.style.marginBottom = 8;
+
+            var box = new VisualElement();
+            box.style.paddingTop = 6;
+            box.style.paddingBottom = 6;
+            box.style.paddingLeft = 6;
+            box.style.paddingRight = 6;
+            box.style.backgroundColor = FooterBackgroundColor();
+
+            var label = new Label(text);
+            label.style.unityTextAlign = TextAnchor.MiddleCenter;
+            label.style.fontSize = 12;
+            label.style.color = FooterTextColor();
+            label.style.whiteSpace = WhiteSpace.Normal;
+            box.Add(label);
+            root.Add(box);
+
+            if (links != null && links.Length > 0)
+            {
+                var iconRow = new VisualElement();
+                iconRow.style.flexDirection = FlexDirection.Row;
+                iconRow.style.justifyContent = Justify.Center;
+                iconRow.style.flexWrap = Wrap.Wrap;
+                iconRow.style.marginTop = 6;
+
+                foreach (var link in links)
+                {
+                    if (string.IsNullOrWhiteSpace(link.Label) || string.IsNullOrWhiteSpace(link.Url))
+                    {
+                        continue;
+                    }
+
+                    string tooltip = string.IsNullOrWhiteSpace(link.Tooltip) ? link.Label : link.Tooltip;
+
+                    var iconTexture = !string.IsNullOrWhiteSpace(link.IconPath)
+                        ? AssetDatabase.LoadAssetAtPath<Texture2D>(link.IconPath)
+                        : null;
+                    if (iconTexture != null)
+                    {
+                        var icon = new Image
+                        {
+                            image = iconTexture,
+                            scaleMode = ScaleMode.ScaleToFit,
+                            tooltip = tooltip
+                        };
+                        icon.style.width = 20;
+                        icon.style.height = 20;
+                        icon.style.alignSelf = Align.Center;
+                        icon.style.marginLeft = 5;
+                        icon.style.marginRight = 5;
+                        icon.style.unityBackgroundImageTintColor = FooterIconTintColor();
+                        icon.RegisterCallback<ClickEvent>(_ => Application.OpenURL(link.Url));
+                        icon.RegisterCallback<MouseEnterEvent>(_ => icon.style.opacity = 0.72f);
+                        icon.RegisterCallback<MouseLeaveEvent>(_ => icon.style.opacity = 1f);
+                        iconRow.Add(icon);
+                    }
+                    else
+                    {
+                        var fallback = new Label(link.Label) { tooltip = tooltip };
+                        fallback.style.marginLeft = 5;
+                        fallback.style.marginRight = 5;
+                        fallback.style.color = FooterTextColor();
+                        fallback.RegisterCallback<ClickEvent>(_ => Application.OpenURL(link.Url));
+                        fallback.RegisterCallback<MouseEnterEvent>(_ => fallback.style.opacity = 0.72f);
+                        fallback.RegisterCallback<MouseLeaveEvent>(_ => fallback.style.opacity = 1f);
+                        iconRow.Add(fallback);
+                    }
+                }
+
+                root.Add(iconRow);
+            }
+
+            return root;
+        }
+
         public static void RegisterClickAction(VisualElement element, Action clickAction)
         {
             if (element == null || clickAction == null)
@@ -334,6 +413,27 @@ namespace Triturbo.BlendShare.Inspector
             return EditorGUIUtility.isProSkin
                 ? new Color(0.20f, 0.20f, 0.20f, 1f)
                 : new Color(0.88f, 0.88f, 0.88f, 1f);
+        }
+
+        private static Color FooterBackgroundColor()
+        {
+            return EditorGUIUtility.isProSkin
+                ? new Color(0.20f, 0.20f, 0.20f, 1f)
+                : new Color(0.88f, 0.88f, 0.88f, 1f);
+        }
+
+        private static Color FooterTextColor()
+        {
+            return EditorGUIUtility.isProSkin
+                ? new Color(0.62f, 0.62f, 0.62f, 1f)
+                : new Color(0.42f, 0.42f, 0.42f, 1f);
+        }
+
+        private static Color FooterIconTintColor()
+        {
+            return EditorGUIUtility.isProSkin
+                ? Color.white
+                : new Color(0.18f, 0.18f, 0.18f, 1f);
         }
 
         public static VisualElement BadgeRow(params Label[] badges)

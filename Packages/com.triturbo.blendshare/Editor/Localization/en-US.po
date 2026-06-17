@@ -115,6 +115,9 @@ msgstr "Create Mesh Assets with generated meshes and skin binding data."
 msgid "data.created_by"
 msgstr "Blendshapes sharing tool created by Triturbo"
 
+msgid "patch.created_by"
+msgstr "FBX Patch tool created by Triturbo"
+
 msgid "data.dialog.apply_blendshapes.message"
 msgstr "This will add the listed BlendShapes to the original GameObject. Continue?"
 
@@ -455,6 +458,24 @@ msgstr "Enable All"
 
 msgid "common.fbx_sdk_missing"
 msgstr "Autodesk FBX® SDK is missing. FBX editing features will be disabled."
+
+msgid "common.github"
+msgstr "GitHub"
+
+msgid "common.github.tooltip"
+msgstr "Visit the BlendShare repository on GitHub"
+
+msgid "common.x"
+msgstr "X"
+
+msgid "common.x.tooltip"
+msgstr "Follow @TR1TURBO on X"
+
+msgid "common.booth"
+msgstr "BOOTH"
+
+msgid "common.booth.tooltip"
+msgstr "Visit Triturbo's BOOTH shop"
 
 msgid "common.language"
 msgstr "Language"

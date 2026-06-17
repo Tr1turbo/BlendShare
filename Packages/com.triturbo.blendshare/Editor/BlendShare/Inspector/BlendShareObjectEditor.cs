@@ -20,6 +20,12 @@ namespace Triturbo.BlendShare.Inspector
     {
         private const int UninitializedTargetLookupId = int.MinValue;
         private const int MaxTargetLookupRetryCount = 3;
+        private const string GitHubUrl = "https://github.com/Tr1turbo/BlendShare";
+        private const string XUrl = "https://x.com/TR1TURBO";
+        private const string BoothUrl = "https://triturbo.booth.pm/";
+        private const string GitHubIconPath = "Packages/com.triturbo.blendshare/Icons/ThirdPartyLogos/GitHub/GitHub_Invertocat_White.png";
+        private const string XIconPath = "Packages/com.triturbo.blendshare/Icons/ThirdPartyLogos/X/logo-white.png";
+        private const string BoothIconPath = "Packages/com.triturbo.blendshare/Icons/ThirdPartyLogos/Booth/logo_icon_white.png";
 
         private static readonly Dictionary<string, Dictionary<MeshDataObject, MeshFbxCompatibilityStatus>> sharedCompatibilityStatusCache = new();
 
@@ -598,6 +604,11 @@ namespace Triturbo.BlendShare.Inspector
                 var patch = (BlendShareObject)target;
                 DrawSharedArmatures(patch);
             }));
+            foldout.Add(BlendShareInspectorUi.FooterBox(
+                Localization.S("patch.created_by"),
+                (Localization.S("common.github"), GitHubUrl, GitHubIconPath, Localization.S("common.github.tooltip")),
+                (Localization.S("common.x"), XUrl, XIconPath, Localization.S("common.x.tooltip")),
+                (Localization.S("common.booth"), BoothUrl, BoothIconPath, Localization.S("common.booth.tooltip"))));
             return foldout;
         }
 
