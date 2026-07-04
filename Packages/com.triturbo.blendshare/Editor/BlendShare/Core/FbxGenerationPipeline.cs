@@ -4,6 +4,7 @@ using System.Linq;
 
 #if ENABLE_FBX_SDK
 using Autodesk.Fbx;
+using Debug = UnityEngine.Debug;
 using UfbxScene = Triturbo.BlendShare.Fbx.Ufbx.UfbxScene;
 
 namespace Triturbo.BlendShare.Core
@@ -79,30 +80,33 @@ namespace Triturbo.BlendShare.Core
             const string title = null;
             BlendShareProgressUtility.Report(progress, title, "Initializing FBX SDK...", 0.02f, false);
 
-            var fbxManager = FbxManager.Create();
-            var ios = FbxIOSettings.Create(fbxManager, Globals.IOSROOT);
-            fbxManager.SetIOSettings(ios);
-            var scene = FbxScene.Create(fbxManager, Path.GetFileNameWithoutExtension(sourcePath));
-            var fbxImporter = FbxImporter.Create(fbxManager, "");
-            int fileFormat = fbxManager.GetIOPluginRegistry().FindWriterIDByDescription("FBX binary (*.fbx)");
-            bool requiresReaderScene = RequiresFbxReaderScene(deduplicatedPatches);
+            FbxManager fbxManager = null;
+            FbxImporter fbxImporter = null;
+            FbxExporter exporter = null;
             UfbxScene readerScene = null;
-            if (requiresReaderScene)
-            {
-                BlendShareProgressUtility.Report(progress, title, "Reading source FBX data...", 0.06f, true);
-                var readerResult = UfbxScene.TryLoad(sourcePath);
-                if (readerResult.Success)
-                {
-                    readerScene = readerResult.Value;
-                }
-                else
-                {
-                    LogWarning($"[BlendShare] Could not read original FBX data: {readerResult.Message}");
-                }
-            }
-
             try
             {
+                fbxManager = FbxManager.Create();
+                var ios = FbxIOSettings.Create(fbxManager, Globals.IOSROOT);
+                fbxManager.SetIOSettings(ios);
+                var scene = FbxScene.Create(fbxManager, Path.GetFileNameWithoutExtension(sourcePath));
+                fbxImporter = FbxImporter.Create(fbxManager, "");
+                int fileFormat = fbxManager.GetIOPluginRegistry().FindWriterIDByDescription("FBX binary (*.fbx)");
+                bool requiresReaderScene = RequiresFbxReaderScene(deduplicatedPatches);
+                if (requiresReaderScene)
+                {
+                    BlendShareProgressUtility.Report(progress, title, "Reading source FBX data...", 0.06f, true);
+                    var readerResult = UfbxScene.TryLoad(sourcePath);
+                    if (readerResult.Success)
+                    {
+                        readerScene = readerResult.Value;
+                    }
+                    else
+                    {
+                        LogWarning($"[BlendShare] Could not read original FBX data: {readerResult.Message}");
+                    }
+                }
+
                 BlendShareProgressUtility.Report(progress, title, "Loading FBX scene...", 0.12f, true);
                 if (!fbxImporter.Initialize(sourcePath, fileFormat, fbxManager.GetIOSettings()))
                 {
@@ -111,6 +115,7 @@ namespace Triturbo.BlendShare.Core
 
                 fbxImporter.Import(scene);
                 fbxImporter.Destroy();
+                fbxImporter = null;
                 BlendShareProgressUtility.Report(progress, title, "Applying BlendShare data...", 0.2f, true);
 
                 var sourceRootNode = scene.GetRootNode();
@@ -184,7 +189,7 @@ namespace Triturbo.BlendShare.Core
                     DeleteFbxNodesWithMesh(sourceRootNode, modifiedNodes, false);
                 }
 
-                var exporter = FbxExporter.Create(fbxManager, "");
+                exporter = FbxExporter.Create(fbxManager, "");
                 if (string.IsNullOrWhiteSpace(outputPath))
                 {
                     outputPath = sourcePath;
@@ -199,11 +204,15 @@ namespace Triturbo.BlendShare.Core
 
                 exporter.Export(scene);
                 exporter.Destroy();
+                exporter = null;
                 return true;
             }
             finally
             {
+                exporter?.Destroy();
+                fbxImporter?.Destroy();
                 readerScene?.Dispose();
+                fbxManager?.Destroy();
             }
         }
 
@@ -365,12 +374,12 @@ namespace Triturbo.BlendShare.Core
 
         private static void LogWarning(string message)
         {
-            System.Console.Error.WriteLine(message);
+            Debug.LogWarning(message);
         }
 
         private static void LogError(string message)
         {
-            System.Console.Error.WriteLine(message);
+            Debug.LogError(message);
         }
 
         private static string FormatMesh(MeshDataObject meshData)

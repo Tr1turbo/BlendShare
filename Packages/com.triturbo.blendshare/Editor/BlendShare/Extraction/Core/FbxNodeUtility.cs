@@ -75,6 +75,11 @@ namespace Triturbo.BlendShare.Core
 
         public static FbxNode FindMeshChild(this FbxNode rootNode, string name)
         {
+            if (rootNode == null)
+            {
+                return null;
+            }
+
             if (rootNode.GetName() == name && rootNode.GetMesh() != null)
             {
                 return rootNode;
@@ -91,7 +96,11 @@ namespace Triturbo.BlendShare.Core
 
             for (int i = 0; i < rootNode.GetChildCount(); i++)
             {
-                return rootNode.GetChild(i).FindMeshChild(name);
+                FbxNode childMatch = rootNode.GetChild(i).FindMeshChild(name);
+                if (childMatch != null)
+                {
+                    return childMatch;
+                }
             }
 
             return null;
