@@ -238,20 +238,19 @@ namespace Triturbo.BlendShare.Persistence
                         continue;
                     }
 
-                    BlendShareDestructiveApplyMarker marker = null;
+                    BlendShareAppliedRenderer marker = null;
                     if (options.RecordDestructiveMarkers)
                     {
-                        marker = renderer.GetComponent<BlendShareDestructiveApplyMarker>();
+                        marker = renderer.GetComponent<BlendShareAppliedRenderer>();
                         if (marker == null)
                         {
                             marker = options.UseUndo
-                                ? Undo.AddComponent<BlendShareDestructiveApplyMarker>(renderer.gameObject)
-                                : renderer.gameObject.AddComponent<BlendShareDestructiveApplyMarker>();
+                                ? Undo.AddComponent<BlendShareAppliedRenderer>(renderer.gameObject)
+                                : renderer.gameObject.AddComponent<BlendShareAppliedRenderer>();
                         }
 
                         RecordObject(marker, "Record BlendShare Apply Marker", options);
-                        marker.CaptureBaseline(renderer, nodePath);
-                        marker.SetAppliedBlendShares(artifact.m_AppliedBlendShares);
+                        marker.CaptureBaseline(renderer);
                     }
 
                     RecordObject(renderer, "Apply BlendShare Artifact", options);
@@ -293,37 +292,174 @@ namespace Triturbo.BlendShare.Persistence
             return result;
         }
 
-        public static bool RevertAppliedRenderer(SkinnedMeshRenderer renderer)
+        public static bool ApplyArtifactMeshAssignment(
+            BlendShareArtifact artifact,
+            BlendShareMeshDescriptor descriptor,
+            SkinnedMeshRenderer renderer,
+            Mesh originalMesh,
+            Transform originalRootBone,
+            Transform[] originalBones,
+            int changeUndoGroup,
+            out IReadOnlyList<string> diagnostics)
+        {
+            var result = new BlendShareArtifactApplyResult();
+            diagnostics = result.Diagnostics;
+            if (artifact == null || descriptor == null || renderer == null || descriptor.m_Mesh == null)
+            {
+                result.AddDiagnostic("Apply requires an artifact mesh descriptor and target renderer.");
+                return false;
+            }
+
+            var targetRoot = ResolveArtifactAssignmentRoot(renderer.transform, descriptor.m_NodePath);
+            if (targetRoot == null)
+            {
+                result.AddDiagnostic($"Cannot resolve target root for renderer '{renderer.name}'.");
+                return false;
+            }
+
+            var options = new BlendShareArtifactApplyOptions
+            {
+                UndoName = "Apply BlendShare Artifact Mesh",
+                BonePathRoot = targetRoot
+            };
+
+            var transformsByPath = targetRoot
+                .GetComponentsInChildren<Transform>(true)
+                .GroupBy(transform => MeshNodePath.GetRelativePath(transform, targetRoot))
+                .ToDictionary(group => MeshNodePath.Normalize(group.Key), group => group.First());
+
+            int undoGroup = changeUndoGroup >= 0 ? changeUndoGroup : Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName(options.UndoName);
+            try
+            {
+                var marker = renderer.GetComponent<BlendShareAppliedRenderer>();
+                bool addedMarker = marker == null;
+                if (marker == null)
+                {
+                    marker = Undo.AddComponent<BlendShareAppliedRenderer>(renderer.gameObject);
+                }
+
+                Undo.RecordObject(marker, "Record BlendShare Apply Marker");
+                marker.CaptureBaseline(originalMesh, originalRootBone, originalBones);
+
+                Undo.RecordObject(renderer, options.UndoName);
+                renderer.sharedMesh = descriptor.m_Mesh;
+                bool applied = ApplySkinBinding(
+                    renderer,
+                    descriptor.m_SkinBinding,
+                    artifact.m_Armature,
+                    targetRoot,
+                    targetRoot,
+                    transformsByPath,
+                    null,
+                    new ApplyState(),
+                    result,
+                    options);
+
+                if (!applied || !result.Success)
+                {
+                    RestoreRendererBaseline(renderer, originalMesh, originalRootBone, originalBones);
+                    DestroyCreatedGeneratedBones(result.GeneratedBones);
+                    if (addedMarker)
+                    {
+                        Undo.DestroyObjectImmediate(marker);
+                    }
+
+                    EditorUtility.SetDirty(renderer);
+                    return false;
+                }
+
+                marker.AddGeneratedBones(CollectExtraBones(marker.OriginalBones, renderer.bones));
+                EditorUtility.SetDirty(marker);
+                EditorUtility.SetDirty(renderer);
+                return true;
+            }
+            finally
+            {
+                Undo.CollapseUndoOperations(undoGroup);
+            }
+        }
+
+        public static bool RevertAppliedRenderer(SkinnedMeshRenderer renderer, int changeUndoGroup = -1)
         {
             if (renderer == null)
             {
                 return false;
             }
 
-            var marker = renderer.GetComponent<BlendShareDestructiveApplyMarker>();
-            if (marker == null || !marker.HasBaseline || marker.OriginalMesh == null)
+            var marker = renderer.GetComponent<BlendShareAppliedRenderer>();
+            if (marker == null || !marker.HasBaseline)
             {
                 Debug.LogError("[BlendShare Artifact] Cannot revert renderer because BlendShare baseline references are missing.", renderer);
                 return false;
             }
 
+            int undoGroup = changeUndoGroup >= 0 ? changeUndoGroup : Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName("Revert BlendShare Artifact");
             Undo.RecordObject(renderer, "Revert BlendShare Artifact");
-            renderer.sharedMesh = marker.OriginalMesh;
-            renderer.rootBone = marker.OriginalRootBone;
-            renderer.bones = marker.OriginalBones;
-            foreach (var bone in marker.GeneratedBones)
+            try
             {
-                if (bone == null || IsReferencedByOtherMarker(marker, bone))
+                renderer.sharedMesh = marker.OriginalMesh;
+                renderer.rootBone = marker.OriginalRootBone;
+                renderer.bones = marker.OriginalBones;
+                foreach (var bone in marker.GeneratedBones)
                 {
-                    continue;
+                    if (bone == null || IsReferencedByOtherMarker(marker, bone))
+                    {
+                        continue;
+                    }
+
+                    Undo.DestroyObjectImmediate(bone.gameObject);
                 }
 
-                Undo.DestroyObjectImmediate(bone.gameObject);
+                Undo.DestroyObjectImmediate(marker);
+                EditorUtility.SetDirty(renderer);
+                return true;
+            }
+            finally
+            {
+                Undo.CollapseUndoOperations(undoGroup);
+            }
+        }
+
+        private static void RestoreRendererBaseline(
+            SkinnedMeshRenderer renderer,
+            Mesh originalMesh,
+            Transform originalRootBone,
+            Transform[] originalBones)
+        {
+            if (renderer == null)
+            {
+                return;
             }
 
-            Undo.DestroyObjectImmediate(marker);
-            EditorUtility.SetDirty(renderer);
-            return true;
+            renderer.sharedMesh = originalMesh;
+            renderer.rootBone = originalRootBone;
+            renderer.bones = originalBones ?? Array.Empty<Transform>();
+        }
+
+        private static void DestroyCreatedGeneratedBones(IEnumerable<BlendShareGeneratedBoneRecord> generatedBones)
+        {
+            foreach (var bone in (generatedBones ?? Array.Empty<BlendShareGeneratedBoneRecord>())
+                         .Where(record => record?.Created == true)
+                         .Select(record => record.Transform)
+                         .Where(transform => transform != null)
+                         .Distinct()
+                         .OrderByDescending(GetHierarchyDepth))
+            {
+                Undo.DestroyObjectImmediate(bone.gameObject);
+            }
+        }
+
+        private static int GetHierarchyDepth(Transform transform)
+        {
+            int depth = 0;
+            for (var current = transform; current != null; current = current.parent)
+            {
+                depth++;
+            }
+
+            return depth;
         }
 
         private static Transform[] CollectExtraBones(Transform[] originalBones, Transform[] appliedBones)
@@ -335,14 +471,38 @@ namespace Triturbo.BlendShare.Persistence
                 .ToArray();
         }
 
-        private static bool IsReferencedByOtherMarker(BlendShareDestructiveApplyMarker owner, Transform bone)
+        private static Transform ResolveArtifactAssignmentRoot(Transform rendererTransform, string rendererNodePath)
+        {
+            rendererNodePath = MeshNodePath.Normalize(rendererNodePath);
+            if (rendererTransform == null || rendererNodePath == MeshNodePath.Root)
+            {
+                return rendererTransform;
+            }
+
+            var current = rendererTransform;
+            var normalized = rendererNodePath;
+            while (current.parent != null && normalized != MeshNodePath.Root)
+            {
+                if (!string.Equals(MeshNodePath.LeafName(normalized), current.name, StringComparison.Ordinal))
+                {
+                    break;
+                }
+
+                current = current.parent;
+                normalized = MeshNodePath.ParentPath(normalized);
+            }
+
+            return normalized == MeshNodePath.Root ? current : rendererTransform.root;
+        }
+
+        private static bool IsReferencedByOtherMarker(BlendShareAppliedRenderer owner, Transform bone)
         {
             if (owner == null || bone == null)
             {
                 return false;
             }
 
-            return UnityEngine.Object.FindObjectsOfType<BlendShareDestructiveApplyMarker>(true)
+            return UnityEngine.Object.FindObjectsOfType<BlendShareAppliedRenderer>(true)
                 .Where(marker => marker != null && marker != owner)
                 .Any(marker => marker.GeneratedBones.Contains(bone));
         }
