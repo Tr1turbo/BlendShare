@@ -35,6 +35,7 @@ namespace Triturbo.BlendShapeShare.Extractor
 
         public bool ApplyTransform => applyRotation || applyScale || applyTranslate;
 
+#if ENABLE_FBX_SDK
         public FbxAMatrix GetTransform(FbxAMatrix originalMatrix, FbxAMatrix sourceMatrix)
         {
             if (originalMatrix == null)
@@ -69,6 +70,7 @@ namespace Triturbo.BlendShapeShare.Extractor
             }
             return relativeTransform;
         }
+#endif
     }
 
     [System.Obsolete("BlendShapesExtractor is a legacy extractor. Use the new BlendShare extraction pipeline for new assets.")]
@@ -126,7 +128,12 @@ namespace Triturbo.BlendShapeShare.Extractor
                 AssetDatabase.DeleteAsset(tmp);
             }
 #else
-            if(!isEqualVertices)
+            bool isEqualVertices = IsUnityVerticesEqual(blendShapeSource, originObject);
+            if (isEqualVertices && !blendShapesExtractorOptions.ApplyTransform)
+            {
+                ExtractUnityBlendShapes(ref meshDataList, blendShapeSource, sourceAsBaseMesh ? blendShapeSource : originObject);
+            }
+            else
             {
                 EditorUtility.DisplayDialog("Vertices not match", "Vertices not match and Autodesk FBX SDK is missing", "OK");
             }

@@ -212,10 +212,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         /// </remarks>
         public static bool CreateFbx(GameObject source, IEnumerable<BlendShapeDataSO> blendShapes, string outputPath = null, bool onlyNecessary = false)
         {
-#if !ENABLE_FBX_SDK
-            return false;
-#endif
-
+#if ENABLE_FBX_SDK
             var fbxManager = FbxManager.Create();
             var ios = FbxIOSettings.Create(fbxManager, Globals.IOSROOT);
             fbxManager.SetIOSettings(ios);
@@ -288,6 +285,9 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             AssetDatabase.Refresh();
             EditorUtility.ClearProgressBar();
             return true;
+#else
+            return false;
+#endif
         }
 
         public static bool CreateFbx(this BlendShapeDataSO so, GameObject source, string outputPath = null)
@@ -297,9 +297,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
         
         public static bool RemoveBlendShapes(this BlendShapeDataSO so, GameObject target, bool removeInAllDeformer = true)
         {
-#if !ENABLE_FBX_SDK
-            return false;
-#endif
+#if ENABLE_FBX_SDK
             var fbxManager = FbxManager.Create();
             var ios = FbxIOSettings.Create(fbxManager, Globals.IOSROOT);
             fbxManager.SetIOSettings(ios);
@@ -381,6 +379,9 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
             AssetDatabase.Refresh();
             EditorUtility.ClearProgressBar();
             return true;
+#else
+            return false;
+#endif
         }
 
         #region Private Methods
