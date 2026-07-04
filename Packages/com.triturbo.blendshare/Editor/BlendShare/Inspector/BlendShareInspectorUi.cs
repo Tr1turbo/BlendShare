@@ -10,7 +10,44 @@ namespace Triturbo.BlendShare.Inspector
     {
         private const string ClickableObjectClass = "blendshare-clickable-object";
         private const float DefaultPrefixLabelWidth = 150f;
+        static Color BorderColor => 
+            EditorGUIUtility.isProSkin? 
+            new Color(0.28f, 0.28f, 0.28f, 1f)
+            : new Color(0.68f, 0.68f, 0.68f, 1f);
 
+        static Color HoverBorderColor => 
+            EditorGUIUtility.isProSkin? 
+            new Color(0.32f, 0.32f, 0.32f, 1f)
+            : new Color(0.72f, 0.72f, 0.72f, 1f);
+    
+        public static Color BoxBackgroundColor()
+        {
+            return EditorGUIUtility.isProSkin
+                ? new Color(0.20f, 0.20f, 0.20f, 1f)
+                : new Color(0.88f, 0.88f, 0.88f, 1f);
+        }
+
+        private static Color FooterBackgroundColor()
+        {
+            return EditorGUIUtility.isProSkin
+                ? new Color(0.20f, 0.20f, 0.20f, 1f)
+                : new Color(0.88f, 0.88f, 0.88f, 1f);
+        }
+
+        private static Color FooterTextColor()
+        {
+            return EditorGUIUtility.isProSkin
+                ? new Color(0.62f, 0.62f, 0.62f, 1f)
+                : new Color(0.42f, 0.42f, 0.42f, 1f);
+        }
+
+        private static Color FooterIconTintColor()
+        {
+            return EditorGUIUtility.isProSkin
+                ? Color.white
+                : new Color(0.18f, 0.18f, 0.18f, 1f);
+        }
+        
         public static VisualElement CreateRoot()
         {
             var root = new VisualElement();
@@ -46,7 +83,7 @@ namespace Triturbo.BlendShare.Inspector
         {
             var section = new VisualElement();
             section.style.borderTopWidth = 1;
-            section.style.borderTopColor = BorderColor();
+            section.style.borderTopColor = BorderColor;
             section.style.marginTop = 6;
             section.style.paddingTop = 7;
             section.style.paddingBottom = 6;
@@ -80,10 +117,10 @@ namespace Triturbo.BlendShare.Inspector
             box.style.borderRightWidth = 1;
             box.style.borderBottomWidth = 1;
             box.style.borderLeftWidth = 1;
-            box.style.borderTopColor = BorderColor();
-            box.style.borderRightColor = BorderColor();
-            box.style.borderBottomColor = BorderColor();
-            box.style.borderLeftColor = BorderColor();
+            box.style.borderTopColor = BorderColor;
+            box.style.borderRightColor = BorderColor;
+            box.style.borderBottomColor = BorderColor;
+            box.style.borderLeftColor = BorderColor;
             box.style.borderTopLeftRadius = 4;
             box.style.borderTopRightRadius = 4;
             box.style.borderBottomLeftRadius = 4;
@@ -95,6 +132,25 @@ namespace Triturbo.BlendShare.Inspector
             box.style.marginTop = 4;
             box.style.marginBottom = 4;
             box.style.backgroundColor = BoxBackgroundColor();
+
+       
+
+
+            box.RegisterCallback<MouseEnterEvent>(_ =>
+            {
+                box.style.borderTopColor = HoverBorderColor;
+                box.style.borderRightColor = HoverBorderColor;
+                box.style.borderBottomColor = HoverBorderColor;
+                box.style.borderLeftColor = HoverBorderColor;
+            });
+
+            box.RegisterCallback<MouseLeaveEvent>(_ =>
+            {
+                box.style.borderTopColor = BorderColor;
+                box.style.borderRightColor = BorderColor;
+                box.style.borderBottomColor = BorderColor;
+                box.style.borderLeftColor = BorderColor;
+            });
             return box;
         }
 
@@ -408,33 +464,7 @@ namespace Triturbo.BlendShare.Inspector
             return badge;
         }
 
-        public static Color BoxBackgroundColor()
-        {
-            return EditorGUIUtility.isProSkin
-                ? new Color(0.20f, 0.20f, 0.20f, 1f)
-                : new Color(0.88f, 0.88f, 0.88f, 1f);
-        }
 
-        private static Color FooterBackgroundColor()
-        {
-            return EditorGUIUtility.isProSkin
-                ? new Color(0.20f, 0.20f, 0.20f, 1f)
-                : new Color(0.88f, 0.88f, 0.88f, 1f);
-        }
-
-        private static Color FooterTextColor()
-        {
-            return EditorGUIUtility.isProSkin
-                ? new Color(0.62f, 0.62f, 0.62f, 1f)
-                : new Color(0.42f, 0.42f, 0.42f, 1f);
-        }
-
-        private static Color FooterIconTintColor()
-        {
-            return EditorGUIUtility.isProSkin
-                ? Color.white
-                : new Color(0.18f, 0.18f, 0.18f, 1f);
-        }
 
         public static VisualElement BadgeRow(params Label[] badges)
         {
@@ -476,13 +506,6 @@ namespace Triturbo.BlendShare.Inspector
             {
                 parent.Add(new HelpBox(message, type));
             }
-        }
-
-        private static Color BorderColor()
-        {
-            return EditorGUIUtility.isProSkin
-                ? new Color(0.28f, 0.28f, 0.28f, 1f)
-                : new Color(0.68f, 0.68f, 0.68f, 1f);
         }
 
         private static Color BadgeColor(StatusKind kind)
