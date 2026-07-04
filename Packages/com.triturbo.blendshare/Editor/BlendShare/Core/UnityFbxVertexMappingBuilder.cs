@@ -20,6 +20,7 @@ namespace Triturbo.BlendShare.Core
         private const float FingerprintEpsilon = 1e-6f;
         private const double MaxAverageMappedBaseOffset = 0.02d;
         private const double MaxAverageMappedBaseSqrOffset = MaxAverageMappedBaseOffset * MaxAverageMappedBaseOffset;
+        private const float MaxMappedBaseOffset = 0.05f;
         private const int ParallelMatchThreshold = 1024;
         private const string LogPrefix = "[BlendShare Vertex Mapping]";
 
@@ -173,13 +174,21 @@ namespace Triturbo.BlendShare.Core
                 mapping.m_IndexGroups,
                 pair.UnityFingerprints,
                 pair.FbxFingerprints);
+            float maxBaseOffset = CalculateMaxMappedBaseOffset(
+                mapping.m_IndexGroups,
+                pair.UnityFingerprints,
+                pair.FbxFingerprints,
+                MaxMappedBaseOffset,
+                out int maxOffsetViolationCount);
             LogTiming("FbxAsset", nodePath, "Validate mapped base position offsets", stopwatch, ref lastLogMs,
-                $"averageSqrOffset={averageBaseSqrOffset:0.##########}, rmsOffset={System.Math.Sqrt(averageBaseSqrOffset):0.##########}");
+                $"averageSqrOffset={averageBaseSqrOffset:0.##########}, rmsOffset={System.Math.Sqrt(averageBaseSqrOffset):0.##########}, maxOffset={maxBaseOffset:0.##########}, maxOffsetViolations={maxOffsetViolationCount}");
 
-            bool isValid = averageBaseSqrOffset <= MaxAverageMappedBaseSqrOffset;
+            bool averageOffsetValid = averageBaseSqrOffset <= MaxAverageMappedBaseSqrOffset;
+            bool maxOffsetValid = maxBaseOffset <= MaxMappedBaseOffset;
+            bool isValid = averageOffsetValid && maxOffsetValid;
             string summary = isValid
                 ? string.Empty
-                : $"FBX asset mapping average vertex offset is too large. Average squared offset: {averageBaseSqrOffset:0.##########}, RMS offset: {System.Math.Sqrt(averageBaseSqrOffset):0.##########}.";
+                : FormatOffsetValidationFailure(averageBaseSqrOffset, maxBaseOffset, maxOffsetViolationCount);
             SetMappingStatus(mapping, isValid, summary);
 
             LogCompletion("FbxAsset", nodePath, stopwatch, mapping);
@@ -325,11 +334,15 @@ namespace Triturbo.BlendShare.Core
         private static float CalculateMaxMappedBaseOffset(
             IReadOnlyList<FbxIndexGroup> mappingGroups,
             IReadOnlyList<PositionFingerprint> unityFingerprints,
-            IReadOnlyList<PositionFingerprint> fbxFingerprints)
+            IReadOnlyList<PositionFingerprint> fbxFingerprints,
+            float threshold,
+            out int violationCount)
         {
+            violationCount = 0;
             if (mappingGroups == null || unityFingerprints == null || fbxFingerprints == null ||
                 mappingGroups.Count != unityFingerprints.Count)
             {
+                violationCount = int.MaxValue;
                 return float.PositiveInfinity;
             }
 
@@ -337,8 +350,9 @@ namespace Triturbo.BlendShare.Core
             for (int unityIndex = 0; unityIndex < unityFingerprints.Count; unityIndex++)
             {
                 var indices = mappingGroups[unityIndex].m_Indices;
-                if (indices == null)
+                if (indices == null || indices.Length == 0)
                 {
+                    violationCount = int.MaxValue;
                     return float.PositiveInfinity;
                 }
 
@@ -347,14 +361,34 @@ namespace Triturbo.BlendShare.Core
                     int fbxIndex = indices[i];
                     if (fbxIndex < 0 || fbxIndex >= fbxFingerprints.Count || fbxFingerprints[fbxIndex] == null)
                     {
+                        violationCount = int.MaxValue;
                         return float.PositiveInfinity;
                     }
 
-                    max = Mathf.Max(max, (unityFingerprints[unityIndex].BasePosition - fbxFingerprints[fbxIndex].BasePosition).magnitude);
+                    float offset = (unityFingerprints[unityIndex].BasePosition - fbxFingerprints[fbxIndex].BasePosition).magnitude;
+                    if (offset > threshold)
+                    {
+                        violationCount++;
+                    }
+
+                    max = Mathf.Max(max, offset);
                 }
             }
 
             return max;
+        }
+
+        private static string FormatOffsetValidationFailure(
+            double averageBaseSqrOffset,
+            float maxBaseOffset,
+            int maxOffsetViolationCount)
+        {
+            return $"FBX asset mapping vertex offset validation failed. " +
+                   $"Average squared offset: {averageBaseSqrOffset:0.##########}, " +
+                   $"RMS offset: {System.Math.Sqrt(averageBaseSqrOffset):0.##########} " +
+                   $"(limit {MaxAverageMappedBaseOffset:0.##########}); " +
+                   $"max offset: {maxBaseOffset:0.##########} " +
+                   $"(limit {MaxMappedBaseOffset:0.##########}, violations {maxOffsetViolationCount}).";
         }
 
         // ─── Helpers ───────────────────────────────────────────────────────────────
