@@ -1,6 +1,5 @@
 using System;
 using System.Runtime.InteropServices;
-using System.Text;
 using Triturbo.BlendShare.Fbx;
 
 namespace Triturbo.BlendShare.Fbx.Ufbx
@@ -139,7 +138,7 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
         }
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "bs_ufbx_load")]
-        internal static extern int Load(string path, out IntPtr scene, StringBuilder error, int errorSize);
+        internal static extern int Load([In] byte[] path, out IntPtr scene, [Out] byte[] error, int errorSize);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "bs_ufbx_free")]
         internal static extern void Free(IntPtr scene);
@@ -151,10 +150,10 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
         internal static extern int GetNodeInfo(IntPtr scene, int nodeIndex, out NodeInfo info);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "bs_ufbx_copy_node_name")]
-        internal static extern int CopyNodeName(IntPtr scene, int nodeIndex, StringBuilder dst, int dstSize);
+        internal static extern int CopyNodeName(IntPtr scene, int nodeIndex, [Out] byte[] dst, int dstSize);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "bs_ufbx_copy_node_path")]
-        internal static extern int CopyNodePath(IntPtr scene, int nodeIndex, StringBuilder dst, int dstSize);
+        internal static extern int CopyNodePath(IntPtr scene, int nodeIndex, [Out] byte[] dst, int dstSize);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "bs_ufbx_get_mesh_count")]
         internal static extern int GetMeshCount(IntPtr scene);
@@ -163,7 +162,7 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
         internal static extern int GetMeshInfo(IntPtr scene, int meshIndex, out MeshInfo info);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "bs_ufbx_copy_mesh_name")]
-        internal static extern int CopyMeshName(IntPtr scene, int meshIndex, StringBuilder dst, int dstSize);
+        internal static extern int CopyMeshName(IntPtr scene, int meshIndex, [Out] byte[] dst, int dstSize);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "bs_ufbx_copy_control_points")]
         internal static extern int CopyControlPoints(IntPtr scene, int meshIndex, [Out] double[] dst, int dstVertexCount);
@@ -184,13 +183,13 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
         internal static extern int GetSkinInfo(IntPtr scene, int meshIndex, int skinIndex, out SkinInfo info);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "bs_ufbx_copy_skin_name")]
-        internal static extern int CopySkinName(IntPtr scene, int meshIndex, int skinIndex, StringBuilder dst, int dstSize);
+        internal static extern int CopySkinName(IntPtr scene, int meshIndex, int skinIndex, [Out] byte[] dst, int dstSize);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "bs_ufbx_get_skin_cluster_info")]
         internal static extern int GetSkinClusterInfo(IntPtr scene, int meshIndex, int skinIndex, int clusterIndex, out ClusterInfo info);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "bs_ufbx_copy_cluster_name")]
-        internal static extern int CopyClusterName(IntPtr scene, int meshIndex, int skinIndex, int clusterIndex, StringBuilder dst, int dstSize);
+        internal static extern int CopyClusterName(IntPtr scene, int meshIndex, int skinIndex, int clusterIndex, [Out] byte[] dst, int dstSize);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "bs_ufbx_copy_cluster_indices")]
         internal static extern int CopyClusterIndices(IntPtr scene, int meshIndex, int skinIndex, int clusterIndex, [Out] int[] dst, int dstCount);
@@ -202,19 +201,19 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
         internal static extern int GetBlendDeformerInfo(IntPtr scene, int meshIndex, int deformerIndex, out BlendDeformerInfo info);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "bs_ufbx_copy_blend_deformer_name")]
-        internal static extern int CopyBlendDeformerName(IntPtr scene, int meshIndex, int deformerIndex, StringBuilder dst, int dstSize);
+        internal static extern int CopyBlendDeformerName(IntPtr scene, int meshIndex, int deformerIndex, [Out] byte[] dst, int dstSize);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "bs_ufbx_get_blend_channel_info")]
         internal static extern int GetBlendChannelInfo(IntPtr scene, int meshIndex, int deformerIndex, int channelIndex, out BlendChannelInfo info);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "bs_ufbx_copy_blend_channel_name")]
-        internal static extern int CopyBlendChannelName(IntPtr scene, int meshIndex, int deformerIndex, int channelIndex, StringBuilder dst, int dstSize);
+        internal static extern int CopyBlendChannelName(IntPtr scene, int meshIndex, int deformerIndex, int channelIndex, [Out] byte[] dst, int dstSize);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "bs_ufbx_get_blend_frame_info")]
         internal static extern int GetBlendFrameInfo(IntPtr scene, int meshIndex, int deformerIndex, int channelIndex, int frameIndex, out BlendFrameInfo info);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "bs_ufbx_copy_blend_frame_name")]
-        internal static extern int CopyBlendFrameName(IntPtr scene, int meshIndex, int deformerIndex, int channelIndex, int frameIndex, StringBuilder dst, int dstSize);
+        internal static extern int CopyBlendFrameName(IntPtr scene, int meshIndex, int deformerIndex, int channelIndex, int frameIndex, [Out] byte[] dst, int dstSize);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "bs_ufbx_copy_blend_frame_offsets")]
         internal static extern int CopyBlendFrameOffsets(IntPtr scene, int meshIndex, int deformerIndex, int channelIndex, int frameIndex, [Out] int[] dstIndices, [Out] double[] dstPosition, [Out] double[] dstNormal, int dstCount);

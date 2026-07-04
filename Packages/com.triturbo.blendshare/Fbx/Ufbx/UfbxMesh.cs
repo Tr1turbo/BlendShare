@@ -176,7 +176,7 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
                     continue;
                 }
 
-                string name = UfbxScene.CopyString(info.NameLength, builder => UfbxNative.CopySkinName(Scene.Handle, Index, i, builder, builder.Capacity));
+                string name = UfbxScene.CopyString(info.NameLength, buffer => UfbxNative.CopySkinName(Scene.Handle, Index, i, buffer, buffer.Length));
                 result.Add(new UfbxSkinDeformer(Scene, this, i, (long)info.Id, name, info.ClusterCount));
             }
 
@@ -187,7 +187,7 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
                     continue;
                 }
 
-                string name = UfbxScene.CopyString(info.NameLength, builder => UfbxNative.CopyBlendDeformerName(Scene.Handle, Index, i, builder, builder.Capacity));
+                string name = UfbxScene.CopyString(info.NameLength, buffer => UfbxNative.CopyBlendDeformerName(Scene.Handle, Index, i, buffer, buffer.Length));
                 result.Add(new UfbxBlendDeformer(Scene, this, i, (long)info.Id, name, info.ChannelCount));
             }
 

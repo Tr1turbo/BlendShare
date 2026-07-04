@@ -62,12 +62,13 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             IntPtr loaded = IntPtr.Zero;
             try
             {
-                var error = new StringBuilder(2048);
-                if (UfbxNative.Load(assetPath, out loaded, error, error.Capacity) == 0 || loaded == IntPtr.Zero)
+                var error = new byte[2048];
+                if (UfbxNative.Load(ToUtf8NullTerminated(assetPath), out loaded, error, error.Length) == 0 || loaded == IntPtr.Zero)
                 {
+                    string errorMessage = DecodeUtf8(error, error.Length);
                     return FbxReadResult<UfbxScene>.Failed(
                         FbxReadStatus.ParseError,
-                        string.IsNullOrWhiteSpace(error.ToString()) ? "ufbx failed to load the FBX file." : error.ToString());
+                        string.IsNullOrWhiteSpace(errorMessage) ? "ufbx failed to load the FBX file." : errorMessage);
                 }
 
                 var sceneHandle = new NativeSceneHandle(loaded);
@@ -178,8 +179,8 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
                 }
 
                 parentIndices[i] = info.ParentIndex;
-                string name = CopyString(info.NameLength, builder => UfbxNative.CopyNodeName(Handle, i, builder, builder.Capacity));
-                string path = CopyString(info.PathLength, builder => UfbxNative.CopyNodePath(Handle, i, builder, builder.Capacity));
+                string name = CopyString(info.NameLength, buffer => UfbxNative.CopyNodeName(Handle, i, buffer, buffer.Length));
+                string path = CopyString(info.PathLength, buffer => UfbxNative.CopyNodePath(Handle, i, buffer, buffer.Length));
                 var lclTransform = new FbxTransform(
                     new Vector3d(info.LclTranslationX, info.LclTranslationY, info.LclTranslationZ),
                     new Vector3d(info.LclRotationX, info.LclRotationY, info.LclRotationZ),
@@ -232,7 +233,7 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
                     continue;
                 }
 
-                string name = CopyString(info.NameLength, builder => UfbxNative.CopyMeshName(Handle, i, builder, builder.Capacity));
+                string name = CopyString(info.NameLength, buffer => UfbxNative.CopyMeshName(Handle, i, buffer, buffer.Length));
                 var ownerNode = info.NodeIndex >= 0 && info.NodeIndex < Nodes.Count ? Nodes[info.NodeIndex] : null;
                 meshes[i] = new UfbxMesh(
                     this,
@@ -250,11 +251,44 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             return Array.AsReadOnly(meshes);
         }
 
-        internal static string CopyString(int length, Func<StringBuilder, int> copy)
+        internal static string CopyString(int length, Func<byte[], int> copy)
         {
-            var builder = new StringBuilder(Math.Max(1, length + 1));
-            copy(builder);
-            return builder.ToString();
+            int capacity = Math.Max(1, length + 1);
+            var buffer = new byte[capacity];
+            int byteCount = copy(buffer);
+
+            if (byteCount >= buffer.Length)
+            {
+                buffer = new byte[byteCount + 1];
+                byteCount = copy(buffer);
+            }
+
+            return DecodeUtf8(buffer, byteCount);
+        }
+
+        private static byte[] ToUtf8NullTerminated(string value)
+        {
+            var bytes = Encoding.UTF8.GetBytes(value ?? string.Empty);
+            var result = new byte[bytes.Length + 1];
+            Buffer.BlockCopy(bytes, 0, result, 0, bytes.Length);
+            return result;
+        }
+
+        private static string DecodeUtf8(byte[] buffer, int byteCount)
+        {
+            if (buffer == null || byteCount <= 0)
+            {
+                return string.Empty;
+            }
+
+            byteCount = Math.Min(byteCount, buffer.Length);
+            int nullIndex = Array.IndexOf(buffer, (byte)0, 0, byteCount);
+            if (nullIndex >= 0)
+            {
+                byteCount = nullIndex;
+            }
+
+            return byteCount > 0 ? Encoding.UTF8.GetString(buffer, 0, byteCount) : string.Empty;
         }
 
         internal static FbxMatrix4x4 ToMatrix(UfbxNative.Matrix matrix)

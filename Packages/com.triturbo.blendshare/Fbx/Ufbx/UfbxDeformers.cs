@@ -54,7 +54,7 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
                     continue;
                 }
 
-                string name = UfbxScene.CopyString(info.NameLength, builder => UfbxNative.CopyClusterName(Scene.Handle, OwnerMesh.Index, Index, i, builder, builder.Capacity));
+                string name = UfbxScene.CopyString(info.NameLength, buffer => UfbxNative.CopyClusterName(Scene.Handle, OwnerMesh.Index, Index, i, buffer, buffer.Length));
                 var boneNode = info.BoneNodeIndex >= 0 && info.BoneNodeIndex < Scene.Nodes.Count ? Scene.Nodes[info.BoneNodeIndex] : null;
                 result.Add(new UfbxSkinCluster(Scene, OwnerMesh, this, i, (long)info.Id, name, boneNode, info));
             }
@@ -231,7 +231,7 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
                     continue;
                 }
 
-                string name = UfbxScene.CopyString(info.NameLength, builder => UfbxNative.CopyBlendChannelName(Scene.Handle, OwnerMesh.Index, Index, i, builder, builder.Capacity));
+                string name = UfbxScene.CopyString(info.NameLength, buffer => UfbxNative.CopyBlendChannelName(Scene.Handle, OwnerMesh.Index, Index, i, buffer, buffer.Length));
                 result.Add(new UfbxBlendChannel(Scene, OwnerMesh, this, i, (long)info.Id, name, info.FrameCount));
             }
 
@@ -291,7 +291,7 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
                     continue;
                 }
 
-                string name = UfbxScene.CopyString(info.NameLength, builder => UfbxNative.CopyBlendFrameName(Scene.Handle, OwnerMesh.Index, OwnerDeformer.Index, Index, i, builder, builder.Capacity));
+                string name = UfbxScene.CopyString(info.NameLength, buffer => UfbxNative.CopyBlendFrameName(Scene.Handle, OwnerMesh.Index, OwnerDeformer.Index, Index, i, buffer, buffer.Length));
                 result.Add(new UfbxBlendShape(Scene, OwnerMesh, OwnerDeformer, this, i, (long)info.Id, name, info.Weight, info.OffsetCount));
             }
 
