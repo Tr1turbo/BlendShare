@@ -86,6 +86,11 @@ namespace Triturbo.BlendShare.Core
             return FbxToUnityMatrix.MultiplyVector(fbxVector);
         }
 
+        public Vector3 ConvertFbxNormalDeltaToUnity(Vector3 fbxNormalDelta)
+        {
+            return ConvertFbxVectorToUnity(fbxNormalDelta) / FbxToUnityScale;
+        }
+
         public Vector3 ConvertFbxDirectionToUnity(Vector3 fbxDirection)
         {
             return FbxToUnityMatrix.MultiplyVector(fbxDirection).normalized;

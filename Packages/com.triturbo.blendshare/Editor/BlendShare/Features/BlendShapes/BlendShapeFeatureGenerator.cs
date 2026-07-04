@@ -121,6 +121,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             for (int frameIndex = 0; frameIndex < frames.Length; frameIndex++)
             {
                 var deltaVertices = new Vector3[unityVertexCount];
+                var deltaNormals = new Vector3[unityVertexCount];
                 for (int unityIndex = 0; unityIndex < unityVertexCount; unityIndex++)
                 {
                     if (!mapping.TryGetFbxGroup(unityIndex, out FbxIndexGroup group))
@@ -129,7 +130,9 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                     }
 
                     var delta = GetDeltaFromGroup(frames[frameIndex], group);
+                    var normalDelta = GetNormalDeltaFromGroup(frames[frameIndex], group);
                     deltaVertices[unityIndex] = mapping.ConvertFbxVectorToUnity(new Vector3((float)delta.x, (float)delta.y, (float)delta.z));
+                    deltaNormals[unityIndex] = mapping.ConvertFbxNormalDeltaToUnity(new Vector3((float)normalDelta.x, (float)normalDelta.y, (float)normalDelta.z));
                 }
 
                 float weight = 100f * (frameIndex + 1) / frames.Length;
@@ -137,7 +140,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                     weight,
                     unityVertexCount,
                     deltaVertices,
-                    null,
+                    deltaNormals,
                     null));
             }
 
@@ -155,6 +158,25 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             for (int i = 0; i < group.m_Indices.Length; i++)
             {
                 var delta = frame.GetDeltaControlPointAt(group.m_Indices[i]);
+                if (!delta.IsZero())
+                {
+                    return delta;
+                }
+            }
+
+            return Vector3d.zero;
+        }
+
+        private static Vector3d GetNormalDeltaFromGroup(FbxBlendShapeFrame frame, FbxIndexGroup group)
+        {
+            if (group.m_Indices == null)
+            {
+                return Vector3d.zero;
+            }
+
+            for (int i = 0; i < group.m_Indices.Length; i++)
+            {
+                var delta = frame.GetDeltaNormalAt(group.m_Indices[i]);
                 if (!delta.IsZero())
                 {
                     return delta;

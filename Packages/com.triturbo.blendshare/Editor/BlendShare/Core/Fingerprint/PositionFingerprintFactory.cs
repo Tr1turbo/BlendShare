@@ -303,18 +303,20 @@ namespace Triturbo.BlendShare.Core
 
             var indices = new int[shape.OffsetCount];
             var values = new double[shape.OffsetCount * 3];
-            if (shape.CopyOffsets(indices, values, null) == 0)
+            var normals = new double[shape.OffsetCount * 3];
+            if (shape.CopyOffsets(indices, values, normals) == 0)
             {
                 return frame;
             }
 
             var deltas = FbxArrayUtility.ToVector3dArray(values);
-            int count = System.Math.Min(indices.Length, deltas.Length);
+            var normalDeltas = FbxArrayUtility.ToVector3dArray(normals);
+            int count = System.Math.Min(indices.Length, System.Math.Min(deltas.Length, normalDeltas.Length));
             for (int i = 0; i < count; i++)
             {
-                if (!deltas[i].IsZero())
+                if (!deltas[i].IsZero() || !normalDeltas[i].IsZero())
                 {
-                    frame.AddDeltaControlPointAt(deltas[i], indices[i]);
+                    frame.AddDeltaControlPointAt(deltas[i], indices[i], normalDeltas[i]);
                 }
             }
             return frame;

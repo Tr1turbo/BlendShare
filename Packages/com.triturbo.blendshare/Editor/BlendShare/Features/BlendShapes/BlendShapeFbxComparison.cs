@@ -201,7 +201,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             foreach (var pair in sourceDeltas)
             {
                 if (!originDeltas.TryGetValue(pair.Key, out var originDelta) ||
-                    !VectorEquals(pair.Value, originDelta))
+                    !BlendShapeDeltaEquals(pair.Value, originDelta))
                 {
                     return false;
                 }
@@ -210,9 +210,9 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             return true;
         }
 
-        private static Dictionary<int, Vector3d> CopyDeltas(UfbxBlendShape frame)
+        private static Dictionary<int, BlendShapeDelta> CopyDeltas(UfbxBlendShape frame)
         {
-            var result = new Dictionary<int, Vector3d>();
+            var result = new Dictionary<int, BlendShapeDelta>();
             if (frame == null || frame.OffsetCount <= 0)
             {
                 return result;
@@ -220,19 +220,27 @@ namespace Triturbo.BlendShare.Features.BlendShapes
 
             var indices = new int[frame.OffsetCount];
             var values = new double[frame.OffsetCount * 3];
-            if (frame.CopyOffsets(indices, values, null) == 0)
+            var normals = new double[frame.OffsetCount * 3];
+            if (frame.CopyOffsets(indices, values, normals) == 0)
             {
                 return result;
             }
 
             var deltas = FbxArrayUtility.ToVector3dArray(values);
-            int count = Math.Min(indices.Length, deltas.Length);
+            var normalDeltas = FbxArrayUtility.ToVector3dArray(normals);
+            int count = Math.Min(indices.Length, Math.Min(deltas.Length, normalDeltas.Length));
             for (int i = 0; i < count; i++)
             {
-                result[indices[i]] = deltas[i];
+                result[indices[i]] = new BlendShapeDelta(deltas[i], normalDeltas[i]);
             }
 
             return result;
+        }
+
+        private static bool BlendShapeDeltaEquals(BlendShapeDelta left, BlendShapeDelta right)
+        {
+            return VectorEquals(left.Position, right.Position) &&
+                   VectorEquals(left.Normal, right.Normal);
         }
 
         private static bool VectorEquals(Vector3d left, Vector3d right)
@@ -240,6 +248,18 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             return Math.Abs(left.x - right.x) <= Epsilon &&
                    Math.Abs(left.y - right.y) <= Epsilon &&
                    Math.Abs(left.z - right.z) <= Epsilon;
+        }
+
+        private readonly struct BlendShapeDelta
+        {
+            public readonly Vector3d Position;
+            public readonly Vector3d Normal;
+
+            public BlendShapeDelta(Vector3d position, Vector3d normal)
+            {
+                Position = position;
+                Normal = normal;
+            }
         }
     }
 }
