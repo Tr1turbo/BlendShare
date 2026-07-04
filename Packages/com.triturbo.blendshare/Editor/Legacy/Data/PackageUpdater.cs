@@ -1,8 +1,5 @@
 using System;
-using System.Collections;
 using System.IO;
-using System.Net;
-using System.Net.Http;
 using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
@@ -87,15 +84,16 @@ namespace Triturbo.BlendShapeShare
 
                     // --- Proceed with download ---
                     GitHubAsset unityPackage = null;
-                    foreach (var asset in release.assets)
+                    foreach (var asset in release.assets ?? Array.Empty<GitHubAsset>())
                     {
-                        if (asset.name.EndsWith(".unitypackage"))
+                        if (!string.IsNullOrEmpty(asset?.name) &&
+                            asset.name.EndsWith(".unitypackage", StringComparison.OrdinalIgnoreCase))
                         {
                             unityPackage = asset;
                             break;
                         }
                     }
-                    if (unityPackage == null)
+                    if (unityPackage == null || string.IsNullOrEmpty(unityPackage.browser_download_url))
                     {
                         EditorUtility.DisplayDialog(
                             Localization.S("updater.update_title"),
@@ -107,7 +105,27 @@ namespace Triturbo.BlendShapeShare
 
                     string savePath = Path.Combine(Application.dataPath, "../Temp", unityPackage.name);
                     Directory.CreateDirectory(Path.GetDirectoryName(savePath));
-                    await DownloadFile(unityPackage.browser_download_url, savePath);
+                    string downloadError = await DownloadFile(unityPackage.browser_download_url, savePath);
+                    if (!string.IsNullOrEmpty(downloadError))
+                    {
+                        EditorUtility.DisplayDialog(
+                            Localization.S("updater.update_title"),
+                            Localization.SF("updater.update_error", downloadError),
+                            "OK"
+                        );
+                        return;
+                    }
+
+                    if (!ValidateDownloadedFile(savePath, unityPackage.size, out string validationError))
+                    {
+                        EditorUtility.DisplayDialog(
+                            Localization.S("updater.update_title"),
+                            Localization.SF("updater.update_error", validationError),
+                            "OK"
+                        );
+                        return;
+                    }
+
                     AssetDatabase.ImportPackage(savePath, true);
                 }
             }
@@ -163,26 +181,55 @@ namespace Triturbo.BlendShapeShare
         }
         
         
-        private static async Task DownloadFile(string url, string savePath)
+        private static async Task<string> DownloadFile(string url, string savePath)
         {
             using (UnityWebRequest request = UnityWebRequest.Get(url))
             {
                 request.downloadHandler = new DownloadHandlerFile(savePath);
                 var operation = request.SendWebRequest();
 
-                while (!operation.isDone)
+                try
                 {
-                    EditorUtility.DisplayProgressBar("Downloading Package", $"Progress: {request.downloadProgress * 100f:F1}%", request.downloadProgress);
-                    await Task.Yield();
+                    while (!operation.isDone)
+                    {
+                        EditorUtility.DisplayProgressBar("Downloading Package", $"Progress: {request.downloadProgress * 100f:F1}%", request.downloadProgress);
+                        await Task.Yield();
+                    }
+
+                    return request.result == UnityWebRequest.Result.Success
+                        ? null
+                        : request.error ?? "Package download failed.";
                 }
-
-                EditorUtility.ClearProgressBar();
-
-                if (request.result != UnityWebRequest.Result.Success)
+                finally
                 {
-                    Debug.LogError($"Download failed: {request.error}");
+                    EditorUtility.ClearProgressBar();
                 }
             }
+        }
+
+        private static bool ValidateDownloadedFile(string savePath, long expectedSize, out string error)
+        {
+            if (!File.Exists(savePath))
+            {
+                error = $"Downloaded package was not saved: {savePath}";
+                return false;
+            }
+
+            long actualSize = new FileInfo(savePath).Length;
+            if (actualSize <= 0)
+            {
+                error = "Downloaded package is empty.";
+                return false;
+            }
+
+            if (expectedSize > 0 && actualSize != expectedSize)
+            {
+                error = $"Downloaded package size mismatch. Expected {expectedSize} bytes, got {actualSize} bytes.";
+                return false;
+            }
+
+            error = null;
+            return true;
         }
 
         // --- GitHub JSON Models ---
@@ -198,6 +245,7 @@ namespace Triturbo.BlendShapeShare
         {
             public string name;
             public string browser_download_url;
+            public long size;
         }
     }
 
