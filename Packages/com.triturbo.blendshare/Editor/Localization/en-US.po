@@ -783,6 +783,54 @@ msgstr "Path"
 msgid "common.restore"
 msgstr "Restore"
 
+msgid "applied_renderer.state"
+msgstr "Applied State"
+
+msgid "applied_renderer.purpose.message"
+msgstr "This marker is created automatically by BlendShare when a generated mesh is applied. It records the original mesh and bones so the change can be reverted. Do not add or remove it manually."
+
+msgid "applied_renderer.original_bones"
+msgstr "Original Bones"
+
+msgid "applied_renderer.generated_bones"
+msgstr "Generated Bones"
+
+msgid "applied_renderer.bones_count"
+msgstr "{0} bones"
+
+msgid "applied_renderer.generated_bones_with_missing"
+msgstr "{0} bones ({1} missing)"
+
+msgid "applied_renderer.remove_marker"
+msgstr "Remove Marker"
+
+msgid "applied_renderer.revert_confirm.title"
+msgstr "Revert BlendShare Apply"
+
+msgid "applied_renderer.revert_confirm.message"
+msgstr "This restores the original mesh and bones and destroys the generated bones created by BlendShare. Continue?"
+
+msgid "applied_renderer.remove_confirm.title"
+msgstr "Remove BlendShare Marker"
+
+msgid "applied_renderer.remove_confirm.message"
+msgstr "This removes the BlendShare marker without restoring the original mesh. Continue?"
+
+msgid "applied_renderer.renderer_missing.message"
+msgstr "The Skinned Mesh Renderer referenced by this marker is missing."
+
+msgid "applied_renderer.no_baseline.message"
+msgstr "This marker has no recorded baseline, so there is nothing to revert. You can remove it to clean up."
+
+msgid "applied_renderer.stale.message"
+msgstr "The renderer is back to its original mesh, but the marker still exists. You can remove it to clean up."
+
+msgid "applied_renderer.incomplete.message"
+msgstr "The recorded baseline is incomplete; reverting may only partially restore the original mesh."
+
+msgid "applied_renderer.missing_bones.message"
+msgstr "One or more generated bones recorded by this marker have been destroyed. Revert will skip them."
+
 msgid "common.revert"
 msgstr "Revert"
 

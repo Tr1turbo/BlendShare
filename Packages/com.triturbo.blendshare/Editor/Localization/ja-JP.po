@@ -783,6 +783,54 @@ msgstr "パス"
 msgid "common.restore"
 msgstr "復元"
 
+msgid "applied_renderer.state"
+msgstr "適用状態"
+
+msgid "applied_renderer.purpose.message"
+msgstr "このマーカーは生成メッシュの適用時に BlendShare が自動的に作成します。変更を元に戻せるよう、元のメッシュとボーンを記録しています。手動で追加・削除しないでください。"
+
+msgid "applied_renderer.original_bones"
+msgstr "元のボーン"
+
+msgid "applied_renderer.generated_bones"
+msgstr "生成されたボーン"
+
+msgid "applied_renderer.bones_count"
+msgstr "{0} 個のボーン"
+
+msgid "applied_renderer.generated_bones_with_missing"
+msgstr "{0} 個のボーン（{1} 個が欠落）"
+
+msgid "applied_renderer.remove_marker"
+msgstr "マーカーを削除"
+
+msgid "applied_renderer.revert_confirm.title"
+msgstr "BlendShare の適用を元に戻す"
+
+msgid "applied_renderer.revert_confirm.message"
+msgstr "元のメッシュとボーンを復元し、BlendShare が作成した生成ボーンを破棄します。続行しますか？"
+
+msgid "applied_renderer.remove_confirm.title"
+msgstr "BlendShare マーカーを削除"
+
+msgid "applied_renderer.remove_confirm.message"
+msgstr "元のメッシュを復元せずに BlendShare マーカーを削除します。続行しますか？"
+
+msgid "applied_renderer.renderer_missing.message"
+msgstr "このマーカーが参照するスキンメッシュレンダラーがありません。"
+
+msgid "applied_renderer.no_baseline.message"
+msgstr "このマーカーには基準の記録がないため、元に戻す対象がありません。削除して整理できます。"
+
+msgid "applied_renderer.stale.message"
+msgstr "レンダラーは元のメッシュに戻っていますが、マーカーが残っています。削除して整理できます。"
+
+msgid "applied_renderer.incomplete.message"
+msgstr "記録された基準が不完全なため、元に戻してもメッシュが部分的にしか復元されない場合があります。"
+
+msgid "applied_renderer.missing_bones.message"
+msgstr "このマーカーが記録した生成ボーンの一部が破棄されています。元に戻す際はそれらをスキップします。"
+
 msgid "common.revert"
 msgstr "元に戻す"
 

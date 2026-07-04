@@ -783,6 +783,54 @@ msgstr "路径"
 msgid "common.restore"
 msgstr "还原"
 
+msgid "applied_renderer.state"
+msgstr "应用状态"
+
+msgid "applied_renderer.purpose.message"
+msgstr "此标记由 BlendShare 在应用生成网格时自动创建，会记录原始网格和骨骼以便还原更改。请勿手动添加或删除。"
+
+msgid "applied_renderer.original_bones"
+msgstr "原始骨骼"
+
+msgid "applied_renderer.generated_bones"
+msgstr "生成的骨骼"
+
+msgid "applied_renderer.bones_count"
+msgstr "{0} 根骨骼"
+
+msgid "applied_renderer.generated_bones_with_missing"
+msgstr "{0} 根骨骼（{1} 根缺失）"
+
+msgid "applied_renderer.remove_marker"
+msgstr "移除标记"
+
+msgid "applied_renderer.revert_confirm.title"
+msgstr "还原 BlendShare 应用"
+
+msgid "applied_renderer.revert_confirm.message"
+msgstr "这将恢复原始网格和骨骼，并销毁 BlendShare 创建的生成骨骼。是否继续？"
+
+msgid "applied_renderer.remove_confirm.title"
+msgstr "移除 BlendShare 标记"
+
+msgid "applied_renderer.remove_confirm.message"
+msgstr "这将不移除原始网格、仅删除 BlendShare 标记。是否继续？"
+
+msgid "applied_renderer.renderer_missing.message"
+msgstr "此标记引用的蒙皮网格渲染器已丢失。"
+
+msgid "applied_renderer.no_baseline.message"
+msgstr "此标记没有记录基线，没有可还原的内容。可以移除它来清理。"
+
+msgid "applied_renderer.stale.message"
+msgstr "渲染器已恢复为原始网格，但标记仍然存在。可以移除它来清理。"
+
+msgid "applied_renderer.incomplete.message"
+msgstr "记录的基线不完整，还原可能只能部分恢复原始网格。"
+
+msgid "applied_renderer.missing_bones.message"
+msgstr "此标记记录的部分生成骨骼已被销毁。还原将跳过它们。"
+
 msgid "common.revert"
 msgstr "撤销"
 
