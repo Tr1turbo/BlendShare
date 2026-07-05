@@ -1,7 +1,9 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using Triturbo.BlendShapeShare.BlendShapeData;
 using Triturbo.BlendShare.Core;
+using UnityEditor;
 using UnityEngine;
 using Vector3d = Triturbo.BlendShare.Fbx.Vector3d;
 
@@ -100,7 +102,11 @@ namespace Triturbo.BlendShare.Features.BlendShapes
 
             if (mapping != null)
             {
-                return CreateUnityBlendShapeDataFromMapping(mapping, blendShape, targetMesh.vertexCount);
+                return CreateUnityBlendShapeDataFromMapping(
+                    mapping,
+                    blendShape,
+                    targetMesh.vertexCount,
+                    ShouldEmitBlendShapeNormals(context, targetMesh));
             }
 
             return null;
@@ -109,7 +115,8 @@ namespace Triturbo.BlendShare.Features.BlendShapes
         private static UnityBlendShapeData CreateUnityBlendShapeDataFromMapping(
             UnityVertexMappingObject mapping,
             BlendShapeRecord blendShape,
-            int unityVertexCount)
+            int unityVertexCount,
+            bool emitNormalDeltas)
         {
             var frames = blendShape.m_FbxBlendShapeData?.m_Frames;
             if (frames == null || frames.Length == 0)
@@ -121,7 +128,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             for (int frameIndex = 0; frameIndex < frames.Length; frameIndex++)
             {
                 var deltaVertices = new Vector3[unityVertexCount];
-                var deltaNormals = new Vector3[unityVertexCount];
+                var deltaNormals = emitNormalDeltas ? new Vector3[unityVertexCount] : null;
                 for (int unityIndex = 0; unityIndex < unityVertexCount; unityIndex++)
                 {
                     if (!mapping.TryGetFbxGroup(unityIndex, out FbxIndexGroup group))
@@ -130,9 +137,12 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                     }
 
                     var delta = GetDeltaFromGroup(frames[frameIndex], group);
-                    var normalDelta = GetNormalDeltaFromGroup(frames[frameIndex], group);
                     deltaVertices[unityIndex] = mapping.ConvertFbxVectorToUnity(new Vector3((float)delta.x, (float)delta.y, (float)delta.z));
-                    deltaNormals[unityIndex] = mapping.ConvertFbxNormalDeltaToUnity(new Vector3((float)normalDelta.x, (float)normalDelta.y, (float)normalDelta.z));
+                    if (emitNormalDeltas)
+                    {
+                        var normalDelta = GetNormalDeltaFromGroup(frames[frameIndex], group);
+                        deltaNormals[unityIndex] = mapping.ConvertFbxNormalDeltaToUnity(new Vector3((float)normalDelta.x, (float)normalDelta.y, (float)normalDelta.z));
+                    }
                 }
 
                 float weight = 100f * (frameIndex + 1) / frames.Length;
@@ -145,6 +155,63 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             }
 
             return unityData;
+        }
+
+        private static bool ShouldEmitBlendShapeNormals(UnityMeshGenerationContext context, Mesh targetMesh)
+        {
+            var importer = ResolveModelImporter(context, targetMesh);
+            return importer != null &&
+                   importer.importBlendShapeNormals != ModelImporterNormals.None &&
+                   !UsesLegacyBlendShapeNormals(importer);
+        }
+
+        private static ModelImporter ResolveModelImporter(UnityMeshGenerationContext context, Mesh targetMesh)
+        {
+            var importer = GetModelImporter(targetMesh);
+            if (importer != null)
+            {
+                return importer;
+            }
+
+            importer = GetModelImporter(context?.OriginalMesh);
+            if (importer != null)
+            {
+                return importer;
+            }
+
+            importer = GetModelImporter(context?.TargetRenderer?.sharedMesh);
+            if (importer != null)
+            {
+                return importer;
+            }
+
+            return GetModelImporter(context?.Session?.TargetMeshContainer);
+        }
+
+        private static ModelImporter GetModelImporter(Object asset)
+        {
+            if (asset == null)
+            {
+                return null;
+            }
+
+            string path = AssetDatabase.GetAssetPath(asset);
+            return string.IsNullOrEmpty(path) ? null : AssetImporter.GetAtPath(path) as ModelImporter;
+        }
+
+        private static bool UsesLegacyBlendShapeNormals(ModelImporter importer)
+        {
+            return GetBoolImporterProperty(importer, "legacyComputeAllNormalsFromSmoothingGroupsWhenMeshHasBlendShapes");
+        }
+
+        private static bool GetBoolImporterProperty(ModelImporter importer, string propertyName)
+        {
+            var property = typeof(ModelImporter).GetProperty(
+                propertyName,
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            return property != null &&
+                   property.PropertyType == typeof(bool) &&
+                   property.GetValue(importer) is true;
         }
 
         private static Vector3d GetDeltaFromGroup(FbxBlendShapeFrame frame, FbxIndexGroup group)
