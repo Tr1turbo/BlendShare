@@ -10,24 +10,64 @@ namespace Triturbo.BlendShare.Features.SkinWeights
     [System.Serializable]
     public sealed class SkinWeightClusterData
     {
+        private const float WeightEpsilon = 0.00001f;
+
         public string m_BonePath;
-        public int[] m_Indices = System.Array.Empty<int>();
-        public float[] m_Deltaweights = System.Array.Empty<float>();
+        public SparseArray<float> m_DeltaWeights = new();
 
         public FbxMatrix4x4 m_FbxTransformMatrix = FbxMatrix4x4.Identity;
         public FbxMatrix4x4 m_FbxTransformLinkMatrix = FbxMatrix4x4.Identity;
         public bool m_HasFbxClusterMatrices;
 
         public string BonePath => MeshNodePath.Normalize(m_BonePath);
-        public int WeightCount => System.Math.Min(m_Indices?.Length ?? 0, m_Deltaweights?.Length ?? 0);
+        public int WeightCount => m_DeltaWeights?.Count ?? 0;
 
         public SkinWeightClusterData() { }
 
         public SkinWeightClusterData(string bonePath, IEnumerable<int> indices, IEnumerable<float> deltaWeights)
         {
             m_BonePath = MeshNodePath.Normalize(bonePath);
-            m_Indices = indices?.ToArray() ?? System.Array.Empty<int>();
-            m_Deltaweights = deltaWeights?.ToArray() ?? System.Array.Empty<float>();
+            SetWeights(indices, deltaWeights);
+        }
+
+        public IEnumerable<KeyValuePair<int, float>> GetWeights()
+        {
+            return m_DeltaWeights?.Entries() ?? System.Linq.Enumerable.Empty<KeyValuePair<int, float>>();
+        }
+
+        public float GetWeight(int index)
+        {
+            return m_DeltaWeights?[index] ?? 0f;
+        }
+
+        public void SetWeight(int index, float deltaWeight)
+        {
+            m_DeltaWeights ??= new SparseArray<float>();
+            if (index < 0 || Mathf.Abs(deltaWeight) <= WeightEpsilon)
+            {
+                m_DeltaWeights.Remove(index);
+                return;
+            }
+
+            m_DeltaWeights[index] = deltaWeight;
+        }
+
+        public void SetWeights(IEnumerable<int> indices, IEnumerable<float> deltaWeights)
+        {
+            m_DeltaWeights = new SparseArray<float>();
+            var indexArray = indices?.ToArray() ?? System.Array.Empty<int>();
+            var weightArray = deltaWeights?.ToArray() ?? System.Array.Empty<float>();
+            int count = System.Math.Min(indexArray.Length, weightArray.Length);
+            for (int i = 0; i < count; i++)
+            {
+                SetWeight(indexArray[i], weightArray[i]);
+            }
+        }
+
+        public SkinWeightClusterData WithWeights(IEnumerable<int> indices, IEnumerable<float> deltaWeights)
+        {
+            SetWeights(indices, deltaWeights);
+            return this;
         }
 
         public void SetFbxClusterMatrices(FbxMatrix4x4 transformMatrix, FbxMatrix4x4 transformLinkMatrix)
@@ -60,8 +100,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         public int ClusterCount => m_Clusters?.Count ?? 0;
         public int WeightedControlPointCount => (m_Clusters ?? new List<SkinWeightClusterData>())
             .Where(cluster => cluster != null)
-            .SelectMany(cluster => cluster.m_Indices ?? System.Array.Empty<int>())
-            .Where(index => index >= 0)
+            .SelectMany(cluster => cluster.GetWeights().Select(pair => pair.Key))
             .Distinct()
             .Count();
 
@@ -180,14 +219,14 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 }
 
                 string path = cluster.BonePath;
-                for (int i = 0; i < cluster.WeightCount; i++)
+                foreach (var pair in cluster.GetWeights())
                 {
-                    if (!indices.Contains(cluster.m_Indices[i]))
+                    if (!indices.Contains(pair.Key))
                     {
                         continue;
                     }
 
-                    float delta = cluster.m_Deltaweights[i];
+                    float delta = pair.Value;
                     if (Mathf.Abs(delta) <= WeightEpsilon)
                     {
                         continue;
@@ -207,12 +246,11 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return null;
             }
 
-            int count = cluster.WeightCount;
             var weightsByIndex = new Dictionary<int, float>();
-            for (int i = 0; i < count; i++)
+            foreach (var pair in cluster.GetWeights())
             {
-                int index = cluster.m_Indices[i];
-                float delta = cluster.m_Deltaweights[i];
+                int index = pair.Key;
+                float delta = pair.Value;
                 if (index < 0 || Mathf.Abs(delta) <= WeightEpsilon)
                 {
                     continue;
@@ -233,8 +271,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             }
 
             cluster.m_BonePath = path;
-            cluster.m_Indices = entries.Select(pair => pair.Key).ToArray();
-            cluster.m_Deltaweights = entries.Select(pair => pair.Value).ToArray();
+            cluster.SetWeights(
+                entries.Select(pair => pair.Key),
+                entries.Select(pair => pair.Value));
             return cluster;
         }
 
@@ -251,10 +290,10 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     result.m_HasFbxClusterMatrices = true;
                 }
 
-                for (int i = 0; i < cluster.WeightCount; i++)
+                foreach (var pair in cluster.GetWeights())
                 {
-                    weightsByIndex.TryGetValue(cluster.m_Indices[i], out float existing);
-                    weightsByIndex[cluster.m_Indices[i]] = existing + cluster.m_Deltaweights[i];
+                    weightsByIndex.TryGetValue(pair.Key, out float existing);
+                    weightsByIndex[pair.Key] = existing + pair.Value;
                 }
             }
 
@@ -262,8 +301,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 .Where(pair => Mathf.Abs(pair.Value) > WeightEpsilon)
                 .OrderBy(pair => pair.Key)
                 .ToArray();
-            result.m_Indices = entries.Select(pair => pair.Key).ToArray();
-            result.m_Deltaweights = entries.Select(pair => pair.Value).ToArray();
+            result.SetWeights(
+                entries.Select(pair => pair.Key),
+                entries.Select(pair => pair.Value));
             return result;
         }
     }

@@ -211,8 +211,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     continue;
                 }
 
-                foreach (int index in cluster.m_Indices ?? Array.Empty<int>())
+                foreach (var pair in cluster.GetWeights())
                 {
+                    int index = pair.Key;
                     if (index >= controlPointCount)
                     {
                         error = $"Skin weight FBX vertex {index} is outside target mesh FBX vertex count {controlPointCount}.";
@@ -241,15 +242,15 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 }
 
                 string path = cluster.BonePath;
-                for (int i = 0; i < cluster.WeightCount; i++)
+                foreach (var pair in cluster.GetWeights())
                 {
-                    float delta = cluster.m_Deltaweights[i];
+                    float delta = pair.Value;
                     if (Mathf.Abs(delta) <= WeightEpsilon)
                     {
                         continue;
                     }
 
-                    AddWeight(result, cluster.m_Indices[i], path, delta);
+                    AddWeight(result, pair.Key, path, delta);
                 }
             }
 

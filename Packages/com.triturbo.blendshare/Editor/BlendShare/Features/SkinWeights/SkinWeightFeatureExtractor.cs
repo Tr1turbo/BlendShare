@@ -399,9 +399,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     return new SkinWeightClusterData
                     {
                         m_BonePath = pair.Key,
-                        m_Indices = entries.Select(weight => weight.Key).ToArray(),
-                        m_Deltaweights = entries.Select(weight => weight.Value).ToArray()
-                    };
+                    }.WithWeights(
+                        entries.Select(weight => weight.Key),
+                        entries.Select(weight => weight.Value));
                 },
                 StringComparer.Ordinal);
 
