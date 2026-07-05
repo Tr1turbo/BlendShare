@@ -78,7 +78,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes.Editor
                     continue;
                 }
 
-                frameCount += feature.BlendShapes[index]?.m_FbxBlendShapeData?.m_Frames?.Length ?? 0;
+                frameCount += feature.BlendShapes[index]?.m_Frames?.Length ?? 0;
             }
 
             const int vector3Bytes = 12;

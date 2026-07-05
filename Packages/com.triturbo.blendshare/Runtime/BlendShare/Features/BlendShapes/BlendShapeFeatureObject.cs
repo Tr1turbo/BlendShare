@@ -1,29 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Triturbo.BlendShapeShare.BlendShapeData;
 using Triturbo.BlendShare.Core;
 using UnityEngine;
 using UnityEngine.Scripting.APIUpdating;
 
 namespace Triturbo.BlendShare.Features.BlendShapes
 {
-    [System.Serializable]
-    [MovedFrom(true, "Triturbo.BlendShapeShare.BlendShapeData", "Triturbo.BlendShapeShare.Data.Editor")]
-    public class BlendShapeRecord
-    {
-        public string m_Name;
-        public FbxBlendShapeData m_FbxBlendShapeData;
-
-        public BlendShapeRecord() { }
-
-        public BlendShapeRecord(string name, FbxBlendShapeData fbxBlendShapeData)
-        {
-            m_Name = name;
-            m_FbxBlendShapeData = fbxBlendShapeData;
-        }
-    }
-
     [System.Serializable]
     public sealed class BlendShapeSelectionState
     {
@@ -34,7 +17,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
 
         public string DisplayName => string.IsNullOrWhiteSpace(m_DisplayName) ? "Selection Set" : m_DisplayName;
 
-        public void Set(string displayName, IEnumerable<int> indices, IReadOnlyList<BlendShapeRecord> blendShapes)
+        public void Set(string displayName, IEnumerable<int> indices, IReadOnlyList<FbxBlendShapeData> blendShapes)
         {
             if (string.IsNullOrWhiteSpace(m_Id))
             {
@@ -64,7 +47,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
         public const string Id = "blend-shapes";
 
         [SerializeField, NonReorderable]
-        private List<BlendShapeRecord> m_BlendShapes = new();
+        private List<FbxBlendShapeData> m_BlendShapes = new();
 
         [SerializeField]
         private List<int> m_ActiveBlendShapeIndices = new();
@@ -76,7 +59,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
         private List<BlendShapeSelectionState> m_SelectionSets = new();
 
         public override string FeatureId => Id;
-        public IReadOnlyList<BlendShapeRecord> BlendShapes => m_BlendShapes;
+        public IReadOnlyList<FbxBlendShapeData> BlendShapes => m_BlendShapes;
         public IReadOnlyList<int> ActiveBlendShapeIndices => m_ActiveBlendShapeIndices;
         public IReadOnlyList<BlendShapeSelectionState> SelectionSets => m_SelectionSets;
         public string ActiveSelectionSetId => m_ActiveSelectionSetId ?? string.Empty;
@@ -86,7 +69,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             SanitizeShapeNames();
         }
 
-        public IEnumerable<BlendShapeRecord> GetActiveBlendShapes()
+        public IEnumerable<FbxBlendShapeData> GetActiveBlendShapes()
         {
             SanitizeShapeNames();
             foreach (int index in m_ActiveBlendShapeIndices)
@@ -111,7 +94,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             return GetBlendShape(name) != null;
         }
 
-        public BlendShapeRecord GetBlendShape(string name)
+        public FbxBlendShapeData GetBlendShape(string name)
         {
             if (string.IsNullOrEmpty(name) || m_BlendShapes == null)
             {
@@ -128,27 +111,33 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                 return;
             }
 
-            m_BlendShapes ??= new List<BlendShapeRecord>();
+            m_BlendShapes ??= new List<FbxBlendShapeData>();
             var blendShape = GetBlendShape(name);
             if (blendShape == null)
             {
-                blendShape = new BlendShapeRecord(name, data);
+                data.m_Name = name;
+                blendShape = data;
                 m_BlendShapes.Add(blendShape);
                 m_ActiveBlendShapeIndices ??= new List<int>();
                 m_ActiveBlendShapeIndices.Add(m_BlendShapes.Count - 1);
                 return;
             }
 
-            blendShape.m_FbxBlendShapeData = data;
+            data.m_Name = name;
+            int index = m_BlendShapes.IndexOf(blendShape);
+            if (index >= 0)
+            {
+                m_BlendShapes[index] = data;
+            }
         }
 
-        public void SetBlendShapes(IEnumerable<BlendShapeRecord> blendShapes)
+        public void SetBlendShapes(IEnumerable<FbxBlendShapeData> blendShapes)
         {
             m_BlendShapes = blendShapes?
                 .Where(blendShape => blendShape != null && !string.IsNullOrWhiteSpace(blendShape.m_Name))
                 .GroupBy(blendShape => blendShape.m_Name)
                 .Select(group => group.First())
-                .ToList() ?? new List<BlendShapeRecord>();
+                .ToList() ?? new List<FbxBlendShapeData>();
 
             m_ActiveBlendShapeIndices = Enumerable.Range(0, m_BlendShapes.Count).ToList();
             SanitizeShapeNames();
@@ -244,16 +233,16 @@ namespace Triturbo.BlendShare.Features.BlendShapes
         public int InferFbxControlPointCount()
         {
             int maxIndex = -1;
-            foreach (var blendShape in m_BlendShapes ?? Enumerable.Empty<BlendShapeRecord>())
+            foreach (var blendShape in m_BlendShapes ?? Enumerable.Empty<FbxBlendShapeData>())
             {
-                foreach (var frame in blendShape?.m_FbxBlendShapeData?.m_Frames ?? System.Array.Empty<FbxBlendShapeFrame>())
+                foreach (var frame in blendShape?.m_Frames ?? System.Array.Empty<FbxBlendShapeFrame>())
                 {
-                    if (frame?.m_PointsIndices == null || frame.m_PointsIndices.Count == 0)
+                    if (frame == null || frame.MaxDeltaIndex < 0)
                     {
                         continue;
                     }
 
-                    maxIndex = Mathf.Max(maxIndex, frame.m_PointsIndices.Max());
+                    maxIndex = Mathf.Max(maxIndex, frame.MaxDeltaIndex);
                 }
             }
 
@@ -262,7 +251,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
 
         public bool SanitizeShapeNames()
         {
-            m_BlendShapes ??= new List<BlendShapeRecord>();
+            m_BlendShapes ??= new List<FbxBlendShapeData>();
             m_ActiveBlendShapeIndices ??= new List<int>();
             m_SelectionSets ??= new List<BlendShapeSelectionState>();
 

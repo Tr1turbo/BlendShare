@@ -45,10 +45,10 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             MeshFeatureExtractionContext context,
             BlendShapeExtractionOptions options,
             IReadOnlyCollection<string> selectedShapeNames,
-            out List<BlendShapeRecord> records,
+            out List<FbxBlendShapeData> records,
             out string error)
         {
-            records = new List<BlendShapeRecord>();
+            records = new List<FbxBlendShapeData>();
             error = null;
 
             var sourceMesh = context.GetSourceFbxMesh();
@@ -89,7 +89,8 @@ namespace Triturbo.BlendShare.Features.BlendShapes
 
                     if (data != null)
                     {
-                        records.Add(new BlendShapeRecord(shapeName, data));
+                        data.m_Name = shapeName;
+                        records.Add(data);
                     }
                 }
             }

@@ -10,6 +10,10 @@ using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Fbx.Ufbx;
 using Triturbo.BlendShare.Fbx.Unity;
 using Triturbo.BlendShare.Hashing;
+using CurrentFbxBlendShapeData = Triturbo.BlendShare.Features.BlendShapes.FbxBlendShapeData;
+using CurrentFbxBlendShapeFrame = Triturbo.BlendShare.Features.BlendShapes.FbxBlendShapeFrame;
+using LegacyFbxBlendShapeData = Triturbo.BlendShapeShare.BlendShapeData.FbxBlendShapeData;
+using LegacyFbxBlendShapeFrame = Triturbo.BlendShapeShare.BlendShapeData.FbxBlendShapeFrame;
 //
 namespace Triturbo.BlendShare.Migration
 {
@@ -119,7 +123,7 @@ namespace Triturbo.BlendShare.Migration
             mesh.Initialize(meshPath, -1);
 
             var shapeNames = legacyMesh.GetAllBlendShapeNames();
-            var records = new List<BlendShapeRecord>();
+            var records = new List<CurrentFbxBlendShapeData>();
             foreach (var shapeName in shapeNames)
             {
                 var legacyBlendShape = legacyMesh.GetBlendShape(shapeName);
@@ -128,7 +132,14 @@ namespace Triturbo.BlendShare.Migration
                     continue;
                 }
 
-                records.Add(new BlendShapeRecord(shapeName, legacyBlendShape.m_FbxBlendShapeData));
+                var data = ConvertLegacyBlendShapeData(legacyBlendShape.m_FbxBlendShapeData);
+                if (data == null)
+                {
+                    continue;
+                }
+
+                data.m_Name = shapeName;
+                records.Add(data);
             }
 
             var blendShapeFeature = ScriptableObject.CreateInstance<BlendShapeFeatureObject>();
@@ -157,6 +168,51 @@ namespace Triturbo.BlendShare.Migration
 
             mesh.m_Mappings = new[] { mapping };
             return mesh;
+        }
+
+        private static CurrentFbxBlendShapeData ConvertLegacyBlendShapeData(LegacyFbxBlendShapeData legacyData)
+        {
+            var legacyFrames = legacyData?.m_Frames;
+            if (legacyFrames == null)
+            {
+                return null;
+            }
+
+            var frames = new CurrentFbxBlendShapeFrame[legacyFrames.Length];
+            for (int frameIndex = 0; frameIndex < legacyFrames.Length; frameIndex++)
+            {
+                float frameWeight = 100f * (frameIndex + 1) / legacyFrames.Length;
+                frames[frameIndex] = ConvertLegacyBlendShapeFrame(legacyFrames[frameIndex], frameWeight);
+            }
+
+            return new CurrentFbxBlendShapeData(frames);
+        }
+
+        private static CurrentFbxBlendShapeFrame ConvertLegacyBlendShapeFrame(LegacyFbxBlendShapeFrame legacyFrame, float frameWeight)
+        {
+            var frame = new CurrentFbxBlendShapeFrame(frameWeight);
+            if (legacyFrame == null)
+            {
+                return frame;
+            }
+
+            legacyFrame.MigrateLegacyVectors();
+            int count = System.Math.Min(
+                legacyFrame.m_PointsIndices?.Count ?? 0,
+                legacyFrame.m_DeltaControlPointsList?.Count ?? 0);
+            for (int i = 0; i < count; i++)
+            {
+                var legacyDelta = legacyFrame.m_DeltaControlPointsList[i];
+                var delta = legacyDelta == null
+                    ? Triturbo.BlendShare.Fbx.Vector3d.zero
+                    : new Triturbo.BlendShare.Fbx.Vector3d(legacyDelta.m_X, legacyDelta.m_Y, legacyDelta.m_Z);
+                if (!delta.IsZero())
+                {
+                    frame.SetDeltaPositionAt(legacyFrame.m_PointsIndices[i], delta);
+                }
+            }
+
+            return frame;
         }
 
         private static Dictionary<MeshData, string> ResolveFbxMeshPaths(GameObject root, IEnumerable<MeshData> legacyMeshes)

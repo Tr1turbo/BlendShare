@@ -1,4 +1,3 @@
-using Triturbo.BlendShapeShare.BlendShapeData;
 using Triturbo.BlendShare.Fbx;
 using Debug = UnityEngine.Debug;
 using FbxReaderMatrix = Triturbo.BlendShare.Fbx.FbxMatrix4x4;
@@ -47,7 +46,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             for (int shapeIndex = 0; shapeIndex < shapeCount; shapeIndex++)
             {
                 var sourceFrame = source.BlendShapes[shapeIndex];
-                frames[shapeIndex] = new FbxBlendShapeFrame();
+                frames[shapeIndex] = new FbxBlendShapeFrame((float)(sourceFrame?.Weight ?? 100.0));
                 var sourceDeltas = BuildDenseUfbxDeltas(sourceFrame, controlPointCount, out var sourceNormalDeltas);
                 var deltas = new Vector3d[controlPointCount];
                 var normalDeltas = new Vector3d[controlPointCount];
@@ -66,9 +65,14 @@ namespace Triturbo.BlendShare.Features.BlendShapes
 
                 for (int index = 0; index < deltas.Length; index++)
                 {
-                    if (!deltas[index].IsZero() || !normalDeltas[index].IsZero())
+                    if (!deltas[index].IsZero())
                     {
-                        frames[shapeIndex].AddDeltaControlPointAt(deltas[index], index, normalDeltas[index]);
+                        frames[shapeIndex].SetDeltaPositionAt(index, deltas[index]);
+                    }
+
+                    if (!normalDeltas[index].IsZero())
+                    {
+                        frames[shapeIndex].SetDeltaNormalAt(index, normalDeltas[index]);
                     }
                 }
             }

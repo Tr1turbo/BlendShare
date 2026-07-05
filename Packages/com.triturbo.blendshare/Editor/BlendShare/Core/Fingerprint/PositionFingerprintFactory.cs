@@ -1,9 +1,11 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Triturbo.BlendShapeShare.BlendShapeData;
+using Triturbo.BlendShare.Features.BlendShapes;
 using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Fbx.Ufbx;
 using UnityEngine;
+using UnityBlendShapeData = Triturbo.BlendShapeShare.BlendShapeData.UnityBlendShapeData;
+using UnityBlendShapeFrame = Triturbo.BlendShapeShare.BlendShapeData.UnityBlendShapeFrame;
 
 namespace Triturbo.BlendShare.Core
 {
@@ -260,7 +262,7 @@ namespace Triturbo.BlendShare.Core
             if (frames == null) return false;
             for (int i = 0; i < frames.Length; i++)
             {
-                if ((frames[i]?.m_PointsIndices?.Count ?? 0) > 0) return true;
+                if ((frames[i]?.StoredDeltaCount ?? 0) > 0) return true;
             }
             return false;
         }
@@ -295,7 +297,7 @@ namespace Triturbo.BlendShare.Core
 
         internal static FbxBlendShapeFrame CreateFbxBlendShapeFrame(UfbxBlendShape shape)
         {
-            var frame = new FbxBlendShapeFrame();
+            var frame = new FbxBlendShapeFrame((float)(shape?.Weight ?? 100.0));
             if (shape == null || shape.OffsetCount <= 0)
             {
                 return frame;
@@ -314,9 +316,14 @@ namespace Triturbo.BlendShare.Core
             int count = System.Math.Min(indices.Length, System.Math.Min(deltas.Length, normalDeltas.Length));
             for (int i = 0; i < count; i++)
             {
-                if (!deltas[i].IsZero() || !normalDeltas[i].IsZero())
+                if (!deltas[i].IsZero())
                 {
-                    frame.AddDeltaControlPointAt(deltas[i], indices[i], normalDeltas[i]);
+                    frame.SetDeltaPositionAt(indices[i], deltas[i]);
+                }
+
+                if (!normalDeltas[i].IsZero())
+                {
+                    frame.SetDeltaNormalAt(indices[i], normalDeltas[i]);
                 }
             }
             return frame;
@@ -344,15 +351,14 @@ namespace Triturbo.BlendShare.Core
 
                 if (controlPointCount >= ParallelThreshold)
                 {
-                    // Pre-warm the frame's lazy dictionary on this thread before parallel access.
-                    // GetDeltaControlPointAt has a non-thread-safe lazy init; once built, reads are safe.
-                    frame?.GetDeltaControlPointAt(0);
+                    // Pre-warm sparse lookup before parallel reads.
+                    frame?.GetDeltaPositionAt(0);
 
                     Parallel.For(0, controlPointCount, fbxIndex =>
                     {
                         fingerprints[fbxIndex].SetRelativeSample(
                             currentSampleIndex,
-                            fbxToUnity.MultiplyVector(ToVector3(frame?.GetDeltaControlPointAt(fbxIndex) ?? Vector3d.zero)));
+                            fbxToUnity.MultiplyVector(ToVector3(frame?.GetDeltaPositionAt(fbxIndex) ?? Vector3d.zero)));
                     });
                 }
                 else
@@ -361,7 +367,7 @@ namespace Triturbo.BlendShare.Core
                     {
                         fingerprints[fbxIndex].SetRelativeSample(
                             currentSampleIndex,
-                            fbxToUnity.MultiplyVector(ToVector3(frame?.GetDeltaControlPointAt(fbxIndex) ?? Vector3d.zero)));
+                            fbxToUnity.MultiplyVector(ToVector3(frame?.GetDeltaPositionAt(fbxIndex) ?? Vector3d.zero)));
                     }
                 }
             }

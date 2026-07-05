@@ -1,11 +1,12 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using Triturbo.BlendShapeShare.BlendShapeData;
 using Triturbo.BlendShare.Core;
 using UnityEditor;
 using UnityEngine;
 using Vector3d = Triturbo.BlendShare.Fbx.Vector3d;
+using UnityBlendShapeData = Triturbo.BlendShapeShare.BlendShapeData.UnityBlendShapeData;
+using UnityBlendShapeFrame = Triturbo.BlendShapeShare.BlendShapeData.UnityBlendShapeFrame;
 
 #if ENABLE_FBX_SDK
 using Autodesk.Fbx;
@@ -95,7 +96,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
 
         private static UnityBlendShapeData CreateUnityBlendShapeData(
             UnityMeshGenerationContext context,
-            BlendShapeRecord blendShape,
+            FbxBlendShapeData blendShape,
             Mesh targetMesh)
         {
             var mapping = context.GetMappingFor(targetMesh);
@@ -114,11 +115,11 @@ namespace Triturbo.BlendShare.Features.BlendShapes
 
         private static UnityBlendShapeData CreateUnityBlendShapeDataFromMapping(
             UnityVertexMappingObject mapping,
-            BlendShapeRecord blendShape,
+            FbxBlendShapeData blendShape,
             int unityVertexCount,
             bool emitNormalDeltas)
         {
-            var frames = blendShape.m_FbxBlendShapeData?.m_Frames;
+            var frames = blendShape?.m_Frames;
             if (frames == null || frames.Length == 0)
             {
                 return null;
@@ -145,7 +146,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                     }
                 }
 
-                float weight = 100f * (frameIndex + 1) / frames.Length;
+                float weight = frames[frameIndex]?.m_FrameWeight ?? 100f;
                 unityData.AddFrameAt(frameIndex, new UnityBlendShapeFrame(
                     weight,
                     unityVertexCount,
@@ -224,7 +225,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             // All welded members share the same delta; sparse FBX storage may omit zero-delta entries.
             for (int i = 0; i < group.m_Indices.Length; i++)
             {
-                var delta = frame.GetDeltaControlPointAt(group.m_Indices[i]);
+                var delta = frame.GetDeltaPositionAt(group.m_Indices[i]);
                 if (!delta.IsZero())
                 {
                     return delta;
@@ -294,7 +295,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                         channel.RemoveTargetShape(channel.GetTargetShape(shape));
                     }
 
-                    CreateFbxBlendShapeChannel(channel, targetMesh, feature.GetBlendShape(name).m_FbxBlendShapeData);
+                    CreateFbxBlendShapeChannel(channel, targetMesh, feature.GetBlendShape(name));
                     existingBlendShapes.Add(name);
                 }
             }
@@ -310,7 +311,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                 targetDeformer.AddBlendShapeChannel(CreateFbxBlendShapeChannel(
                     blendShape.m_Name,
                     targetMesh,
-                    blendShape.m_FbxBlendShapeData));
+                    blendShape));
             }
 
             return MeshFeatureGenerationResult.Success();
@@ -393,12 +394,12 @@ namespace Triturbo.BlendShare.Features.BlendShapes
 
                 for (int pointIndex = 0; pointIndex < controlPointCount; pointIndex++)
                 {
-                    var delta = frame.GetDeltaControlPointAt(pointIndex);
+                    var delta = frame.GetDeltaPositionAt(pointIndex);
                     var controlPoint = mesh.GetControlPointAt(pointIndex) + new FbxVector4(delta.x, delta.y, delta.z, 0.0);
                     newShape.SetControlPointAt(controlPoint, pointIndex);
                 }
 
-                fbxBlendShapeChannel.AddTargetShape(newShape, 100.0 * (shapeIndex + 1) / shapeCount);
+                fbxBlendShapeChannel.AddTargetShape(newShape, frame.m_FrameWeight);
             }
 
             return fbxBlendShapeChannel;
