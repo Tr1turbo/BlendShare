@@ -1365,6 +1365,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             using var targetCounts = mesh.GetBonesPerVertex();
             using var outputWeights = new NativeList<BoneWeight1>(Allocator.Temp);
             using var outputCounts = new NativeList<byte>(Allocator.Temp);
+            var deltaIndex = BuildDeltaIndex(feature, boneTable);
             int targetWeightIndex = 0;
             for (int unityIndex = 0; unityIndex < mesh.vertexCount; unityIndex++)
             {
@@ -1383,7 +1384,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 }
 
                 targetWeightIndex += targetCount;
-                ApplyDeltas(aggregate, group, feature, boneTable);
+                ApplyIndexedDeltas(aggregate, group, deltaIndex);
                 var normalized = NormalizeWeights(aggregate);
                 foreach (var weight in normalized)
                 {
@@ -1399,38 +1400,94 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return true;
         }
 
-        private static void ApplyDeltas(
-            Dictionary<int, float> aggregate,
-            FbxIndexGroup group,
+        private static Dictionary<int, List<IndexedWeightDelta>> BuildDeltaIndex(
             SkinWeightFeatureObject feature,
             BoneTable boneTable)
+        {
+            return BuildDeltaIndex(feature, boneTable.TryGetIndex);
+        }
+
+        internal static Dictionary<int, List<IndexedWeightDelta>> BuildDeltaIndex(
+            SkinWeightFeatureObject feature,
+            TryGetBoneIndex tryGetBoneIndex)
+        {
+            var result = new Dictionary<int, List<IndexedWeightDelta>>();
+            if (feature == null || tryGetBoneIndex == null)
+            {
+                return result;
+            }
+
+            foreach (var cluster in feature.Clusters ?? Array.Empty<SkinWeightClusterData>())
+            {
+                if (cluster == null || cluster.WeightCount == 0)
+                {
+                    continue;
+                }
+
+                if (!tryGetBoneIndex(cluster.BonePath, out int boneIndex))
+                {
+                    boneIndex = -1;
+                }
+
+                foreach (var pair in cluster.GetWeights())
+                {
+                    int controlPointIndex = pair.Key;
+                    float delta = pair.Value;
+                    if (controlPointIndex < 0 || Mathf.Abs(delta) <= WeightEpsilon)
+                    {
+                        continue;
+                    }
+
+                    if (!result.TryGetValue(controlPointIndex, out var deltas))
+                    {
+                        deltas = new List<IndexedWeightDelta>();
+                        result[controlPointIndex] = deltas;
+                    }
+
+                    deltas.Add(new IndexedWeightDelta(boneIndex, delta));
+                }
+            }
+
+            return result;
+        }
+
+        internal static void ApplyIndexedDeltas(
+            Dictionary<int, float> aggregate,
+            FbxIndexGroup group,
+            IReadOnlyDictionary<int, List<IndexedWeightDelta>> deltaIndex)
         {
             int contributingControlPoints = 0;
             var deltaByBoneSlot = new Dictionary<int, float>();
             foreach (int controlPointIndex in group.m_Indices ?? Array.Empty<int>())
             {
-                var deltasByPath = new Dictionary<string, float>();
-                feature.AccumulateDeltasForControlPoints(new[] { controlPointIndex }, deltasByPath);
-                if (deltasByPath.Count == 0)
+                if (controlPointIndex < 0 || deltaIndex == null ||
+                    !deltaIndex.TryGetValue(controlPointIndex, out var deltas) ||
+                    deltas == null || deltas.Count == 0)
                 {
                     continue;
                 }
 
-                contributingControlPoints++;
-                foreach (var pair in deltasByPath)
+                bool contributed = false;
+                foreach (var delta in deltas)
                 {
-                    if (Mathf.Abs(pair.Value) <= WeightEpsilon)
+                    if (Mathf.Abs(delta.Weight) <= WeightEpsilon)
                     {
                         continue;
                     }
 
-                    if (!boneTable.TryGetIndex(pair.Key, out int targetBoneIndex))
+                    contributed = true;
+                    if (delta.BoneIndex < 0)
                     {
                         continue;
                     }
 
-                    deltaByBoneSlot.TryGetValue(targetBoneIndex, out float existing);
-                    deltaByBoneSlot[targetBoneIndex] = existing + pair.Value;
+                    deltaByBoneSlot.TryGetValue(delta.BoneIndex, out float existing);
+                    deltaByBoneSlot[delta.BoneIndex] = existing + delta.Weight;
+                }
+
+                if (contributed)
+                {
+                    contributingControlPoints++;
                 }
             }
 
@@ -1456,6 +1513,20 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 }
             }
         }
+
+        internal readonly struct IndexedWeightDelta
+        {
+            public readonly int BoneIndex;
+            public readonly float Weight;
+
+            public IndexedWeightDelta(int boneIndex, float weight)
+            {
+                BoneIndex = boneIndex;
+                Weight = weight;
+            }
+        }
+
+        internal delegate bool TryGetBoneIndex(string bonePath, out int boneIndex);
 
         private static Dictionary<int, float> FromBoneWeight(BoneWeight boneWeight)
         {

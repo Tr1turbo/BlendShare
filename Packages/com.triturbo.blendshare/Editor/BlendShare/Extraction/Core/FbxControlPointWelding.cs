@@ -67,8 +67,23 @@ namespace Triturbo.BlendShare.Core
                 {
                     foreach (var shape in channel.BlendShapes)
                     {
+                        if (groups.Count == 0)
+                        {
+                            break;
+                        }
+
                         groups = GroupWithShape(groups, controlPoints, shape);
                     }
+
+                    if (groups.Count == 0)
+                    {
+                        break;
+                    }
+                }
+
+                if (groups.Count == 0)
+                {
+                    break;
                 }
             }
 
@@ -244,7 +259,7 @@ namespace Triturbo.BlendShare.Core
             IReadOnlyList<Vector3d> basePositions,
             UfbxBlendShape shape)
         {
-            if (shape == null || shape.OffsetCount <= 0)
+            if (groups == null || groups.Count == 0 || shape == null || shape.OffsetCount <= 0)
             {
                 return groups;
             }
@@ -256,13 +271,37 @@ namespace Triturbo.BlendShare.Core
                 return groups;
             }
 
+            return GroupWithSparseShapeOffsets(
+                groups,
+                basePositions,
+                indices,
+                FbxArrayUtility.ToVector3dArray(deltas));
+        }
+
+        internal static List<List<int>> GroupWithSparseShapeOffsets(
+            List<List<int>> groups,
+            IReadOnlyList<Vector3d> basePositions,
+            IReadOnlyList<int> indices,
+            IReadOnlyList<Vector3d> deltas)
+        {
+            if (groups == null)
+            {
+                return new List<List<int>>();
+            }
+
+            var deltaByControlPoint = BuildDeltaLookup(indices, deltas);
             var newGroups = new List<List<int>>();
             foreach (var group in groups)
             {
+                if (group == null)
+                {
+                    continue;
+                }
+
                 var newGroup = new Dictionary<Vector3d, List<int>>();
                 foreach (int index in group)
                 {
-                    var vertex = GetTargetPosition(basePositions, indices, FbxArrayUtility.ToVector3dArray(deltas), index);
+                    var vertex = GetTargetPosition(basePositions, deltaByControlPoint, index);
                     if (!newGroup.TryGetValue(vertex, out var groupedIndices))
                     {
                         groupedIndices = new List<int>();
@@ -281,26 +320,36 @@ namespace Triturbo.BlendShare.Core
             return newGroups;
         }
 
+        private static Dictionary<int, Vector3d> BuildDeltaLookup(
+            IReadOnlyList<int> indices,
+            IReadOnlyList<Vector3d> deltas)
+        {
+            var result = new Dictionary<int, Vector3d>();
+            int count = System.Math.Min(indices?.Count ?? 0, deltas?.Count ?? 0);
+            for (int i = 0; i < count; i++)
+            {
+                int controlPointIndex = indices[i];
+                if (controlPointIndex >= 0)
+                {
+                    result[controlPointIndex] = deltas[i];
+                }
+            }
+
+            return result;
+        }
+
         private static Vector3d GetTargetPosition(
             IReadOnlyList<Vector3d> basePositions,
-            IReadOnlyList<int> indices,
-            IReadOnlyList<Vector3d> deltas,
+            IReadOnlyDictionary<int, Vector3d> deltaByControlPoint,
             int controlPointIndex)
         {
             var basePosition = controlPointIndex >= 0 && controlPointIndex < (basePositions?.Count ?? 0)
                 ? basePositions[controlPointIndex]
                 : Vector3d.zero;
 
-            int count = System.Math.Min(indices?.Count ?? 0, deltas?.Count ?? 0);
-            for (int i = 0; i < count; i++)
-            {
-                if (indices[i] == controlPointIndex)
-                {
-                    return basePosition + deltas[i];
-                }
-            }
-
-            return basePosition;
+            return deltaByControlPoint != null && deltaByControlPoint.TryGetValue(controlPointIndex, out var delta)
+                ? basePosition + delta
+                : basePosition;
         }
 
 #if ENABLE_FBX_SDK

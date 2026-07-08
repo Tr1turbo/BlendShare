@@ -196,48 +196,6 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 out transformLinkMatrix);
         }
 
-        public void AccumulateDeltasForControlPoints(
-            IEnumerable<int> controlPointIndices,
-            IDictionary<string, float> deltasByBonePath)
-        {
-            if (deltasByBonePath == null)
-            {
-                return;
-            }
-
-            var indices = new HashSet<int>((controlPointIndices ?? System.Array.Empty<int>()).Where(index => index >= 0));
-            if (indices.Count == 0)
-            {
-                return;
-            }
-
-            foreach (var cluster in m_Clusters ?? new List<SkinWeightClusterData>())
-            {
-                if (cluster == null || cluster.WeightCount == 0)
-                {
-                    continue;
-                }
-
-                string path = cluster.BonePath;
-                foreach (var pair in cluster.GetWeights())
-                {
-                    if (!indices.Contains(pair.Key))
-                    {
-                        continue;
-                    }
-
-                    float delta = pair.Value;
-                    if (Mathf.Abs(delta) <= WeightEpsilon)
-                    {
-                        continue;
-                    }
-
-                    deltasByBonePath.TryGetValue(path, out float existing);
-                    deltasByBonePath[path] = existing + delta;
-                }
-            }
-        }
-
         private static SkinWeightClusterData SanitizeCluster(SkinWeightClusterData cluster)
         {
             string path = MeshNodePath.Normalize(cluster.m_BonePath);
