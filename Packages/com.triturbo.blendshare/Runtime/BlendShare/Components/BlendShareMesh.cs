@@ -203,7 +203,7 @@ namespace Triturbo.BlendShare.Components
                 {
                     if (existingByName.TryGetValue(shapeName, out var existing))
                     {
-                        existing.Weight = existing.Weight;
+                        existing.Weight = Mathf.Clamp(existing.Weight, 0f, 100f);
                         return existing;
                     }
 

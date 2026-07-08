@@ -12,110 +12,137 @@ namespace Triturbo.BlendShare.NDMF
     {
         private const string HarmonyId = "com.triturbo.blendshare.animation-window-bindings";
         private const string RendererBlendShapePropertyPrefix = "blendShape.";
-        private static readonly FieldInfo NodeCurvesField;
+        private static FieldInfo NodeCurvesField;
 
         internal static EditorCurveBinding CreateAuthoringBlendShapeBinding(string path, string propertyName)
         {
             return EditorCurveBinding.FloatCurve(path, typeof(BlendShareMesh), propertyName);
         }
 
-        static BlendShareAnimationWindowBindingPatch()
-        {
-            var nodeType = typeof(EditorWindow).Assembly.GetType("UnityEditorInternal.AnimationWindowHierarchyNode");
-            NodeCurvesField = AccessTools.Field(nodeType, "curves");
-        }
-
         [InitializeOnLoadMethod]
         private static void Initialize()
         {
-            var getAnimatableBindings = AccessTools.Method(
-                typeof(AnimationUtility),
-                nameof(AnimationUtility.GetAnimatableBindings),
-                new[] { typeof(GameObject), typeof(GameObject) });
+            if (!TryResolvePatchTargets(out var targets, out string diagnostic))
+            {
+                Debug.LogWarning($"[BlendShare] AnimationWindow integration is disabled: {diagnostic}");
+                return;
+            }
+
             var harmony = new Harmony(HarmonyId);
-            if (getAnimatableBindings != null)
+            try
             {
-                harmony.Patch(
-                    getAnimatableBindings,
-                    postfix: new HarmonyMethod(
-                        typeof(BlendShareAnimationWindowBindingPatch),
-                        nameof(GetAnimatableBindingsPostfix)));
-            }
+                PatchPostfix(harmony, targets.GetAnimatableBindings, nameof(GetAnimatableBindingsPostfix));
+                PatchPostfix(harmony, targets.GetAnimatedObject, nameof(GetAnimatedObjectPostfix));
+                PatchPostfix(harmony, targets.GetFloatValue, nameof(GetFloatValuePostfix));
+                PatchPostfix(harmony, targets.GetCurrentValue, nameof(GetCurrentValuePostfix));
+                PatchPostfix(harmony, targets.PropertyIsAnimatable, nameof(PropertyIsAnimatablePostfix));
+                PatchPostfix(harmony, targets.IsNodeLeftOverCurve, nameof(IsNodeLeftOverCurvePostfix));
+                PatchPostfix(harmony, targets.IsNodePhantom, nameof(IsNodePhantomPostfix));
 
-            var getAnimatedObject = AccessTools.Method(
-                typeof(AnimationUtility),
-                nameof(AnimationUtility.GetAnimatedObject),
-                new[] { typeof(GameObject), typeof(EditorCurveBinding) });
-            if (getAnimatedObject != null)
+                NodeCurvesField = targets.NodeCurvesField;
+                AssemblyReloadEvents.beforeAssemblyReload += () => harmony.UnpatchAll(HarmonyId);
+            }
+            catch (System.Exception exception)
             {
-                harmony.Patch(
-                    getAnimatedObject,
-                    postfix: new HarmonyMethod(
-                        typeof(BlendShareAnimationWindowBindingPatch),
-                        nameof(GetAnimatedObjectPostfix)));
+                harmony.UnpatchAll(HarmonyId);
+                NodeCurvesField = null;
+                Debug.LogWarning($"[BlendShare] AnimationWindow integration is disabled: {exception.Message}");
             }
+        }
 
-            var getFloatValue = AccessTools.Method(
-                typeof(AnimationUtility),
-                nameof(AnimationUtility.GetFloatValue),
-                new[] { typeof(GameObject), typeof(EditorCurveBinding), typeof(float).MakeByRefType() });
-            if (getFloatValue != null)
+        private static void PatchPostfix(Harmony harmony, MethodInfo target, string postfixName)
+        {
+            harmony.Patch(
+                target,
+                postfix: new HarmonyMethod(
+                    typeof(BlendShareAnimationWindowBindingPatch),
+                    postfixName));
+        }
+
+        private static bool TryResolvePatchTargets(out PatchTargets targets, out string diagnostic)
+        {
+            targets = null;
+            diagnostic = null;
+
+            try
             {
-                harmony.Patch(
-                    getFloatValue,
-                    postfix: new HarmonyMethod(
-                        typeof(BlendShareAnimationWindowBindingPatch),
-                        nameof(GetFloatValuePostfix)));
-            }
+                var editorAssembly = typeof(EditorWindow).Assembly;
+                var nodeType = editorAssembly.GetType("UnityEditorInternal.AnimationWindowHierarchyNode");
+                var animationWindowUtility = editorAssembly.GetType("UnityEditorInternal.AnimationWindowUtility");
+                if (nodeType == null)
+                {
+                    diagnostic = "UnityEditorInternal.AnimationWindowHierarchyNode was not found.";
+                    return false;
+                }
 
-            var animationWindowUtility = typeof(EditorWindow).Assembly.GetType("UnityEditorInternal.AnimationWindowUtility");
-            var getCurrentValue = AccessTools.Method(
-                animationWindowUtility,
-                "GetCurrentValue",
-                new[] { typeof(GameObject), typeof(EditorCurveBinding) });
-            if (getCurrentValue != null)
+                if (animationWindowUtility == null)
+                {
+                    diagnostic = "UnityEditorInternal.AnimationWindowUtility was not found.";
+                    return false;
+                }
+
+                targets = new PatchTargets
+                {
+                    NodeCurvesField = AccessTools.Field(nodeType, "curves"),
+                    GetAnimatableBindings = AccessTools.Method(
+                        typeof(AnimationUtility),
+                        nameof(AnimationUtility.GetAnimatableBindings),
+                        new[] { typeof(GameObject), typeof(GameObject) }),
+                    GetAnimatedObject = AccessTools.Method(
+                        typeof(AnimationUtility),
+                        nameof(AnimationUtility.GetAnimatedObject),
+                        new[] { typeof(GameObject), typeof(EditorCurveBinding) }),
+                    GetFloatValue = AccessTools.Method(
+                        typeof(AnimationUtility),
+                        nameof(AnimationUtility.GetFloatValue),
+                        new[] { typeof(GameObject), typeof(EditorCurveBinding), typeof(float).MakeByRefType() }),
+                    GetCurrentValue = AccessTools.Method(
+                        animationWindowUtility,
+                        "GetCurrentValue",
+                        new[] { typeof(GameObject), typeof(EditorCurveBinding) }),
+                    PropertyIsAnimatable = AccessTools.Method(
+                        animationWindowUtility,
+                        "PropertyIsAnimatable",
+                        new[] { typeof(UnityEngine.Object), typeof(string), typeof(UnityEngine.Object) }),
+                    IsNodeLeftOverCurve = AccessTools.Method(animationWindowUtility, "IsNodeLeftOverCurve"),
+                    IsNodePhantom = AccessTools.Method(animationWindowUtility, "IsNodePhantom")
+                };
+
+                return targets.IsComplete(out diagnostic);
+            }
+            catch (System.Exception exception)
             {
-                harmony.Patch(
-                    getCurrentValue,
-                    postfix: new HarmonyMethod(
-                        typeof(BlendShareAnimationWindowBindingPatch),
-                        nameof(GetCurrentValuePostfix)));
+                targets = null;
+                diagnostic = exception.Message;
+                return false;
             }
+        }
 
-            var propertyIsAnimatable = AccessTools.Method(
-                animationWindowUtility,
-                "PropertyIsAnimatable",
-                new[] { typeof(UnityEngine.Object), typeof(string), typeof(UnityEngine.Object) });
-            if (propertyIsAnimatable != null)
+        private sealed class PatchTargets
+        {
+            public FieldInfo NodeCurvesField;
+            public MethodInfo GetAnimatableBindings;
+            public MethodInfo GetAnimatedObject;
+            public MethodInfo GetFloatValue;
+            public MethodInfo GetCurrentValue;
+            public MethodInfo PropertyIsAnimatable;
+            public MethodInfo IsNodeLeftOverCurve;
+            public MethodInfo IsNodePhantom;
+
+            public bool IsComplete(out string diagnostic)
             {
-                harmony.Patch(
-                    propertyIsAnimatable,
-                    postfix: new HarmonyMethod(
-                        typeof(BlendShareAnimationWindowBindingPatch),
-                        nameof(PropertyIsAnimatablePostfix)));
-            }
+                diagnostic = null;
+                if (NodeCurvesField == null) diagnostic = "AnimationWindowHierarchyNode.curves was not found.";
+                else if (GetAnimatableBindings == null) diagnostic = "AnimationUtility.GetAnimatableBindings was not found.";
+                else if (GetAnimatedObject == null) diagnostic = "AnimationUtility.GetAnimatedObject was not found.";
+                else if (GetFloatValue == null) diagnostic = "AnimationUtility.GetFloatValue was not found.";
+                else if (GetCurrentValue == null) diagnostic = "AnimationWindowUtility.GetCurrentValue was not found.";
+                else if (PropertyIsAnimatable == null) diagnostic = "AnimationWindowUtility.PropertyIsAnimatable was not found.";
+                else if (IsNodeLeftOverCurve == null) diagnostic = "AnimationWindowUtility.IsNodeLeftOverCurve was not found.";
+                else if (IsNodePhantom == null) diagnostic = "AnimationWindowUtility.IsNodePhantom was not found.";
 
-            var isNodeLeftOverCurve = AccessTools.Method(animationWindowUtility, "IsNodeLeftOverCurve");
-            if (isNodeLeftOverCurve != null)
-            {
-                harmony.Patch(
-                    isNodeLeftOverCurve,
-                    postfix: new HarmonyMethod(
-                        typeof(BlendShareAnimationWindowBindingPatch),
-                        nameof(IsNodeLeftOverCurvePostfix)));
+                return diagnostic == null;
             }
-
-            var isNodePhantom = AccessTools.Method(animationWindowUtility, "IsNodePhantom");
-            if (isNodePhantom != null)
-            {
-                harmony.Patch(
-                    isNodePhantom,
-                    postfix: new HarmonyMethod(
-                        typeof(BlendShareAnimationWindowBindingPatch),
-                        nameof(IsNodePhantomPostfix)));
-            }
-
-            AssemblyReloadEvents.beforeAssemblyReload += () => harmony.UnpatchAll(HarmonyId);
         }
 
         // Populate AnimationWindow's "Add Property" menu.
@@ -148,7 +175,6 @@ namespace Triturbo.BlendShare.NDMF
                     continue;
                 }
 
-                applier.SyncActiveBlendShapeWeights();
                 string path = GetBindingPath(applier.gameObject, root);
                 foreach (var weight in applier.BlendShapeWeights)
                 {
@@ -195,7 +221,6 @@ namespace Triturbo.BlendShare.NDMF
                     continue;
                 }
 
-                applier.SyncActiveBlendShapeWeights();
                 if (applier.BlendShapeWeights.Any(weight =>
                         weight != null &&
                         binding.propertyName == $"{RendererBlendShapePropertyPrefix}{weight.ShapeName}"))
@@ -398,17 +423,33 @@ namespace Triturbo.BlendShare.NDMF
                 return false;
             }
 
-            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
-            var state = animationWindow.GetType().GetProperty("state", flags)?.GetValue(animationWindow);
-            if (state == null)
+            try
             {
+                var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+                var state = animationWindow.GetType().GetProperty("state", flags)?.GetValue(animationWindow);
+                if (state == null)
+                {
+                    return false;
+                }
+
+                var stateType = state.GetType();
+                var clipProperty = stateType.GetProperty("activeAnimationClip", flags);
+                var timeProperty = stateType.GetProperty("currentTime", flags);
+                if (clipProperty == null || timeProperty == null)
+                {
+                    return false;
+                }
+
+                clip = clipProperty.GetValue(state) as AnimationClip;
+                time = (float)(timeProperty.GetValue(state) ?? 0f);
+                return true;
+            }
+            catch (System.Exception)
+            {
+                clip = null;
+                time = 0f;
                 return false;
             }
-
-            var stateType = state.GetType();
-            clip = stateType.GetProperty("activeAnimationClip", flags)?.GetValue(state) as AnimationClip;
-            time = (float)(stateType.GetProperty("currentTime", flags)?.GetValue(state) ?? 0f);
-            return true;
         }
 
         private static EditorWindow GetAnimationWindow()
@@ -440,7 +481,6 @@ namespace Triturbo.BlendShare.NDMF
                 return false;
             }
 
-            applier.SyncActiveBlendShapeWeights();
             string shapeName = propertyName.Substring(RendererBlendShapePropertyPrefix.Length);
             return applier.TryGetBlendShapeWeight(shapeName, out weight);
         }
@@ -467,7 +507,17 @@ namespace Triturbo.BlendShare.NDMF
 
         private static IEnumerable<object> GetNodeCurves(object node)
         {
-            if (NodeCurvesField?.GetValue(node) is not System.Array curves)
+            System.Array curves;
+            try
+            {
+                curves = NodeCurvesField?.GetValue(node) as System.Array;
+            }
+            catch (System.Exception)
+            {
+                yield break;
+            }
+
+            if (curves == null)
             {
                 yield break;
             }
@@ -484,27 +534,43 @@ namespace Triturbo.BlendShare.NDMF
         private static bool TryGetCurveBinding(object curve, out EditorCurveBinding binding)
         {
             binding = default;
-            var value = AccessTools.Property(curve.GetType(), "binding")?.GetValue(curve);
-            if (value is not EditorCurveBinding curveBinding)
+            try
+            {
+                var bindingProperty = curve != null ? AccessTools.Property(curve.GetType(), "binding") : null;
+                var value = bindingProperty?.GetValue(curve);
+                if (value is not EditorCurveBinding curveBinding)
+                {
+                    return false;
+                }
+
+                binding = curveBinding;
+                return true;
+            }
+            catch (System.Exception)
             {
                 return false;
             }
-
-            binding = curveBinding;
-            return true;
         }
 
         private static bool TryGetCurveRootGameObject(object curve, out GameObject root)
         {
             root = null;
-            var value = AccessTools.Property(curve.GetType(), "rootGameObject")?.GetValue(curve);
-            if (value is not GameObject rootGameObject)
+            try
+            {
+                var rootProperty = curve != null ? AccessTools.Property(curve.GetType(), "rootGameObject") : null;
+                var value = rootProperty?.GetValue(curve);
+                if (value is not GameObject rootGameObject)
+                {
+                    return false;
+                }
+
+                root = rootGameObject;
+                return true;
+            }
+            catch (System.Exception)
             {
                 return false;
             }
-
-            root = rootGameObject;
-            return true;
         }
     }
 }
