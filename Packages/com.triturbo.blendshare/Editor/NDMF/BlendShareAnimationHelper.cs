@@ -36,22 +36,71 @@ namespace Triturbo.BlendShare.NDMF
             out float value,
             out bool recording)
         {
-            value = 0f;
-            recording = false;
-            if (!IsAnimationPreviewOrRecordingActive() ||
-                !TryGetActiveBlendShapeBinding(applier, shapeName, out var clip, out var binding, out float time, out recording))
+            var context = CreateBlendShapeAnimationContext(applier);
+            return context.TryGetAnimatedBlendShapeValue(shapeName, out value, out recording);
+        }
+
+        public static BlendShapeAnimationContext CreateBlendShapeAnimationContext(BlendShareMesh applier)
+        {
+            if (applier == null ||
+                !TryGetActiveAnimationWindowState(out var clip, out var root, out float time, out bool recording) ||
+                clip == null ||
+                root == null ||
+                (!AnimationMode.InAnimationMode() && !recording) ||
+                !TryGetBlendShareRecordingPath(applier, root, out string path))
             {
-                return false;
+                return BlendShapeAnimationContext.Inactive;
             }
 
-            var curve = AnimationUtility.GetEditorCurve(clip, binding);
-            if (curve == null)
+            return new BlendShapeAnimationContext(clip, path, time, recording);
+        }
+
+        public sealed class BlendShapeAnimationContext
+        {
+            public static readonly BlendShapeAnimationContext Inactive = new(null, string.Empty, 0f, false);
+
+            private readonly AnimationClip clip;
+            private readonly string path;
+            private readonly float time;
+            private readonly bool recording;
+            private readonly Dictionary<string, AnimationCurve> curvesByShapeName = new();
+
+            public BlendShapeAnimationContext(AnimationClip clip, string path, float time, bool recording)
             {
-                return false;
+                this.clip = clip;
+                this.path = path ?? string.Empty;
+                this.time = time;
+                this.recording = recording;
             }
 
-            value = curve.Evaluate(time);
-            return true;
+            public bool TryGetAnimatedBlendShapeValue(
+                string shapeName,
+                out float value,
+                out bool isRecording)
+            {
+                value = 0f;
+                isRecording = false;
+                if (clip == null || string.IsNullOrWhiteSpace(shapeName))
+                {
+                    return false;
+                }
+
+                isRecording = recording;
+                if (!curvesByShapeName.TryGetValue(shapeName, out var curve))
+                {
+                    var binding = CreateBlendShapeBinding(path, shapeName);
+                    curve = AnimationUtility.GetEditorCurve(clip, binding);
+                    curvesByShapeName[shapeName] = curve;
+                }
+
+                if (curve == null)
+                {
+                    return false;
+                }
+
+                value = curve.Evaluate(time);
+                return true;
+            }
         }
 
         public static void RecordBlendShapeValue(BlendShareMesh applier, string shapeName, float value)

@@ -8,6 +8,8 @@ namespace Triturbo.BlendShare.NDMF
     [CustomEditor(typeof(BlendShareMesh))]
     public sealed class BlendShareMeshEditor : UnityEditor.Editor
     {
+        private double skipMappingValidationUntil;
+
         static BlendShareMeshEditor()
         {
             EditorApplication.contextualPropertyMenu -= AddBlendShapeAnimationMenuItems;
@@ -32,13 +34,21 @@ namespace Triturbo.BlendShare.NDMF
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_MeshData"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_EnabledForBuild"));
 
-            DrawBlendShapeWeights(applier, serializedObject.FindProperty(BlendShareMesh.BlendShapeWeightsFieldName));
+            bool changedBlendShapeWeight = DrawBlendShapeWeights(
+                applier,
+                serializedObject.FindProperty(BlendShareMesh.BlendShapeWeightsFieldName),
+                BlendShareAnimationHelper.CreateBlendShapeAnimationContext(applier));
+            if (changedBlendShapeWeight)
+            {
+                skipMappingValidationUntil = EditorApplication.timeSinceStartup + 0.25d;
+            }
 
             EditorGUILayout.Space();
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_DiagnosticMessage"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_BoneProxyBindings"), true);
 
-            if (!BlendShareComponentSetupService.ValidateMeshApplierMapping(applier, out string mappingDiagnostic))
+            if (EditorApplication.timeSinceStartup >= skipMappingValidationUntil &&
+                !BlendShareComponentSetupService.ValidateMeshApplierMapping(applier, out string mappingDiagnostic))
             {
                 bool showMappingError = true;
                 if (BlendShareComponentSetupService.TryGetCachedInvalidMappingDiagnostic(applier, out string cachedDiagnostic))
@@ -67,12 +77,17 @@ namespace Triturbo.BlendShare.NDMF
             serializedObject.ApplyModifiedProperties();
         }
 
-        private static void DrawBlendShapeWeights(BlendShareMesh applier, SerializedProperty weightsProperty)
+        private static bool DrawBlendShapeWeights(
+            BlendShareMesh applier,
+            SerializedProperty weightsProperty,
+            BlendShareAnimationHelper.BlendShapeAnimationContext animationContext)
         {
             if (weightsProperty == null || !weightsProperty.isArray || weightsProperty.arraySize == 0)
             {
-                return;
+                return false;
             }
+
+            bool changed = false;
 
             EditorGUILayout.Space();
             GUIContent label = Localization.G("features.blend-shapes.name");
@@ -97,8 +112,7 @@ namespace Triturbo.BlendShare.NDMF
                         Rect shapeRect = EditorGUILayout.GetControlRect(true, EditorGUIUtility.singleLineHeight);
                         GUIContent shapeLabel = new GUIContent(shapeName.stringValue);
                         shapeLabel = EditorGUI.BeginProperty(shapeRect, shapeLabel, weight);
-                        bool isAnimated = BlendShareAnimationHelper.TryGetAnimatedBlendShapeValue(
-                            applier,
+                        bool isAnimated = animationContext.TryGetAnimatedBlendShapeValue(
                             shapeName.stringValue,
                             out float animatedValue,
                             out bool isRecording);
@@ -126,6 +140,8 @@ namespace Triturbo.BlendShare.NDMF
                         {
                             weight.floatValue = newValue;
                             RecordProxyBlendShapeAnimation(applier, shapeName.stringValue, newValue);
+                            SceneView.RepaintAll();
+                            changed = true;
                         }
                         EditorGUI.EndProperty();
 
@@ -133,8 +149,7 @@ namespace Triturbo.BlendShare.NDMF
                 }
             }
 
-
-
+            return changed;
         }
 
         private static void RecordProxyBlendShapeAnimation(BlendShareMesh applier, string shapeName, float value)
