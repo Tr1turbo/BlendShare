@@ -1,5 +1,4 @@
 using Triturbo.BlendShare.Fbx;
-using Debug = UnityEngine.Debug;
 using FbxReaderMatrix = Triturbo.BlendShare.Fbx.FbxMatrix4x4;
 using UfbxBlendChannel = Triturbo.BlendShare.Fbx.Ufbx.UfbxBlendChannel;
 using UfbxBlendShape = Triturbo.BlendShare.Fbx.Ufbx.UfbxBlendShape;
@@ -14,24 +13,23 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             UfbxBlendChannel source,
             UfbxMesh sourceMesh,
             FbxReaderMatrix transformMatrix,
-            UfbxMesh baseMesh = null)
+            UfbxMesh baseMesh = null,
+            int controlPointLimit = -1)
         {
             if (source == null || sourceMesh == null)
             {
                 return null;
             }
 
-            int controlPointCount = sourceMesh.ControlPointCount;
+            int controlPointCount = controlPointLimit >= 0
+                ? System.Math.Min(controlPointLimit, sourceMesh.ControlPointCount)
+                : sourceMesh.ControlPointCount;
 
             if (baseMesh == null)
             {
                 baseMesh = sourceMesh;
             }
-            else if (controlPointCount != baseMesh.ControlPointCount)
-            {
-                Debug.LogWarning("Base mesh FBX vertex count does not match the source mesh FBX vertex count. Use blendshape source as basis");
-                baseMesh = sourceMesh;
-            }
+            controlPointCount = System.Math.Min(controlPointCount, baseMesh.ControlPointCount);
 
             var sourceControlPoints = sourceMesh.GetVertices();
             var baseControlPoints = baseMesh.GetVertices();

@@ -29,6 +29,7 @@ namespace Triturbo.BlendShare.Core
     {
         object BuildInspectionData(
             FbxInspectionSession session,
+            MeshFeatureExtractionOptionsSet options,
             IReadOnlyList<MeshFeatureExtractionMeshRequest> meshes);
     }
 
@@ -85,19 +86,22 @@ namespace Triturbo.BlendShare.Core
         public IReadOnlyList<MeshFeatureExtractionMeshRequest> Meshes { get; }
         public IReadOnlyDictionary<string, object> CachedData { get; }
         public float AvailableHeight { get; }
+        public Action RequestInspectionRefresh { get; }
 
         public MeshFeatureOptionsEditorContext(
             GameObject sourceFbxGo,
             GameObject originFbxGo,
             IReadOnlyList<MeshFeatureExtractionMeshRequest> meshes,
             IReadOnlyDictionary<string, object> cachedData = null,
-            float availableHeight = 0f)
+            float availableHeight = 0f,
+            Action requestInspectionRefresh = null)
         {
             SourceFbxGo = sourceFbxGo;
             OriginFbxGo = originFbxGo;
             Meshes = meshes ?? Array.Empty<MeshFeatureExtractionMeshRequest>();
             CachedData = cachedData ?? new Dictionary<string, object>();
             AvailableHeight = availableHeight;
+            RequestInspectionRefresh = requestInspectionRefresh;
         }
 
         public bool TryGetCachedData<TValue>(string key, out TValue value)

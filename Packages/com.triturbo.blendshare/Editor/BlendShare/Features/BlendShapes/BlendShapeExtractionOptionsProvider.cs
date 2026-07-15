@@ -18,8 +18,8 @@ namespace Triturbo.BlendShare.Features.BlendShapes
         private readonly Dictionary<string, bool> meshFoldouts = new();
         private const float ComparisonPillSlotWidth = 100f;
         private Vector2 scrollPosition;
-        private bool showApplyTransform;
         private float blendShapeScrollHeight = 240f;
+        private readonly List<System.Action> baseModeRefreshers = new();
 
         public override string FeatureId => BlendShapeFeatureObject.Id;
         public override string TabLabel => Localization.FeatureName(FeatureId, "BlendShapes");
@@ -32,9 +32,10 @@ namespace Triturbo.BlendShare.Features.BlendShapes
 
         public object BuildInspectionData(
             FbxInspectionSession session,
+            MeshFeatureExtractionOptionsSet options,
             IReadOnlyList<MeshFeatureExtractionMeshRequest> meshes)
         {
-            return BlendShapeFbxComparison.BuildInspectionData(session, meshes);
+            return BlendShapeFbxComparison.BuildInspectionData(session, options, meshes);
         }
 
         public VisualElement CreateOptionsElement(
@@ -51,7 +52,8 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             root.style.minHeight = 0f;
             root.style.flexDirection = FlexDirection.Column;
 
-            var controls = CreateGeneralOptionsElement(options);
+            baseModeRefreshers.Clear();
+            var controls = CreateGeneralOptionsElement(options, context);
             var listRoot = CreateBlendShapeListElement(options, context);
             listRoot.SetEnabled(options.Enabled);
             root.Add(controls);
@@ -59,7 +61,9 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             return root;
         }
 
-        private VisualElement CreateGeneralOptionsElement(BlendShapeExtractionOptions options)
+        private VisualElement CreateGeneralOptionsElement(
+            BlendShapeExtractionOptions options,
+            MeshFeatureOptionsEditorContext context)
         {
             var root = new VisualElement();
             root.style.marginBottom = 6f;
@@ -70,51 +74,37 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             };
             root.Add(enabledToggle);
 
-            var controls = new VisualElement();
-            controls.style.marginLeft = 14f;
-            controls.SetEnabled(options.Enabled);
-            root.Add(controls);
-
-            var transformFoldout = new Foldout
+            var baseMode = CreateBaseModeField(
+                Localization.S("features.blend-shapes.base_mode"),
+                options.BaseMode);
+            baseMode.RegisterValueChangedCallback(evt =>
             {
-                text = Localization.S("patch_creator.blend_shapes.apply_transform"),
-                value = showApplyTransform
-            };
-            transformFoldout.RegisterValueChangedCallback(evt => showApplyTransform = evt.newValue);
-            controls.Add(transformFoldout);
-
-            transformFoldout.Add(CreateOptionToggle(
-                Localization.S("patch_creator.blend_shapes.apply_translate"),
-                options.ApplyTranslate,
-                value => options.ApplyTranslate = value));
-            transformFoldout.Add(CreateOptionToggle(
-                Localization.S("patch_creator.blend_shapes.apply_rotation"),
-                options.ApplyRotation,
-                value => options.ApplyRotation = value));
-            transformFoldout.Add(CreateOptionToggle(
-                Localization.S("patch_creator.blend_shapes.apply_scale"),
-                options.ApplyScale,
-                value => options.ApplyScale = value));
-
-            var baseMeshField = new PopupField<BlendShapeBaseMesh>(
-                Localization.S("patch_creator.blend_shapes.base_mesh"),
-                System.Enum.GetValues(typeof(BlendShapeBaseMesh)).Cast<BlendShapeBaseMesh>().ToList(),
-                options.BaseMesh,
-                FormatBaseMesh,
-                FormatBaseMesh);
-            baseMeshField.RegisterValueChangedCallback(evt =>
-            {
-                if (evt.newValue is BlendShapeBaseMesh baseMesh)
+                options.BaseMode = evt.newValue;
+                foreach (var refresh in baseModeRefreshers)
                 {
-                    options.BaseMesh = baseMesh;
+                    refresh?.Invoke();
                 }
             });
-            controls.Add(baseMeshField);
+            root.Add(baseMode);
+
+            var deltaTolerance = new FloatField(
+                Localization.S("features.blend-shapes.delta_comparison_tolerance"))
+            {
+                value = options.DeltaComparisonTolerance,
+                isDelayed = true,
+                tooltip = Localization.S("features.blend-shapes.delta_comparison_tolerance_tooltip")
+            };
+            deltaTolerance.RegisterValueChangedCallback(evt =>
+            {
+                options.DeltaComparisonTolerance = evt.newValue;
+                deltaTolerance.SetValueWithoutNotify(options.DeltaComparisonTolerance);
+                context?.RequestInspectionRefresh?.Invoke();
+            });
+            root.Add(deltaTolerance);
 
             enabledToggle.RegisterValueChangedCallback(evt =>
             {
                 options.Enabled = evt.newValue;
-                controls.SetEnabled(options.Enabled);
                 root.parent?.Q<VisualElement>("blendshape-list-root")?.SetEnabled(options.Enabled);
             });
 
@@ -247,6 +237,40 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             var pathLabel = new Label($"{Localization.S("common.mesh_path")}: {request.Path}");
             BlendShareInspectorUi.StyleStrong(pathLabel);
             meshControls.Add(pathLabel);
+
+            var baseModeRow = new VisualElement();
+            baseModeRow.style.flexDirection = FlexDirection.Row;
+            baseModeRow.style.alignItems = Align.Center;
+            var overrideBaseMode = new Toggle(Localization.S("features.blend-shapes.override_base_mode"))
+            {
+                value = options.HasBaseModeOverride(request.Path)
+            };
+            var meshBaseMode = CreateBaseModeField(string.Empty, options.GetBaseMode(request.Path));
+            meshBaseMode.style.flexGrow = 1f;
+            meshBaseMode.style.marginLeft = 6f;
+            baseModeRow.Add(overrideBaseMode);
+            baseModeRow.Add(meshBaseMode);
+            meshControls.Add(baseModeRow);
+
+            void RefreshBaseMode()
+            {
+                bool hasOverride = options.HasBaseModeOverride(request.Path);
+                overrideBaseMode.SetValueWithoutNotify(hasOverride);
+                meshBaseMode.SetValueWithoutNotify(options.GetBaseMode(request.Path));
+                meshBaseMode.SetEnabled(hasOverride);
+            }
+
+            overrideBaseMode.RegisterValueChangedCallback(evt =>
+            {
+                options.SetBaseModeOverride(request.Path, evt.newValue);
+                RefreshBaseMode();
+            });
+            meshBaseMode.RegisterValueChangedCallback(evt =>
+            {
+                options.SetBaseMode(request.Path, evt.newValue);
+            });
+            baseModeRefreshers.Add(RefreshBaseMode);
+            RefreshBaseMode();
 
             if (!string.IsNullOrEmpty(meshComparison?.Message))
             {
@@ -398,6 +422,28 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             };
             toggle.RegisterValueChangedCallback(evt => onChanged(evt.newValue));
             return toggle;
+        }
+
+        private static PopupField<BlendShapeBaseMode> CreateBaseModeField(
+            string label,
+            BlendShapeBaseMode value)
+        {
+            var values = new List<BlendShapeBaseMode>
+            {
+                BlendShapeBaseMode.PreserveSourceRelative,
+                BlendShapeBaseMode.RebaseOntoOriginal
+            };
+            var field = new PopupField<BlendShapeBaseMode>(label, values, value);
+            field.formatSelectedValueCallback = FormatBaseMode;
+            field.formatListItemCallback = FormatBaseMode;
+            return field;
+        }
+
+        private static string FormatBaseMode(BlendShapeBaseMode mode)
+        {
+            return Localization.S(mode == BlendShapeBaseMode.PreserveSourceRelative
+                ? "patch_creator.alignment.basis_source_relative"
+                : "patch_creator.alignment.basis_rebase_original");
         }
 
         private static Label CreateHeaderLabel(string text)
@@ -573,31 +619,26 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                 return;
             }
 
-            DrawGeneralOptions(options);
+            DrawGeneralOptions(options, context);
             DrawBlendShapeToggles(options, context);
         }
 
-        private void DrawGeneralOptions(BlendShapeExtractionOptions options)
+        private void DrawGeneralOptions(
+            BlendShapeExtractionOptions options,
+            MeshFeatureOptionsEditorContext context)
         {
             options.Enabled = EditorGUILayout.ToggleLeft(Localization.S("features.blend-shapes.toggle"), options.Enabled);
-            EditorGUI.BeginDisabledGroup(!options.Enabled);
-
-            showApplyTransform = EditorGUILayout.Foldout(showApplyTransform, Localization.G("patch_creator.blend_shapes.apply_transform"));
-            if (showApplyTransform)
+            options.BaseMode = (BlendShapeBaseMode)EditorGUILayout.EnumPopup(
+                Localization.S("features.blend-shapes.base_mode"),
+                options.BaseMode);
+            float previousTolerance = options.DeltaComparisonTolerance;
+            options.DeltaComparisonTolerance = EditorGUILayout.DelayedFloatField(
+                Localization.S("features.blend-shapes.delta_comparison_tolerance"),
+                options.DeltaComparisonTolerance);
+            if (previousTolerance != options.DeltaComparisonTolerance)
             {
-                EditorGUI.indentLevel++;
-                options.ApplyTranslate = EditorGUILayout.Toggle(Localization.G("patch_creator.blend_shapes.apply_translate"), options.ApplyTranslate);
-                options.ApplyRotation = EditorGUILayout.Toggle(Localization.G("patch_creator.blend_shapes.apply_rotation"), options.ApplyRotation);
-                options.ApplyScale = EditorGUILayout.Toggle(Localization.G("patch_creator.blend_shapes.apply_scale"), options.ApplyScale);
-                EditorGUI.indentLevel--;
+                context?.RequestInspectionRefresh?.Invoke();
             }
-
-            options.BaseMesh = Localization.LocalizedEnumPopup(
-                Localization.G("patch_creator.blend_shapes.base_mesh"),
-                options.BaseMesh,
-                "patch_creator.blend_shapes.base_mesh");
-
-            EditorGUI.EndDisabledGroup();
         }
 
         private void DrawBlendShapeToggles(
@@ -692,6 +733,20 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             EditorGUI.indentLevel++;
             EditorGUILayout.BeginVertical(GUI.skin.box);
             EditorGUILayout.LabelField(Localization.G("common.mesh_path"), new GUIContent(request.Path));
+            bool hasBaseModeOverride = EditorGUILayout.ToggleLeft(
+                Localization.S("features.blend-shapes.override_base_mode"),
+                options.HasBaseModeOverride(request.Path));
+            options.SetBaseModeOverride(request.Path, hasBaseModeOverride);
+            using (new EditorGUI.DisabledScope(!hasBaseModeOverride))
+            {
+                var mode = (BlendShapeBaseMode)EditorGUILayout.EnumPopup(
+                    Localization.S("features.blend-shapes.base_mode"),
+                    options.GetBaseMode(request.Path));
+                if (hasBaseModeOverride)
+                {
+                    options.SetBaseMode(request.Path, mode);
+                }
+            }
             if (!string.IsNullOrEmpty(meshComparison?.Message))
             {
                 EditorGUILayout.HelpBox(meshComparison.Message, MessageType.Warning);
@@ -836,11 +891,6 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                 BlendShapeComparisonStatus.Unavailable => Localization.S("common.status.unavailable"),
                 _ => Localization.S("common.status.unknown")
             };
-        }
-
-        private static string FormatBaseMesh(BlendShapeBaseMesh baseMesh)
-        {
-            return Localization.S($"patch_creator.blend_shapes.base_mesh.{baseMesh.ToString().ToLowerInvariant()}");
         }
     }
 }

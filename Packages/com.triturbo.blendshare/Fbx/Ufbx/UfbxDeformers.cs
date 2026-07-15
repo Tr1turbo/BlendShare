@@ -94,7 +94,9 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             UfbxMesh ownerMesh,
             UfbxSkinDeformer ownerSkin,
             int[] indices,
-            double[] weights)
+            double[] weights,
+            FbxMatrix4x4 meshBindWorld,
+            FbxMatrix4x4 bindToWorld)
             : base(source.Scene, UfbxElementType.SkinCluster, source.Index, source.Id, source.Name)
         {
             OwnerMesh = ownerMesh;
@@ -103,8 +105,8 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             snapshotIndices = indices?.ToArray() ?? Array.Empty<int>();
             snapshotWeights = weights?.ToArray() ?? Array.Empty<double>();
             WeightCount = Math.Min(snapshotIndices.Length, snapshotWeights.Length);
-            MeshBindWorld = source.MeshBindWorld;
-            BindToWorld = source.BindToWorld;
+            MeshBindWorld = meshBindWorld;
+            BindToWorld = bindToWorld;
             MeshNodeToBone = source.MeshNodeToBone;
             GeometryToBone = source.GeometryToBone;
         }

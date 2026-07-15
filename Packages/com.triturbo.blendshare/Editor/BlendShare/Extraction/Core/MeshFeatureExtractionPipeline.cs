@@ -38,6 +38,20 @@ namespace Triturbo.BlendShare.Core
                        meshRequests,
                        rawFbxSdkAccessAllowed))
             {
+                foreach (var request in meshRequests)
+                {
+                    var compatibility = FbxMeshCompatibility.Evaluate(
+                        session.GetOriginFbxMesh(request.Path),
+                        session.GetRawSourceFbxMesh(request.Path));
+                    if (!compatibility.IsCompatible)
+                    {
+                        Debug.LogError(
+                            $"[BlendShare] Cannot extract mesh '{request.Path}': topology compatibility is {compatibility.State} " +
+                            $"(Original {compatibility.OriginalControlPointCount}, Source {compatibility.SourceControlPointCount}).");
+                        return null;
+                    }
+                }
+
                 var extractedMeshes = new List<MeshDataObject>();
 
                 foreach (var request in meshRequests)
@@ -140,5 +154,6 @@ namespace Triturbo.BlendShare.Core
         {
             return context.Path;
         }
+
     }
 }

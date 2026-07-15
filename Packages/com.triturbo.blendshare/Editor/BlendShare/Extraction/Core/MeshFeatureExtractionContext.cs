@@ -58,7 +58,6 @@ namespace Triturbo.BlendShare.Core
         public GameObject OriginFbxGo { get; }
         public MeshFeatureExtractionOptionsSet Options { get; }
         public IReadOnlyList<MeshFeatureExtractionMeshRequest> Meshes { get; }
-
         public UfbxScene SourceScene { get; }
         public UfbxScene OriginScene { get; }
         public bool RawFbxSdkAccessAllowed => rawFbxSdkAccessAllowed;
@@ -164,7 +163,10 @@ namespace Triturbo.BlendShare.Core
                 return null;
             }
 
-            normalized = UfbxSourceMeshNormalizer.Normalize(sourceMesh, GetFbxControlPointWelding(path));
+            normalized = UfbxSourceMeshNormalizer.Normalize(
+                sourceMesh,
+                GetFbxControlPointWelding(path),
+                Options.GetSourceOffset(path).ToFbxMatrix());
             normalizedSourceMeshesByPath[key] = normalized;
             return normalized;
         }

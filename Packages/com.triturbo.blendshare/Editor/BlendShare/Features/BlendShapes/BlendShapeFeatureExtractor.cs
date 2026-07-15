@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using Triturbo.BlendShare.Core;
+using Triturbo.BlendShare.Fbx;
 using UnityEngine;
-using UfbxReaderTransform = Triturbo.BlendShare.Fbx.Ufbx.UfbxTransform;
 
 namespace Triturbo.BlendShare.Features.BlendShapes
 {
@@ -66,10 +66,10 @@ namespace Triturbo.BlendShare.Features.BlendShapes
 
             var originMesh = context.GetOriginFbxMesh();
             var selected = new HashSet<string>(selectedShapeNames);
-            var sourceTransform = sourceMesh.OwnerNode?.LocalTransform ?? UfbxReaderTransform.Identity;
-            var originTransform = originMesh?.OwnerNode?.LocalTransform ?? UfbxReaderTransform.Identity;
-            var relativeTransform = options.GetReaderTransform(originTransform, sourceTransform);
-            var baseMesh = options.BaseMesh == BlendShapeBaseMesh.Source ? sourceMesh : originMesh;
+            var baseMesh = options.GetBaseMode(context.Path) == BlendShapeBaseMode.PreserveSourceRelative
+                ? sourceMesh
+                : originMesh;
+            int controlPointCount = originMesh?.ControlPointCount ?? 0;
 
             foreach (var deformer in sourceMesh.BlendDeformers)
             {
@@ -84,8 +84,9 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                     var data = BlendShapeFbxExtractionUtility.GetFbxBlendShapeData(
                         channel,
                         sourceMesh,
-                        relativeTransform,
-                        baseMesh);
+                        FbxMatrix4x4.Identity,
+                        baseMesh,
+                        controlPointCount);
 
                     if (data != null)
                     {

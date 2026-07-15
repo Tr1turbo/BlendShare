@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Triturbo.BlendShare.Fbx;
+using UnityEngine;
 
 namespace Triturbo.BlendShare.Core
 {
@@ -41,8 +43,26 @@ namespace Triturbo.BlendShare.Core
     public sealed class MeshFeatureExtractionOptionsSet
     {
         private readonly Dictionary<Type, MeshFeatureExtractionOptions> optionsByType = new();
+        private readonly Dictionary<string, MeshFeatureSourceOffset> sourceOffsetByMesh = new(StringComparer.Ordinal);
 
         public IEnumerable<MeshFeatureExtractionOptions> All => optionsByType.Values;
+
+        public MeshFeatureSourceOffset GetSourceOffset(string path)
+        {
+            string key = BuildMeshKey(path);
+            if (string.IsNullOrEmpty(key))
+            {
+                return new MeshFeatureSourceOffset();
+            }
+
+            if (!sourceOffsetByMesh.TryGetValue(key, out var offset))
+            {
+                offset = new MeshFeatureSourceOffset();
+                sourceOffsetByMesh[key] = offset;
+            }
+
+            return offset;
+        }
 
         public void Set<TOptions>(TOptions options)
             where TOptions : MeshFeatureExtractionOptions
@@ -95,6 +115,53 @@ namespace Triturbo.BlendShare.Core
             }
 
             return optionsByType.TryGetValue(optionsType, out options);
+        }
+
+        private static string BuildMeshKey(string path)
+        {
+            return MeshFeatureExtractionSession.BuildMeshKey(path);
+        }
+    }
+
+    public sealed class MeshFeatureSourceOffset
+    {
+        public Vector3 Position;
+        public Vector3 Rotation;
+        public Vector3 Scale = Vector3.one;
+
+        public bool IsIdentity =>
+            Position == Vector3.zero &&
+            Rotation == Vector3.zero &&
+            Scale == Vector3.one;
+
+        public void Reset()
+        {
+            Position = Vector3.zero;
+            Rotation = Vector3.zero;
+            Scale = Vector3.one;
+        }
+
+        public Matrix4x4 ToUnityMatrix()
+        {
+            return Matrix4x4.TRS(Position, Quaternion.Euler(Rotation), SanitizeScale(Scale));
+        }
+
+        public FbxMatrix4x4 ToFbxMatrix()
+        {
+            Matrix4x4 matrix = ToUnityMatrix();
+            return new FbxMatrix4x4(
+                matrix[0, 0], matrix[1, 0], matrix[2, 0], matrix[3, 0],
+                matrix[0, 1], matrix[1, 1], matrix[2, 1], matrix[3, 1],
+                matrix[0, 2], matrix[1, 2], matrix[2, 2], matrix[3, 2],
+                matrix[0, 3], matrix[1, 3], matrix[2, 3], matrix[3, 3]);
+        }
+
+        private static Vector3 SanitizeScale(Vector3 scale)
+        {
+            return new Vector3(
+                Mathf.Approximately(scale.x, 0f) ? 1f : scale.x,
+                Mathf.Approximately(scale.y, 0f) ? 1f : scale.y,
+                Mathf.Approximately(scale.z, 0f) ? 1f : scale.z);
         }
     }
 }

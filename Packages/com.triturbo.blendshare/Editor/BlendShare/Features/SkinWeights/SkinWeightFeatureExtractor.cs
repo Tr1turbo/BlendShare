@@ -268,11 +268,13 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             var originBonesByIndex = SkinWeightFbxComparison.BuildBonePathsByIndex(originSkin);
             var sourceWeights = SkinWeightFbxComparison.BuildWeightsByPath(sourceSkin, sourceBonesByIndex);
             var originWeights = SkinWeightFbxComparison.BuildWeightsByPath(originSkin, originBonesByIndex);
+            int controlPointCount = context.GetOriginFbxMesh()?.ControlPointCount ?? 0;
             var selectedWeightBonePaths = options.GetSelectedWeightBonePaths(context.Path);
             var deltaWeights = BuildSelectedDeltaWeights(
                 sourceWeights,
                 originWeights,
-                selectedWeightBonePaths);
+                selectedWeightBonePaths,
+                controlPointCount);
 
             var bindPoses = ExtractSelectedBindPoses(
                 sourceSkin,
@@ -302,7 +304,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         private static Dictionary<int, Dictionary<string, float>> BuildSelectedDeltaWeights(
             IReadOnlyDictionary<string, Dictionary<int, float>> sourceWeights,
             IReadOnlyDictionary<string, Dictionary<int, float>> originWeights,
-            IEnumerable<string> selectedBonePaths)
+            IEnumerable<string> selectedBonePaths,
+            int controlPointCount)
         {
             var result = new Dictionary<int, Dictionary<string, float>>();
             foreach (string bonePath in (selectedBonePaths ?? Array.Empty<string>())
@@ -313,6 +316,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 originWeights.TryGetValue(bonePath, out var originByControlPoint);
                 foreach (int controlPointIndex in (sourceByControlPoint?.Keys ?? Enumerable.Empty<int>())
                              .Concat(originByControlPoint?.Keys ?? Enumerable.Empty<int>())
+                             .Where(index => index >= 0 && index < controlPointCount)
                              .Distinct())
                 {
                     float source = sourceByControlPoint != null &&

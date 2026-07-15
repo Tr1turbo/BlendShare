@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.Core;
+using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Fbx.Unity;
 using Triturbo.BlendShare.Fbx.Ufbx;
 using UnityEngine;
@@ -85,6 +86,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
         public static SkinWeightFbxComparison BuildInspectionData(
             FbxInspectionSession session,
+            MeshFeatureExtractionOptionsSet options,
             IReadOnlyList<MeshFeatureExtractionMeshRequest> meshes)
         {
             var requests = meshes?
@@ -110,7 +112,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
             foreach (var request in requests)
             {
-                CompareMesh(session, request.Path, sourceBonePaths, originBonePaths, builders);
+                CompareMesh(session, options, request.Path, sourceBonePaths, originBonePaths, builders);
             }
 
             var bones = builders.Values
@@ -125,6 +127,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
         private static void CompareMesh(
             FbxInspectionSession session,
+            MeshFeatureExtractionOptionsSet options,
             string meshPath,
             HashSet<string> sourceBonePaths,
             HashSet<string> originBonePaths,
@@ -139,6 +142,15 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             var originWeights = BuildWeightsByPath(originSkin, originBonesByIndex);
             var sourceBindPoses = BuildBindPosesByPath(sourceSkin, sourceBonesByIndex);
             var originBindPoses = BuildBindPosesByPath(originSkin, originBonesByIndex);
+            var sourceOffset = options?.GetSourceOffset(normalizedMeshPath)?.ToFbxMatrix() ?? FbxMatrix4x4.Identity;
+            if (sourceOffset.TryInverse(out var inverseSourceOffset))
+            {
+                foreach (var bindPose in sourceBindPoses.Values)
+                {
+                    bindPose.m_FbxTransformMatrix = inverseSourceOffset * bindPose.m_FbxTransformMatrix;
+                }
+            }
+            int controlPointCount = session.Origin?.GetMesh(normalizedMeshPath)?.ControlPointCount ?? 0;
             var sourceClusterPaths = BuildClusterBonePaths(sourceSkin, sourceBonesByIndex);
             var originClusterPaths = BuildClusterBonePaths(originSkin, originBonesByIndex);
 
@@ -154,7 +166,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     sourceClusterPaths.Contains(bonePath),
                     originClusterPaths.Contains(bonePath),
                     sourceWeights,
-                    originWeights);
+                    originWeights,
+                    controlPointCount);
                 builder.WeightClusters.Add(weightComparison);
 
                 if (sourceBindPoses.ContainsKey(bonePath) || originBindPoses.ContainsKey(bonePath))
@@ -175,14 +188,16 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             bool hasSourceCluster,
             bool hasOriginCluster,
             IReadOnlyDictionary<string, Dictionary<int, float>> sourceWeights,
-            IReadOnlyDictionary<string, Dictionary<int, float>> originWeights)
+            IReadOnlyDictionary<string, Dictionary<int, float>> originWeights,
+            int controlPointCount)
         {
             sourceWeights.TryGetValue(bonePath, out var sourceByControlPoint);
             originWeights.TryGetValue(bonePath, out var originByControlPoint);
             int affected = 0;
             float maxDelta = 0f;
-            foreach (int controlPoint in (sourceByControlPoint?.Keys ?? Enumerable.Empty<int>())
+                foreach (int controlPoint in (sourceByControlPoint?.Keys ?? Enumerable.Empty<int>())
                          .Concat(originByControlPoint?.Keys ?? Enumerable.Empty<int>())
+                         .Where(index => index >= 0 && index < controlPointCount)
                          .Distinct())
             {
                 float source = 0f;

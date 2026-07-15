@@ -4,6 +4,7 @@ using System.Linq;
 using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Fbx.Ufbx;
 using Triturbo.BlendShare.Fbx.Unity;
+using Triturbo.BlendShare.Hashing;
 using UnityEditor;
 using UnityEngine;
 
@@ -19,6 +20,8 @@ namespace Triturbo.BlendShare.Core
     public sealed class FbxInspectionSession : IDisposable
     {
         private bool disposed;
+        private readonly Dictionary<string, FbxMeshCompatibilityResult> topologyCompatibilityByPath =
+            new(StringComparer.Ordinal);
 
         public FbxInspectionAsset Source { get; }
         public FbxInspectionAsset Origin { get; }
@@ -70,6 +73,21 @@ namespace Triturbo.BlendShare.Core
                 originMesh,
                 diagnostics);
             return sourceMesh != null || originMesh != null;
+        }
+
+        public FbxMeshCompatibilityResult GetTopologyCompatibility(string path)
+        {
+            ThrowIfDisposed();
+            string normalizedPath = MeshNodePath.Normalize(path);
+            if (topologyCompatibilityByPath.TryGetValue(normalizedPath, out var compatibility))
+            {
+                return compatibility;
+            }
+
+            TryGetMeshPair(normalizedPath, out var pair);
+            compatibility = FbxMeshCompatibility.Evaluate(pair?.OriginMesh, pair?.SourceMesh);
+            topologyCompatibilityByPath[normalizedPath] = compatibility;
+            return compatibility;
         }
 
         public IReadOnlyList<UfbxBlendChannel> GetSourceBlendShapes(string path)

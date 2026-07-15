@@ -615,12 +615,6 @@ msgstr "基础网格"
 msgid "patch_creator.blend_shapes.base_mesh.tooltip"
 msgstr "用于计算 BlendShape 偏移顶点的基础网格。"
 
-msgid "patch_creator.blend_shapes.base_mesh.original"
-msgstr "原始"
-
-msgid "patch_creator.blend_shapes.base_mesh.source"
-msgstr "来源"
-
 msgid "patch_creator.failed.message"
 msgstr "BlendShare 补丁创建失败。"
 
@@ -695,6 +689,129 @@ msgstr "BlendShare 补丁创建器"
 
 msgid "patch_creator.window_title"
 msgstr "BlendShare 补丁创建器"
+
+msgid "patch_creator.preview.scale_linked_tooltip"
+msgstr "锁定缩放比例"
+
+msgid "patch_creator.preview.scale_unlinked_tooltip"
+msgstr "解除缩放比例锁定"
+
+msgid "patch_creator.preview.auto_align_all"
+msgstr "全部自动对齐"
+
+msgid "patch_creator.preview.auto_align_all_tooltip"
+msgstr "为每个拓扑匹配的网格对分别计算源提取偏移。"
+
+msgid "patch_creator.preview.auto_align_all_failed"
+msgstr "无法根据拓扑匹配的网格对计算有效的对齐变换。"
+
+msgid "patch_creator.preview.auto_align_all_applied"
+msgstr "已使用 {1} 个对应顶点分别自动对齐 {0} 个网格。"
+
+msgid "patch_creator.preview.source_extraction_offset"
+msgstr "源提取偏移"
+
+msgid "patch_creator.preview.show"
+msgstr "显示"
+
+msgid "patch_creator.preview.shown"
+msgstr "已显示"
+
+msgid "patch_creator.preview.topology_compatibility"
+msgstr "拓扑"
+
+msgid "patch_creator.preview.no_shared_meshes"
+msgstr "Original 与 Source 之间未找到共同的原始 FBX 网格路径。"
+
+msgid "patch_creator.preview.wireframe"
+msgstr "线框"
+
+msgid "patch_creator.preview.frame"
+msgstr "聚焦"
+
+msgid "patch_creator.preview.reload"
+msgstr "重新加载"
+
+msgid "patch_creator.preview.raw_fbx_preview"
+msgstr "原始 FBX 预览"
+
+msgid "patch_creator.preview.missing"
+msgstr "缺失"
+
+msgid "patch_creator.preview.mesh_summary"
+msgstr "{0} 个控制点，{1} 个面"
+
+msgid "patch_creator.preview.transparent"
+msgstr "透明"
+
+msgid "patch_creator.preview.shaded"
+msgstr "着色"
+
+msgid "patch_creator.preview.position"
+msgstr "位置"
+
+msgid "patch_creator.preview.rotation"
+msgstr "旋转"
+
+msgid "patch_creator.preview.scale"
+msgstr "缩放"
+
+msgid "patch_creator.preview.reset_offset"
+msgstr "重置偏移"
+
+msgid "patch_creator.preview.reset_all_offsets"
+msgstr "重置所有偏移"
+
+msgid "patch_creator.preview.calculate_error"
+msgstr "计算误差"
+
+msgid "patch_creator.preview.auto_offset"
+msgstr "自动偏移"
+
+msgid "patch_creator.preview.index_aligned_error"
+msgstr "索引对齐误差（{0} 个顶点{1}）"
+
+msgid "patch_creator.preview.auto_offset_failed"
+msgstr "自动偏移无法找到有效变换。"
+
+msgid "patch_creator.preview.auto_offset_applied"
+msgstr "已应用自动偏移（{0} 个顶点{1}，缩放 {2}）"
+
+msgid "patch_creator.preview.alignment_requires_compatible_topology"
+msgstr "对齐前 Original 与 Source 必须具有兼容拓扑。"
+
+msgid "patch_creator.preview.no_vertices"
+msgstr "Original 或 Source 预览网格没有顶点。"
+
+msgid "patch_creator.preview.extra_control_points_note"
+msgstr "，忽略 Source 中额外的 {0} 个控制点"
+
+msgid "patch_creator.preview.error_metrics"
+msgstr "{0}：RMS {1}，最大值 {2}（顶点 {3}），相对 RMS {4}，相对最大值 {5}。"
+
+msgid "patch_creator.preview.no_preview_mesh"
+msgstr "没有预览网格"
+
+msgid "patch_creator.preview.comparison_summary"
+msgstr "Original：{0}    Source：{1}"
+
+msgid "patch_creator.preview.build_null_mesh"
+msgstr "FBX 网格为空。"
+
+msgid "patch_creator.preview.build_no_vertices"
+msgstr "FBX 网格没有顶点。"
+
+msgid "patch_creator.preview.build_no_faces"
+msgstr "FBX 网格没有面数据。"
+
+msgid "patch_creator.preview.build_no_valid_triangles"
+msgstr "FBX 网格未生成任何有效三角形。"
+
+msgid "patch_creator.preview.assign_fbx_asset"
+msgstr "请指定 FBX 资源。"
+
+msgid "patch_creator.preview.no_raw_meshes"
+msgstr "未找到原始网格。"
 
 msgid "common.status.diff"
 msgstr "差异"
@@ -1397,3 +1514,78 @@ msgstr "未找到此代理的源骨骼绑定。"
 
 msgid "ndmf.bone_proxy.shared_different_transforms"
 msgstr "此代理由具有不同绑定变换的多个源骨骼共享。"
+
+msgid "patch_creator.alignment_tab"
+msgstr "对齐"
+
+msgid "patch_creator.alignment.original"
+msgstr "原始"
+
+msgid "patch_creator.alignment.source"
+msgstr "来源"
+
+msgid "patch_creator.alignment.topology_exact"
+msgstr "拓扑兼容"
+
+msgid "patch_creator.alignment.compatible"
+msgstr "兼容"
+
+msgid "patch_creator.alignment.compatibility_warning"
+msgstr "拓扑兼容性警告：{0}"
+
+msgid "patch_creator.alignment.incompatible"
+msgstr "不兼容"
+
+msgid "patch_creator.alignment.compatibility_unavailable"
+msgstr "无法判定"
+
+msgid "patch_creator.alignment.source_extra_control_points"
+msgstr "Source 有 {0} 个控制点，Original 有 {1} 个。Source 中多余的控制点将被忽略。"
+
+msgid "patch_creator.alignment.source_fewer_control_points"
+msgstr "Source 只有 {0} 个控制点，Original 需要 {1} 个，因此无法提取。"
+
+msgid "patch_creator.alignment.topology_mismatch"
+msgstr "Source 的控制点前缀与 Original 拓扑不匹配。"
+
+msgid "patch_creator.alignment.blocking_topology"
+msgstr "保存前请先解决“对齐”页面中的拓扑错误。"
+
+msgid "patch_creator.alignment.blendshape_basis"
+msgstr "混合形状基准"
+
+msgid "patch_creator.alignment.basis_source_relative"
+msgstr "相对于 Source"
+
+msgid "patch_creator.alignment.basis_rebase_original"
+msgstr "重新基于 Original"
+
+msgid "features.blend-shapes.base_mode"
+msgstr "混合形状基准"
+
+msgid "features.blend-shapes.override_base_mode"
+msgstr "覆盖基准"
+
+msgid "patch_creator.alignment.topology_changed_order_match"
+msgstr "拓扑已更改，但对齐后的控制点顺序匹配。允许提取，但请谨慎确认。"
+
+msgid "patch_creator.alignment.topology_changed_order_match_extra"
+msgstr "拓扑已更改，Source 有 {0} 个控制点而 Original 有 {1} 个，但 Original 范围内的对齐控制点顺序匹配。多余的 Source 控制点将被忽略。"
+
+msgid "patch_creator.alignment.topology_extra_edges"
+msgstr "Source 包含 Original 的全部有向边以及额外边。额外边将在拓扑兼容性检查中被忽略。"
+
+msgid "features.blend-shapes.delta_comparison_tolerance"
+msgstr "增量比较容差"
+
+msgid "features.blend-shapes.delta_comparison_tolerance_tooltip"
+msgstr "将位置和法线混合形状增量判定为“相同”的逐轴最大差值。位置增量使用 FBX 坐标单位。"
+
+msgid "patch_creator.preview.show_all"
+msgstr "显示全部"
+
+msgid "patch_creator.preview.all_shown"
+msgstr "已显示全部"
+
+msgid "patch_creator.preview.all_meshes"
+msgstr "全部网格"

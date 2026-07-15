@@ -29,9 +29,10 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
         public object BuildInspectionData(
             FbxInspectionSession session,
+            MeshFeatureExtractionOptionsSet options,
             IReadOnlyList<MeshFeatureExtractionMeshRequest> meshes)
         {
-            return SkinWeightFbxComparison.BuildInspectionData(session, meshes);
+            return SkinWeightFbxComparison.BuildInspectionData(session, options, meshes);
         }
 
         public VisualElement CreateOptionsElement(

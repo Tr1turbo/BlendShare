@@ -627,12 +627,6 @@ msgstr "Base Mesh"
 msgid "patch_creator.blend_shapes.base_mesh.tooltip"
 msgstr "Base mesh for calculating BlendShape offset vertices."
 
-msgid "patch_creator.blend_shapes.base_mesh.original"
-msgstr "Original"
-
-msgid "patch_creator.blend_shapes.base_mesh.source"
-msgstr "Source"
-
 msgid "patch_creator.failed.message"
 msgstr "BlendShare patch creation failed."
 
@@ -707,6 +701,129 @@ msgstr "BlendShare Patch Creator"
 
 msgid "patch_creator.window_title"
 msgstr "BlendShare Patch Creator"
+
+msgid "patch_creator.preview.scale_linked_tooltip"
+msgstr "Scale proportions linked"
+
+msgid "patch_creator.preview.scale_unlinked_tooltip"
+msgstr "Scale proportions unlinked"
+
+msgid "patch_creator.preview.auto_align_all"
+msgstr "Auto Align All"
+
+msgid "patch_creator.preview.auto_align_all_tooltip"
+msgstr "Independently fit the Source extraction offset for every mesh pair with matching topology."
+
+msgid "patch_creator.preview.auto_align_all_failed"
+msgstr "Could not calculate a valid alignment from mesh pairs with matching topology."
+
+msgid "patch_creator.preview.auto_align_all_applied"
+msgstr "Auto aligned {0} meshes independently using {1} paired vertices."
+
+msgid "patch_creator.preview.source_extraction_offset"
+msgstr "Source Extraction Offset"
+
+msgid "patch_creator.preview.show"
+msgstr "Show"
+
+msgid "patch_creator.preview.shown"
+msgstr "Shown"
+
+msgid "patch_creator.preview.topology_compatibility"
+msgstr "Topology"
+
+msgid "patch_creator.preview.no_shared_meshes"
+msgstr "No shared raw FBX mesh paths were found between Original and Source."
+
+msgid "patch_creator.preview.wireframe"
+msgstr "Wireframe"
+
+msgid "patch_creator.preview.frame"
+msgstr "Frame"
+
+msgid "patch_creator.preview.reload"
+msgstr "Reload"
+
+msgid "patch_creator.preview.raw_fbx_preview"
+msgstr "Raw FBX Preview"
+
+msgid "patch_creator.preview.missing"
+msgstr "Missing"
+
+msgid "patch_creator.preview.mesh_summary"
+msgstr "{0} control points, {1} faces"
+
+msgid "patch_creator.preview.transparent"
+msgstr "Transparent"
+
+msgid "patch_creator.preview.shaded"
+msgstr "Shaded"
+
+msgid "patch_creator.preview.position"
+msgstr "Position"
+
+msgid "patch_creator.preview.rotation"
+msgstr "Rotation"
+
+msgid "patch_creator.preview.scale"
+msgstr "Scale"
+
+msgid "patch_creator.preview.reset_offset"
+msgstr "Reset Offset"
+
+msgid "patch_creator.preview.reset_all_offsets"
+msgstr "Reset All Offsets"
+
+msgid "patch_creator.preview.calculate_error"
+msgstr "Calculate Error"
+
+msgid "patch_creator.preview.auto_offset"
+msgstr "Auto Offset"
+
+msgid "patch_creator.preview.index_aligned_error"
+msgstr "Index-aligned error ({0} vertices{1})"
+
+msgid "patch_creator.preview.auto_offset_failed"
+msgstr "Auto Offset failed to find a valid transform."
+
+msgid "patch_creator.preview.auto_offset_applied"
+msgstr "Auto Offset applied ({0} vertices{1}, scale {2})"
+
+msgid "patch_creator.preview.alignment_requires_compatible_topology"
+msgstr "Original and Source must have compatible topology before alignment."
+
+msgid "patch_creator.preview.no_vertices"
+msgstr "Original or Source preview mesh has no vertices."
+
+msgid "patch_creator.preview.extra_control_points_note"
+msgstr ", ignoring {0} extra Source control points"
+
+msgid "patch_creator.preview.error_metrics"
+msgstr "{0}: RMS {1}, Max {2} at vertex {3}, Relative RMS {4}, Relative Max {5}."
+
+msgid "patch_creator.preview.no_preview_mesh"
+msgstr "No preview mesh"
+
+msgid "patch_creator.preview.comparison_summary"
+msgstr "Original: {0}    Source: {1}"
+
+msgid "patch_creator.preview.build_null_mesh"
+msgstr "FBX mesh is null."
+
+msgid "patch_creator.preview.build_no_vertices"
+msgstr "FBX mesh has no vertices."
+
+msgid "patch_creator.preview.build_no_faces"
+msgstr "FBX mesh has no face data."
+
+msgid "patch_creator.preview.build_no_valid_triangles"
+msgstr "FBX mesh did not produce any valid triangles."
+
+msgid "patch_creator.preview.assign_fbx_asset"
+msgstr "Assign an FBX asset."
+
+msgid "patch_creator.preview.no_raw_meshes"
+msgstr "No raw meshes found."
 
 msgid "common.status.diff"
 msgstr "Diff"
@@ -1397,3 +1514,78 @@ msgstr "No source bone binding was found for this proxy."
 
 msgid "ndmf.bone_proxy.shared_different_transforms"
 msgstr "This proxy is shared by source bones with different binding transforms."
+
+msgid "patch_creator.alignment_tab"
+msgstr "Alignment"
+
+msgid "patch_creator.alignment.original"
+msgstr "Original"
+
+msgid "patch_creator.alignment.source"
+msgstr "Source"
+
+msgid "patch_creator.alignment.topology_exact"
+msgstr "Compatible topology"
+
+msgid "patch_creator.alignment.compatible"
+msgstr "Compatible"
+
+msgid "patch_creator.alignment.compatibility_warning"
+msgstr "Topology compatibility warning: {0}"
+
+msgid "patch_creator.alignment.incompatible"
+msgstr "Incompatible"
+
+msgid "patch_creator.alignment.compatibility_unavailable"
+msgstr "Unavailable"
+
+msgid "patch_creator.alignment.source_extra_control_points"
+msgstr "Source has {0} control points; Original has {1}. Extra Source control points will be ignored."
+
+msgid "patch_creator.alignment.source_fewer_control_points"
+msgstr "Source has only {0} control points; Original requires {1}. Extraction is not allowed."
+
+msgid "patch_creator.alignment.topology_mismatch"
+msgstr "The Source control-point prefix does not match the Original topology."
+
+msgid "patch_creator.alignment.blocking_topology"
+msgstr "Resolve the topology errors on the Alignment page before saving."
+
+msgid "patch_creator.alignment.blendshape_basis"
+msgstr "Blend Shape Basis"
+
+msgid "patch_creator.alignment.basis_source_relative"
+msgstr "Relative to Source"
+
+msgid "patch_creator.alignment.basis_rebase_original"
+msgstr "Rebase onto Original"
+
+msgid "features.blend-shapes.base_mode"
+msgstr "Blend Shape Basis"
+
+msgid "features.blend-shapes.override_base_mode"
+msgstr "Override Basis"
+
+msgid "patch_creator.alignment.topology_changed_order_match"
+msgstr "Topology changed, but aligned control points match in order. Extraction is allowed with caution."
+
+msgid "patch_creator.alignment.topology_changed_order_match_extra"
+msgstr "Topology changed and Source has {0} control points versus Original's {1}, but the aligned Original-range points match in order. Extra Source points will be ignored."
+
+msgid "patch_creator.alignment.topology_extra_edges"
+msgstr "Source contains all Original directed edges plus additional edges. Additional edges are ignored during the topology compatibility check."
+
+msgid "features.blend-shapes.delta_comparison_tolerance"
+msgstr "Delta Compare Tolerance"
+
+msgid "features.blend-shapes.delta_comparison_tolerance_tooltip"
+msgstr "Maximum per-axis difference for position and normal blend-shape deltas to be classified as Same. Position deltas use FBX coordinate units."
+
+msgid "patch_creator.preview.show_all"
+msgstr "Show All"
+
+msgid "patch_creator.preview.all_shown"
+msgstr "All Shown"
+
+msgid "patch_creator.preview.all_meshes"
+msgstr "All Meshes"

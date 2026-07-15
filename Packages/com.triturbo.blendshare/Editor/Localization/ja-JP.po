@@ -492,6 +492,129 @@ msgstr "BlendShare パッチ作成"
 msgid "patch_creator.window_title"
 msgstr "BlendShare パッチ作成"
 
+msgid "patch_creator.preview.scale_linked_tooltip"
+msgstr "スケールの比率を固定"
+
+msgid "patch_creator.preview.scale_unlinked_tooltip"
+msgstr "スケールの比率を個別に変更"
+
+msgid "patch_creator.preview.auto_align_all"
+msgstr "すべて自動整列"
+
+msgid "patch_creator.preview.auto_align_all_tooltip"
+msgstr "トポロジーが一致する各メッシュペアのソース抽出オフセットを個別に計算します。"
+
+msgid "patch_creator.preview.auto_align_all_failed"
+msgstr "トポロジーが一致するメッシュペアから有効な整列変換を計算できませんでした。"
+
+msgid "patch_creator.preview.auto_align_all_applied"
+msgstr "{0} 個のメッシュを {1} 個の対応頂点で個別に自動整列しました。"
+
+msgid "patch_creator.preview.source_extraction_offset"
+msgstr "ソース抽出オフセット"
+
+msgid "patch_creator.preview.show"
+msgstr "表示"
+
+msgid "patch_creator.preview.shown"
+msgstr "表示中"
+
+msgid "patch_creator.preview.topology_compatibility"
+msgstr "トポロジー"
+
+msgid "patch_creator.preview.no_shared_meshes"
+msgstr "Original と Source の間に共通する Raw FBX メッシュパスがありません。"
+
+msgid "patch_creator.preview.wireframe"
+msgstr "ワイヤーフレーム"
+
+msgid "patch_creator.preview.frame"
+msgstr "全体表示"
+
+msgid "patch_creator.preview.reload"
+msgstr "再読み込み"
+
+msgid "patch_creator.preview.raw_fbx_preview"
+msgstr "Raw FBX プレビュー"
+
+msgid "patch_creator.preview.missing"
+msgstr "なし"
+
+msgid "patch_creator.preview.mesh_summary"
+msgstr "コントロールポイント {0}、面 {1}"
+
+msgid "patch_creator.preview.transparent"
+msgstr "半透明"
+
+msgid "patch_creator.preview.shaded"
+msgstr "シェーディング"
+
+msgid "patch_creator.preview.position"
+msgstr "位置"
+
+msgid "patch_creator.preview.rotation"
+msgstr "回転"
+
+msgid "patch_creator.preview.scale"
+msgstr "スケール"
+
+msgid "patch_creator.preview.reset_offset"
+msgstr "オフセットをリセット"
+
+msgid "patch_creator.preview.reset_all_offsets"
+msgstr "全オフセットをリセット"
+
+msgid "patch_creator.preview.calculate_error"
+msgstr "誤差を計算"
+
+msgid "patch_creator.preview.auto_offset"
+msgstr "自動オフセット"
+
+msgid "patch_creator.preview.index_aligned_error"
+msgstr "インデックス整列誤差（{0} 頂点{1}）"
+
+msgid "patch_creator.preview.auto_offset_failed"
+msgstr "有効な変換を算出できませんでした。"
+
+msgid "patch_creator.preview.auto_offset_applied"
+msgstr "自動オフセットを適用しました（{0} 頂点{1}、スケール {2}）"
+
+msgid "patch_creator.preview.alignment_requires_compatible_topology"
+msgstr "整列する前に Original と Source のトポロジーが互換である必要があります。"
+
+msgid "patch_creator.preview.no_vertices"
+msgstr "Original または Source のプレビューメッシュに頂点がありません。"
+
+msgid "patch_creator.preview.extra_control_points_note"
+msgstr "、Source の余分なコントロールポイント {0} 個を無視"
+
+msgid "patch_creator.preview.error_metrics"
+msgstr "{0}: RMS {1}、最大 {2}（頂点 {3}）、相対 RMS {4}、相対最大 {5}。"
+
+msgid "patch_creator.preview.no_preview_mesh"
+msgstr "プレビューメッシュがありません"
+
+msgid "patch_creator.preview.comparison_summary"
+msgstr "Original: {0}    Source: {1}"
+
+msgid "patch_creator.preview.build_null_mesh"
+msgstr "FBX メッシュが null です。"
+
+msgid "patch_creator.preview.build_no_vertices"
+msgstr "FBX メッシュに頂点がありません。"
+
+msgid "patch_creator.preview.build_no_faces"
+msgstr "FBX メッシュに面データがありません。"
+
+msgid "patch_creator.preview.build_no_valid_triangles"
+msgstr "FBX メッシュから有効な三角形を生成できませんでした。"
+
+msgid "patch_creator.preview.assign_fbx_asset"
+msgstr "FBX アセットを指定してください。"
+
+msgid "patch_creator.preview.no_raw_meshes"
+msgstr "Raw メッシュが見つかりません。"
+
 msgid "patch_creator.global_tab"
 msgstr "グローバル"
 
@@ -701,12 +824,6 @@ msgstr "ベースメッシュ"
 
 msgid "patch_creator.blend_shapes.base_mesh.tooltip"
 msgstr "BlendShape のオフセット頂点を計算するためのベースメッシュです。"
-
-msgid "patch_creator.blend_shapes.base_mesh.original"
-msgstr "オリジナル"
-
-msgid "patch_creator.blend_shapes.base_mesh.source"
-msgstr "ソース"
 
 msgid "common.status.diff"
 msgstr "差分"
@@ -1397,3 +1514,78 @@ msgstr "このプロキシのソースボーンバインディングが見つか
 
 msgid "ndmf.bone_proxy.shared_different_transforms"
 msgstr "このプロキシは、バインディングトランスフォームが異なる複数のソースボーンで共有されています。"
+
+msgid "patch_creator.alignment_tab"
+msgstr "整列"
+
+msgid "patch_creator.alignment.original"
+msgstr "オリジナル"
+
+msgid "patch_creator.alignment.source"
+msgstr "ソース"
+
+msgid "patch_creator.alignment.topology_exact"
+msgstr "互換性のあるトポロジー"
+
+msgid "patch_creator.alignment.compatible"
+msgstr "互換"
+
+msgid "patch_creator.alignment.compatibility_warning"
+msgstr "トポロジー互換性の警告：{0}"
+
+msgid "patch_creator.alignment.incompatible"
+msgstr "非互換"
+
+msgid "patch_creator.alignment.compatibility_unavailable"
+msgstr "判定不可"
+
+msgid "patch_creator.alignment.source_extra_control_points"
+msgstr "Source は {0} 個、Original は {1} 個のコントロールポイントを持ちます。Source の余分なポイントは無視されます。"
+
+msgid "patch_creator.alignment.source_fewer_control_points"
+msgstr "Source は {0} 個のコントロールポイントしかありません。Original には {1} 個必要なため抽出できません。"
+
+msgid "patch_creator.alignment.topology_mismatch"
+msgstr "Source のコントロールポイント接頭部が Original のトポロジーと一致しません。"
+
+msgid "patch_creator.alignment.blocking_topology"
+msgstr "保存する前に整列ページのトポロジーエラーを解決してください。"
+
+msgid "patch_creator.alignment.blendshape_basis"
+msgstr "ブレンドシェイプ基準"
+
+msgid "patch_creator.alignment.basis_source_relative"
+msgstr "Source 基準の相対値"
+
+msgid "patch_creator.alignment.basis_rebase_original"
+msgstr "Original に再基準化"
+
+msgid "features.blend-shapes.base_mode"
+msgstr "ブレンドシェイプ基準"
+
+msgid "features.blend-shapes.override_base_mode"
+msgstr "基準を上書き"
+
+msgid "patch_creator.alignment.topology_changed_order_match"
+msgstr "トポロジーは変更されていますが、整列後のコントロールポイント順序は一致しています。注意して抽出できます。"
+
+msgid "patch_creator.alignment.topology_changed_order_match_extra"
+msgstr "トポロジーが変更され、Source は {0} 個、Original は {1} 個のコントロールポイントを持ちますが、Original 範囲の整列済みポイント順序は一致しています。余分な Source ポイントは無視されます。"
+
+msgid "patch_creator.alignment.topology_extra_edges"
+msgstr "Source は Original のすべての有向エッジに加えて追加エッジを含みます。追加エッジはトポロジー互換性チェックでは無視されます。"
+
+msgid "features.blend-shapes.delta_comparison_tolerance"
+msgstr "デルタ比較の許容値"
+
+msgid "features.blend-shapes.delta_comparison_tolerance_tooltip"
+msgstr "位置および法線のブレンドシェイプデルタを Same と判定する軸ごとの差の上限。位置デルタには FBX 座標単位を使用します。"
+
+msgid "patch_creator.preview.show_all"
+msgstr "すべて表示"
+
+msgid "patch_creator.preview.all_shown"
+msgstr "すべて表示中"
+
+msgid "patch_creator.preview.all_meshes"
+msgstr "すべてのメッシュ"
