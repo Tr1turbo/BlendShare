@@ -19,14 +19,12 @@ namespace Triturbo.BlendShare.NDMF
 
         protected override void Execute(nadena.dev.ndmf.BuildContext context)
         {
-            var appliers = context.AvatarRootObject.GetComponentsInChildren<BlendShareCore>(true);
-            if (appliers.Length == 0)
+            var meshAppliers = context.AvatarRootObject.GetComponentsInChildren<BlendShareMesh>(true);
+            if (meshAppliers.Length == 0)
             {
                 return;
             }
 
-            var meshAppliers = context.AvatarRootObject.GetComponentsInChildren<BlendShareMesh>(true);
-            var boneProxies = context.AvatarRootObject.GetComponentsInChildren<BlendShareBoneProxy>(true);
             AnimatorServicesContext animatorServices;
             ObjectPathRemapper pathRemapper;
             try
@@ -36,78 +34,86 @@ namespace Triturbo.BlendShare.NDMF
             }
             catch (System.Exception ex)
             {
-                Debug.LogError($"[BlendShare NDMF] AnimatorServicesContext is required for BlendShare proxy bone retargeting: {ex.Message}", context.AvatarRootObject);
+                ReportFailure(
+                    "BlendShare could not access animator services.",
+                    $"AnimatorServicesContext is required for proxy bone retargeting: {ex.Message}",
+                    context.AvatarRootObject);
                 return;
             }
 
-            foreach (var proxy in boneProxies.Where(proxy => proxy != null && proxy.Owner != null && proxy.Owner.enabled))
-            {
-                PlaceProxyInBuildHierarchy(proxy, context.AvatarRootTransform, pathRemapper);
-            }
-
             var validMeshAppliers = new List<BlendShareMesh>();
-            foreach (var applier in meshAppliers.Where(applier => applier != null && applier.EnabledForBuild && applier.Owner != null && applier.Owner.enabled))
+            bool validationFailed = false;
+            foreach (var applier in meshAppliers.Where(applier =>
+                         applier != null && applier.isActiveAndEnabled))
             {
                 if (!BlendShareComponentSetupService.ValidateMeshApplierForBuild(applier, out string diagnostic))
                 {
-                    Debug.LogError($"[BlendShare NDMF] {diagnostic}", applier);
+                    ReportFailure("BlendShare mesh component is invalid.", diagnostic, applier);
+                    validationFailed = true;
                     continue;
                 }
 
                 if (!BlendShareComponentSetupService.ValidateMeshApplierMapping(applier, out _) &&
                     !BlendShareComponentSetupService.EnsureMeshApplierMappingCache(applier, out string mappingDiagnostic))
                 {
-                    ReportMappingFailure(applier, mappingDiagnostic);
+                    ReportMappingFailure(applier, mappingDiagnostic, context.AvatarRootTransform);
+                    validationFailed = true;
                     continue;
                 }
 
                 applier.SyncActiveBlendShapeWeights();
-                BlendShareComponentSetupService.PrepareMeshApplierGenerationMappings(applier);
                 validMeshAppliers.Add(applier);
             }
 
-            if (context.ErrorReport.Errors.Any(error => error.TheError is BlendShareNdmfError))
+            if (validationFailed)
             {
                 return;
             }
 
-            var orderedMeshAppliers = validMeshAppliers
-                .OrderBy(applier => GetHierarchyOrder(applier.Owner.transform))
-                .ThenBy(applier => GetHierarchyOrder(applier.transform))
-                .ToArray();
-
-            foreach (var rootGroup in orderedMeshAppliers.GroupBy(applier =>
-                         BlendShareComponentSetupService.ResolveTargetRoot(applier.Owner) ?? context.AvatarRootTransform))
+            var availableBoneProxies = context.AvatarRootObject
+                .GetComponentsInChildren<BlendShareBoneProxy>(true);
+            if (!BlendShareComponentSetupService.TryResolveRequiredBoneProxies(
+                    validMeshAppliers,
+                    availableBoneProxies,
+                    context.AvatarRootTransform,
+                    out var usedBoneProxies,
+                    out string proxyDiagnostic,
+                    out var conflictingProxy))
             {
-                var targetRoot = rootGroup.Key;
-                if (targetRoot == null)
-                {
-                    continue;
-                }
+                ReportFailure("BlendShare bone proxy paths conflict.", proxyDiagnostic, conflictingProxy);
+                return;
+            }
 
-                var rootAppliers = rootGroup.ToArray();
-                var owners = rootAppliers
-                    .Select(applier => applier.Owner)
-                    .Where(owner => owner != null)
-                    .Distinct()
-                    .ToArray();
-                var generationComponents = owners.Cast<BlendShareComponent>()
-                    .Concat(rootAppliers)
-                    .Concat(boneProxies.Where(proxy => proxy != null && owners.Contains(proxy.Owner)))
+            foreach (var proxy in usedBoneProxies
+                         .GroupBy(proxy => BlendShareComponentSetupService.GetFinalProxyPath(
+                             proxy,
+                             context.AvatarRootTransform))
+                         .Select(group => group.First()))
+            {
+                PlaceProxyInBuildHierarchy(proxy, context.AvatarRootTransform, pathRemapper);
+            }
+
+            if (validMeshAppliers.Count > 0)
+            {
+                var generationComponents = validMeshAppliers.Cast<BlendShareComponent>()
+                    .Concat(usedBoneProxies)
                     .Distinct()
                     .ToArray();
                 var artifact = BlendShareArtifactService.CreateInMemoryArtifact(
-                    targetRoot.gameObject,
+                    context.AvatarRootObject,
                     generationComponents);
                 if (artifact == null)
                 {
-                    Debug.LogError($"[BlendShare NDMF] Failed to generate BlendShare artifact for '{targetRoot.name}'.", targetRoot);
-                    continue;
+                    ReportFailure(
+                        "BlendShare artifact generation failed.",
+                        $"No artifact was generated for avatar '{context.AvatarRootObject.name}'.",
+                        context.AvatarRootObject);
+                    return;
                 }
 
                 var result = BlendShareArtifactService.ApplyArtifact(
                     artifact,
-                    targetRoot,
+                    context.AvatarRootTransform,
                     new BlendShareArtifactApplyOptions
                     {
                         UseUndo = false,
@@ -117,53 +123,71 @@ namespace Triturbo.BlendShare.NDMF
                     });
                 if (!result.Success)
                 {
-                    foreach (string diagnostic in result.Diagnostics)
-                    {
-                        Debug.LogError($"[BlendShare NDMF] {diagnostic}", targetRoot);
-                    }
-                    continue;
+                    ReportFailure(
+                        "BlendShare artifact application failed.",
+                        string.Join("\n", result.Diagnostics ?? System.Array.Empty<string>()),
+                        context.AvatarRootObject);
+                    return;
                 }
 
-                foreach (var applier in rootAppliers)
+                foreach (var applier in validMeshAppliers)
                 {
                     BlendShareBlendShapeWeightService.ApplyWeightsToRenderer(applier, applier.TargetRenderer);
                 }
 
-                BlendShareBlendShapeWeightService.RetargetRendererBlendShapeCurves(rootAppliers, animatorServices);
+                BlendShareBlendShapeWeightService.RetargetRendererBlendShapeCurves(validMeshAppliers, animatorServices);
             }
 
             foreach (var component in context.AvatarRootObject.GetComponentsInChildren<BlendShareMesh>(true))
             {
-                Object.DestroyImmediate(component);
+                if (component != null &&
+                    IsDedicatedComponentHost(component.gameObject, component))
+                {
+                    Object.DestroyImmediate(component.gameObject);
+                }
+                else
+                {
+                    Object.DestroyImmediate(component);
+                }
             }
 
             foreach (var component in context.AvatarRootObject.GetComponentsInChildren<BlendShareBoneProxy>(true))
             {
-                Object.DestroyImmediate(component);
+                if (component != null)
+                {
+                    // The proxy transform has already been materialized as the build's real bone.
+                    // Remove only the authoring marker and preserve the generated hierarchy object.
+                    Object.DestroyImmediate(component);
+                }
             }
 
-            foreach (var component in context.AvatarRootObject.GetComponentsInChildren<BlendShareCore>(true))
-            {
-                Object.DestroyImmediate(component);
-            }
         }
 
-        private static void ReportMappingFailure(BlendShareMesh applier, string diagnostic)
+        private static void ReportMappingFailure(
+            BlendShareMesh applier,
+            string diagnostic,
+            Transform avatarRoot)
         {
-            var details = BuildMappingFailureDetails(applier, diagnostic);
-            ErrorReport.ReportError(new BlendShareNdmfError(
-                "BlendShare mapping recovery failed.",
-                details,
-                applier));
-            Debug.LogError($"[BlendShare NDMF] {details}", applier);
+            var details = BuildMappingFailureDetails(applier, diagnostic, avatarRoot);
+            ReportFailure("BlendShare mapping recovery failed.", details, applier);
         }
 
-        private static string BuildMappingFailureDetails(BlendShareMesh applier, string diagnostic)
+        private static void ReportFailure(string title, string details, Object context)
+        {
+            details = string.IsNullOrWhiteSpace(details) ? "No additional diagnostic was provided." : details;
+            ErrorReport.ReportError(new BlendShareNdmfError(title, details, context));
+            Debug.LogError($"[BlendShare NDMF] {title}\n{details}", context);
+        }
+
+        private static string BuildMappingFailureDetails(
+            BlendShareMesh applier,
+            string diagnostic,
+            Transform avatarRoot)
         {
             string rendererPath = applier?.TargetRenderer != null
                 ? MeshNodePath.Normalize(MeshNodePath.GetRelativePath(
                     applier.TargetRenderer.transform,
-                    BlendShareComponentSetupService.ResolveTargetRoot(applier.Owner)))
+                    avatarRoot))
                 : applier != null ? applier.RendererNodePath : MeshNodePath.Root;
             var builder = new StringBuilder();
             builder.AppendLine(string.IsNullOrWhiteSpace(diagnostic)
@@ -172,18 +196,13 @@ namespace Triturbo.BlendShare.NDMF
             builder.AppendLine($"Renderer path: {rendererPath}");
 
             bool addedPair = false;
-            foreach (var patch in applier?.Owner?.Patches ?? System.Array.Empty<BlendShareObject>())
+            var patch = applier?.Patch;
+            if (patch != null && applier?.MeshData != null &&
+                (patch.Meshes ?? System.Array.Empty<MeshDataObject>()).Contains(applier.MeshData))
             {
-                if (patch == null || applier?.MeshData == null ||
-                    !(patch.Meshes ?? System.Array.Empty<MeshDataObject>()).Contains(applier.MeshData))
-                {
-                    continue;
-                }
-
                 builder.AppendLine($"BlendShare patch: {patch.name}");
                 builder.AppendLine($"Mesh path: {applier.MeshData.m_Path}");
                 addedPair = true;
-                break;
             }
 
             if (!addedPair)
@@ -193,6 +212,12 @@ namespace Triturbo.BlendShare.NDMF
             }
 
             return builder.ToString().TrimEnd();
+        }
+
+        private static bool IsDedicatedComponentHost(GameObject gameObject, Component expectedComponent)
+        {
+            return gameObject != null && gameObject.GetComponents<Component>().All(component =>
+                component is Transform || component == expectedComponent);
         }
 
         private sealed class BlendShareNdmfError : IError
@@ -264,22 +289,5 @@ namespace Triturbo.BlendShare.NDMF
             pathRemapper?.ClearCache();
         }
 
-        private static string GetHierarchyOrder(Transform transform)
-        {
-            if (transform == null)
-            {
-                return string.Empty;
-            }
-
-            var indices = new Stack<string>();
-            var current = transform;
-            while (current != null)
-            {
-                indices.Push(current.GetSiblingIndex().ToString("D8"));
-                current = current.parent;
-            }
-
-            return string.Join("/", indices);
-        }
     }
 }

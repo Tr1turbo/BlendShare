@@ -1425,27 +1425,6 @@ msgstr "這將從此 BlendShare 備份還原「{0}」，並清除其作用中的
 msgid "backup.restore.failed"
 msgstr "還原失敗"
 
-msgid "ndmf.core.target_root"
-msgstr "目標根"
-
-msgid "ndmf.core.bindings"
-msgstr "綁定"
-
-msgid "ndmf.core.mesh_appliers"
-msgstr "網格套用元件"
-
-msgid "ndmf.core.bone_proxies"
-msgstr "骨骼代理"
-
-msgid "ndmf.core.rebuild_mesh_bindings"
-msgstr "重建網格綁定"
-
-msgid "ndmf.core.rebuild_bone_proxies"
-msgstr "重建骨骼代理"
-
-msgid "ndmf.mesh.title"
-msgstr "BlendShare 網格套用"
-
 msgid "ndmf.mesh.target_renderer"
 msgstr "目標渲染器"
 
@@ -1463,6 +1442,12 @@ msgstr "移除所有鍵"
 
 msgid "ndmf.bone_proxy.title"
 msgstr "BlendShare 骨骼代理"
+
+msgid "ndmf.bone_proxy.source_armature"
+msgstr "來源骨架"
+
+msgid "ndmf.bone_proxy.source_bone_path"
+msgstr "來源骨骼路徑"
 
 msgid "ndmf.bone_proxy.target_parent"
 msgstr "目標父物件"

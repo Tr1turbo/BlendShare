@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Triturbo.BlendShare.Hashing;
 using UnityEngine;
 using Stopwatch = System.Diagnostics.Stopwatch;
 
@@ -104,7 +103,9 @@ namespace Triturbo.BlendShare.Core
             var mapping = ScriptableObject.CreateInstance<UnityVertexMappingObject>();
             mapping.m_UnityMesh = unityMesh;
             mapping.m_UnityVertexCount = unityMesh != null ? unityMesh.vertexCount : 0;
-            mapping.m_UnityVertexHash = UnityVertexPositionHash.Calculate(unityMesh);
+            mapping.m_UnityVertexHash = UnityMeshEditorDataUtility.TryCalculatePositionHash(unityMesh, out string unityVertexHash)
+                ? unityVertexHash
+                : string.Empty;
             mapping.m_FbxToUnityScale = importScale == 0f ? 1f : importScale;
             mapping.m_BakeAxisConversion = bakeAxisConversion;
             mapping.m_IndexGroups = CreateEmptyGroups(Mathf.Max(0, mapping.m_UnityVertexCount));

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.Core;
-using Triturbo.BlendShare.Features.SkinWeights;
 using Triturbo.BlendShare.Features.BlendShapes;
 using UnityEngine;
 using UnityEngine.Animations;
@@ -10,48 +9,6 @@ using UnityEngine.Scripting.APIUpdating;
 
 namespace Triturbo.BlendShare.Components
 {
-    [Serializable]
-    public sealed class BlendShareBoneProxyBinding
-    {
-        [SerializeField, NotKeyable]
-        private string m_SourceBonePath;
-
-        [SerializeField, NotKeyable]
-        private ArmatureObject m_Armature;
-
-        [SerializeField, NotKeyable]
-        private BlendShareBoneProxy m_Proxy;
-
-        public ArmatureObject Armature
-        {
-            get => m_Armature;
-            set => m_Armature = value;
-        }
-
-        public string SourceBonePath
-        {
-            get => MeshNodePath.Normalize(m_SourceBonePath);
-            set => m_SourceBonePath = MeshNodePath.Normalize(value);
-        }
-
-        public BlendShareBoneProxy Proxy
-        {
-            get => m_Proxy;
-            set => m_Proxy = value;
-        }
-
-        public bool Matches(ArmatureObject armature, string sourceBonePath)
-        {
-            return m_Armature == armature &&
-                   SourceBonePath == MeshNodePath.Normalize(sourceBonePath);
-        }
-
-        public void Sanitize()
-        {
-            m_SourceBonePath = MeshNodePath.Normalize(m_SourceBonePath);
-        }
-    }
-
     [Serializable]
     public sealed class BlendShareProxyBlendShapeWeight
     {
@@ -92,7 +49,7 @@ namespace Triturbo.BlendShare.Components
         public const string BlendShapeWeightsFieldName = "m_BlendShapeWeights";
 
         [SerializeField, NotKeyable]
-        private BlendShareCore m_Owner;
+        private BlendShareObject m_Patch;
 
         [SerializeField, NotKeyable]
         private AvatarObjectReference<SkinnedMeshRenderer> m_TargetRendererReference = new();
@@ -101,27 +58,21 @@ namespace Triturbo.BlendShare.Components
         private MeshDataObject m_MeshData;
 
         [SerializeField, NotKeyable]
-        private string m_RendererNodePath;
+        private UnityVertexMappingObject m_Mapping;
 
-        [SerializeField]
-        private bool m_EnabledForBuild = true;
+        [SerializeField, NotKeyable]
+        private string m_RendererNodePath;
 
         [SerializeField, NotKeyable]
         private string m_DiagnosticMessage;
 
-        [SerializeField, NotKeyable]
-        private List<BlendShareBoneProxyBinding> m_BoneProxyBindings = new();
-
         [SerializeField]
         private List<BlendShareProxyBlendShapeWeight> m_BlendShapeWeights = new();
 
-        [NonSerialized]
-        private UnityVertexMappingObject[] m_GenerationMappingOverrides = Array.Empty<UnityVertexMappingObject>();
-
-        public BlendShareCore Owner
+        public BlendShareObject Patch
         {
-            get => m_Owner;
-            set => m_Owner = value;
+            get => m_Patch;
+            set => m_Patch = value;
         }
 
         public SkinnedMeshRenderer TargetRenderer
@@ -138,16 +89,16 @@ namespace Triturbo.BlendShare.Components
             set => m_MeshData = value;
         }
 
+        public UnityVertexMappingObject Mapping
+        {
+            get => m_Mapping;
+            set => m_Mapping = value;
+        }
+
         public string RendererNodePath
         {
             get => MeshNodePath.Normalize(m_RendererNodePath);
             set => m_RendererNodePath = MeshNodePath.Normalize(value);
-        }
-
-        public bool EnabledForBuild
-        {
-            get => m_EnabledForBuild;
-            set => m_EnabledForBuild = value;
         }
 
         public string DiagnosticMessage
@@ -156,36 +107,8 @@ namespace Triturbo.BlendShare.Components
             set => m_DiagnosticMessage = value;
         }
 
-        public IReadOnlyList<BlendShareBoneProxyBinding> BoneProxyBindings =>
-            m_BoneProxyBindings ??= new List<BlendShareBoneProxyBinding>();
-
         public IReadOnlyList<BlendShareProxyBlendShapeWeight> BlendShapeWeights =>
             m_BlendShapeWeights ??= new List<BlendShareProxyBlendShapeWeight>();
-
-        public IReadOnlyList<UnityVertexMappingObject> GenerationMappingOverrides =>
-            m_GenerationMappingOverrides ?? Array.Empty<UnityVertexMappingObject>();
-
-        public void SetBoneProxyBindings(IEnumerable<BlendShareBoneProxyBinding> bindings)
-        {
-            m_BoneProxyBindings = (bindings ?? Enumerable.Empty<BlendShareBoneProxyBinding>())
-                .Where(binding => binding != null && binding.Armature != null && !string.IsNullOrWhiteSpace(binding.SourceBonePath))
-                .Select(binding =>
-                {
-                    binding.Sanitize();
-                    return binding;
-                })
-                .GroupBy(binding => $"{binding.Armature.GetInstanceID()}:{binding.SourceBonePath}")
-                .Select(group => group.First())
-                .ToList();
-        }
-
-        public void SetGenerationMappingOverrides(IEnumerable<UnityVertexMappingObject> mappings)
-        {
-            m_GenerationMappingOverrides = (mappings ?? Enumerable.Empty<UnityVertexMappingObject>())
-                .Where(mapping => mapping != null)
-                .Distinct()
-                .ToArray();
-        }
 
         public bool SyncActiveBlendShapeWeights()
         {
@@ -230,26 +153,8 @@ namespace Triturbo.BlendShare.Components
             return true;
         }
 
-        public bool TryGetBoneProxyBinding(
-            ArmatureObject armature,
-            string sourceBonePath,
-            out BlendShareBoneProxyBinding binding)
-        {
-            string normalizedPath = MeshNodePath.Normalize(sourceBonePath);
-            binding = BoneProxyBindings.FirstOrDefault(item =>
-                item != null &&
-                item.Armature == armature &&
-                item.SourceBonePath == normalizedPath);
-            return binding != null;
-        }
-
         private void OnValidate()
         {
-            if (m_Owner == null)
-            {
-                m_Owner = GetComponentInParent<BlendShareCore>(true);
-            }
-
             EnsureTargetRendererReferenceInitialized();
             if (!m_TargetRendererReference.IsConfigured)
             {
@@ -262,7 +167,6 @@ namespace Triturbo.BlendShare.Components
 
             m_RendererNodePath = MeshNodePath.Normalize(m_RendererNodePath);
             m_DiagnosticMessage ??= string.Empty;
-            SetBoneProxyBindings(m_BoneProxyBindings);
             SyncActiveBlendShapeWeights();
         }
 

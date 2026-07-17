@@ -104,7 +104,11 @@ namespace Triturbo.BlendShare.Core
             }
 
             int vertexCount = mesh.vertexCount;
-            var vertices = mesh.vertices;
+            if (!UnityMeshEditorDataUtility.TryGetVertices(mesh, out var vertices))
+            {
+                return System.Array.Empty<PositionFingerprint>();
+            }
+
             var fingerprints = CreateFingerprints(vertexCount, CountSamples(blendShapes), vertices, 1f);
 
             int sampleIndex = 0;

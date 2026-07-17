@@ -14,6 +14,7 @@ namespace Triturbo.BlendShare.NDMF
         private const string CacheDirectory = "Library/BlendShare/VertexMappingCache/v1";
         private const string PayloadMagic = "BSMP";
         private const int CacheVersion = 2;
+        private static readonly Dictionary<UnityVertexMappingObject, string> TransientMappingPayloadIds = new();
 
         public static bool TryGet(
             GameObject sourceFbx,
@@ -44,24 +45,37 @@ namespace Triturbo.BlendShare.NDMF
                 return false;
             }
 
+            TransientMappingPayloadIds[mapping] = entry.payloadId;
+
             return true;
         }
 
-        public static bool ContainsCompatible(
+        internal static bool IsCurrentMapping(
             GameObject sourceFbx,
             MeshDataObject meshData,
-            Mesh targetMesh)
+            Mesh targetMesh,
+            UnityVertexMappingObject mapping)
         {
-            if (!TryCreateLookup(sourceFbx, meshData, targetMesh, out var lookup) ||
+            if (mapping == null ||
+                !TransientMappingPayloadIds.TryGetValue(mapping, out string payloadId) ||
+                !TryCreateLookup(sourceFbx, meshData, targetMesh, out var lookup) ||
                 !TryFindEntry(lookup, out var entry) ||
-                !entry.isValid ||
-                string.IsNullOrEmpty(entry.payloadId))
+                !entry.isValid)
             {
                 return false;
             }
 
-            return TryReadPayloadFile(GetPayloadPath(entry.payloadId), lookup.SourceFbxId, lookup.MeshPath, entry, out var payload) &&
-                   PayloadIsCompatible(payload, meshData, targetMesh);
+            return !string.IsNullOrEmpty(entry.payloadId) && entry.payloadId == payloadId;
+        }
+
+        internal static void ReleaseMapping(UnityVertexMappingObject mapping)
+        {
+            if (mapping == null || !TransientMappingPayloadIds.Remove(mapping))
+            {
+                return;
+            }
+
+            DestroyTransientMapping(mapping);
         }
 
         public static bool TryGetInvalidDiagnostic(
@@ -103,7 +117,9 @@ namespace Triturbo.BlendShare.NDMF
 
             string unityVertexHash = !string.IsNullOrEmpty(mapping.m_UnityVertexHash)
                 ? mapping.m_UnityVertexHash
-                : UnityVertexPositionHash.Calculate(targetMesh);
+                : UnityMeshEditorDataUtility.TryCalculatePositionHash(targetMesh, out string targetHash)
+                    ? targetHash
+                    : string.Empty;
             int unityVertexCount = mapping.m_UnityVertexCount > 0
                 ? mapping.m_UnityVertexCount
                 : targetMesh.vertexCount;
@@ -150,11 +166,18 @@ namespace Triturbo.BlendShare.NDMF
                 return;
             }
 
+            // An unreadable or otherwise unavailable mesh must not create a cached
+            // "empty mesh" failure that can mask an editor-acquired valid mapping.
+            if (!UnityMeshEditorDataUtility.TryCalculatePositionHash(targetMesh, out string targetHash))
+            {
+                return;
+            }
+
             StoreIndexEntry(lookup.SourceFbxId, lookup.MeshPath, new CacheIndexEntry
             {
                 payloadId = string.Empty,
                 unityMeshId = lookup.UnityMeshId,
-                unityVertexHash = UnityVertexPositionHash.Calculate(targetMesh),
+                unityVertexHash = targetHash,
                 unityVertexCount = lookup.UnityVertexCount,
                 isValid = false,
                 invalidReason = string.IsNullOrWhiteSpace(invalidReason)
@@ -172,14 +195,15 @@ namespace Triturbo.BlendShare.NDMF
                 return false;
             }
 
-            entry = FindExactEntry(meshIndex, lookup.UnityMeshId, lookup.UnityVertexCount);
-            if (entry != null)
+            if (UnityMeshEditorDataUtility.TryCalculatePositionHash(lookup.TargetMesh, out string vertexHash))
             {
-                return true;
+                entry = FindHashEntry(meshIndex, vertexHash, lookup.UnityVertexCount);
+                return entry != null;
             }
 
-            string vertexHash = UnityVertexPositionHash.Calculate(lookup.TargetMesh);
-            entry = FindHashEntry(meshIndex, vertexHash, lookup.UnityVertexCount);
+            // If vertex data is unavailable, only reuse a cache entry generated for
+            // this exact Unity mesh object.
+            entry = FindExactEntry(meshIndex, lookup.UnityMeshId, lookup.UnityVertexCount);
             return entry != null;
         }
 
@@ -226,13 +250,13 @@ namespace Triturbo.BlendShare.NDMF
             }
 
             string targetMeshId = GetGlobalId(targetMesh);
-            if (!string.IsNullOrEmpty(payload.unityMeshId) && payload.unityMeshId == targetMeshId)
+            if (UnityMeshEditorDataUtility.TryCalculatePositionHash(targetMesh, out string targetHash))
             {
-                return true;
+                return !string.IsNullOrEmpty(payload.unityVertexHash) &&
+                       payload.unityVertexHash == targetHash;
             }
 
-            return !string.IsNullOrEmpty(payload.unityVertexHash) &&
-                   payload.unityVertexHash == UnityVertexPositionHash.Calculate(targetMesh);
+            return !string.IsNullOrEmpty(payload.unityMeshId) && payload.unityMeshId == targetMeshId;
         }
 
         private static bool MatchesFbxControlPointCount(CachePayload payload, int fbxControlPointCount)

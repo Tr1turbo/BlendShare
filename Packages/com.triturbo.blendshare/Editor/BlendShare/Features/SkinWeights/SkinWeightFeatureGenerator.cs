@@ -1186,17 +1186,15 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             out BoneProxyGenerationData data)
         {
             data = null;
-            var meshComponent = context.GetComponent<BlendShareMesh>();
-            if (meshComponent == null ||
-                feature?.Armature == null ||
-                !meshComponent.TryGetBoneProxyBinding(feature.Armature, sourceBonePath, out var binding) ||
-                binding?.Proxy == null ||
-                binding.Proxy.TargetParent == null)
+            var proxy = context.Components
+                .OfType<BlendShareBoneProxy>()
+                .FirstOrDefault(candidate =>
+                    candidate != null && candidate.MatchesSource(feature?.Armature, sourceBonePath));
+            if (proxy == null || proxy.TargetParent == null)
             {
                 return false;
             }
 
-            var proxy = binding.Proxy;
             string parentPath = MeshNodePath.Normalize(MeshNodePath.GetRelativePath(proxy.TargetParent, context.TargetRootTransform));
             string finalPath = parentPath == MeshNodePath.Root
                 ? MeshNodePath.Normalize(proxy.name)

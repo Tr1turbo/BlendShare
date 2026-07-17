@@ -1425,27 +1425,6 @@ msgstr "This will restore '{0}' from this BlendShare backup and clear its active
 msgid "backup.restore.failed"
 msgstr "Restore Failed"
 
-msgid "ndmf.core.target_root"
-msgstr "Target Root"
-
-msgid "ndmf.core.bindings"
-msgstr "Bindings"
-
-msgid "ndmf.core.mesh_appliers"
-msgstr "Mesh Apply Components"
-
-msgid "ndmf.core.bone_proxies"
-msgstr "Bone Proxies"
-
-msgid "ndmf.core.rebuild_mesh_bindings"
-msgstr "Rebuild Mesh Bindings"
-
-msgid "ndmf.core.rebuild_bone_proxies"
-msgstr "Rebuild Bone Proxies"
-
-msgid "ndmf.mesh.title"
-msgstr "BlendShare Mesh Apply"
-
 msgid "ndmf.mesh.target_renderer"
 msgstr "Target Renderer"
 
@@ -1463,6 +1442,12 @@ msgstr "Remove All Keys"
 
 msgid "ndmf.bone_proxy.title"
 msgstr "BlendShare Bone Proxy"
+
+msgid "ndmf.bone_proxy.source_armature"
+msgstr "Source Armature"
+
+msgid "ndmf.bone_proxy.source_bone_path"
+msgstr "Source Bone Path"
 
 msgid "ndmf.bone_proxy.target_parent"
 msgstr "Target Parent"

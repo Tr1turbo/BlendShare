@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShapeShare.BlendShapeData;
 using Triturbo.BlendShare.Components;
+using Triturbo.BlendShare.Features.SkinWeights;
 using Triturbo.BlendShare.Hashing;
 using Triturbo.BlendShare.Persistence;
 using UnityEditor;
@@ -136,7 +137,7 @@ namespace Triturbo.BlendShare.Core
             var patches = BlendSharePatchIdUtility.DeduplicateByPatchId(componentList
                 .OfType<BlendShareMesh>()
                 .Where(IsUsableMeshComponent)
-                .Select(component => FindBlendShareForMeshData(component.Owner, component.MeshData)))
+                .Select(component => component.Patch))
                 .ToArray();
             if (patches.Length == 0)
             {
@@ -155,20 +156,14 @@ namespace Triturbo.BlendShare.Core
             var meshComponents = componentList
                          .OfType<BlendShareMesh>()
                          .Where(IsUsableMeshComponent)
-                         .OrderBy(component => GetHierarchyOrder(component.Owner != null ? component.Owner.transform : null))
-                         .ThenBy(component => GetHierarchyOrder(component.transform))
+                         .OrderBy(component => GetHierarchyOrder(component.transform))
                          .ToArray();
             try
             {
                 for (int meshStep = 0; meshStep < meshComponents.Length; meshStep++)
                 {
                     var meshComponent = meshComponents[meshStep];
-                    var patch = FindBlendShareForMeshData(meshComponent.Owner, meshComponent.MeshData);
-                    if (patch == null)
-                    {
-                        Debug.LogError($"[BlendShare] BlendShare mesh component '{meshComponent.name}' references mesh data that is not present in its owner BlendShare list.");
-                        continue;
-                    }
+                    var patch = meshComponent.Patch;
 
                     var renderer = meshComponent.TargetRenderer;
                     var targetMesh = renderer != null ? renderer.sharedMesh : null;
@@ -198,8 +193,8 @@ namespace Triturbo.BlendShare.Core
                         rendererPath,
                         renderer,
                         targetMesh,
-                        GetComponentsForMeshPass(componentList, meshComponent.Owner, meshComponent),
-                        BuildMappingOverrides(meshComponent, meshComponent.MeshData));
+                        GetComponentsForMeshPass(componentList, meshComponent),
+                        GetComponentMapping(meshComponent, meshComponent.MeshData));
                 }
             }
             catch (BlendShareOperationCanceledException)
@@ -342,6 +337,7 @@ namespace Triturbo.BlendShare.Core
 
                 workingMesh = Object.Instantiate(targetMesh);
                 workingMesh.name = meshKey;
+                TryEnableGeneratedMeshReadability(workingMesh);
                 generatedByMeshKey.Add(meshKey, workingMesh);
                 createdForThisPass = true;
             }
@@ -351,6 +347,7 @@ namespace Triturbo.BlendShare.Core
             {
                 baseline = Object.Instantiate(workingMesh);
                 baseline.name = workingMesh.name;
+                TryEnableGeneratedMeshReadability(baseline);
             }
 
             if (targetRenderer == null)
@@ -369,7 +366,7 @@ namespace Triturbo.BlendShare.Core
                 session,
                 patch,
                 meshData,
-                workingMesh,
+                targetMesh,
                 workingMesh,
                 targetRenderer,
                 targetRoot != null ? targetRoot : targetLookup.RootTransform,
@@ -440,7 +437,16 @@ namespace Triturbo.BlendShare.Core
             }
             else
             {
+                TryEnableGeneratedMeshReadability(workingMesh);
                 DestroyGeneratedObject(baseline);
+            }
+        }
+
+        private static void TryEnableGeneratedMeshReadability(Mesh mesh)
+        {
+            if (mesh != null && !UnityMeshEditorDataUtility.TryEnableReadability(mesh))
+            {
+                Debug.LogWarning($"[BlendShare] Generated mesh '{mesh.name}' could not be marked readable. Generation will continue.");
             }
         }
 
@@ -568,7 +574,7 @@ namespace Triturbo.BlendShare.Core
             };
         }
 
-        private static IEnumerable<UnityVertexMappingObject> BuildMappingOverrides(
+        private static IEnumerable<UnityVertexMappingObject> GetComponentMapping(
             BlendShareMesh meshComponent,
             MeshDataObject meshData)
         {
@@ -578,31 +584,33 @@ namespace Triturbo.BlendShare.Core
                 yield break;
             }
 
-            foreach (var mapping in meshComponent.GenerationMappingOverrides ?? Array.Empty<UnityVertexMappingObject>())
+            if (UnityMeshEditorDataUtility.IsMappingCompatible(meshComponent.Mapping, meshData, targetMesh))
             {
-                yield return mapping;
+                yield return meshComponent.Mapping;
             }
         }
 
         private static IReadOnlyList<BlendShareComponent> GetComponentsForMeshPass(
             IEnumerable<BlendShareComponent> components,
-            BlendShareCore owner,
             BlendShareMesh meshComponent)
         {
             var result = new List<BlendShareComponent>();
-            if (owner != null)
-            {
-                result.Add(owner);
-            }
-
             if (meshComponent != null)
             {
                 result.Add(meshComponent);
             }
 
-            result.AddRange((components ?? Array.Empty<BlendShareComponent>())
-                .OfType<BlendShareBoneProxy>()
-                .Where(proxy => proxy != null && proxy.Owner == owner));
+            var skin = meshComponent?.MeshData?.GetFeature<SkinWeightFeatureObject>();
+            if (skin?.Armature != null)
+            {
+                var requiredPaths = new HashSet<string>(skin.GetNeededBonePathsInArmatureOrder()
+                    .Select(MeshNodePath.Normalize));
+                result.AddRange((components ?? Array.Empty<BlendShareComponent>())
+                    .OfType<BlendShareBoneProxy>()
+                    .Where(proxy => proxy != null &&
+                                    proxy.SourceArmature == skin.Armature &&
+                                    requiredPaths.Contains(proxy.SourceBonePath)));
+            }
 
             return result
                 .Where(component => component != null)
@@ -613,19 +621,12 @@ namespace Triturbo.BlendShare.Core
         private static bool IsUsableMeshComponent(BlendShareMesh component)
         {
             return component != null &&
-                   component.EnabledForBuild &&
-                   component.Owner != null &&
-                   component.Owner.enabled &&
+                   component.isActiveAndEnabled &&
+                   component.Patch != null &&
                    component.TargetRenderer != null &&
                    component.TargetRenderer.sharedMesh != null &&
-                   component.MeshData != null;
-        }
-
-        private static BlendShareObject FindBlendShareForMeshData(BlendShareCore owner, MeshDataObject meshData)
-        {
-            return (owner?.Patches ?? Array.Empty<BlendShareObject>())
-                .Where(patch => patch != null)
-                .FirstOrDefault(patch => (patch.Meshes ?? Array.Empty<MeshDataObject>()).Contains(meshData));
+                   component.MeshData != null &&
+                   (component.Patch.Meshes ?? Array.Empty<MeshDataObject>()).Contains(component.MeshData);
         }
 
         private static Object ResolveTargetSource(Object targetMeshContainer)

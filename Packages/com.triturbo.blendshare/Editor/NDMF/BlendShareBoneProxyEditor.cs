@@ -19,7 +19,11 @@ namespace Triturbo.BlendShare.NDMF
             Localization.DrawLanguageSelection();
             EditorGUILayout.Space();
             EditorGUILayout.LabelField(Localization.S("ndmf.bone_proxy.title"), EditorStyles.boldLabel);
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_Owner"));
+            using (new EditorGUI.DisabledScope(true))
+            {
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("m_SourceArmature"), new GUIContent(Localization.S("ndmf.bone_proxy.source_armature")));
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("m_SourceBonePath"), new GUIContent(Localization.S("ndmf.bone_proxy.source_bone_path")));
+            }
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_TargetParentReference"), new GUIContent(Localization.S("ndmf.bone_proxy.target_parent")));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_RecalculateBindpose"), new GUIContent(Localization.S("ndmf.bone_proxy.recalculate_bindpose")));
             serializedObject.ApplyModifiedProperties();
@@ -130,89 +134,39 @@ namespace Triturbo.BlendShare.NDMF
             eulerRotation = default;
             scale = Vector3.one;
             diagnostic = null;
-            if (proxy == null || proxy.Owner == null)
-            {
-                diagnostic = Localization.S("ndmf.bone_proxy.no_owner");
-                return false;
-            }
-
-            var matches = new System.Collections.Generic.List<(Vector3 Position, Vector3 Rotation, Vector3 Scale)>();
-            foreach (var meshApplier in BlendShareComponentSetupService.FindOwnedMeshAppliers(proxy.Owner))
-            {
-                if (meshApplier == null || meshApplier.MeshData == null)
-                {
-                    continue;
-                }
-
-                var mapping = GetFbxToUnityMapping(meshApplier);
-                foreach (var binding in meshApplier.BoneProxyBindings)
-                {
-                    if (binding?.Proxy != proxy || binding.Armature == null)
-                    {
-                        continue;
-                    }
-
-                    var bone = binding.Armature.GetBone(binding.SourceBonePath);
-                    if (bone == null)
-                    {
-                        continue;
-                    }
-
-                    matches.Add((
-                        mapping != null ? mapping.ConvertFbxVectorToUnity(bone.m_FbxLocalTranslation) : bone.m_FbxLocalTranslation,
-                        bone.m_FbxLocalEulerRotation,
-                        bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale));
-                }
-            }
-
-            if (matches.Count == 0)
+            if (proxy?.SourceArmature == null || string.IsNullOrWhiteSpace(proxy.SourceBonePath))
             {
                 diagnostic = Localization.S("ndmf.bone_proxy.no_source_binding");
                 return false;
             }
 
-            var first = matches[0];
-            for (int i = 1; i < matches.Count; i++)
+            var bone = proxy.SourceArmature.GetBone(proxy.SourceBonePath);
+            if (bone == null)
             {
-                if (Vector3.Distance(first.Position, matches[i].Position) > 0.0001f ||
-                    Vector3.Distance(first.Rotation, matches[i].Rotation) > 0.0001f ||
-                    Vector3.Distance(first.Scale, matches[i].Scale) > 0.0001f)
-                {
-                    diagnostic = Localization.S("ndmf.bone_proxy.shared_different_transforms");
-                    return false;
-                }
+                diagnostic = Localization.S("ndmf.bone_proxy.no_source_binding");
+                return false;
             }
 
-            position = first.Position;
-            eulerRotation = first.Rotation;
-            scale = first.Scale;
+            var mapping = proxy.transform.root
+                .GetComponentsInChildren<BlendShareMesh>(true)
+                .Where(applier => applier?.MeshData?.GetFeature<SkinWeightFeatureObject>()?.Armature == proxy.SourceArmature)
+                .Select(GetFbxToUnityMapping)
+                .FirstOrDefault(candidate => candidate != null);
+            position = mapping != null
+                ? mapping.ConvertFbxVectorToUnity(bone.m_FbxLocalTranslation)
+                : bone.m_FbxLocalTranslation;
+            eulerRotation = bone.m_FbxLocalEulerRotation;
+            scale = bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale;
             return true;
         }
 
         private static UnityVertexMappingObject GetFbxToUnityMapping(BlendShareMesh meshApplier)
         {
-            var meshData = meshApplier?.MeshData;
-            var targetMesh = meshApplier?.TargetRenderer != null ? meshApplier.TargetRenderer.sharedMesh : null;
-            var mapping = targetMesh != null
-                ? System.Linq.Enumerable.FirstOrDefault(meshData?.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>(), item => item != null && item.IsCompatibleWith(meshData, targetMesh))
-                : System.Linq.Enumerable.FirstOrDefault(meshData?.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>(), item => item != null && item.m_IsValid);
-            if (mapping == null && meshApplier != null && targetMesh != null)
-            {
-                var sourceFbx = BlendShareComponentSetupService.ResolveSourceFbx(meshApplier.Owner, targetMesh);
-                BlendShareVertexMappingCacheService.TryGet(
-                    sourceFbx,
-                    meshData,
-                    targetMesh,
-                    out mapping);
-            }
-
-            return mapping;
-        }
-
-        private static BlendShareObject FindBlendShareForMeshData(BlendShareCore owner, MeshDataObject meshData)
-        {
-            return (owner?.Patches ?? System.Array.Empty<BlendShareObject>())
-                .FirstOrDefault(patch => patch != null && (patch.Meshes ?? System.Array.Empty<MeshDataObject>()).Contains(meshData));
+            return BlendShareComponentSetupService.TryResolveMeshApplierMappingReference(
+                meshApplier,
+                out var mapping)
+                ? mapping
+                : null;
         }
 
         [DrawGizmo(GizmoType.Selected | GizmoType.NonSelected | GizmoType.Active)]
@@ -235,6 +189,34 @@ namespace Triturbo.BlendShare.NDMF
                 HandleUtility.GetHandleSize(bindPosition) * 0.06f,
                 EventType.Repaint);
             Handles.color = previousColor;
+        }
+    }
+
+    [InitializeOnLoad]
+    internal static class BlendShareBoneProxyEditorUpdater
+    {
+        private static BlendShareBoneProxy[] proxies = System.Array.Empty<BlendShareBoneProxy>();
+
+        static BlendShareBoneProxyEditorUpdater()
+        {
+            EditorApplication.update += UpdateProxies;
+            EditorApplication.hierarchyChanged += RefreshProxies;
+            EditorApplication.delayCall += RefreshProxies;
+        }
+
+        private static void RefreshProxies()
+        {
+            proxies = Resources.FindObjectsOfTypeAll<BlendShareBoneProxy>()
+                .Where(proxy => proxy != null && !EditorUtility.IsPersistent(proxy))
+                .ToArray();
+        }
+
+        private static void UpdateProxies()
+        {
+            for (int i = 0; i < proxies.Length; i++)
+            {
+                proxies[i]?.SynchronizeParentingTransform();
+            }
         }
     }
 }

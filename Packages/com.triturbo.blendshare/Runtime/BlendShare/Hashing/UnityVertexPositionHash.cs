@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Security.Cryptography;
 using UnityEngine;
@@ -14,25 +15,43 @@ namespace Triturbo.BlendShare.Hashing
 
         public static string Calculate(Mesh mesh)
         {
+            return TryCalculate(mesh, out string hash) ? hash : string.Empty;
+        }
+
+        /// <summary>
+        /// Tries to calculate the position hash without treating unavailable vertex data as an empty mesh.
+        /// </summary>
+        public static bool TryCalculate(Mesh mesh, out string hash)
+        {
+            hash = string.Empty;
             if (mesh == null)
             {
-                return string.Empty;
+                return false;
             }
 
-            return Calculate(mesh.vertices);
-        }
-
-        public static string Shorten(string hash, int length = DefaultShortHashLength)
-        {
-            if (string.IsNullOrEmpty(hash) || length <= 0)
+            try
             {
-                return string.Empty;
-            }
+                var vertices = mesh.vertices;
+                int vertexCount = mesh.vertexCount;
+                if (vertices == null || vertices.Length != vertexCount)
+                {
+                    return false;
+                }
 
-            return hash.Length <= length ? hash : hash.Substring(0, length);
+                hash = CalculateVertices(vertices);
+                return true;
+            }
+            catch (Exception)
+            {
+                hash = string.Empty;
+                return false;
+            }
         }
 
-        private static string Calculate(Vector3[] vertices)
+        /// <summary>
+        /// Calculates the stable position hash for an explicitly acquired Unity vertex array.
+        /// </summary>
+        public static string CalculateVertices(Vector3[] vertices)
         {
             using (var sha256 = SHA256.Create())
             using (var cryptoStream = new CryptoStream(Stream.Null, sha256, CryptoStreamMode.Write))
@@ -57,6 +76,16 @@ namespace Triturbo.BlendShare.Hashing
 
                 return BlendShareHashUtility.ToLowerHex(sha256.Hash);
             }
+        }
+
+        public static string Shorten(string hash, int length = DefaultShortHashLength)
+        {
+            if (string.IsNullOrEmpty(hash) || length <= 0)
+            {
+                return string.Empty;
+            }
+
+            return hash.Length <= length ? hash : hash.Substring(0, length);
         }
 
         private static float NormalizeZero(float value)

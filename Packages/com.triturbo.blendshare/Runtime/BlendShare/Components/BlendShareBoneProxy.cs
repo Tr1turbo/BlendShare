@@ -1,15 +1,19 @@
+using Triturbo.BlendShare.Core;
+using Triturbo.BlendShare.Features.SkinWeights;
 using UnityEngine;
 using UnityEngine.Animations;
 
 namespace Triturbo.BlendShare.Components
 {
-    [ExecuteInEditMode]
     [DisallowMultipleComponent]
     [AddComponentMenu("BlendShare/BlendShare Bone Proxy")]
     public sealed class BlendShareBoneProxy : BlendShareComponent
     {
         [SerializeField, NotKeyable]
-        private BlendShareCore m_Owner;
+        private ArmatureObject m_SourceArmature;
+
+        [SerializeField, NotKeyable]
+        private string m_SourceBonePath;
 
         [SerializeField, NotKeyable]
         private AvatarObjectReference<Transform> m_TargetParentReference = new();
@@ -56,10 +60,16 @@ namespace Triturbo.BlendShare.Components
         [System.NonSerialized]
         private bool m_IsApplyingParentingTransform;
 
-        public BlendShareCore Owner
+        public ArmatureObject SourceArmature
         {
-            get => m_Owner;
-            set => m_Owner = value;
+            get => m_SourceArmature;
+            set => m_SourceArmature = value;
+        }
+
+        public string SourceBonePath
+        {
+            get => MeshNodePath.Normalize(m_SourceBonePath);
+            set => m_SourceBonePath = MeshNodePath.Normalize(value);
         }
 
         public Transform TargetParent
@@ -164,6 +174,15 @@ namespace Triturbo.BlendShare.Components
             return true;
         }
 
+        /// <summary>
+        /// Returns whether this proxy represents the specified armature bone.
+        /// </summary>
+        public bool MatchesSource(ArmatureObject armature, string sourceBonePath)
+        {
+            return SourceArmature == armature &&
+                   SourceBonePath == MeshNodePath.Normalize(sourceBonePath);
+        }
+
         public bool IsTransformAtBindPosition(float tolerance = 0.0001f)
         {
             return TryGetBindPoseWorldTransform(out Vector3 position, out _, out _) &&
@@ -172,11 +191,7 @@ namespace Triturbo.BlendShare.Components
 
         private void OnValidate()
         {
-            if (m_Owner == null)
-            {
-                m_Owner = GetComponentInParent<BlendShareCore>(true);
-            }
-
+            m_SourceBonePath = MeshNodePath.Normalize(m_SourceBonePath);
             EnsureTargetParentReferenceInitialized();
             if (m_LocalScale == Vector3.zero)
             {
@@ -189,7 +204,10 @@ namespace Triturbo.BlendShare.Components
             }
         }
 
-        private void Update()
+        /// <summary>
+        /// Synchronizes the organizer-side proxy transform with its configured target parent.
+        /// </summary>
+        public void SynchronizeParentingTransform()
         {
             if (Application.isPlaying || m_IsApplyingParentingTransform)
             {

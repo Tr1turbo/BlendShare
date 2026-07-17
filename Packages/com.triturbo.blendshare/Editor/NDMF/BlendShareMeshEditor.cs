@@ -1,5 +1,6 @@
 using Triturbo.BlendShapeShare;
 using Triturbo.BlendShare.Components;
+using Triturbo.BlendShare.Core;
 using UnityEditor;
 using UnityEngine;
 
@@ -28,11 +29,15 @@ namespace Triturbo.BlendShare.NDMF
 
             Localization.DrawLanguageSelection();
             EditorGUILayout.Space();
-            EditorGUILayout.LabelField(Localization.S("ndmf.mesh.title"), EditorStyles.boldLabel);
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_Owner"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_Patch"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_TargetRendererReference"), new GUIContent(Localization.S("ndmf.mesh.target_renderer")));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_MeshData"));
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_EnabledForBuild"));
+            using (new EditorGUI.DisabledScope(true))
+            {
+                EditorGUILayout.PropertyField(
+                    serializedObject.FindProperty("m_Mapping"),
+                    new GUIContent(Localization.S("patch.mapping.display_name")));
+            }
 
             bool changedBlendShapeWeight = DrawBlendShapeWeights(
                 applier,
@@ -45,7 +50,6 @@ namespace Triturbo.BlendShare.NDMF
 
             EditorGUILayout.Space();
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_DiagnosticMessage"));
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_BoneProxyBindings"), true);
 
             if (EditorApplication.timeSinceStartup >= skipMappingValidationUntil &&
                 !BlendShareComponentSetupService.ValidateMeshApplierMapping(applier, out string mappingDiagnostic))
@@ -74,7 +78,11 @@ namespace Triturbo.BlendShare.NDMF
                 }
             }
 
-            serializedObject.ApplyModifiedProperties();
+            if (serializedObject.ApplyModifiedProperties())
+            {
+                // Patch, mesh-data, and renderer edits can change the required cache entry.
+                BlendShareComponentSetupService.TryResolveMeshApplierMappingReference(applier, out _);
+            }
         }
 
         private static bool DrawBlendShapeWeights(

@@ -400,10 +400,13 @@ namespace Triturbo.BlendShare.Core
 
         public UnityVertexMappingObject GetMappingFor(Mesh targetMesh)
         {
+            var compatibilityMesh = targetMesh == WorkingMesh && OriginalMesh != null
+                ? OriginalMesh
+                : targetMesh;
             return (MappingOverrides ?? System.Array.Empty<UnityVertexMappingObject>())
-                   .FirstOrDefault(mapping => mapping != null && mapping.IsCompatibleWith(MeshData, targetMesh)) ??
+                   .FirstOrDefault(mapping => mapping != null && mapping.IsCompatibleWith(MeshData, compatibilityMesh)) ??
                    (MeshData?.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
-                   .FirstOrDefault(mapping => mapping != null && mapping.IsCompatibleWith(MeshData, targetMesh));
+                   .FirstOrDefault(mapping => mapping != null && mapping.IsCompatibleWith(MeshData, compatibilityMesh));
         }
 
     }

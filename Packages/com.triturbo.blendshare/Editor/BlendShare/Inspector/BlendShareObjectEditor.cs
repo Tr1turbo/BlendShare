@@ -6,7 +6,6 @@ using Triturbo.BlendShapeShare.BlendShapeData;
 using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Features.BlendShapes;
 using Triturbo.BlendShare.Features.SkinWeights;
-using Triturbo.BlendShare.Hashing;
 using Triturbo.BlendShare.Persistence;
 using UnityEditor;
 using UnityEditor.UIElements;
@@ -1264,7 +1263,9 @@ namespace Triturbo.BlendShare.Inspector
                 return hash;
             }
 
-            hash = UnityVertexPositionHash.Calculate(mesh);
+            hash = UnityMeshEditorDataUtility.TryCalculatePositionHash(mesh, out string calculatedHash)
+                ? calculatedHash
+                : string.Empty;
             cachedUnityVertexHashes[key] = hash;
             return hash;
         }

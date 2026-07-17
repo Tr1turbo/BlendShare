@@ -1425,27 +1425,6 @@ msgstr "この BlendShare バックアップから「{0}」を復元し、アク
 msgid "backup.restore.failed"
 msgstr "復元に失敗しました"
 
-msgid "ndmf.core.target_root"
-msgstr "ターゲットルート"
-
-msgid "ndmf.core.bindings"
-msgstr "バインディング"
-
-msgid "ndmf.core.mesh_appliers"
-msgstr "メッシュ適用コンポーネント"
-
-msgid "ndmf.core.bone_proxies"
-msgstr "ボーンプロキシ"
-
-msgid "ndmf.core.rebuild_mesh_bindings"
-msgstr "メッシュバインディングを再構築"
-
-msgid "ndmf.core.rebuild_bone_proxies"
-msgstr "ボーンプロキシを再構築"
-
-msgid "ndmf.mesh.title"
-msgstr "BlendShare メッシュ適用"
-
 msgid "ndmf.mesh.target_renderer"
 msgstr "ターゲットレンダラー"
 
@@ -1463,6 +1442,12 @@ msgstr "すべてのキーを削除"
 
 msgid "ndmf.bone_proxy.title"
 msgstr "BlendShare ボーンプロキシ"
+
+msgid "ndmf.bone_proxy.source_armature"
+msgstr "ソースアーマチュア"
+
+msgid "ndmf.bone_proxy.source_bone_path"
+msgstr "ソースボーンパス"
 
 msgid "ndmf.bone_proxy.target_parent"
 msgstr "ターゲット親"
