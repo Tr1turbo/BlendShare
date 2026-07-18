@@ -75,10 +75,12 @@ namespace Triturbo.BlendShare.NDMF
 
             var availableBoneProxies = context.AvatarRootObject
                 .GetComponentsInChildren<BlendShareBoneProxy>(true);
-            if (!BlendShareComponentSetupService.TryResolveRequiredBoneProxies(
+            if (!BlendShareBoneMergePass.TryPrepare(
+                    context,
                     validMeshAppliers,
                     availableBoneProxies,
                     context.AvatarRootTransform,
+                    animatorServices,
                     out var usedBoneProxies,
                     out string proxyDiagnostic,
                     out var conflictingProxy))
@@ -88,14 +90,13 @@ namespace Triturbo.BlendShare.NDMF
             }
 
             var usedBoneProxySet = usedBoneProxies.ToHashSet();
-            foreach (var proxy in usedBoneProxies
-                         .GroupBy(proxy => BlendShareComponentSetupService.GetFinalProxyPath(
-                             proxy,
-                             context.AvatarRootTransform))
-                         .Select(group => group.First()))
+            foreach (var proxy in usedBoneProxies.Distinct())
             {
                 PlaceProxyInBuildHierarchy(proxy, context.AvatarRootTransform, pathRemapper);
             }
+            var boneTransformOverrides = BlendShareBoneMergePass.BuildBoneTransformOverrides(
+                usedBoneProxies,
+                context.AvatarRootTransform);
 
             if (validMeshAppliers.Count > 0)
             {
@@ -129,6 +130,7 @@ namespace Triturbo.BlendShare.NDMF
                         UseUndo = false,
                         RecordDestructiveMarkers = false,
                         MarkObjectsDirty = false,
+                        BoneTransformOverrides = boneTransformOverrides,
                         SaveGeneratedMesh = mesh => context.AssetSaver.SaveAsset(mesh)
                     });
                 if (!result.Success)
@@ -159,6 +161,8 @@ namespace Triturbo.BlendShare.NDMF
 
                 BlendShareBlendShapeWeightService.RetargetRendererBlendShapeCurves(validMeshAppliers, animatorServices);
             }
+
+            BlendShareBoneMergePass.Commit(context);
 
             foreach (var component in context.AvatarRootObject.GetComponentsInChildren<BlendShareMesh>(true))
             {

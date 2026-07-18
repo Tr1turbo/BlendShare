@@ -19,6 +19,15 @@ namespace Triturbo.BlendShare.NDMF
             Localization.DrawLanguageSelection();
             EditorGUILayout.Space();
             EditorGUILayout.LabelField(Localization.S("ndmf.bone_proxy.title"), EditorStyles.boldLabel);
+            if (TryGetOverridingProxy(proxy, out string overridingProxyPath))
+            {
+                EditorGUILayout.HelpBox(
+                    string.Format(
+                        Localization.S("ndmf.bone_proxy.duplicate_ignored"),
+                        overridingProxyPath),
+                    MessageType.Warning);
+            }
+
             using (new EditorGUI.DisabledScope(true))
             {
                 EditorGUILayout.PropertyField(serializedObject.FindProperty("m_SourceArmature"), new GUIContent(Localization.S("ndmf.bone_proxy.source_armature")));
@@ -97,6 +106,33 @@ namespace Triturbo.BlendShare.NDMF
             FlushNdmfPreviewInvalidatesIfAvailable();
             ForceResetNdmfPreviewIfAvailable();
             SceneView.RepaintAll();
+        }
+
+        private static bool TryGetOverridingProxy(
+            BlendShareBoneProxy proxy,
+            out string overridingProxyPath)
+        {
+            overridingProxyPath = null;
+            if (proxy == null ||
+                !proxy.isActiveAndEnabled ||
+                proxy.SourceArmature == null ||
+                string.IsNullOrWhiteSpace(proxy.SourceBonePath))
+            {
+                return false;
+            }
+
+            var avatarRoot = proxy.transform.root;
+            var lookup = BlendShareBoneProxyLookup.Create(
+                avatarRoot.GetComponentsInChildren<BlendShareBoneProxy>(true));
+            if (!lookup.TryGet(proxy.SourceArmature, proxy.SourceBonePath, out var overridingProxy) ||
+                overridingProxy == proxy)
+            {
+                return false;
+            }
+
+            overridingProxyPath = MeshNodePath.Normalize(
+                MeshNodePath.GetRelativePath(overridingProxy.transform, avatarRoot));
+            return true;
         }
 
         private static void FlushNdmfPreviewInvalidatesIfAvailable()

@@ -196,13 +196,16 @@ namespace Triturbo.BlendShare.NDMF
                     ? FindBoneProxiesForAvatar(avatarRoot, context).ToArray()
                     : context.GetComponentsByType<BlendShareBoneProxy>()
                         .Where(proxy => proxy != null &&
+                                        context.ActiveAndEnabled(proxy) &&
                                         (proxy.transform == sourceRoot || proxy.transform.IsChildOf(sourceRoot)))
                         .ToArray();
-                if (!BlendShareComponentSetupService.TryResolveRequiredBoneProxies(
+                if (!BlendShareBoneMergePass.TryPreparePreview(
                         sharedProxyAppliers,
                         availableBoneProxies,
                         avatarRoot != null ? avatarRoot.transform : sourceRoot,
                         out var boneProxies,
+                        out var proxyBoneOverrides,
+                        out var temporaryProxyObjects,
                         out string proxyDiagnostic,
                         out var conflictingProxy))
                 {
@@ -210,15 +213,24 @@ namespace Triturbo.BlendShare.NDMF
                     return;
                 }
 
-                var generationComponents = enabledAppliers.Cast<BlendShareComponent>()
-                    .Concat(boneProxies)
-                    .Distinct()
-                    .ToArray();
-                ObserveProxyInputs(enabledAppliers, boneProxies, context);
-                var artifact = BlendShareArtifactService.CreateInMemoryArtifact(
-                    sourceRoot != null ? sourceRoot.gameObject : originalRenderer.transform.root.gameObject,
-                    generationComponents,
-                    out string generationDiagnostic);
+                BlendShareArtifact artifact;
+                string generationDiagnostic;
+                try
+                {
+                    var generationComponents = enabledAppliers.Cast<BlendShareComponent>()
+                        .Concat(boneProxies)
+                        .Distinct()
+                        .ToArray();
+                    ObserveProxyInputs(enabledAppliers, availableBoneProxies, context);
+                    artifact = BlendShareArtifactService.CreateInMemoryArtifact(
+                        sourceRoot != null ? sourceRoot.gameObject : originalRenderer.transform.root.gameObject,
+                        generationComponents,
+                        out generationDiagnostic);
+                }
+                finally
+                {
+                    BlendShareBoneMergePass.ReleaseTemporaryPreviewObjects(temporaryProxyObjects);
+                }
                 if (artifact == null)
                 {
                     Debug.LogWarning(
@@ -231,7 +243,6 @@ namespace Triturbo.BlendShare.NDMF
 
                 var proxyRoot = proxyRenderer.transform.root;
                 RetargetArtifactRendererPathForPreview(artifact, proxyRenderer, proxyRoot);
-                var proxyBoneOverrides = BuildProxyBoneOverrides(boneProxies, sourceRoot);
 
                 var result = BlendShareArtifactService.ApplyArtifact(
                     artifact,
@@ -570,6 +581,7 @@ namespace Triturbo.BlendShare.NDMF
 
                 return context.GetComponentsByType<BlendShareBoneProxy>()
                     .Where(proxy => proxy != null &&
+                                    context.ActiveAndEnabled(proxy) &&
                                     context.GetAvatarRoot(proxy.gameObject) == avatarRoot)
                     .OrderBy(proxy => GetHierarchyOrder(proxy.transform));
             }
@@ -592,37 +604,6 @@ namespace Triturbo.BlendShare.NDMF
                         descriptor.m_NodePath = proxyRendererPath;
                     }
                 }
-            }
-
-            private static IReadOnlyDictionary<string, Transform> BuildProxyBoneOverrides(
-                IEnumerable<BlendShareBoneProxy> boneProxies,
-                Transform sourceRoot)
-            {
-                var overrides = new Dictionary<string, Transform>();
-                if (sourceRoot == null)
-                {
-                    return overrides;
-                }
-
-                foreach (var proxy in boneProxies ?? System.Array.Empty<BlendShareBoneProxy>())
-                {
-                    if (proxy == null || proxy.TargetParent == null)
-                    {
-                        continue;
-                    }
-
-                    string parentPath = MeshNodePath.Normalize(
-                        MeshNodePath.GetRelativePath(proxy.TargetParent, sourceRoot));
-                    string finalPath = parentPath == MeshNodePath.Root
-                        ? MeshNodePath.Normalize(proxy.name)
-                        : MeshNodePath.Normalize($"{parentPath}/{proxy.name}");
-                    if (!overrides.ContainsKey(finalPath))
-                    {
-                        overrides.Add(finalPath, proxy.transform);
-                    }
-                }
-
-                return overrides;
             }
 
             private static string[] ObserveMeshApplier(BlendShareMesh applier, ComputeContext context)
