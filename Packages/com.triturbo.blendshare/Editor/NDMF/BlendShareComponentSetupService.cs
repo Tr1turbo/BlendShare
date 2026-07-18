@@ -649,8 +649,13 @@ namespace Triturbo.BlendShare.NDMF
                     return false;
                 }
 
-                var proxy = sourceMatches[0];
-                foreach (var duplicate in sourceMatches.Skip(1))
+                int bestPreference = sourceMatches
+                    .Max(proxy => GetProxyHierarchyPreference(source.Appliers, proxy, pathRoot));
+                var preferredMatches = sourceMatches
+                    .Where(proxy => GetProxyHierarchyPreference(source.Appliers, proxy, pathRoot) == bestPreference)
+                    .ToArray();
+                var proxy = preferredMatches[0];
+                foreach (var duplicate in preferredMatches.Skip(1))
                 {
                     if (AreEquivalentBoneProxies(proxy, duplicate, pathRoot))
                     {
@@ -690,11 +695,12 @@ namespace Triturbo.BlendShare.NDMF
             return true;
         }
 
-        private static IEnumerable<(ArmatureObject Armature, string Path)> GetRequiredBoneProxySources(
+        private static IEnumerable<(ArmatureObject Armature, string Path, IReadOnlyList<BlendShareMesh> Appliers)>
+            GetRequiredBoneProxySources(
             IEnumerable<BlendShareMesh> meshAppliers,
             Transform pathRoot)
         {
-            var emitted = new HashSet<string>();
+            var requirements = new List<(string Key, ArmatureObject Armature, string Path, BlendShareMesh Applier)>();
             foreach (var applier in meshAppliers ?? Array.Empty<BlendShareMesh>())
             {
                 var renderer = applier?.TargetRenderer;
@@ -711,12 +717,86 @@ namespace Triturbo.BlendShare.NDMF
                 {
                     var bone = skin.Armature.GetBone(path);
                     string key = BuildBoneProxySourceKey(skin.Armature, path);
-                    if (!existingBonePaths.Contains(path) && bone != null && bone.m_CreateIfMissing && emitted.Add(key))
+                    if (!existingBonePaths.Contains(path) && bone != null && bone.m_CreateIfMissing)
                     {
-                        yield return (skin.Armature, MeshNodePath.Normalize(path));
+                        requirements.Add((key, skin.Armature, MeshNodePath.Normalize(path), applier));
                     }
                 }
             }
+
+            return requirements
+                .GroupBy(requirement => requirement.Key)
+                .Select(group =>
+                {
+                    var first = group.First();
+                    return (
+                        first.Armature,
+                        first.Path,
+                        (IReadOnlyList<BlendShareMesh>)group
+                            .Select(requirement => requirement.Applier)
+                            .Distinct()
+                            .ToArray());
+                });
+        }
+
+        private static int GetProxyHierarchyPreference(
+            IEnumerable<BlendShareMesh> appliers,
+            BlendShareBoneProxy proxy,
+            Transform pathRoot)
+        {
+            if (proxy == null)
+            {
+                return 0;
+            }
+
+            return (appliers ?? Array.Empty<BlendShareMesh>())
+                .Where(applier => applier != null)
+                .Select(applier => GetProxyHierarchyPreference(applier, proxy, pathRoot))
+                .DefaultIfEmpty(0)
+                .Max();
+        }
+
+        private static int GetProxyHierarchyPreference(
+            BlendShareMesh applier,
+            BlendShareBoneProxy proxy,
+            Transform pathRoot)
+        {
+
+            var proxyAncestors = new HashSet<Transform>();
+            for (var current = proxy.transform; current != null; current = current.parent)
+            {
+                proxyAncestors.Add(current);
+                if (current == pathRoot)
+                {
+                    break;
+                }
+            }
+
+            for (var current = applier.transform; current != null; current = current.parent)
+            {
+                if (proxyAncestors.Contains(current))
+                {
+                    return GetHierarchyDepth(current, pathRoot);
+                }
+
+                if (current == pathRoot)
+                {
+                    break;
+                }
+            }
+
+            return 0;
+        }
+
+        private static int GetHierarchyDepth(Transform transform, Transform pathRoot)
+        {
+            int depth = 0;
+            for (var current = transform; current != null && current != pathRoot; current = current.parent)
+            {
+                depth++;
+            }
+
+            return depth;
         }
 
         public static string GetFinalProxyPath(BlendShareBoneProxy proxy, Transform pathRoot)

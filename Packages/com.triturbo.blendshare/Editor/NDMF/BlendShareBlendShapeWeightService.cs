@@ -18,7 +18,7 @@ namespace Triturbo.BlendShare.NDMF
             ApplyWeightsToRenderer(applier?.BlendShapeWeights, renderer);
         }
 
-        public static void ApplyWeightsToRenderer(
+        private static void ApplyWeightsToRenderer(
             IEnumerable<BlendShareProxyBlendShapeWeight> weights,
             SkinnedMeshRenderer renderer)
         {
@@ -39,6 +39,60 @@ namespace Triturbo.BlendShare.NDMF
                 if (index >= 0)
                 {
                     renderer.SetBlendShapeWeight(index, weight.Weight);
+                }
+            }
+        }
+
+        internal static IReadOnlyDictionary<SkinnedMeshRenderer, IReadOnlyDictionary<string, float>>
+            CaptureExistingRendererWeights(IEnumerable<BlendShareMesh> appliers)
+        {
+            var result = new Dictionary<SkinnedMeshRenderer, IReadOnlyDictionary<string, float>>();
+            foreach (var renderer in (appliers ?? Enumerable.Empty<BlendShareMesh>())
+                         .Select(applier => applier != null ? applier.TargetRenderer : null)
+                         .Where(renderer => renderer != null)
+                         .Distinct())
+            {
+                var mesh = renderer.sharedMesh;
+                if (mesh == null)
+                {
+                    continue;
+                }
+
+                var weights = new Dictionary<string, float>();
+                for (int index = 0; index < mesh.blendShapeCount; index++)
+                {
+                    string shapeName = mesh.GetBlendShapeName(index);
+                    if (!string.IsNullOrWhiteSpace(shapeName) && !weights.ContainsKey(shapeName))
+                    {
+                        weights.Add(shapeName, renderer.GetBlendShapeWeight(index));
+                    }
+                }
+
+                result.Add(renderer, weights);
+            }
+
+            return result;
+        }
+
+        internal static void ApplyCapturedRendererWeights(
+            IReadOnlyDictionary<SkinnedMeshRenderer, IReadOnlyDictionary<string, float>> originalWeights,
+            SkinnedMeshRenderer renderer)
+        {
+            var mesh = renderer != null ? renderer.sharedMesh : null;
+            if (mesh == null ||
+                originalWeights == null ||
+                !originalWeights.TryGetValue(renderer, out var rendererWeights) ||
+                rendererWeights == null)
+            {
+                return;
+            }
+
+            foreach (var pair in rendererWeights)
+            {
+                int index = mesh.GetBlendShapeIndex(pair.Key);
+                if (index >= 0)
+                {
+                    renderer.SetBlendShapeWeight(index, pair.Value);
                 }
             }
         }
@@ -66,6 +120,11 @@ namespace Triturbo.BlendShare.NDMF
                 remaps.Select(remap => remap.SourceBinding),
                 clip =>
                 {
+                    var rendererControlledBindings = remaps
+                        .Select(remap => remap.TargetBinding)
+                        .Distinct()
+                        .Where(binding => clip.GetFloatCurve(binding) != null)
+                        .ToHashSet();
                     foreach (var remap in remaps)
                     {
                         var sourceCurve = clip.GetFloatCurve(remap.SourceBinding);
@@ -74,7 +133,12 @@ namespace Triturbo.BlendShare.NDMF
                             continue;
                         }
 
-                        clip.SetFloatCurve(remap.TargetBinding, CopyCurve(sourceCurve));
+                        if (!rendererControlledBindings.Contains(remap.TargetBinding))
+                        {
+                            // Later hierarchy entries overwrite earlier component curves.
+                            clip.SetFloatCurve(remap.TargetBinding, CopyCurve(sourceCurve));
+                        }
+
                         clip.SetFloatCurve(remap.SourceBinding, null);
                     }
                 });
@@ -149,4 +213,5 @@ namespace Triturbo.BlendShare.NDMF
             public EditorCurveBinding TargetBinding { get; }
         }
     }
+
 }

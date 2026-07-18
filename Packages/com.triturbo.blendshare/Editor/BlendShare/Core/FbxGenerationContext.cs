@@ -54,6 +54,11 @@ namespace Triturbo.BlendShare.Core
 
             stateByKey[key] = state;
         }
+
+        internal IEnumerable<T> GetStates<T>() where T : class
+        {
+            return stateByKey.Values.OfType<T>();
+        }
     }
 
     /// <summary>

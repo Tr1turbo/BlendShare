@@ -17,6 +17,8 @@ namespace Triturbo.BlendShare.Core
     /// </summary>
     public sealed class UnityMeshGenerationPipeline
     {
+        internal string LastDiagnostic { get; private set; }
+
         private static readonly IReadOnlyList<IMeshFeatureGenerator> FeatureGenerators =
             BlendShareFeatureModules.All
                 .Select(module => module?.Generator)
@@ -32,6 +34,7 @@ namespace Triturbo.BlendShare.Core
             IEnumerable<BlendShareObject> appliedPatches = null,
             IBlendShareProgress progress = null)
         {
+            LastDiagnostic = null;
             progress = BlendShareProgressUtility.Resolve(progress);
             var deduplicatedPatches = BlendSharePatchIdUtility.DeduplicateByPatchId(patches).ToArray();
             if (targetMeshContainer == null || deduplicatedPatches.Length == 0)
@@ -84,6 +87,13 @@ namespace Triturbo.BlendShare.Core
                             patch,
                             meshData,
                             MeshNodePath.Normalize(meshData.m_Path));
+                        if (!string.IsNullOrEmpty(session.FatalDiagnostic))
+                        {
+                            LastDiagnostic = session.FatalDiagnostic;
+                            DestroyGeneratedObjects(generatedByMeshKey.Values);
+                            session.DestroyGeneratedObjects();
+                            return null;
+                        }
                     }
                 }
             }
@@ -96,6 +106,15 @@ namespace Triturbo.BlendShare.Core
 
             if (generatedByMeshKey.Count == 0)
             {
+                session.DestroyGeneratedObjects();
+                return null;
+            }
+
+            if (!SkinWeightFeatureGenerator.FinalizeUnitySkinWeights(session, out string skinError))
+            {
+                LastDiagnostic = skinError;
+                Debug.LogError($"[BlendShare] Failed to finalize skin weights: {skinError}");
+                DestroyGeneratedObjects(generatedByMeshKey.Values);
                 session.DestroyGeneratedObjects();
                 return null;
             }
@@ -124,6 +143,7 @@ namespace Triturbo.BlendShare.Core
             IEnumerable<BlendShareObject> appliedPatches = null,
             IBlendShareProgress progress = null)
         {
+            LastDiagnostic = null;
             progress = BlendShareProgressUtility.Resolve(progress);
             if (targetRoot == null)
             {
@@ -152,12 +172,11 @@ namespace Triturbo.BlendShare.Core
 
             var session = new UnityMeshGenerationSession(targetRoot, patches, targetLookup, componentList, progress);
             var generatedByMeshKey = new Dictionary<string, Mesh>();
-            var emitted = new HashSet<string>();
-            var meshComponents = componentList
-                         .OfType<BlendShareMesh>()
-                         .Where(IsUsableMeshComponent)
-                         .OrderBy(component => GetHierarchyOrder(component.transform))
-                         .ToArray();
+            var meshComponents = BlendSharePatchIdUtility.DeduplicateMeshComponents(componentList
+                    .OfType<BlendShareMesh>()
+                    .Where(IsUsableMeshComponent)
+                    .OrderBy(component => GetHierarchyOrder(component.transform)))
+                .ToArray();
             try
             {
                 for (int meshStep = 0; meshStep < meshComponents.Length; meshStep++)
@@ -170,11 +189,6 @@ namespace Triturbo.BlendShare.Core
                     string rendererPath = renderer != null
                         ? MeshNodePath.Normalize(MeshNodePath.GetRelativePath(renderer.transform, targetRoot.transform))
                         : meshComponent.RendererNodePath;
-                    string key = $"{patch.GetInstanceID()}:{meshComponent.MeshData.GetInstanceID()}:{rendererPath}";
-                    if (!emitted.Add(key))
-                    {
-                        continue;
-                    }
 
                     BlendShareProgressUtility.Report(
                         progress,
@@ -195,6 +209,13 @@ namespace Triturbo.BlendShare.Core
                         targetMesh,
                         GetComponentsForMeshPass(componentList, meshComponent),
                         GetComponentMapping(meshComponent, meshComponent.MeshData));
+                    if (!string.IsNullOrEmpty(session.FatalDiagnostic))
+                    {
+                        LastDiagnostic = session.FatalDiagnostic;
+                        DestroyGeneratedObjects(generatedByMeshKey.Values);
+                        session.DestroyGeneratedObjects();
+                        return null;
+                    }
                 }
             }
             catch (BlendShareOperationCanceledException)
@@ -206,6 +227,15 @@ namespace Triturbo.BlendShare.Core
 
             if (generatedByMeshKey.Count == 0)
             {
+                session.DestroyGeneratedObjects();
+                return null;
+            }
+
+            if (!SkinWeightFeatureGenerator.FinalizeUnitySkinWeights(session, out string skinError))
+            {
+                LastDiagnostic = skinError;
+                Debug.LogError($"[BlendShare] Failed to finalize skin weights: {skinError}");
+                DestroyGeneratedObjects(generatedByMeshKey.Values);
                 session.DestroyGeneratedObjects();
                 return null;
             }
@@ -421,22 +451,26 @@ namespace Triturbo.BlendShare.Core
 
             if ((failed || !generatedFeature) && createdForThisPass)
             {
+                SkinWeightFeatureGenerator.DiscardUnitySkinWeights(session, meshKey);
                 generatedByMeshKey.Remove(meshKey);
                 DestroyGeneratedObject(baseline);
                 DestroyGeneratedObject(workingMesh);
             }
             else if (failed)
             {
+                SkinWeightFeatureGenerator.DiscardUnitySkinWeights(session, meshKey);
                 if (baseline != null)
                 {
                     generatedByMeshKey[meshKey] = baseline;
                     DestroyGeneratedObject(workingMesh);
+                    SkinWeightFeatureGenerator.RestoreUnitySkinMesh(session, meshKey, baseline);
                 }
 
                 Debug.LogWarning($"[BlendShare] Skipped BlendShare patch '{patch.name}' for mesh '{FormatMesh(meshData)}'. Earlier accumulated output for this mesh will be kept.");
             }
             else
             {
+                SkinWeightFeatureGenerator.CommitUnitySkinWeights(session, meshKey);
                 TryEnableGeneratedMeshReadability(workingMesh);
                 DestroyGeneratedObject(baseline);
             }

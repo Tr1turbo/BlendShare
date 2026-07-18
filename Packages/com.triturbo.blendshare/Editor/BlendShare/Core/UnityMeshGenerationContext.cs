@@ -15,8 +15,12 @@ namespace Triturbo.BlendShare.Core
     {
         private readonly List<Object> generatedObjects = new();
         private readonly Dictionary<string, Object> generatedObjectsByKey = new();
+        private readonly Dictionary<string, object> stateByKey = new();
         private readonly Dictionary<string, UnityMeshSkinBindingOutput> skinBindingsByMeshKey = new();
         private readonly Dictionary<string, ArmatureBoneData> armatureBonesByPath = new();
+        private readonly Dictionary<string, BlendShareObject> armatureBoneSourcesByPath = new();
+        private readonly Dictionary<string, Matrix4x4> bindPosesByMeshAndBone = new();
+        private readonly Dictionary<string, BlendShareObject> bindPoseSourcesByMeshAndBone = new();
         private readonly Dictionary<string, Transform> transformsByPath = new();
         private readonly HashSet<string> completedSteps = new();
         private ArmatureObject armature;
@@ -115,6 +119,33 @@ namespace Triturbo.BlendShare.Core
             return !string.IsNullOrWhiteSpace(key) && completedSteps.Add(key);
         }
 
+        internal bool TryGetState<T>(string key, out T state) where T : class
+        {
+            if (!string.IsNullOrWhiteSpace(key) &&
+                stateByKey.TryGetValue(key, out var cached) &&
+                cached is T typed)
+            {
+                state = typed;
+                return true;
+            }
+
+            state = null;
+            return false;
+        }
+
+        internal void SetState<T>(string key, T state) where T : class
+        {
+            if (!string.IsNullOrWhiteSpace(key) && state != null)
+            {
+                stateByKey[key] = state;
+            }
+        }
+
+        internal IEnumerable<T> GetStates<T>() where T : class
+        {
+            return stateByKey.Values.OfType<T>();
+        }
+
         public void SetSkinBinding(string meshKey, string rootBonePath, IEnumerable<string> bonePaths)
         {
             string normalizedKey = MeshNodePath.Normalize(meshKey);
@@ -126,7 +157,55 @@ namespace Triturbo.BlendShare.Core
             return skinBindingsByMeshKey.TryGetValue(MeshNodePath.Normalize(meshKey), out binding);
         }
 
+        internal bool CanAddArmatureBones(
+            IEnumerable<ArmatureBoneData> bones,
+            BlendShareObject patch,
+            out string error)
+        {
+            error = null;
+            var pendingByPath = new Dictionary<string, ArmatureBoneData>();
+            foreach (var bone in bones ?? System.Array.Empty<ArmatureBoneData>())
+            {
+                if (bone == null)
+                {
+                    continue;
+                }
+
+                string path = MeshNodePath.Normalize(bone.m_Path);
+                bool hasRegisteredDefinition = armatureBonesByPath.TryGetValue(path, out var existing);
+                if (!hasRegisteredDefinition)
+                {
+                    pendingByPath.TryGetValue(path, out existing);
+                }
+
+                if (existing != null && !AreCompatibleBoneDefinitions(existing, bone))
+                {
+                    BlendShareObject existingPatch = patch;
+                    if (hasRegisteredDefinition)
+                    {
+                        armatureBoneSourcesByPath.TryGetValue(path, out existingPatch);
+                    }
+
+                    error = $"Bone path '{path}' has incompatible definitions in patches " +
+                            $"'{FormatPatchName(existingPatch)}' and '{FormatPatchName(patch)}'.";
+                    return false;
+                }
+
+                if (!hasRegisteredDefinition && existing == null)
+                {
+                    pendingByPath.Add(path, bone);
+                }
+            }
+
+            return true;
+        }
+
         public void AddArmatureBones(IEnumerable<ArmatureBoneData> bones)
+        {
+            AddArmatureBones(bones, null);
+        }
+
+        internal void AddArmatureBones(IEnumerable<ArmatureBoneData> bones, BlendShareObject patch)
         {
             foreach (var bone in bones ?? System.Array.Empty<ArmatureBoneData>())
             {
@@ -139,6 +218,7 @@ namespace Triturbo.BlendShare.Core
                 if (!armatureBonesByPath.ContainsKey(path))
                 {
                     armatureBonesByPath.Add(path, bone);
+                    armatureBoneSourcesByPath[path] = patch;
                 }
             }
 
@@ -156,6 +236,78 @@ namespace Triturbo.BlendShare.Core
 
             armature.SetBones(armatureBonesByPath.Values);
             EditorUtility.SetDirty(armature);
+        }
+
+        internal void Fail(string diagnostic)
+        {
+            FatalDiagnostic ??= diagnostic;
+        }
+
+        internal string FatalDiagnostic { get; private set; }
+
+        internal bool RegisterBindPose(
+            string meshKey,
+            string bonePath,
+            Matrix4x4 bindPose,
+            BlendShareObject patch,
+            out string error)
+        {
+            string key = $"{MeshNodePath.Normalize(meshKey)}::{MeshNodePath.Normalize(bonePath)}";
+            if (bindPosesByMeshAndBone.TryGetValue(key, out var existing) &&
+                !AreEquivalentMatrices(existing, bindPose))
+            {
+                bindPoseSourcesByMeshAndBone.TryGetValue(key, out var existingPatch);
+                error = $"Bone path '{MeshNodePath.Normalize(bonePath)}' has incompatible bindposes " +
+                        $"for mesh '{MeshNodePath.Normalize(meshKey)}' in patches " +
+                        $"'{FormatPatchName(existingPatch)}' and '{FormatPatchName(patch)}'.";
+                return false;
+            }
+
+            if (!bindPosesByMeshAndBone.ContainsKey(key))
+            {
+                bindPosesByMeshAndBone.Add(key, bindPose);
+                bindPoseSourcesByMeshAndBone[key] = patch;
+            }
+
+            error = null;
+            return true;
+        }
+
+        private static bool AreCompatibleBoneDefinitions(ArmatureBoneData first, ArmatureBoneData second)
+        {
+            if (first == null || second == null)
+            {
+                return first == second;
+            }
+
+            var firstScale = first.m_FbxLocalScale == Vector3.zero ? Vector3.one : first.m_FbxLocalScale;
+            var secondScale = second.m_FbxLocalScale == Vector3.zero ? Vector3.one : second.m_FbxLocalScale;
+            return Vector3.Distance(first.m_FbxLocalTranslation, second.m_FbxLocalTranslation) <= 0.0001f &&
+                   Quaternion.Angle(
+                       Quaternion.Euler(first.m_FbxLocalEulerRotation),
+                       Quaternion.Euler(second.m_FbxLocalEulerRotation)) <= 0.01f &&
+                   Vector3.Distance(firstScale, secondScale) <= 0.0001f;
+        }
+
+        private static bool AreEquivalentMatrices(Matrix4x4 first, Matrix4x4 second)
+        {
+            for (int row = 0; row < 4; row++)
+            {
+                for (int column = 0; column < 4; column++)
+                {
+                    if (Mathf.Abs(first[row, column] - second[row, column]) > 0.0001f)
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        private static string FormatPatchName(BlendShareObject patch)
+        {
+            return patch != null ? patch.name : "<unknown>";
         }
 
         /// <summary>

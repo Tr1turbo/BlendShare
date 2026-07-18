@@ -69,6 +69,8 @@ namespace Triturbo.BlendShare.NDMF
             private Transform rootBone;
             private SkinnedMeshRenderer originalRenderer;
             private SkinnedMeshRenderer proxyRenderer;
+            private PreviewOriginalBlendShapeWeight[] originalWeightBindings =
+                System.Array.Empty<PreviewOriginalBlendShapeWeight>();
             private PreviewBlendShapeWeight[] weightBindings = System.Array.Empty<PreviewBlendShapeWeight>();
             private string generationSignature;
             private bool hasPreviewOutput;
@@ -128,6 +130,12 @@ namespace Triturbo.BlendShare.NDMF
                     {
                         binding.Apply(skinnedMeshRenderer);
                     }
+
+                    // Existing renderer controls have final authority over same-name patch controls.
+                    foreach (var binding in originalWeightBindings)
+                    {
+                        binding.Apply(skinnedMeshRenderer);
+                    }
                 }
             }
 
@@ -141,6 +149,7 @@ namespace Triturbo.BlendShare.NDMF
                 mesh = null;
                 bones = System.Array.Empty<Transform>();
                 rootBone = null;
+                originalWeightBindings = System.Array.Empty<PreviewOriginalBlendShapeWeight>();
                 weightBindings = System.Array.Empty<PreviewBlendShapeWeight>();
                 hasPreviewOutput = false;
             }
@@ -208,10 +217,15 @@ namespace Triturbo.BlendShare.NDMF
                 ObserveProxyInputs(enabledAppliers, boneProxies, context);
                 var artifact = BlendShareArtifactService.CreateInMemoryArtifact(
                     sourceRoot != null ? sourceRoot.gameObject : originalRenderer.transform.root.gameObject,
-                    generationComponents);
+                    generationComponents,
+                    out string generationDiagnostic);
                 if (artifact == null)
                 {
-                    Debug.LogWarning("[BlendShare Preview] Failed to generate BlendShare artifact.", original);
+                    Debug.LogWarning(
+                        string.IsNullOrWhiteSpace(generationDiagnostic)
+                            ? "[BlendShare Preview] Failed to generate BlendShare artifact."
+                            : $"[BlendShare Preview] {generationDiagnostic}",
+                        original);
                     return;
                 }
 
@@ -243,6 +257,10 @@ namespace Triturbo.BlendShare.NDMF
                 mesh = proxyRenderer.sharedMesh;
                 bones = proxyRenderer.bones;
                 rootBone = proxyRenderer.rootBone;
+                originalWeightBindings = BuildOriginalWeightBindings(
+                    originalRenderer,
+                    mesh,
+                    enabledAppliers);
                 weightBindings = BuildWeightBindings(enabledAppliers, mesh);
                 hasPreviewOutput = mesh != null;
 
@@ -301,6 +319,66 @@ namespace Triturbo.BlendShare.NDMF
                 }
             }
 
+            private static PreviewOriginalBlendShapeWeight[] BuildOriginalWeightBindings(
+                SkinnedMeshRenderer originalRenderer,
+                Mesh generatedMesh,
+                IEnumerable<BlendShareMesh> appliers)
+            {
+                var originalMesh = originalRenderer != null ? originalRenderer.sharedMesh : null;
+                if (originalMesh == null || generatedMesh == null)
+                {
+                    return System.Array.Empty<PreviewOriginalBlendShapeWeight>();
+                }
+
+                var bindings = new List<PreviewOriginalBlendShapeWeight>();
+                var patchControlledNames = new HashSet<string>((appliers ?? System.Array.Empty<BlendShareMesh>())
+                    .SelectMany(applier => applier?.BlendShapeWeights ?? System.Array.Empty<BlendShareProxyBlendShapeWeight>())
+                    .Where(weight => weight != null && !string.IsNullOrWhiteSpace(weight.ShapeName))
+                    .Select(weight => weight.ShapeName));
+                for (int originalIndex = 0; originalIndex < originalMesh.blendShapeCount; originalIndex++)
+                {
+                    string shapeName = originalMesh.GetBlendShapeName(originalIndex);
+                    int generatedIndex = generatedMesh.GetBlendShapeIndex(shapeName);
+                    if (generatedIndex >= 0 &&
+                        (generatedIndex != originalIndex || patchControlledNames.Contains(shapeName)))
+                    {
+                        bindings.Add(new PreviewOriginalBlendShapeWeight(
+                            originalRenderer,
+                            originalIndex,
+                            generatedIndex));
+                    }
+                }
+
+                return bindings.ToArray();
+            }
+
+            private readonly struct PreviewOriginalBlendShapeWeight
+            {
+                private readonly SkinnedMeshRenderer originalRenderer;
+                private readonly int originalIndex;
+                private readonly int generatedIndex;
+
+                public PreviewOriginalBlendShapeWeight(
+                    SkinnedMeshRenderer originalRenderer,
+                    int originalIndex,
+                    int generatedIndex)
+                {
+                    this.originalRenderer = originalRenderer;
+                    this.originalIndex = originalIndex;
+                    this.generatedIndex = generatedIndex;
+                }
+
+                public void Apply(SkinnedMeshRenderer renderer)
+                {
+                    if (renderer != null && originalRenderer != null)
+                    {
+                        renderer.SetBlendShapeWeight(
+                            generatedIndex,
+                            originalRenderer.GetBlendShapeWeight(originalIndex));
+                    }
+                }
+            }
+
             private string BuildGenerationSignature(SkinnedMeshRenderer renderer, ComputeContext context)
             {
                 if (renderer == null)
@@ -318,14 +396,24 @@ namespace Triturbo.BlendShare.NDMF
                     AppendObject(builder, ":bone:", bone);
                 }
 
-                var enabledAppliers = FindMeshAppliersForRenderer(renderer, context).ToArray();
-                foreach (var applier in enabledAppliers)
+                var enabledAppliers = FindMeshAppliersForRenderer(renderer, context)
+                    .Select(applier => new PreviewApplierState(applier, ObserveMeshApplier(applier, context)))
+                    .ToArray();
+                bool hasNameCollision = enabledAppliers
+                    .SelectMany(state => state.BlendShapeNames.Distinct())
+                    .GroupBy(shapeName => shapeName)
+                    .Any(group => group.Count() > 1);
+                // Hierarchy order changes mesh output only when one patch can overwrite another by name.
+                var signatureAppliers = hasNameCollision
+                    ? enabledAppliers
+                    : enabledAppliers.OrderBy(state => state.Applier.GetInstanceID()).ToArray();
+                foreach (var state in signatureAppliers)
                 {
-                    var blendShapeNames = ObserveMeshApplier(applier, context);
+                    var applier = state.Applier;
                     builder.Append("|applier:").Append(applier != null ? applier.GetInstanceID() : 0);
                     AppendObject(builder, ":patch:", context.Observe(applier, item => item.Patch));
                     AppendObject(builder, ":meshData:", context.Observe(applier, item => item.MeshData));
-                    foreach (string shapeName in blendShapeNames)
+                    foreach (string shapeName in state.BlendShapeNames)
                     {
                         builder.Append(":shape:").Append(shapeName);
                     }
@@ -333,7 +421,7 @@ namespace Triturbo.BlendShare.NDMF
                 }
 
                 foreach (var avatarRoot in enabledAppliers
-                             .Select(applier => context.GetAvatarRoot(applier.gameObject))
+                             .Select(state => context.GetAvatarRoot(state.Applier.gameObject))
                              .Where(root => root != null)
                              .Distinct()
                              .OrderBy(root => root.GetInstanceID()))
@@ -346,6 +434,18 @@ namespace Triturbo.BlendShare.NDMF
                 }
 
                 return builder.ToString();
+            }
+
+            private readonly struct PreviewApplierState
+            {
+                public PreviewApplierState(BlendShareMesh applier, string[] blendShapeNames)
+                {
+                    Applier = applier;
+                    BlendShapeNames = blendShapeNames ?? System.Array.Empty<string>();
+                }
+
+                public BlendShareMesh Applier { get; }
+                public string[] BlendShapeNames { get; }
             }
 
             private static void AppendProxyState(StringBuilder builder, BlendShareBoneProxy proxy, ComputeContext context)
@@ -415,11 +515,14 @@ namespace Triturbo.BlendShare.NDMF
                     return System.Array.Empty<BlendShareMesh>();
                 }
 
-                return context.GetComponentsByType<BlendShareMesh>()
+                var candidates = context.GetComponentsByType<BlendShareMesh>()
                     .Where(applier => applier != null &&
                                       IsApplierEnabled(applier, context) &&
                                       context.Observe(applier, item => item.TargetRenderer) == renderer)
-                    .OrderBy(applier => GetHierarchyOrder(applier.transform));
+                    .OrderBy(applier => GetHierarchyOrder(applier.transform))
+                    .ToArray();
+                ObserveDeduplicationInputs(candidates, context);
+                return BlendSharePatchIdUtility.DeduplicateMeshComponents(candidates);
             }
 
             private static IEnumerable<BlendShareMesh> FindMeshAppliersForAvatar(
@@ -431,11 +534,29 @@ namespace Triturbo.BlendShare.NDMF
                     return System.Array.Empty<BlendShareMesh>();
                 }
 
-                return context.GetComponentsByType<BlendShareMesh>()
+                var candidates = context.GetComponentsByType<BlendShareMesh>()
                     .Where(applier => applier != null &&
                                       IsApplierEnabled(applier, context) &&
                                       context.GetAvatarRoot(applier.gameObject) == avatarRoot)
-                    .OrderBy(applier => GetHierarchyOrder(applier.transform));
+                    .OrderBy(applier => GetHierarchyOrder(applier.transform))
+                    .ToArray();
+                ObserveDeduplicationInputs(candidates, context);
+                return BlendSharePatchIdUtility.DeduplicateMeshComponents(candidates);
+            }
+
+            private static void ObserveDeduplicationInputs(
+                IEnumerable<BlendShareMesh> appliers,
+                ComputeContext context)
+            {
+                foreach (var applier in appliers ?? System.Array.Empty<BlendShareMesh>())
+                {
+                    var patch = context.Observe(applier, item => item.Patch);
+                    context.Observe(applier, item => item.MeshData);
+                    if (patch != null)
+                    {
+                        context.Observe(patch, item => item.m_PatchId);
+                    }
+                }
             }
 
             private static IEnumerable<BlendShareBoneProxy> FindBoneProxiesForAvatar(

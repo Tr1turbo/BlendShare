@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Triturbo.BlendShare.Features.SkinWeights;
 
 #if ENABLE_FBX_SDK
 using Autodesk.Fbx;
@@ -144,10 +145,9 @@ namespace Triturbo.BlendShare.Core
                         if (node?.GetMesh() == null)
                         {
                             LogError($"Can not find mesh: {FormatMesh(meshData)} in FBX file");
-                            continue;
+                            return false;
                         }
 
-                        bool failed = false;
                         var context = new FbxGenerationContext(
                             patch,
                             meshData,
@@ -161,8 +161,7 @@ namespace Triturbo.BlendShare.Core
                             if (result.Failed)
                             {
                                 LogFeatureFailure("apply to FBX", generator, meshData, result);
-                                failed = true;
-                                break;
+                                return false;
                             }
 
                             if (result.Status == MeshFeatureGenerationStatus.Skipped)
@@ -176,11 +175,18 @@ namespace Triturbo.BlendShare.Core
                             }
                         }
 
-                        if (!failed && context.HasUnhandledFeatures)
+                        if (context.HasUnhandledFeatures)
                         {
                             LogUnhandledFeatures("apply to FBX", meshData, context.GetUnhandledFeatures());
+                            return false;
                         }
                     }
+                }
+
+                if (!SkinWeightFeatureGenerator.FinalizeFbxSkinWeights(generationSession, out string skinError))
+                {
+                    LogError($"[BlendShare] Failed to finalize FBX skin weights: {skinError}");
+                    return false;
                 }
 
                 if (onlyNecessary)

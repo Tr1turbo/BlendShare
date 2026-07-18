@@ -19,7 +19,11 @@ namespace Triturbo.BlendShare.NDMF
 
         protected override void Execute(nadena.dev.ndmf.BuildContext context)
         {
-            var meshAppliers = context.AvatarRootObject.GetComponentsInChildren<BlendShareMesh>(true);
+            // Later hierarchy entries are applied last and therefore win feature-name collisions.
+            var meshAppliers = BlendSharePatchIdUtility.DeduplicateMeshComponents(
+                    context.AvatarRootObject.GetComponentsInChildren<BlendShareMesh>(true)
+                        .Where(applier => applier != null && applier.isActiveAndEnabled))
+                .ToArray();
             if (meshAppliers.Length == 0)
             {
                 return;
@@ -43,8 +47,7 @@ namespace Triturbo.BlendShare.NDMF
 
             var validMeshAppliers = new List<BlendShareMesh>();
             bool validationFailed = false;
-            foreach (var applier in meshAppliers.Where(applier =>
-                         applier != null && applier.isActiveAndEnabled))
+            foreach (var applier in meshAppliers)
             {
                 if (!BlendShareComponentSetupService.ValidateMeshApplierForBuild(applier, out string diagnostic))
                 {
@@ -84,6 +87,7 @@ namespace Triturbo.BlendShare.NDMF
                 return;
             }
 
+            var usedBoneProxySet = usedBoneProxies.ToHashSet();
             foreach (var proxy in usedBoneProxies
                          .GroupBy(proxy => BlendShareComponentSetupService.GetFinalProxyPath(
                              proxy,
@@ -95,18 +99,24 @@ namespace Triturbo.BlendShare.NDMF
 
             if (validMeshAppliers.Count > 0)
             {
+                // Mesh replacement can reorder blendshape indices, so preserve existing controls by name.
+                var originalBlendShapeWeights =
+                    BlendShareBlendShapeWeightService.CaptureExistingRendererWeights(validMeshAppliers);
                 var generationComponents = validMeshAppliers.Cast<BlendShareComponent>()
                     .Concat(usedBoneProxies)
                     .Distinct()
                     .ToArray();
                 var artifact = BlendShareArtifactService.CreateInMemoryArtifact(
                     context.AvatarRootObject,
-                    generationComponents);
+                    generationComponents,
+                    out string generationDiagnostic);
                 if (artifact == null)
                 {
                     ReportFailure(
                         "BlendShare artifact generation failed.",
-                        $"No artifact was generated for avatar '{context.AvatarRootObject.name}'.",
+                        string.IsNullOrWhiteSpace(generationDiagnostic)
+                            ? $"No artifact was generated for avatar '{context.AvatarRootObject.name}'."
+                            : generationDiagnostic,
                         context.AvatarRootObject);
                     return;
                 }
@@ -132,7 +142,19 @@ namespace Triturbo.BlendShare.NDMF
 
                 foreach (var applier in validMeshAppliers)
                 {
+                    // Later hierarchy entries win collisions between BlendShare component controls.
                     BlendShareBlendShapeWeightService.ApplyWeightsToRenderer(applier, applier.TargetRenderer);
+                }
+
+                foreach (var renderer in validMeshAppliers
+                             .Select(applier => applier.TargetRenderer)
+                             .Where(renderer => renderer != null)
+                             .Distinct())
+                {
+                    // Existing renderer controls have final authority over same-name patch controls.
+                    BlendShareBlendShapeWeightService.ApplyCapturedRendererWeights(
+                        originalBlendShapeWeights,
+                        renderer);
                 }
 
                 BlendShareBlendShapeWeightService.RetargetRendererBlendShapeCurves(validMeshAppliers, animatorServices);
@@ -153,10 +175,23 @@ namespace Triturbo.BlendShare.NDMF
 
             foreach (var component in context.AvatarRootObject.GetComponentsInChildren<BlendShareBoneProxy>(true))
             {
-                if (component != null)
+                if (component == null)
                 {
-                    // The proxy transform has already been materialized as the build's real bone.
-                    // Remove only the authoring marker and preserve the generated hierarchy object.
+                    continue;
+                }
+
+                if (usedBoneProxySet.Contains(component))
+                {
+                    // The selected proxy transform is now the build's real bone.
+                    Object.DestroyImmediate(component);
+                }
+                else if (IsDedicatedComponentHost(component.gameObject, component))
+                {
+                    // Superseded setup groups can contain proxies that were intentionally ignored.
+                    Object.DestroyImmediate(component.gameObject);
+                }
+                else
+                {
                     Object.DestroyImmediate(component);
                 }
             }

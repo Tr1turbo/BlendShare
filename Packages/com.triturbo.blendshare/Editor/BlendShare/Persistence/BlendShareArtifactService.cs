@@ -143,6 +143,15 @@ namespace Triturbo.BlendShare.Persistence
             GameObject targetRoot,
             IEnumerable<BlendShareComponent> components)
         {
+            return CreateInMemoryArtifact(targetRoot, components, out _);
+        }
+
+        internal static BlendShareArtifact CreateInMemoryArtifact(
+            GameObject targetRoot,
+            IEnumerable<BlendShareComponent> components,
+            out string diagnostic)
+        {
+            diagnostic = null;
             if (targetRoot == null)
             {
                 return null;
@@ -157,9 +166,12 @@ namespace Triturbo.BlendShare.Persistence
                 return null;
             }
 
-            return new UnityMeshGenerationPipeline().CreateArtifactFromComponents(
+            var pipeline = new UnityMeshGenerationPipeline();
+            var artifact = pipeline.CreateArtifactFromComponents(
                 targetRoot,
                 componentArray);
+            diagnostic = pipeline.LastDiagnostic;
+            return artifact;
         }
 
         private static BlendShareArtifact CreateInMemoryArtifact(
@@ -895,15 +907,21 @@ namespace Triturbo.BlendShare.Persistence
             }
 
             bool pathCollision = transformsByPath.TryGetValue(path, out var existingAtPath) && existingAtPath != null;
-            if (pathCollision && IsCompatibleGeneratedBone(existingAtPath, parent, bone))
+            if (pathCollision)
             {
-                applyState.GeneratedBonesByArtifactPath[path] = existingAtPath;
-                result.AddGeneratedBone(path, existingAtPath, false);
-                return existingAtPath;
+                if (IsCompatibleGeneratedBone(existingAtPath, parent, bone))
+                {
+                    applyState.GeneratedBonesByArtifactPath[path] = existingAtPath;
+                    result.AddGeneratedBone(path, existingAtPath, false);
+                    return existingAtPath;
+                }
+
+                result.AddDiagnostic($"Bone path '{path}' already exists with an incompatible parent or local transform.");
+                return null;
             }
 
             string leafName = MeshNodePath.LeafName(path);
-            var created = new GameObject(pathCollision ? CreateUniqueChildName(parent, leafName) : leafName);
+            var created = new GameObject(leafName);
             if (options.UseUndo)
             {
                 Undo.RegisterCreatedObjectUndo(created, "Create BlendShare Artifact Bone");
@@ -916,10 +934,7 @@ namespace Triturbo.BlendShare.Persistence
 
             string actualPath = MeshNodePath.GetRelativePath(created.transform, targetRoot);
             transformsByPath[MeshNodePath.Normalize(actualPath)] = created.transform;
-            if (!pathCollision)
-            {
-                transformsByPath[path] = created.transform;
-            }
+            transformsByPath[path] = created.transform;
             applyState.GeneratedBonesByArtifactPath[path] = created.transform;
             result.AddGeneratedBone(path, created.transform, true);
             MarkDirty(parent, options);
@@ -1023,32 +1038,6 @@ namespace Triturbo.BlendShare.Persistence
                 .Where(pair => !string.IsNullOrWhiteSpace(pair.Key) && pair.Value != null)
                 .GroupBy(pair => MeshNodePath.Normalize(pair.Key))
                 .ToDictionary(group => group.Key, group => group.First().Value);
-        }
-
-        private static string CreateUniqueChildName(Transform parent, string desiredName)
-        {
-            desiredName = string.IsNullOrWhiteSpace(desiredName) ? "BlendShareBone" : desiredName;
-            if (parent == null || parent.Find(desiredName) == null)
-            {
-                return desiredName;
-            }
-
-            string baseName = $"{desiredName} BlendShare";
-            if (parent.Find(baseName) == null)
-            {
-                return baseName;
-            }
-
-            for (int i = 1; i < 10000; i++)
-            {
-                string candidate = $"{baseName} {i}";
-                if (parent.Find(candidate) == null)
-                {
-                    return candidate;
-                }
-            }
-
-            return $"{baseName} {Guid.NewGuid():N}";
         }
 
         private static void RecordObject(Object obj, string name, BlendShareArtifactApplyOptions options)
