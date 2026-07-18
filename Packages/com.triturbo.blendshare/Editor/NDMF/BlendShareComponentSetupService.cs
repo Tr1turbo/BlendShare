@@ -82,7 +82,6 @@ namespace Triturbo.BlendShare.NDMF
                 applier.TargetRenderer = renderer;
                 applier.MeshData = meshData;
                 applier.RendererNodePath = path;
-                applier.DiagnosticMessage = string.Empty;
                 TryResolveMeshApplierMappingReference(applier, out _);
                 applier.SyncActiveBlendShapeWeights();
                 EditorUtility.SetDirty(applier);

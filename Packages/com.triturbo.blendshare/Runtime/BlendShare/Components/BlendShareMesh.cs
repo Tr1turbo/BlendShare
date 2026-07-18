@@ -63,9 +63,6 @@ namespace Triturbo.BlendShare.Components
         [SerializeField, NotKeyable]
         private string m_RendererNodePath;
 
-        [SerializeField, NotKeyable]
-        private string m_DiagnosticMessage;
-
         [SerializeField]
         private List<BlendShareProxyBlendShapeWeight> m_BlendShapeWeights = new();
 
@@ -99,12 +96,6 @@ namespace Triturbo.BlendShare.Components
         {
             get => MeshNodePath.Normalize(m_RendererNodePath);
             set => m_RendererNodePath = MeshNodePath.Normalize(value);
-        }
-
-        public string DiagnosticMessage
-        {
-            get => m_DiagnosticMessage;
-            set => m_DiagnosticMessage = value;
         }
 
         public IReadOnlyList<BlendShareProxyBlendShapeWeight> BlendShapeWeights =>
@@ -166,7 +157,6 @@ namespace Triturbo.BlendShare.Components
             }
 
             m_RendererNodePath = MeshNodePath.Normalize(m_RendererNodePath);
-            m_DiagnosticMessage ??= string.Empty;
             SyncActiveBlendShapeWeights();
         }
 

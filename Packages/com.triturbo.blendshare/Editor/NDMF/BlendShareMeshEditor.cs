@@ -1,7 +1,11 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using Triturbo.BlendShapeShare;
 using Triturbo.BlendShare.Components;
 using Triturbo.BlendShare.Core;
+using Triturbo.BlendShare.Features.SkinWeights;
+using Triturbo.BlendShare.Inspector;
 using UnityEditor;
 using UnityEngine;
 
@@ -11,6 +15,7 @@ namespace Triturbo.BlendShare.NDMF
     public sealed class BlendShareMeshEditor : UnityEditor.Editor
     {
         private readonly Dictionary<string, BlendShapeWeightSyncState> blendShapeWeightSyncStates = new();
+        private bool boneProxiesExpanded = true;
         private double skipMappingValidationUntil;
 
         static BlendShareMeshEditor()
@@ -31,15 +36,26 @@ namespace Triturbo.BlendShare.NDMF
 
             Localization.DrawLanguageSelection();
             EditorGUILayout.Space();
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_Patch"));
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_TargetRendererReference"), new GUIContent(Localization.S("ndmf.mesh.target_renderer")));
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_MeshData"));
+            var meshDataProperty = serializedObject.FindProperty("m_MeshData");
+            EditorGUI.BeginChangeCheck();
+            EditorGUILayout.PropertyField(meshDataProperty);
+            bool meshDataChanged = EditorGUI.EndChangeCheck();
+            if (meshDataChanged)
+            {
+                skipMappingValidationUntil = EditorApplication.timeSinceStartup + 0.25d;
+                serializedObject.FindProperty("m_Patch").objectReferenceValue =
+                    BlendShareInspectorUtility.FindOwnerPatch(meshDataProperty.objectReferenceValue);
+            }
+
             using (new EditorGUI.DisabledScope(true))
             {
                 EditorGUILayout.PropertyField(
                     serializedObject.FindProperty("m_Mapping"),
                     new GUIContent(Localization.S("patch.mapping.display_name")));
             }
+
+            DrawBoneProxies(applier);
 
             bool changedBlendShapeWeight = DrawBlendShapeWeights(
                 applier,
@@ -49,9 +65,6 @@ namespace Triturbo.BlendShare.NDMF
             {
                 skipMappingValidationUntil = EditorApplication.timeSinceStartup + 0.25d;
             }
-
-            EditorGUILayout.Space();
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_DiagnosticMessage"));
 
             if (EditorApplication.timeSinceStartup >= skipMappingValidationUntil &&
                 !BlendShareComponentSetupService.ValidateMeshApplierMapping(applier, out string mappingDiagnostic))
@@ -82,9 +95,150 @@ namespace Triturbo.BlendShare.NDMF
 
             if (serializedObject.ApplyModifiedProperties())
             {
-                // Patch, mesh-data, and renderer edits can change the required cache entry.
+                // Mesh-data and renderer edits can change the required cache entry.
                 BlendShareComponentSetupService.TryResolveMeshApplierMappingReference(applier, out _);
             }
+
+            if (meshDataChanged)
+            {
+                if (applier.SyncActiveBlendShapeWeights())
+                {
+                    EditorUtility.SetDirty(applier);
+                }
+
+                CreateMissingBoneProxies(applier, ResolveProxyTargetRoot(applier));
+            }
+        }
+
+        private void DrawBoneProxies(BlendShareMesh applier)
+        {
+            var skin = applier.MeshData?.GetFeature<SkinWeightFeatureObject>();
+            if (skin == null)
+            {
+                return;
+            }
+
+            var targetRoot = ResolveProxyTargetRoot(applier);
+            var entries = GetBoneProxyEntries(applier, skin, targetRoot);
+
+            EditorGUILayout.Space();
+            boneProxiesExpanded = EditorGUILayout.Foldout(
+                boneProxiesExpanded,
+                Localization.G("ndmf.mesh.bone_proxies"),
+                true);
+            if (!boneProxiesExpanded)
+            {
+                return;
+            }
+
+            using (new EditorGUI.IndentLevelScope())
+            {
+                if (entries.Count == 0)
+                {
+                    EditorGUILayout.LabelField(Localization.S("common.none"), EditorStyles.miniLabel);
+                }
+                else
+                {
+                    using (new EditorGUI.DisabledScope(true))
+                    {
+                        foreach (var entry in entries)
+                        {
+                            EditorGUILayout.ObjectField(
+                                new GUIContent(MeshNodePath.LeafName(entry.BonePath), entry.BonePath),
+                                entry.Proxy,
+                                typeof(BlendShareBoneProxy),
+                                true);
+                        }
+                    }
+                }
+
+                bool hasMissingProxy = entries.Any(entry => entry.Proxy == null && entry.CanCreate);
+                if (hasMissingProxy)
+                {
+                    EditorGUILayout.Space(2f);
+                    using (new EditorGUI.DisabledScope(targetRoot == null || !applier.isActiveAndEnabled))
+                    {
+                        if (GUILayout.Button(Localization.S("ndmf.mesh.create_missing_bones")))
+                        {
+                            CreateMissingBoneProxies(applier, targetRoot);
+                        }
+                    }
+                }
+            }
+        }
+
+        private void CreateMissingBoneProxies(BlendShareMesh applier, Transform targetRoot)
+        {
+            int undoGroup = Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName(Localization.S("ndmf.mesh.create_missing_bones"));
+
+            Transform placementParent = applier.transform.parent;
+            if (placementParent == null ||
+                (placementParent != targetRoot && !placementParent.IsChildOf(targetRoot)))
+            {
+                placementParent = targetRoot;
+            }
+
+            var result = BlendShareComponentSetupService.RebuildBoneProxies(
+                new[] { applier },
+                targetRoot,
+                placementParent);
+            Undo.CollapseUndoOperations(undoGroup);
+
+            foreach (string diagnostic in result.Diagnostics)
+            {
+                Debug.LogWarning($"[BlendShare] {diagnostic}", applier);
+            }
+
+            Repaint();
+            SceneView.RepaintAll();
+        }
+
+        private static Transform ResolveProxyTargetRoot(BlendShareMesh applier)
+        {
+            var renderer = applier.TargetRenderer;
+            // NDMF/VRChat roots are authoritative; standalone setups can still infer the root from the mesh path.
+            return AvatarHierarchyUtil.FindAvatarInParents(applier.transform) ??
+                   AvatarHierarchyUtil.FindAvatarInParents(renderer != null ? renderer.transform : null) ??
+                   BlendShareComponentSetupService.ResolveTargetRoot(renderer, applier.MeshData);
+        }
+
+        private static IReadOnlyList<(string BonePath, BlendShareBoneProxy Proxy, bool CanCreate)> GetBoneProxyEntries(
+            BlendShareMesh applier,
+            SkinWeightFeatureObject skin,
+            Transform targetRoot)
+        {
+            if (applier.TargetRenderer == null || skin?.Armature == null)
+            {
+                return Array.Empty<(string, BlendShareBoneProxy, bool)>();
+            }
+
+            var existingBonePaths = targetRoot != null
+                ? new HashSet<string>((applier.TargetRenderer.bones ?? Array.Empty<Transform>())
+                    .Where(bone => bone != null)
+                    .Select(bone => MeshNodePath.Normalize(MeshNodePath.GetRelativePath(bone, targetRoot))))
+                : new HashSet<string>();
+            var proxyLookup = BlendShareBoneProxyLookup.Create(
+                targetRoot != null
+                    ? targetRoot.GetComponentsInChildren<BlendShareBoneProxy>(true)
+                    : Array.Empty<BlendShareBoneProxy>());
+            var entries = new List<(string BonePath, BlendShareBoneProxy Proxy, bool CanCreate)>();
+
+            foreach (string bonePath in skin.GetNeededBonePathsInArmatureOrder())
+            {
+                if (existingBonePaths.Contains(bonePath))
+                {
+                    continue;
+                }
+
+                proxyLookup.TryGet(skin.Armature, bonePath, out var proxy);
+                entries.Add((
+                    bonePath,
+                    proxy,
+                    skin.Armature.GetBone(bonePath)?.m_CreateIfMissing == true));
+            }
+
+            return entries;
         }
 
         /// <inheritdoc />

@@ -1431,6 +1431,12 @@ msgstr "ターゲットレンダラー"
 msgid "ndmf.mesh.missing_renderer"
 msgstr "<レンダラーなし>"
 
+msgid "ndmf.mesh.bone_proxies"
+msgstr "ボーンプロキシ"
+
+msgid "ndmf.mesh.create_missing_bones"
+msgstr "不足しているボーンを作成"
+
 msgid "ndmf.mesh.animation.add_key"
 msgstr "キーを追加"
 
@@ -1490,6 +1496,9 @@ msgstr "ソースからバインディングトランスフォームを復元"
 
 msgid "ndmf.bone_proxy.reset_to_bind_pose"
 msgstr "トランスフォームをバインドポーズにリセット"
+
+msgid "ndmf.bone_proxy.duplicate_ignored"
+msgstr "同じソースアーマチュアとボーンパスを表す後順位のプロキシ「{0}」が優先されるため、このボーンプロキシは無視されます。"
 
 msgid "ndmf.bone_proxy.no_owner"
 msgstr "所有する BlendShare 適用コンポーネントが見つかりません。"

@@ -1431,6 +1431,12 @@ msgstr "目標渲染器"
 msgid "ndmf.mesh.missing_renderer"
 msgstr "<缺失渲染器>"
 
+msgid "ndmf.mesh.bone_proxies"
+msgstr "骨骼代理"
+
+msgid "ndmf.mesh.create_missing_bones"
+msgstr "建立缺失骨骼"
+
 msgid "ndmf.mesh.animation.add_key"
 msgstr "新增鍵"
 
@@ -1490,6 +1496,9 @@ msgstr "從來源還原綁定變換"
 
 msgid "ndmf.bone_proxy.reset_to_bind_pose"
 msgstr "將變換重設為綁定姿勢"
+
+msgid "ndmf.bone_proxy.duplicate_ignored"
+msgstr "此骨骼代理將被忽略，因為階層中較後的代理「{0}」具有相同的來源骨架與骨骼路徑。"
 
 msgid "ndmf.bone_proxy.no_owner"
 msgstr "未找到擁有此物件的 BlendShare 套用元件。"

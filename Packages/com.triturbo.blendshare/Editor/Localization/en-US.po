@@ -1431,6 +1431,12 @@ msgstr "Target Renderer"
 msgid "ndmf.mesh.missing_renderer"
 msgstr "<missing renderer>"
 
+msgid "ndmf.mesh.bone_proxies"
+msgstr "Bone Proxies"
+
+msgid "ndmf.mesh.create_missing_bones"
+msgstr "Create Missing Bone(s)"
+
 msgid "ndmf.mesh.animation.add_key"
 msgstr "Add Key"
 
@@ -1490,6 +1496,9 @@ msgstr "Restore Binding Transform From Source"
 
 msgid "ndmf.bone_proxy.reset_to_bind_pose"
 msgstr "Reset Transform To Bind Pose"
+
+msgid "ndmf.bone_proxy.duplicate_ignored"
+msgstr "This bone proxy is ignored because the later proxy '{0}' represents the same source armature and bone path."
 
 msgid "ndmf.bone_proxy.no_owner"
 msgstr "No owning BlendShare applier was found."
