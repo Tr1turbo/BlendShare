@@ -914,8 +914,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 var secondScale = second.m_FbxLocalScale == Vector3.zero ? Vector3.one : second.m_FbxLocalScale;
                 return Vector3.Distance(first.m_FbxLocalTranslation, second.m_FbxLocalTranslation) <= 0.0001f &&
                        Quaternion.Angle(
-                           Quaternion.Euler(first.m_FbxLocalEulerRotation),
-                           Quaternion.Euler(second.m_FbxLocalEulerRotation)) <= 0.01f &&
+                           first.GetFbxLocalRotation(),
+                           second.GetFbxLocalRotation()) <= 0.01f &&
                        Vector3.Distance(firstScale, secondScale) <= 0.0001f;
             }
         }
@@ -1432,9 +1432,10 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
             resolving.Remove(path);
             var scale = armatureBone.m_FbxLocalScale == Vector3.zero ? Vector3.one : armatureBone.m_FbxLocalScale;
+            var rotation = armatureBone.GetFbxLocalRotation();
             var deltaLocal = Matrix4x4.TRS(
                 mapping != null ? mapping.ConvertFbxVectorToUnity(armatureBone.m_FbxLocalTranslation) : armatureBone.m_FbxLocalTranslation,
-                Quaternion.Euler(armatureBone.m_FbxLocalEulerRotation),
+                mapping != null ? mapping.ConvertFbxRotationToUnity(rotation) : rotation,
                 scale);
             var existingBone = context.ResolveTransform(path);
             if (existingBone != null)
@@ -1458,27 +1459,44 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             out BoneProxyGenerationData data)
         {
             data = null;
-            var proxy = context.Components
+            var resolved = context.Components
                 .OfType<BlendShareBoneProxy>()
-                .FirstOrDefault(candidate =>
-                    candidate != null && candidate.MatchesSource(feature?.Armature, sourceBonePath));
-            if (proxy == null || proxy.TargetParent == null)
+                .SelectMany(component => component != null
+                    ? component.Bindings.Select(binding => (Component: component, Binding: binding))
+                    : Array.Empty<(BlendShareBoneProxy Component, BlendShareBoneProxyBinding Binding)>())
+                .LastOrDefault(candidate =>
+                    candidate.Component.SourceArmature == feature?.Armature &&
+                    candidate.Binding != null &&
+                    candidate.Binding.SourceBonePath == MeshNodePath.Normalize(sourceBonePath));
+            var proxy = resolved.Component;
+            var binding = resolved.Binding;
+            var finalTransform = proxy?.GetFinalTransform(binding);
+            var effectiveParent = proxy?.GetEffectiveParent(binding);
+            if (proxy == null || binding == null || finalTransform == null || effectiveParent == null)
             {
                 return false;
             }
 
-            string parentPath = MeshNodePath.Normalize(MeshNodePath.GetRelativePath(proxy.TargetParent, context.TargetRootTransform));
+            string parentPath = MeshNodePath.Normalize(MeshNodePath.GetRelativePath(effectiveParent, context.TargetRootTransform));
             string finalPath = parentPath == MeshNodePath.Root
-                ? MeshNodePath.Normalize(proxy.name)
-                : MeshNodePath.Normalize($"{parentPath}/{proxy.name}");
+                ? MeshNodePath.Normalize(finalTransform.name)
+                : MeshNodePath.Normalize($"{parentPath}/{finalTransform.name}");
+            GetProxyLocalTransform(
+                proxy,
+                binding,
+                out var localPosition,
+                out var localEulerRotation,
+                out var localScale);
             data = new BoneProxyGenerationData(
                 finalPath,
                 parentPath,
                 proxy,
-                proxy.TargetParent,
-                proxy.LocalPosition,
-                proxy.LocalEulerRotation,
-                proxy.LocalScale,
+                binding,
+                finalTransform,
+                effectiveParent,
+                localPosition,
+                localEulerRotation,
+                localScale,
                 proxy.RecalculateBindpose);
             return true;
         }
@@ -1513,7 +1531,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return new ArmatureBoneData(
                 bone.m_Path,
                 mapping != null ? mapping.ConvertFbxVectorToUnity(bone.m_FbxLocalTranslation) : bone.m_FbxLocalTranslation,
-                bone.m_FbxLocalEulerRotation,
+                mapping != null ? mapping.ConvertFbxRotationToUnityEuler(bone.GetFbxLocalRotation()) : bone.GetFbxLocalRotation().eulerAngles,
+                mapping != null ? mapping.ConvertFbxRotationToUnity(bone.GetFbxLocalRotation()) : bone.GetFbxLocalRotation(),
                 bone.m_FbxLocalScale,
                 bone.m_CreateIfMissing);
         }
@@ -1532,6 +1551,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
             GetProxyLocalTransform(
                 boneProxy.Proxy,
+                boneProxy.Binding,
                 out var localPosition,
                 out var localEulerRotation,
                 out var localScale);
@@ -1539,6 +1559,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 boneProxy.FinalBonePath,
                 localPosition,
                 localEulerRotation,
+                Quaternion.Euler(localEulerRotation),
                 localScale,
                 true);
             return true;
@@ -1546,20 +1567,21 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
         private static void GetProxyLocalTransform(
             BlendShareBoneProxy proxy,
+            BlendShareBoneProxyBinding binding,
             out Vector3 localPosition,
             out Vector3 localEulerRotation,
             out Vector3 localScale)
         {
             if (proxy != null &&
-                proxy.TryGetCurrentLocalTransform(out localPosition, out localEulerRotation, out localScale))
+                proxy.TryGetCurrentLocalTransform(binding, out localPosition, out localEulerRotation, out localScale))
             {
                 localScale = localScale == Vector3.zero ? Vector3.one : localScale;
                 return;
             }
 
-            localPosition = proxy != null ? proxy.LocalPosition : Vector3.zero;
-            localEulerRotation = proxy != null ? proxy.LocalEulerRotation : Vector3.zero;
-            localScale = proxy != null ? proxy.LocalScale : Vector3.one;
+            localPosition = proxy != null && !proxy.HasExplicitBindings ? proxy.LocalPosition : Vector3.zero;
+            localEulerRotation = proxy != null && !proxy.HasExplicitBindings ? proxy.LocalEulerRotation : Vector3.zero;
+            localScale = proxy != null && !proxy.HasExplicitBindings ? proxy.LocalScale : Vector3.one;
         }
 
         private sealed class BoneProxyGenerationData
@@ -1567,6 +1589,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             public string FinalBonePath { get; }
             public string ParentPath { get; }
             public BlendShareBoneProxy Proxy { get; }
+            public BlendShareBoneProxyBinding Binding { get; }
+            public Transform FinalTransform { get; }
             public Transform TargetParent { get; }
             public Vector3 LocalPosition { get; }
             public Vector3 LocalEulerRotation { get; }
@@ -1577,6 +1601,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 string finalBonePath,
                 string parentPath,
                 BlendShareBoneProxy proxy,
+                BlendShareBoneProxyBinding binding,
+                Transform finalTransform,
                 Transform targetParent,
                 Vector3 localPosition,
                 Vector3 localEulerRotation,
@@ -1586,6 +1612,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 FinalBonePath = MeshNodePath.Normalize(finalBonePath);
                 ParentPath = MeshNodePath.Normalize(parentPath);
                 Proxy = proxy;
+                Binding = binding;
+                FinalTransform = finalTransform;
                 TargetParent = targetParent;
                 LocalPosition = localPosition;
                 LocalEulerRotation = localEulerRotation;

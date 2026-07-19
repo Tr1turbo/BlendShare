@@ -81,7 +81,7 @@ namespace Triturbo.BlendShare.NDMF
                     availableBoneProxies,
                     context.AvatarRootTransform,
                     animatorServices,
-                    out var usedBoneProxies,
+                    out var usedBoneBindings,
                     out string proxyDiagnostic,
                     out var conflictingProxy))
             {
@@ -89,13 +89,20 @@ namespace Triturbo.BlendShare.NDMF
                 return;
             }
 
-            var usedBoneProxySet = usedBoneProxies.ToHashSet();
-            foreach (var proxy in usedBoneProxies.Distinct())
+            var usedBoneComponents = usedBoneBindings.Select(binding => binding.Component).Distinct().ToArray();
+            foreach (var binding in usedBoneBindings.Distinct())
             {
-                PlaceProxyInBuildHierarchy(proxy, context.AvatarRootTransform, pathRemapper);
+                pathRemapper?.RecordObjectTree(binding.FinalTransform);
+            }
+            foreach (var binding in usedBoneBindings.Distinct())
+            {
+                if (binding.Component.IsRootBinding(binding.Binding) && !binding.Component.UseHierarchyParent)
+                {
+                    PlaceProxyInBuildHierarchy(binding, context.AvatarRootTransform, pathRemapper);
+                }
             }
             var boneTransformOverrides = BlendShareBoneMergePass.BuildBoneTransformOverrides(
-                usedBoneProxies,
+                usedBoneBindings,
                 context.AvatarRootTransform);
 
             if (validMeshAppliers.Count > 0)
@@ -104,7 +111,7 @@ namespace Triturbo.BlendShare.NDMF
                 var originalBlendShapeWeights =
                     BlendShareBlendShapeWeightService.CaptureExistingRendererWeights(validMeshAppliers);
                 var generationComponents = validMeshAppliers.Cast<BlendShareComponent>()
-                    .Concat(usedBoneProxies)
+                    .Concat(usedBoneComponents)
                     .Distinct()
                     .ToArray();
                 var artifact = BlendShareArtifactService.CreateInMemoryArtifact(
@@ -184,12 +191,21 @@ namespace Triturbo.BlendShare.NDMF
                     continue;
                 }
 
-                if (usedBoneProxySet.Contains(component))
+                if (usedBoneComponents.Contains(component))
                 {
-                    // The selected proxy transform is now the build's real bone.
-                    Object.DestroyImmediate(component);
+                    // Selected final transforms remain as real bones even when the component is a separate holder.
+                    if (IsDedicatedComponentHost(component.gameObject, component) &&
+                        !HostsMappedFinalTransform(component))
+                    {
+                        Object.DestroyImmediate(component.gameObject);
+                    }
+                    else
+                    {
+                        Object.DestroyImmediate(component);
+                    }
                 }
-                else if (IsDedicatedComponentHost(component.gameObject, component))
+                else if (IsDedicatedComponentHost(component.gameObject, component) &&
+                         !HostsMappedFinalTransform(component))
                 {
                     // Superseded setup groups can contain proxies that were intentionally ignored.
                     Object.DestroyImmediate(component.gameObject);
@@ -259,6 +275,13 @@ namespace Triturbo.BlendShare.NDMF
                 component is Transform || component == expectedComponent);
         }
 
+        private static bool HostsMappedFinalTransform(BlendShareBoneProxy component)
+        {
+            return component != null && component.Bindings.Any(binding =>
+                binding?.Transform != null &&
+                (binding.Transform == component.transform || binding.Transform.IsChildOf(component.transform)));
+        }
+
         private sealed class BlendShareNdmfError : IError
         {
             private readonly string title;
@@ -300,21 +323,22 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         private static void PlaceProxyInBuildHierarchy(
-            BlendShareBoneProxy proxy,
+            BlendShareBoneProxyLookup.ResolvedBinding binding,
             Transform fallbackRoot,
             ObjectPathRemapper pathRemapper)
         {
-            if (proxy == null)
+            var proxy = binding.Component;
+            var finalTransform = binding.FinalTransform;
+            if (proxy == null || finalTransform == null)
             {
                 return;
             }
 
-            pathRemapper?.RecordObjectTree(proxy.transform);
-            pathRemapper?.GetVirtualPathForObject(proxy.gameObject);
+            pathRemapper?.GetVirtualPathForObject(finalTransform.gameObject);
 
-            var parent = proxy.TargetParent != null
-                ? proxy.TargetParent
-                : proxy.transform.parent;
+            var parent = binding.EffectiveParent != null
+                ? binding.EffectiveParent
+                : finalTransform.parent;
             if (parent == null)
             {
                 parent = fallbackRoot;
@@ -324,7 +348,7 @@ namespace Triturbo.BlendShare.NDMF
                 parent = fallbackRoot;
             }
 
-            proxy.transform.SetParent(parent, true);
+            finalTransform.SetParent(parent, true);
             pathRemapper?.ClearCache();
         }
 

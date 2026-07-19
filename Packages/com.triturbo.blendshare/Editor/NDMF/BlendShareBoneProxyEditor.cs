@@ -28,17 +28,35 @@ namespace Triturbo.BlendShare.NDMF
                     MessageType.Warning);
             }
 
-            using (new EditorGUI.DisabledScope(true))
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("m_SourceArmature"),
+                new GUIContent(Localization.S("ndmf.bone_proxy.source_armature")));
+            var bindingsProperty = serializedObject.FindProperty("m_Bindings");
+            EditorGUILayout.PropertyField(
+                bindingsProperty,
+                new GUIContent(Localization.S("ndmf.bone_proxy.bindings")),
+                true);
+            if (bindingsProperty.arraySize == 0)
             {
-                EditorGUILayout.PropertyField(serializedObject.FindProperty("m_SourceArmature"), new GUIContent(Localization.S("ndmf.bone_proxy.source_armature")));
-                EditorGUILayout.PropertyField(serializedObject.FindProperty("m_SourceBonePath"), new GUIContent(Localization.S("ndmf.bone_proxy.source_bone_path")));
+                using (new EditorGUI.DisabledScope(true))
+                {
+                    EditorGUILayout.PropertyField(serializedObject.FindProperty("m_SourceBonePath"), new GUIContent(Localization.S("ndmf.bone_proxy.source_bone_path")));
+                }
+                EditorGUILayout.HelpBox(Localization.S("ndmf.bone_proxy.legacy_binding"), MessageType.Info);
             }
-            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_TargetParentReference"), new GUIContent(Localization.S("ndmf.bone_proxy.target_parent")));
+            EditorGUILayout.PropertyField(
+                serializedObject.FindProperty("m_UseHierarchyParent"),
+                new GUIContent(Localization.S("ndmf.bone_proxy.use_hierarchy_parent")));
+            using (new EditorGUI.DisabledScope(proxy.UseHierarchyParent))
+            {
+                EditorGUILayout.PropertyField(serializedObject.FindProperty("m_TargetParentReference"), new GUIContent(Localization.S("ndmf.bone_proxy.target_parent")));
+            }
             EditorGUILayout.PropertyField(serializedObject.FindProperty("m_RecalculateBindpose"), new GUIContent(Localization.S("ndmf.bone_proxy.recalculate_bindpose")));
             serializedObject.ApplyModifiedProperties();
+            DrawBindingValidation(proxy);
 
             EditorGUILayout.Space();
-            EditorGUILayout.LabelField(Localization.S("ndmf.bone_proxy.final_parent"), proxy.TargetParent != null ? proxy.TargetParent.name : Localization.S("common.none"));
+            EditorGUILayout.LabelField(Localization.S("ndmf.bone_proxy.final_parent"), proxy.EffectiveParent != null ? proxy.EffectiveParent.name : Localization.S("common.none"));
             EditorGUILayout.LabelField(Localization.S("ndmf.bone_proxy.final_bone_name"), proxy.name);
             using (new EditorGUI.DisabledScope(true))
             {
@@ -56,13 +74,33 @@ namespace Triturbo.BlendShare.NDMF
             }
 
             EditorGUILayout.Space();
+            if (proxy.HasExplicitBindings)
+            {
+                bool canResetChain = CanResetExplicitBindingsFromSource(proxy, out string resetDiagnostic);
+                using (new EditorGUI.DisabledScope(!canResetChain))
+                {
+                    if (GUILayout.Button(Localization.S("ndmf.bone_proxy.reset_chain_from_source")))
+                    {
+                        ResetExplicitBindingsFromSource(proxy);
+                        NotifyPreviewInputChanged(proxy);
+                    }
+                }
+
+                if (!canResetChain && !string.IsNullOrWhiteSpace(resetDiagnostic))
+                {
+                    EditorGUILayout.HelpBox(resetDiagnostic, MessageType.Info);
+                }
+
+                return;
+            }
+
             bool hasSourceBindingTransform = TryGetSourceBindingTransform(
                 proxy,
                 out var sourcePosition,
                 out var sourceEulerRotation,
                 out var sourceScale,
                 out string sourceDiagnostic);
-            using (new EditorGUI.DisabledScope(proxy.TargetParent == null))
+            using (new EditorGUI.DisabledScope(proxy.EffectiveParent == null))
             {
                 if (GUILayout.Button(Localization.S("ndmf.bone_proxy.update_bindpose")))
                 {
@@ -100,6 +138,52 @@ namespace Triturbo.BlendShare.NDMF
             }
         }
 
+        private static void DrawBindingValidation(BlendShareBoneProxy proxy)
+        {
+            if (proxy == null)
+            {
+                return;
+            }
+
+            var duplicatePaths = proxy.Bindings
+                .Where(binding => binding != null && !string.IsNullOrWhiteSpace(binding.SourceBonePath))
+                .GroupBy(binding => binding.SourceBonePath)
+                .Where(group => group.Count() > 1)
+                .Select(group => group.Key)
+                .ToArray();
+            if (duplicatePaths.Length > 0)
+            {
+                EditorGUILayout.HelpBox(
+                    string.Format(Localization.S("ndmf.bone_proxy.duplicate_bindings"), string.Join(", ", duplicatePaths)),
+                    MessageType.Warning);
+            }
+
+            var avatarRoot = proxy.transform.root;
+            foreach (var binding in proxy.Bindings)
+            {
+                if (binding == null || binding.Transform == null)
+                {
+                    EditorGUILayout.HelpBox(Localization.S("ndmf.bone_proxy.null_final_transform"), MessageType.Error);
+                    continue;
+                }
+
+                string finalPath = MeshNodePath.Normalize(MeshNodePath.GetRelativePath(binding.Transform, avatarRoot));
+                EditorGUILayout.LabelField(
+                    string.IsNullOrWhiteSpace(binding.SourceBonePath) ? Localization.S("common.none") : binding.SourceBonePath,
+                    finalPath);
+                if (binding.Transform != avatarRoot && !binding.Transform.IsChildOf(avatarRoot))
+                {
+                    EditorGUILayout.HelpBox(Localization.S("ndmf.bone_proxy.final_transform_outside_avatar"), MessageType.Error);
+                }
+
+                var parent = proxy.GetEffectiveParent(binding);
+                if (parent == binding.Transform || (parent != null && parent.IsChildOf(binding.Transform)))
+                {
+                    EditorGUILayout.HelpBox(Localization.S("ndmf.bone_proxy.retarget_cycle"), MessageType.Error);
+                }
+            }
+        }
+
         private static void NotifyPreviewInputChanged(BlendShareBoneProxy proxy)
         {
             EditorUtility.SetDirty(proxy);
@@ -116,7 +200,7 @@ namespace Triturbo.BlendShare.NDMF
             if (proxy == null ||
                 !proxy.isActiveAndEnabled ||
                 proxy.SourceArmature == null ||
-                string.IsNullOrWhiteSpace(proxy.SourceBonePath))
+                !proxy.Bindings.Any(binding => binding != null && !string.IsNullOrWhiteSpace(binding.SourceBonePath)))
             {
                 return false;
             }
@@ -124,7 +208,10 @@ namespace Triturbo.BlendShare.NDMF
             var avatarRoot = proxy.transform.root;
             var lookup = BlendShareBoneProxyLookup.Create(
                 avatarRoot.GetComponentsInChildren<BlendShareBoneProxy>(true));
-            if (!lookup.TryGet(proxy.SourceArmature, proxy.SourceBonePath, out var overridingProxy) ||
+            var overriddenBinding = proxy.Bindings.LastOrDefault(binding =>
+                binding != null && !string.IsNullOrWhiteSpace(binding.SourceBonePath));
+            if (overriddenBinding == null ||
+                !lookup.TryGet(proxy.SourceArmature, overriddenBinding.SourceBonePath, out var overridingProxy) ||
                 overridingProxy == proxy)
             {
                 return false;
@@ -191,7 +278,9 @@ namespace Triturbo.BlendShare.NDMF
             position = mapping != null
                 ? mapping.ConvertFbxVectorToUnity(bone.m_FbxLocalTranslation)
                 : bone.m_FbxLocalTranslation;
-            eulerRotation = bone.m_FbxLocalEulerRotation;
+            eulerRotation = mapping != null
+                ? mapping.ConvertFbxRotationToUnityEuler(bone.GetFbxLocalRotation())
+                : bone.GetFbxLocalRotation().eulerAngles;
             scale = bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale;
             return true;
         }
@@ -203,6 +292,91 @@ namespace Triturbo.BlendShare.NDMF
                 out var mapping)
                 ? mapping
                 : null;
+        }
+
+        private static bool CanResetExplicitBindingsFromSource(
+            BlendShareBoneProxy proxy,
+            out string diagnostic)
+        {
+            diagnostic = null;
+            if (proxy?.SourceArmature == null)
+            {
+                diagnostic = Localization.S("ndmf.bone_proxy.no_source_binding");
+                return false;
+            }
+
+            foreach (var binding in proxy.Bindings)
+            {
+                if (binding == null ||
+                    binding.Transform == null ||
+                    string.IsNullOrWhiteSpace(binding.SourceBonePath) ||
+                    proxy.SourceArmature.GetBone(binding.SourceBonePath) == null ||
+                    proxy.GetEffectiveParent(binding) == null)
+                {
+                    diagnostic = Localization.S("ndmf.bone_proxy.no_source_binding");
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static void ResetExplicitBindingsFromSource(BlendShareBoneProxy proxy)
+        {
+            var mapping = proxy.transform.root
+                .GetComponentsInChildren<BlendShareMesh>(true)
+                .Where(applier => applier?.MeshData?.GetFeature<SkinWeightFeatureObject>()?.Armature == proxy.SourceArmature)
+                .Select(GetFbxToUnityMapping)
+                .FirstOrDefault(candidate => candidate != null);
+            foreach (var binding in proxy.Bindings)
+            {
+                var bone = proxy.SourceArmature.GetBone(binding.SourceBonePath);
+                var finalTransform = binding.Transform;
+                var parent = proxy.GetEffectiveParent(binding);
+                var localPosition = mapping != null
+                    ? mapping.ConvertFbxVectorToUnity(bone.m_FbxLocalTranslation)
+                    : bone.m_FbxLocalTranslation;
+                var localRotation = mapping != null
+                    ? mapping.ConvertFbxRotationToUnity(bone.GetFbxLocalRotation())
+                    : bone.GetFbxLocalRotation();
+                var localScale = bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale;
+
+                Undo.RecordObject(finalTransform, "Reset BlendShare Bone Proxy Chain");
+                if (parent == finalTransform.parent)
+                {
+                    finalTransform.localPosition = localPosition;
+                    finalTransform.localRotation = localRotation;
+                    finalTransform.localScale = localScale;
+                }
+                else
+                {
+                    var worldScale = Vector3.Scale(parent.lossyScale, localScale);
+                    finalTransform.SetPositionAndRotation(
+                        parent.TransformPoint(localPosition),
+                        parent.rotation * localRotation);
+                    finalTransform.localScale = DivideScale(worldScale, finalTransform.parent);
+                }
+
+                EditorUtility.SetDirty(finalTransform);
+            }
+
+            Undo.RecordObject(proxy, "Reset BlendShare Bone Proxy Chain");
+            proxy.RecalculateBindpose = false;
+            EditorUtility.SetDirty(proxy);
+        }
+
+        private static Vector3 DivideScale(Vector3 worldScale, Transform parent)
+        {
+            var parentScale = parent != null ? parent.lossyScale : Vector3.one;
+            return new Vector3(
+                SafeDivide(worldScale.x, parentScale.x),
+                SafeDivide(worldScale.y, parentScale.y),
+                SafeDivide(worldScale.z, parentScale.z));
+        }
+
+        private static float SafeDivide(float value, float divisor)
+        {
+            return Mathf.Abs(divisor) > 0.000001f ? value / divisor : value;
         }
 
         [DrawGizmo(GizmoType.Selected | GizmoType.NonSelected | GizmoType.Active)]
@@ -251,7 +425,11 @@ namespace Triturbo.BlendShare.NDMF
         {
             for (int i = 0; i < proxies.Length; i++)
             {
-                proxies[i]?.SynchronizeParentingTransform();
+                var proxy = proxies[i];
+                if (proxy != null)
+                {
+                    proxy.SynchronizeParentingTransform();
+                }
             }
         }
     }

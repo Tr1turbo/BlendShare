@@ -1440,6 +1440,30 @@ msgstr "來源骨骼路徑"
 msgid "ndmf.bone_proxy.target_parent"
 msgstr "目標父物件"
 
+msgid "ndmf.bone_proxy.use_hierarchy_parent"
+msgstr "使用現有父物件（不重新導向或跟隨）"
+
+msgid "ndmf.bone_proxy.bindings"
+msgstr "骨骼綁定"
+
+msgid "ndmf.bone_proxy.legacy_binding"
+msgstr "未儲存明確綁定。此元件繼續使用舊版單骨骼欄位，不會改寫資產。"
+
+msgid "ndmf.bone_proxy.duplicate_bindings"
+msgstr "重複的來源路徑將使用較後面的綁定：{0}"
+
+msgid "ndmf.bone_proxy.null_final_transform"
+msgstr "某個骨骼綁定沒有最終 Transform。"
+
+msgid "ndmf.bone_proxy.final_transform_outside_avatar"
+msgstr "某個最終 Transform 位於虛擬化身階層之外。"
+
+msgid "ndmf.bone_proxy.retarget_cycle"
+msgstr "某個綁定將自身或其子孫設為父物件。"
+
+msgid "ndmf.bone_proxy.reset_chain_from_source"
+msgstr "從來源骨架重設鏈"
+
 msgid "ndmf.bone_proxy.recalculate_bindpose"
 msgstr "重新計算綁定姿勢"
 

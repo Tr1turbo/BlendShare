@@ -471,7 +471,26 @@ namespace Triturbo.BlendShare.NDMF
                 builder.Append(":name:").Append(context.Observe(proxy.gameObject, item => item.name));
                 AppendObject(builder, ":sourceArmature:", context.Observe(proxy, item => item.SourceArmature));
                 builder.Append(":sourceBonePath:").Append(context.Observe(proxy, item => item.SourceBonePath));
+                builder.Append(":bindings:");
+                foreach (var binding in context.Observe(
+                             proxy,
+                             item => item.Bindings.ToArray(),
+                             Enumerable.SequenceEqual))
+                {
+                    if (binding == null)
+                    {
+                        builder.Append("<null>;");
+                        continue;
+                    }
+
+                    builder.Append(binding.SourceBonePath).Append('=');
+                    AppendObject(builder, string.Empty, binding.Transform);
+                    AppendTransformPath(builder, "@", binding.Transform, context);
+                    builder.Append(';');
+                }
                 var targetParent = context.Observe(proxy, item => item.TargetParent);
+                builder.Append(":useHierarchyParent:")
+                    .Append(context.Observe(proxy, item => item.UseHierarchyParent));
                 AppendObject(builder, ":targetParent:", targetParent);
                 AppendTransformPath(builder, ":targetParentPath:", targetParent, context);
                 builder.Append(":recalc:").Append(context.Observe(proxy, item => item.RecalculateBindpose));
@@ -651,17 +670,29 @@ namespace Triturbo.BlendShare.NDMF
                 }
 
                 context.Observe(proxy, item => item.TargetParent);
+                context.Observe(proxy, item => item.UseHierarchyParent);
                 context.Observe(proxy, item => item.SourceArmature);
                 context.Observe(proxy, item => item.SourceBonePath);
+                var bindings = context.Observe(
+                    proxy,
+                    item => item.Bindings.ToArray(),
+                    Enumerable.SequenceEqual);
                 context.Observe(proxy, item => item.RecalculateBindpose);
                 context.Observe(proxy, item => item.LocalPosition);
                 context.Observe(proxy, item => item.LocalEulerRotation);
                 context.Observe(proxy, item => item.LocalScale);
                 context.Observe(proxy.gameObject, item => item.name);
                 ObserveTransformPath(proxy.transform, context);
-                if (proxy.TargetParent != null)
+                foreach (var binding in bindings)
                 {
-                    ObserveTransformPath(proxy.TargetParent, context);
+                    if (binding?.Transform != null)
+                    {
+                        ObserveTransformPath(binding.Transform, context);
+                    }
+                }
+                if (proxy.EffectiveParent != null)
+                {
+                    ObserveTransformPath(proxy.EffectiveParent, context);
                 }
             }
 

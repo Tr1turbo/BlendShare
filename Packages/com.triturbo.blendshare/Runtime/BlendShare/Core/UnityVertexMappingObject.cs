@@ -96,10 +96,42 @@ namespace Triturbo.BlendShare.Core
             return FbxToUnityMatrix.MultiplyVector(fbxDirection).normalized;
         }
 
+        /// <summary>Converts an FBX-space rotation to the Unity importer coordinate basis.</summary>
+        public Quaternion ConvertFbxRotationToUnity(Quaternion fbxRotation)
+        {
+            // A handedness change is a basis conjugation, not a component-wise Euler conversion.
+            // Conjugating by the importer's reflected axis gives these equivalent quaternion signs.
+            return m_BakeAxisConversion
+                ? new Quaternion(-fbxRotation.x, -fbxRotation.y, fbxRotation.z, fbxRotation.w)
+                : new Quaternion(fbxRotation.x, -fbxRotation.y, -fbxRotation.z, fbxRotation.w);
+        }
+
+        /// <summary>Converts FBX Euler angles to signed Unity Euler angles in the importer coordinate basis.</summary>
+        public Vector3 ConvertFbxEulerRotationToUnity(Vector3 fbxEulerRotation)
+        {
+            return ConvertFbxRotationToUnityEuler(Quaternion.Euler(fbxEulerRotation));
+        }
+
+        /// <summary>Converts an evaluated FBX rotation to signed Unity Euler angles.</summary>
+        public Vector3 ConvertFbxRotationToUnityEuler(Quaternion fbxRotation)
+        {
+            Vector3 euler = ConvertFbxRotationToUnity(fbxRotation).eulerAngles;
+            return new Vector3(
+                NormalizeSignedAngle(euler.x),
+                NormalizeSignedAngle(euler.y),
+                NormalizeSignedAngle(euler.z));
+        }
+
         public Matrix4x4 ConvertFbxMatrixToUnity(Matrix4x4 fbxMatrix)
         {
             var fbxToUnity = FbxToUnityMatrix;
             return fbxToUnity * fbxMatrix * fbxToUnity.inverse;
+        }
+
+        private static float NormalizeSignedAngle(float angle)
+        {
+            angle = Mathf.Repeat(angle + 180f, 360f) - 180f;
+            return Mathf.Abs(angle) <= 0.00001f ? 0f : angle;
         }
 
         public bool IsValidFor(Mesh targetMesh)

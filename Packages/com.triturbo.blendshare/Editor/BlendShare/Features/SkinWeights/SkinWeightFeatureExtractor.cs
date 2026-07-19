@@ -540,12 +540,21 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             {
                 node.m_FbxLocalTranslation = sourceNode.LclTranslation.ToVector3();
                 node.m_FbxLocalEulerRotation = sourceNode.LclRotation.ToVector3();
+                var evaluatedRotation = sourceNode.LocalRotation;
+                node.m_FbxEvaluatedLocalRotation = new Quaternion(
+                    (float)evaluatedRotation.x,
+                    (float)evaluatedRotation.y,
+                    (float)evaluatedRotation.z,
+                    (float)evaluatedRotation.w);
+                node.m_HasFbxEvaluatedLocalRotation = true;
                 node.m_FbxLocalScale = sourceNode.LclScale.ToVector3();
                 return node;
             }
 
             node.m_FbxLocalTranslation = Vector3.zero;
             node.m_FbxLocalEulerRotation = Vector3.zero;
+            node.m_FbxEvaluatedLocalRotation = Quaternion.identity;
+            node.m_HasFbxEvaluatedLocalRotation = true;
             node.m_FbxLocalScale = Vector3.one;
             return node;
         }

@@ -151,13 +151,13 @@ namespace Triturbo.BlendShare.NDMF
                 .ToList();
             var proxyLookup = BlendShareBoneProxyLookup.Create(existingProxies);
             var proxiesByKey = existingProxies
-                .GroupBy(proxy => BuildProxyKey(proxy.TargetParent, proxy.name, proxy.LocalPosition, proxy.LocalEulerRotation, proxy.LocalScale))
+                .GroupBy(proxy => BuildProxyKey(proxy.EffectiveParent, proxy.name, proxy.LocalPosition, proxy.LocalEulerRotation, proxy.LocalScale))
                 .ToDictionary(group => group.Key, group => group.ToList());
             var proxiesByName = existingProxies
                 .GroupBy(proxy => proxy.name)
                 .ToDictionary(group => group.Key, group => group.ToList());
             var usedProxies = new HashSet<BlendShareBoneProxy>();
-            var proxiesByBonePath = new Dictionary<BlendShareBoneProxyLookup.SourceKey, BlendShareBoneProxy>();
+            var proxiesByBonePath = new Dictionary<BlendShareBoneProxyLookup.SourceKey, BlendShareBoneProxyLookup.ResolvedBinding>();
 
             foreach (var meshApplier in appliers)
             {
@@ -195,43 +195,151 @@ namespace Triturbo.BlendShare.NDMF
                         }
 
                         var parent = ResolveProxyParent(bone, skin.Armature, targetRoot, transformsByPath, proxiesByBonePath);
+                        bool useHierarchyParent = parent != null && proxiesByBonePath.Values.Any(candidate =>
+                            candidate.FinalTransform == parent);
                         var localScale = bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale;
                         var localPosition = mapping != null
                             ? mapping.ConvertFbxVectorToUnity(bone.m_FbxLocalTranslation)
                             : bone.m_FbxLocalTranslation;
+                        var localEulerRotation = mapping != null
+                            ? mapping.ConvertFbxRotationToUnityEuler(bone.GetFbxLocalRotation())
+                            : bone.GetFbxLocalRotation().eulerAngles;
                         string desiredName = MeshNodePath.LeafName(bonePath);
-                        string key = BuildProxyKey(parent, desiredName, localPosition, bone.m_FbxLocalEulerRotation, localScale);
+                        string key = BuildProxyKey(parent, desiredName, localPosition, localEulerRotation, localScale);
                         var sourceKey = new BlendShareBoneProxyLookup.SourceKey(skin.Armature, bonePath);
                         bool createdProxy = false;
-                        if (!proxiesByBonePath.TryGetValue(sourceKey, out var proxy) &&
-                            !proxyLookup.TryGet(skin.Armature, bonePath, out proxy) &&
-                            !TryTakeProxy(proxiesByKey, key, usedProxies, out proxy) &&
-                            !TryTakeProxy(proxiesByName, desiredName, usedProxies, out proxy))
+                        BlendShareBoneProxy proxy;
+                        BlendShareBoneProxyBinding binding;
+                        Transform finalTransform;
+                        if (proxiesByBonePath.TryGetValue(sourceKey, out var resolved) ||
+                            proxyLookup.TryGetBinding(skin.Armature, bonePath, out resolved))
                         {
-                            proxy = CreateBoneProxy(placementParent != null ? placementParent : targetRoot, bonePath, parent);
+                            proxy = resolved.Component;
+                            binding = resolved.Binding;
+                            finalTransform = resolved.FinalTransform;
+                        }
+                        else if (TryTakeProxy(proxiesByKey, key, usedProxies, out proxy) ||
+                                 TryTakeProxy(proxiesByName, desiredName, usedProxies, out proxy))
+                        {
+                            binding = proxy.Bindings[0];
+                            finalTransform = proxy.transform;
+                        }
+                        else
+                        {
+                            var authoringParent = useHierarchyParent
+                                ? parent
+                                : placementParent != null ? placementParent : targetRoot;
+                            proxy = CreateBoneProxy(authoringParent, bonePath, useHierarchyParent ? null : parent);
+                            binding = proxy.Bindings[0];
+                            finalTransform = proxy.transform;
                             createdProxy = true;
+                        }
+
+                        if (proxy == null || binding == null || finalTransform == null)
+                        {
+                            result.AddDiagnostic($"Bone proxy binding '{bonePath}' has no final transform.");
+                            continue;
                         }
 
                         usedProxies.Add(proxy);
                         Undo.RecordObject(proxy, "Rebuild BlendShare Bone Proxy");
+                        Undo.RecordObject(finalTransform, "Rebuild BlendShare Bone Proxy");
+                        if (useHierarchyParent && finalTransform.parent != parent)
+                        {
+                            Undo.SetTransformParent(finalTransform, parent, "Rebuild BlendShare Bone Proxy Hierarchy");
+                        }
                         proxy.SourceArmature = skin.Armature;
-                        proxy.SourceBonePath = bonePath;
-                        proxy.TargetParent = parent;
+                        binding.SourceBonePath = bonePath;
+                        binding.Transform = finalTransform;
+                        if (proxy.IsRootBinding(binding))
+                        {
+                            proxy.UseHierarchyParent = useHierarchyParent;
+                            proxy.TargetParent = useHierarchyParent ? null : parent;
+                        }
+
                         if (createdProxy || !proxy.RecalculateBindpose)
                         {
-                            proxy.LocalPosition = localPosition;
-                            proxy.LocalEulerRotation = bone.m_FbxLocalEulerRotation;
-                            proxy.LocalScale = localScale;
+                            if (!proxy.HasExplicitBindings && finalTransform == proxy.transform)
+                            {
+                                proxy.SourceBonePath = bonePath;
+                                proxy.LocalPosition = localPosition;
+                                proxy.LocalEulerRotation = localEulerRotation;
+                                proxy.LocalScale = localScale;
+                                proxy.ResetTransformToBindPose();
+                            }
+                            else if (useHierarchyParent)
+                            {
+                                finalTransform.localPosition = localPosition;
+                                finalTransform.localRotation = Quaternion.Euler(localEulerRotation);
+                                finalTransform.localScale = localScale;
+                            }
                         }
-                        proxy.ResetTransformToBindPose();
                         EditorUtility.SetDirty(proxy);
+                        EditorUtility.SetDirty(finalTransform);
                         result.AddBoneProxy(proxy);
-                        proxiesByBonePath[sourceKey] = proxy;
+                        proxiesByBonePath[sourceKey] = new BlendShareBoneProxyLookup.ResolvedBinding(proxy, binding);
                     }
                 }
             }
 
+            ConsolidateGeneratedProxySubtrees(proxiesByBonePath.Values, usedProxies, result);
             return result;
+        }
+
+        private static void ConsolidateGeneratedProxySubtrees(
+            IEnumerable<BlendShareBoneProxyLookup.ResolvedBinding> resolvedBindings,
+            ISet<BlendShareBoneProxy> usedProxies,
+            RebuildBoneProxiesResult result)
+        {
+            var bindings = (resolvedBindings ?? Array.Empty<BlendShareBoneProxyLookup.ResolvedBinding>())
+                .Where(resolved => resolved.Component != null && resolved.Binding != null && resolved.FinalTransform != null)
+                .ToArray();
+            foreach (var armatureGroup in bindings.GroupBy(resolved => resolved.Component.SourceArmature))
+            {
+                var finalTransforms = armatureGroup.Select(resolved => resolved.FinalTransform).ToHashSet();
+                foreach (var root in armatureGroup.Where(resolved => !finalTransforms.Contains(resolved.FinalTransform.parent)))
+                {
+                    var subtree = armatureGroup
+                        .Where(resolved => resolved.FinalTransform == root.FinalTransform ||
+                                           resolved.FinalTransform.IsChildOf(root.FinalTransform))
+                        .OrderBy(resolved => GetHierarchyOrder(resolved.FinalTransform), StringComparer.Ordinal)
+                        .ToArray();
+                    if (subtree.Length <= 1 || subtree.Any(resolved =>
+                            !usedProxies.Contains(resolved.Component) || !IsConvertibleFlatProxy(resolved)))
+                    {
+                        continue;
+                    }
+
+                    var holder = root.Component;
+                    Undo.RecordObject(holder, "Consolidate BlendShare Bone Proxy Subtree");
+                    holder.SetBindings(subtree.Select(resolved =>
+                        new BlendShareBoneProxyBinding(resolved.SourceBonePath, resolved.FinalTransform)));
+                    EditorUtility.SetDirty(holder);
+                    foreach (var descendant in subtree.Select(resolved => resolved.Component).Distinct())
+                    {
+                        if (descendant == holder)
+                        {
+                            continue;
+                        }
+
+                        usedProxies.Remove(descendant);
+                        result.RemoveBoneProxy(descendant);
+                        Undo.DestroyObjectImmediate(descendant);
+                    }
+
+                    result.AddBoneProxy(holder);
+                }
+            }
+        }
+
+        private static bool IsConvertibleFlatProxy(BlendShareBoneProxyLookup.ResolvedBinding resolved)
+        {
+            var component = resolved.Component;
+            return component != null &&
+                   !component.HasExplicitBindings &&
+                   resolved.FinalTransform == component.transform &&
+                   component.gameObject.GetComponents<Component>().All(candidate =>
+                       candidate is Transform || candidate == component);
         }
 
         private static bool TryTakeProxy(
@@ -644,16 +752,16 @@ namespace Triturbo.BlendShare.NDMF
             ArmatureObject armature,
             Transform targetRoot,
             IReadOnlyDictionary<string, Transform> transformsByPath,
-            IReadOnlyDictionary<BlendShareBoneProxyLookup.SourceKey, BlendShareBoneProxy> proxiesByBonePath)
+            IReadOnlyDictionary<BlendShareBoneProxyLookup.SourceKey, BlendShareBoneProxyLookup.ResolvedBinding> proxiesByBonePath)
         {
             string parentPath = bone?.ParentPath ?? MeshNodePath.Root;
             while (parentPath != MeshNodePath.Root)
             {
                 if (proxiesByBonePath.TryGetValue(
                         new BlendShareBoneProxyLookup.SourceKey(armature, parentPath),
-                        out var proxyParent) && proxyParent != null)
+                        out var proxyParent) && proxyParent.FinalTransform != null)
                 {
-                    return proxyParent.transform;
+                    return proxyParent.FinalTransform;
                 }
 
                 if (transformsByPath.TryGetValue(parentPath, out var parent) && parent != null)
@@ -692,6 +800,17 @@ namespace Triturbo.BlendShare.NDMF
         private static string Quantize(float value)
         {
             return Mathf.RoundToInt(value * 10000f).ToString();
+        }
+
+        private static string GetHierarchyOrder(Transform transform)
+        {
+            var indices = new Stack<string>();
+            for (var current = transform; current != null; current = current.parent)
+            {
+                indices.Push(current.GetSiblingIndex().ToString("D8"));
+            }
+
+            return string.Join("/", indices);
         }
 
         private static string CreateUniqueChildName(Transform parent, string desiredName)
@@ -757,6 +876,7 @@ namespace Triturbo.BlendShare.NDMF
                 boneProxies.Add(proxy);
             }
         }
+
     }
 
     internal sealed class RebuildBoneProxiesResult
@@ -782,6 +902,11 @@ namespace Triturbo.BlendShare.NDMF
             {
                 boneProxies.Add(proxy);
             }
+        }
+
+        internal void RemoveBoneProxy(BlendShareBoneProxy proxy)
+        {
+            boneProxies.Remove(proxy);
         }
     }
 }

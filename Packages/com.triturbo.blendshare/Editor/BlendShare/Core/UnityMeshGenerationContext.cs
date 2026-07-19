@@ -284,8 +284,8 @@ namespace Triturbo.BlendShare.Core
             var secondScale = second.m_FbxLocalScale == Vector3.zero ? Vector3.one : second.m_FbxLocalScale;
             return Vector3.Distance(first.m_FbxLocalTranslation, second.m_FbxLocalTranslation) <= 0.0001f &&
                    Quaternion.Angle(
-                       Quaternion.Euler(first.m_FbxLocalEulerRotation),
-                       Quaternion.Euler(second.m_FbxLocalEulerRotation)) <= 0.01f &&
+                       first.GetFbxLocalRotation(),
+                       second.GetFbxLocalRotation()) <= 0.01f &&
                    Vector3.Distance(firstScale, secondScale) <= 0.0001f;
         }
 

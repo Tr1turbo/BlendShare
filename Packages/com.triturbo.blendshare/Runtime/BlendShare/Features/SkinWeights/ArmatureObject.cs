@@ -11,6 +11,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         public string m_Path;
         public Vector3 m_FbxLocalTranslation;
         public Vector3 m_FbxLocalEulerRotation;
+        public Quaternion m_FbxEvaluatedLocalRotation;
+        public bool m_HasFbxEvaluatedLocalRotation;
         public Vector3 m_FbxLocalScale = Vector3.one;
         public bool m_CreateIfMissing = true;
 
@@ -32,6 +34,37 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             m_FbxLocalEulerRotation = fbxLocalEulerRotation;
             m_FbxLocalScale = fbxLocalScale;
             m_CreateIfMissing = createIfMissing;
+        }
+
+        public ArmatureBoneData(
+            string path,
+            Vector3 fbxLocalTranslation,
+            Vector3 fbxLocalEulerRotation,
+            Quaternion fbxEvaluatedLocalRotation,
+            Vector3 fbxLocalScale,
+            bool createIfMissing)
+            : this(path, fbxLocalTranslation, fbxLocalEulerRotation, fbxLocalScale, createIfMissing)
+        {
+            m_FbxEvaluatedLocalRotation = fbxEvaluatedLocalRotation;
+            m_HasFbxEvaluatedLocalRotation = true;
+        }
+
+        /// <summary>Gets the evaluated FBX local rotation, falling back to legacy Euler data.</summary>
+        public Quaternion GetFbxLocalRotation()
+        {
+            return m_HasFbxEvaluatedLocalRotation
+                ? m_FbxEvaluatedLocalRotation
+                : EvaluateLegacyFbxXyzRotation(m_FbxLocalEulerRotation);
+        }
+
+        private static Quaternion EvaluateLegacyFbxXyzRotation(Vector3 eulerRotation)
+        {
+            // Legacy assets store only raw FBX Euler values. FBX's default XYZ order applies
+            // the axes as Z * Y * X, unlike Unity's Quaternion.Euler() ZXY convention.
+            Quaternion x = Quaternion.AngleAxis(eulerRotation.x, Vector3.right);
+            Quaternion y = Quaternion.AngleAxis(eulerRotation.y, Vector3.up);
+            Quaternion z = Quaternion.AngleAxis(eulerRotation.z, Vector3.forward);
+            return z * y * x;
         }
     }
 

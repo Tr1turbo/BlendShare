@@ -13,7 +13,7 @@ namespace Triturbo.BlendShare.NDMF
     /// </summary>
     internal sealed class BlendShareBoneProxyLookup
     {
-        private readonly Dictionary<SourceKey, BlendShareBoneProxy> proxiesBySource = new();
+        private readonly Dictionary<SourceKey, ResolvedBinding> bindingsBySource = new();
 
         private BlendShareBoneProxyLookup(IEnumerable<BlendShareBoneProxy> proxies)
         {
@@ -21,16 +21,26 @@ namespace Triturbo.BlendShare.NDMF
                 .Where(proxy => proxy != null &&
                                 proxy.isActiveAndEnabled &&
                                 proxy.SourceArmature != null &&
-                                !string.IsNullOrWhiteSpace(proxy.SourceBonePath))
+                                proxy.Bindings.Any(binding =>
+                                    binding != null && !string.IsNullOrWhiteSpace(binding.SourceBonePath)))
                 .Distinct()
                 .OrderBy(proxy => GetHierarchyOrder(proxy.transform), StringComparer.Ordinal)
                 .ToArray();
 
             // Bone proxies are avatar-global. Later hierarchy entries replace earlier
-            // definitions for the same source armature and bone path.
+            // definitions, and later bindings within one component replace earlier bindings.
             foreach (var proxy in ordered)
             {
-                proxiesBySource[new SourceKey(proxy.SourceArmature, proxy.SourceBonePath)] = proxy;
+                foreach (var binding in proxy.Bindings)
+                {
+                    if (binding == null || string.IsNullOrWhiteSpace(binding.SourceBonePath))
+                    {
+                        continue;
+                    }
+
+                    bindingsBySource[new SourceKey(proxy.SourceArmature, binding.SourceBonePath)] =
+                        new ResolvedBinding(proxy, binding);
+                }
             }
         }
 
@@ -41,13 +51,25 @@ namespace Triturbo.BlendShare.NDMF
 
         internal bool TryGet(ArmatureObject armature, string sourceBonePath, out BlendShareBoneProxy proxy)
         {
+            if (TryGetBinding(armature, sourceBonePath, out var resolved))
+            {
+                proxy = resolved.Component;
+                return true;
+            }
+
+            proxy = null;
+            return false;
+        }
+
+        internal bool TryGetBinding(ArmatureObject armature, string sourceBonePath, out ResolvedBinding binding)
+        {
             if (armature == null)
             {
-                proxy = null;
+                binding = default;
                 return false;
             }
 
-            return proxiesBySource.TryGetValue(new SourceKey(armature, sourceBonePath), out proxy);
+            return bindingsBySource.TryGetValue(new SourceKey(armature, sourceBonePath), out binding);
         }
 
         private static string GetHierarchyOrder(Transform transform)
@@ -99,6 +121,21 @@ namespace Triturbo.BlendShare.NDMF
                            (sourceBonePath != null ? sourceBonePath.GetHashCode() : 0);
                 }
             }
+        }
+
+        internal readonly struct ResolvedBinding
+        {
+            internal ResolvedBinding(BlendShareBoneProxy component, BlendShareBoneProxyBinding binding)
+            {
+                Component = component;
+                Binding = binding;
+            }
+
+            internal BlendShareBoneProxy Component { get; }
+            internal BlendShareBoneProxyBinding Binding { get; }
+            internal Transform FinalTransform => Binding?.Transform;
+            internal Transform EffectiveParent => Component?.GetEffectiveParent(Binding);
+            internal string SourceBonePath => Binding?.SourceBonePath;
         }
     }
 }

@@ -929,7 +929,7 @@ namespace Triturbo.BlendShare.Persistence
             }
             created.transform.SetParent(parent, false);
             created.transform.localPosition = bone.m_FbxLocalTranslation;
-            created.transform.localRotation = Quaternion.Euler(bone.m_FbxLocalEulerRotation);
+            created.transform.localRotation = bone.GetFbxLocalRotation();
             created.transform.localScale = bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale;
 
             string actualPath = MeshNodePath.GetRelativePath(created.transform, targetRoot);
@@ -991,7 +991,7 @@ namespace Triturbo.BlendShare.Persistence
 
             var intendedScale = bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale;
             return Vector3.Distance(existing.localPosition, bone.m_FbxLocalTranslation) <= 0.0001f &&
-                   Quaternion.Angle(existing.localRotation, Quaternion.Euler(bone.m_FbxLocalEulerRotation)) <= 0.01f &&
+                   Quaternion.Angle(existing.localRotation, bone.GetFbxLocalRotation()) <= 0.01f &&
                    Vector3.Distance(existing.localScale, intendedScale) <= 0.0001f;
         }
 
@@ -1089,7 +1089,8 @@ namespace Triturbo.BlendShare.Persistence
                     return new ArmatureBoneData(
                         bone.m_Path,
                         item.Mapping != null ? item.Mapping.ConvertFbxVectorToUnity(bone.m_FbxLocalTranslation) : bone.m_FbxLocalTranslation,
-                        bone.m_FbxLocalEulerRotation,
+                        item.Mapping != null ? item.Mapping.ConvertFbxRotationToUnityEuler(bone.GetFbxLocalRotation()) : bone.GetFbxLocalRotation().eulerAngles,
+                        item.Mapping != null ? item.Mapping.ConvertFbxRotationToUnity(bone.GetFbxLocalRotation()) : bone.GetFbxLocalRotation(),
                         bone.m_FbxLocalScale,
                         bone.m_CreateIfMissing);
             }));

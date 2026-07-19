@@ -643,7 +643,8 @@ namespace Triturbo.BlendShare.Core
                     .OfType<BlendShareBoneProxy>()
                     .Where(proxy => proxy != null &&
                                     proxy.SourceArmature == skin.Armature &&
-                                    requiredPaths.Contains(proxy.SourceBonePath)));
+                                    proxy.Bindings.Any(binding =>
+                                        binding != null && requiredPaths.Contains(binding.SourceBonePath))));
             }
 
             return result
