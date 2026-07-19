@@ -417,11 +417,6 @@ namespace Triturbo.BlendShare.Inspector
             var patchId = new PropertyField(serializedObject.FindProperty(nameof(BlendShareObject.m_PatchId)), Localization.S("common.patch_id"));
             patchId.Bind(serializedObject);
             foldout.Add(patchId);
-            foldout.Add(new IMGUIContainer(() =>
-            {
-                var patch = (BlendShareObject)target;
-                DrawSharedArmatures(patch);
-            }));
             foldout.Add(BlendShareInspectorUi.FooterBox(
                 Localization.S("patch.created_by"),
                 (Localization.S("common.github"), GitHubUrl, GitHubIconPath, Localization.S("common.github.tooltip")),
@@ -440,8 +435,6 @@ namespace Triturbo.BlendShare.Inspector
             EditorGUILayout.Space();
 
             DrawMetadata();
-            EditorGUILayout.Space();
-            DrawSharedArmatures(patch);
             EditorGUILayout.Space();
             DrawMeshes(patch);
             EditorGUILayout.Space();
@@ -506,50 +499,6 @@ namespace Triturbo.BlendShare.Inspector
             }
 
             return hash.Length <= 8 ? hash : hash.Substring(0, 8);
-        }
-
-        private void DrawSharedArmatures(BlendShareObject patch)
-        {
-            var armatures = GetSharedArmatures(patch);
-            if (armatures.Count == 0)
-            {
-                return;
-            }
-
-            foreach (var armature in armatures)
-            {
-                DrawArmatureSummary(armature);
-            }
-        }
-
-        private void DrawArmatureSummary(ArmatureObject armature)
-        {
-            EditorGUILayout.LabelField(Localization.G("data.armature.title"), EditorStyles.boldLabel);
-            var bones = armature?.Bones ?? System.Array.Empty<ArmatureBoneData>();
-            int createdCount = bones.Count(bone => bone != null && bone.m_CreateIfMissing);
-            EditorGUILayout.LabelField(Localization.S("data.armature.created_count"), createdCount.ToString());
-            EditorGUILayout.LabelField(Localization.S("data.skin_weights.bone_count"), bones.Count.ToString());
-            EditorGUI.indentLevel++;
-            foreach (var bone in bones)
-            {
-                if (bone == null)
-                {
-                    continue;
-                }
-
-                EditorGUILayout.LabelField(bone.m_Path);
-            }
-            EditorGUI.indentLevel--;
-        }
-
-        private static List<ArmatureObject> GetSharedArmatures(BlendShareObject patch)
-        {
-            return (patch?.Meshes ?? System.Array.Empty<MeshDataObject>())
-                .Where(mesh => mesh != null)
-                .Select(mesh => mesh.GetFeature<SkinWeightFeatureObject>()?.Armature)
-                .Where(armature => armature != null)
-                .Distinct()
-                .ToList();
         }
 
         private void DrawSkinWeightSummary(SkinWeightFeatureObject skinWeightFeature)

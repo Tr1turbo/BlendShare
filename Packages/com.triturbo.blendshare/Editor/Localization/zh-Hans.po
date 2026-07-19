@@ -37,12 +37,6 @@ msgstr ""
 "\n"
 "（此按钮目前已停用，因为形态键已应用到 FBX。按下“编辑”可强制启用。）"
 
-msgid "data.armature.created_count"
-msgstr "要创建的骨骼"
-
-msgid "data.armature.title"
-msgstr "骨架"
-
 msgid "data.blendshape_count_summary"
 msgstr "形态键：已启用 {0}/{1}"
 

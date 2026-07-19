@@ -37,12 +37,6 @@ msgstr ""
 "\n"
 "(Currently this button is disable since you are already apply BlendShapes to Fbx. Click Edit to force enable)"
 
-msgid "data.armature.created_count"
-msgstr "Bones to Create"
-
-msgid "data.armature.title"
-msgstr "Armature"
-
 msgid "data.blendshape_count_summary"
 msgstr "BlendShapes: {0}/{1} enabled"
 

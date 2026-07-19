@@ -37,12 +37,6 @@ msgstr ""
 "\n"
 "（現在このボタンは無効です。すでにシェイプキーを FBX に適用済みです。「編集」をクリックして強制的に有効化できます）"
 
-msgid "data.armature.created_count"
-msgstr "作成するボーン"
-
-msgid "data.armature.title"
-msgstr "アーマチュア"
-
 msgid "data.blendshape_count_summary"
 msgstr "シェイプキー: {0}/{1} 有効"
 

@@ -37,12 +37,6 @@ msgstr ""
 "\n"
 "（此按鈕目前已停用，因為型態鍵已套用到 FBX。按下「編輯」可強制啟用。）"
 
-msgid "data.armature.created_count"
-msgstr "要建立的骨骼"
-
-msgid "data.armature.title"
-msgstr "骨架"
-
 msgid "data.blendshape_count_summary"
 msgstr "型態鍵：已啟用 {0}/{1}"
 
