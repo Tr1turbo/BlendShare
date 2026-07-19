@@ -15,6 +15,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         private readonly HashSet<string> selectedTransformBonePaths = new(StringComparer.Ordinal);
         private readonly HashSet<string> selectedNewBonePaths = new(StringComparer.Ordinal);
         private bool defaultsInitialized;
+        private bool sharedArmatureInitialized;
+        private MeshFeatureExtractionSession sharedArmatureSession;
+        private ArmatureObject sharedArmature;
 
         public override string FeatureId => SkinWeightFeatureObject.Id;
 
@@ -26,20 +29,32 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         public override bool HasSelectedWork(IEnumerable<MeshFeatureExtractionMeshRequest> meshes)
         {
             return Enabled &&
-                   (selectedTransformBonePaths.Count > 0 ||
-                    selectedNewBonePaths.Count > 0 ||
-                    (meshes ?? Enumerable.Empty<MeshFeatureExtractionMeshRequest>())
-                    .Any(request => ShouldExtractMesh(request)));
+                   (meshes ?? Enumerable.Empty<MeshFeatureExtractionMeshRequest>())
+                   .Any(request => ShouldExtractMesh(request));
         }
 
         public override bool ShouldExtractMesh(MeshFeatureExtractionMeshRequest mesh)
         {
+            // Armature selections are shared metadata; only mesh-scoped data makes a mesh part of the patch.
             return Enabled &&
                    mesh != null &&
-                   (selectedTransformBonePaths.Count > 0 ||
-                    selectedNewBonePaths.Count > 0 ||
-                    GetSelectedWeightBonePaths(mesh.Path).Count > 0 ||
+                   (GetSelectedWeightBonePaths(mesh.Path).Count > 0 ||
                     GetSelectedBindposeBonePaths(mesh.Path).Count > 0);
+        }
+
+        internal ArmatureObject GetOrCreateSharedArmature(
+            MeshFeatureExtractionSession session,
+            Func<ArmatureObject> createArmature)
+        {
+            if (!sharedArmatureInitialized || !ReferenceEquals(sharedArmatureSession, session))
+            {
+                // Every skin feature extracted from one FBX pair must reference the same armature subasset.
+                sharedArmatureInitialized = true;
+                sharedArmatureSession = session;
+                sharedArmature = createArmature?.Invoke();
+            }
+
+            return sharedArmature;
         }
 
         public bool IsWeightClusterSelected(string meshPath, string bonePath)
@@ -280,10 +295,12 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 sourceSkin,
                 options.GetSelectedBindposeBonePaths(context.Path),
                 sourceBonesByIndex);
-            var armature = BuildSelectedArmature(
+            var armature = options.GetOrCreateSharedArmature(
                 context.Session,
-                options.GetSelectedBoneTransformPaths(),
-                options.GetSelectedNewBonePaths());
+                () => BuildSelectedArmature(
+                    context.Session,
+                    options.GetSelectedBoneTransformPaths(),
+                    options.GetSelectedNewBonePaths()));
 
             var clusters = BuildClusters(deltaWeights, bindPoses);
 
