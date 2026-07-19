@@ -3,7 +3,6 @@ using System.Linq;
 using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Fbx;
 using UnityEngine;
-using UnityEngine.Scripting.APIUpdating;
 
 namespace Triturbo.BlendShare.Features.SkinWeights
 {

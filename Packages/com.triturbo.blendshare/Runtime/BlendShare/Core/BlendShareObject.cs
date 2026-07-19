@@ -1,8 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
-using UnityEngine.Scripting.APIUpdating;
-using UnityEngine.Serialization;
 
 
 namespace Triturbo.BlendShare.Core
@@ -10,9 +8,10 @@ namespace Triturbo.BlendShare.Core
     /// <summary>
     /// Root BlendShare asset containing extracted mesh feature data and generation defaults.
     /// </summary>
+    [PreferBinarySerialization]
     public class BlendShareObject : ScriptableObject
     {
-        [FbxAsset, FormerlySerializedAs("m_Original")]
+        [FbxAsset]
         public GameObject m_Target;
         public string m_DefaultGeneratedAssetName;
         public bool m_Applied = false;

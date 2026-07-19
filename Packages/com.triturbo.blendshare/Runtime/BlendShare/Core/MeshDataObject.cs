@@ -2,8 +2,6 @@ using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.Hashing;
 using UnityEngine;
-using UnityEngine.Scripting.APIUpdating;
-using UnityEngine.Serialization;
 
 
 namespace Triturbo.BlendShare.Core
@@ -11,11 +9,10 @@ namespace Triturbo.BlendShare.Core
     /// <summary>
     /// Per-mesh asset data keyed by FBX node path and containing feature subassets.
     /// </summary>
-    [MovedFrom(true, "Triturbo.BlendShapeShare.BlendShapeData", "Triturbo.BlendShapeShare.Data.Editor")]
+    [PreferBinarySerialization]
     public class MeshDataObject : ScriptableObject
     {
         // Canonical mesh identity. This is the FBX node path / Unity renderer path, not a Unity asset path.
-        [FormerlySerializedAs("m_MeshPath")]
         public string m_Path;
         public FbxTopologySignature m_FbxTopologySignature = new FbxTopologySignature();
 

@@ -1,11 +1,9 @@
 using System;
 using UnityEngine;
-using UnityEngine.Scripting.APIUpdating;
 
 namespace Triturbo.BlendShare.Fbx
 {
     [Serializable]
-    [MovedFrom(true, "Triturbo.Fbx", "Triturbo.FBX")]
     public struct FbxMatrix4x4 : IEquatable<FbxMatrix4x4>
     {
         public static readonly FbxMatrix4x4 Identity = new FbxMatrix4x4(

@@ -5,7 +5,6 @@ using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Features.BlendShapes;
 using UnityEngine;
 using UnityEngine.Animations;
-using UnityEngine.Scripting.APIUpdating;
 
 namespace Triturbo.BlendShare.Components
 {

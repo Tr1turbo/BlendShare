@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.Core;
 using UnityEngine;
-using UnityEngine.Scripting.APIUpdating;
 
 namespace Triturbo.BlendShare.Features.BlendShapes
 {
@@ -41,7 +40,6 @@ namespace Triturbo.BlendShare.Features.BlendShapes
         }
     }
 
-    [MovedFrom(true, "Triturbo.BlendShapeShare.BlendShapeData", "Triturbo.BlendShapeShare.Data.Editor")]
     public sealed class BlendShapeFeatureObject : MeshFeatureObject
     {
         public const string Id = "blend-shapes";

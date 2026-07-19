@@ -5,6 +5,7 @@ using UnityEngine.Scripting.APIUpdating;
 namespace Triturbo.BlendShapeShare.BlendShapeData
 {
     [PreferBinarySerialization]
+    [MovedFrom(true, null, null, "MeshBlendShapeSelectionSO")]
     public class BlendShapeSelectionSO : ScriptableObject
     {
         public string m_MeshName;

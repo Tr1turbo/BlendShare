@@ -1,6 +1,5 @@
 using System;
 using UnityEngine;
-using UnityEngine.Scripting.APIUpdating;
 
 namespace Triturbo.BlendShare.Fbx
 {
