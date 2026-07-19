@@ -1299,17 +1299,11 @@ msgstr "{0} active / {1} total"
 msgid "features.blend-shapes.unlock_tooltip"
 msgstr "Unlock BlendShapes editing"
 
-msgid "features.skin-weights.armature.create_if_missing"
-msgstr "Create If Missing"
-
 msgid "features.skin-weights.armature.missing"
 msgstr "Armature data is missing."
 
 msgid "features.skin-weights.armature.no_bones"
 msgstr "No bones are stored for this armature."
-
-msgid "features.skin-weights.armature.parent"
-msgstr "Parent"
 
 msgid "features.skin-weights.armature.position"
 msgstr "Position"
@@ -1320,8 +1314,17 @@ msgstr "Rotation"
 msgid "features.skin-weights.armature.scale"
 msgstr "Scale"
 
-msgid "features.skin-weights.armature.title"
-msgstr "Armature"
+msgid "features.skin-weights.armature.status.new"
+msgstr "New"
+
+msgid "features.skin-weights.armature.status.new.tooltip"
+msgstr "Creates this bone if it does not exist."
+
+msgid "features.skin-weights.armature.status.transform"
+msgstr "Transform"
+
+msgid "features.skin-weights.armature.status.transform.tooltip"
+msgstr "Applies the stored local transform to this existing bone."
 
 msgid "features.skin-weights.bone"
 msgstr "Bone"

@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShapeShare;
+using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Inspector;
 using UnityEditor;
 using UnityEngine;
@@ -11,9 +13,11 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
     [CustomEditor(typeof(ArmatureObject))]
     public sealed class ArmatureObjectEditor : UnityEditor.Editor
     {
-        private const float TransformLabelWidth = 130f;
+        private const float TransformLabelWidth = 82f;
         private const float AxisLabelWidth = 14f;
+        private string expandedBonePath;
 
+        /// <inheritdoc />
         public override VisualElement CreateInspectorGUI()
         {
             var root = BlendShareInspectorUi.CreateRoot();
@@ -22,11 +26,6 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
             void Rebuild()
             {
                 root.Clear();
-
-                var titleLabel = new Label(Localization.S("features.skin-weights.armature.title"));
-                BlendShareInspectorUi.StyleHeading(titleLabel);
-                titleLabel.style.marginBottom = 4;
-                root.Add(titleLabel);
 
                 if (armature == null)
                 {
@@ -40,9 +39,19 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
                     EditorGUIUtility.PingObject(armature);
                 });
 
-                var bones = armature.Bones ?? Array.Empty<ArmatureBoneData>();
-                root.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.bones"), armature.BoneCount.ToString()));
-                root.Add(CreateBonesFoldout(bones));
+                var bones = (armature.Bones ?? Array.Empty<ArmatureBoneData>())
+                    .Where(bone => bone != null)
+                    .ToArray();
+                EnsureValidExpandedBone(bones);
+                root.Add(CreateBonesHeader(bones.Length));
+
+                if (bones.Length == 0)
+                {
+                    root.Add(new HelpBox(Localization.S("features.skin-weights.armature.no_bones"), HelpBoxMessageType.Info));
+                    return;
+                }
+
+                root.Add(CreateBoneTree(bones));
             }
 
             Rebuild();
@@ -50,41 +59,185 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
             return root;
         }
 
-        private static VisualElement CreateBonesFoldout(System.Collections.Generic.IReadOnlyList<ArmatureBoneData> bones)
+        private void EnsureValidExpandedBone(IReadOnlyList<ArmatureBoneData> bones)
+        {
+            if (bones.Count == 1)
+            {
+                expandedBonePath = bones[0].Path;
+                return;
+            }
+
+            if (!bones.Any(bone => string.Equals(bone.Path, expandedBonePath, StringComparison.Ordinal)))
+            {
+                expandedBonePath = null;
+            }
+        }
+
+        private static VisualElement CreateBonesHeader(int boneCount)
+        {
+            var header = new VisualElement();
+            header.style.flexDirection = FlexDirection.Row;
+            header.style.alignItems = Align.Center;
+            header.style.marginBottom = 5;
+
+            var title = new Label(Localization.S("features.skin-weights.bones"));
+            BlendShareInspectorUi.StyleHeading(title);
+            title.style.flexGrow = 1;
+            header.Add(title);
+
+            var count = BlendShareInspectorUi.Badge(boneCount.ToString());
+            count.style.marginLeft = 6;
+            header.Add(count);
+            return header;
+        }
+
+        private VisualElement CreateBoneTree(IReadOnlyList<ArmatureBoneData> bones)
+        {
+            var tree = new VisualElement();
+            var boneFoldouts = new Dictionary<string, Foldout>(StringComparer.Ordinal);
+            bool synchronizingFoldouts = false;
+
+            void RegisterBoneFoldout(Foldout foldout, string path)
+            {
+                boneFoldouts[path] = foldout;
+                foldout.RegisterValueChangedCallback(evt =>
+                {
+                    if (synchronizingFoldouts)
+                    {
+                        return;
+                    }
+
+                    if (!evt.newValue)
+                    {
+                        if (string.Equals(expandedBonePath, path, StringComparison.Ordinal))
+                        {
+                            expandedBonePath = null;
+                        }
+
+                        return;
+                    }
+
+                    expandedBonePath = path;
+                    synchronizingFoldouts = true;
+                    foreach (var pair in boneFoldouts)
+                    {
+                        if (!string.Equals(pair.Key, path, StringComparison.Ordinal))
+                        {
+                            pair.Value.value = false;
+                        }
+                    }
+
+                    synchronizingFoldouts = false;
+                });
+            }
+
+            var rootNode = BuildTree(bones);
+            foreach (var child in rootNode.Children)
+            {
+                tree.Add(CreateTreeElement(child, RegisterBoneFoldout));
+            }
+
+            return tree;
+        }
+
+        private VisualElement CreateTreeElement(BoneTreeNode node, Action<Foldout, string> registerBoneFoldout)
+        {
+            if (node.Bone == null)
+            {
+                var compactedSegments = new List<string> { node.Name };
+                var compactedNode = node;
+                while (compactedNode.Children.Count == 1 && compactedNode.Children[0].Bone == null)
+                {
+                    compactedNode = compactedNode.Children[0];
+                    compactedSegments.Add(compactedNode.Name);
+                }
+
+                var branch = new Foldout
+                {
+                    text = FormatCompactedPath(compactedSegments),
+                    tooltip = compactedNode.Path,
+                    value = true
+                };
+                foreach (var child in compactedNode.Children)
+                {
+                    branch.Add(CreateTreeElement(child, registerBoneFoldout));
+                }
+
+                return branch;
+            }
+
+            var container = new VisualElement();
+            var boneFoldout = CreateBoneFoldout(node.Bone);
+            registerBoneFoldout(boneFoldout, node.Bone.Path);
+            container.Add(boneFoldout);
+
+            if (node.Children.Count > 0)
+            {
+                var children = new VisualElement();
+                children.style.marginLeft = 14;
+                foreach (var child in node.Children)
+                {
+                    children.Add(CreateTreeElement(child, registerBoneFoldout));
+                }
+
+                container.Add(children);
+            }
+
+            return container;
+        }
+
+        private Foldout CreateBoneFoldout(ArmatureBoneData bone)
         {
             var foldout = new Foldout
             {
-                text = Localization.S("features.skin-weights.bones"),
-                value = false
+                text = bone.Name,
+                tooltip = bone.Path,
+                value = string.Equals(expandedBonePath, bone.Path, StringComparison.Ordinal)
             };
+            foldout.style.marginTop = 1;
+            foldout.style.marginBottom = 1;
 
-            if (bones.Count == 0)
+            var toggle = foldout.Q<Toggle>();
+            var title = toggle?.Q<Label>();
+            if (title != null)
             {
-                foldout.Add(new HelpBox(Localization.S("features.skin-weights.armature.no_bones"), HelpBoxMessageType.Info));
-                return foldout;
+                title.style.flexGrow = 1;
             }
 
-            foreach (var bone in bones.Where(bone => bone != null))
+            if (toggle != null)
             {
-                var item = SkinWeightInspectorLayout.CreatePlainItem();
-                item.Add(BlendShareInspectorUi.Row(Localization.S("common.path"), bone.Path));
-                item.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.armature.parent"), bone.ParentPath));
-                item.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.armature.create_if_missing"), bone.m_CreateIfMissing ? Localization.S("common.yes") : Localization.S("common.no")));
-                item.Add(CreateTransformRows(bone));
-                foldout.Add(item);
+                var badge = CreateBoneStatusBadge(bone);
+                badge.style.marginLeft = StyleKeyword.Auto;
+                badge.style.marginRight = 4;
+                toggle.Add(badge);
             }
 
+            var details = new VisualElement();
+            details.style.marginTop = 3;
+            details.style.marginBottom = 4;
+            details.style.paddingLeft = 4;
+
+            var transformTitle = new Label(Localization.S("features.skin-weights.armature.status.transform"));
+            BlendShareInspectorUi.StyleStrong(transformTitle);
+            transformTitle.style.marginBottom = 2;
+            details.Add(transformTitle);
+            details.Add(CreateTransformRow(Localization.S("features.skin-weights.armature.position"), bone.m_FbxLocalTranslation));
+            details.Add(CreateTransformRow(Localization.S("features.skin-weights.armature.rotation"), bone.m_FbxLocalEulerRotation));
+            details.Add(CreateTransformRow(Localization.S("features.skin-weights.armature.scale"), bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale));
+            foldout.Add(details);
             return foldout;
         }
 
-        private static VisualElement CreateTransformRows(ArmatureBoneData bone)
+        private static Label CreateBoneStatusBadge(ArmatureBoneData bone)
         {
-            var root = new VisualElement();
-            root.style.marginTop = 2;
-            root.Add(CreateTransformRow(Localization.S("features.skin-weights.armature.position"), bone.m_FbxLocalTranslation));
-            root.Add(CreateTransformRow(Localization.S("features.skin-weights.armature.rotation"), bone.m_FbxLocalEulerRotation));
-            root.Add(CreateTransformRow(Localization.S("features.skin-weights.armature.scale"), bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale));
-            return root;
+            string key = bone.m_CreateIfMissing
+                ? "features.skin-weights.armature.status.new"
+                : "features.skin-weights.armature.status.transform";
+            var badge = BlendShareInspectorUi.Badge(
+                Localization.S(key),
+                bone.m_CreateIfMissing ? StatusKind.Success : StatusKind.Neutral);
+            badge.tooltip = Localization.S($"{key}.tooltip");
+            return badge;
         }
 
         private static VisualElement CreateTransformRow(string label, Vector3 value)
@@ -140,9 +293,67 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
             return group;
         }
 
+        private static BoneTreeNode BuildTree(IEnumerable<ArmatureBoneData> bones)
+        {
+            var root = new BoneTreeNode(string.Empty, MeshNodePath.Root);
+            foreach (var bone in bones.OrderBy(bone => bone.Path, StringComparer.Ordinal))
+            {
+                var current = root;
+                string currentPath = string.Empty;
+                foreach (string segment in bone.Path.Split('/'))
+                {
+                    currentPath = string.IsNullOrEmpty(currentPath) ? segment : $"{currentPath}/{segment}";
+                    var child = current.Children.FirstOrDefault(candidate =>
+                        string.Equals(candidate.Name, segment, StringComparison.Ordinal));
+                    if (child == null)
+                    {
+                        child = new BoneTreeNode(segment, currentPath);
+                        current.Children.Add(child);
+                    }
+
+                    current = child;
+                }
+
+                current.Bone = bone;
+            }
+
+            SortChildren(root);
+            return root;
+        }
+
+        private static void SortChildren(BoneTreeNode node)
+        {
+            node.Children.Sort((left, right) => StringComparer.Ordinal.Compare(left.Name, right.Name));
+            foreach (var child in node.Children)
+            {
+                SortChildren(child);
+            }
+        }
+
+        private static string FormatCompactedPath(IReadOnlyList<string> segments)
+        {
+            return segments.Count <= 3
+                ? string.Join(" / ", segments)
+                : $"{segments[0]} / {segments[1]} / … / {segments[segments.Count - 1]}";
+        }
+
         private static float NormalizeFloat(float value)
         {
             return Mathf.Abs(value) < 0.0000005f ? 0f : value;
+        }
+
+        private sealed class BoneTreeNode
+        {
+            public string Name { get; }
+            public string Path { get; }
+            public ArmatureBoneData Bone { get; set; }
+            public List<BoneTreeNode> Children { get; } = new();
+
+            public BoneTreeNode(string name, string path)
+            {
+                Name = name;
+                Path = path;
+            }
         }
     }
 }

@@ -1299,17 +1299,11 @@ msgstr "{0} 有効 / {1} 合計"
 msgid "features.blend-shapes.unlock_tooltip"
 msgstr "BlendShape 編集のロックを解除"
 
-msgid "features.skin-weights.armature.create_if_missing"
-msgstr "見つからない場合は作成"
-
 msgid "features.skin-weights.armature.missing"
 msgstr "アーマチュアデータがありません。"
 
 msgid "features.skin-weights.armature.no_bones"
 msgstr "このアーマチュアにはボーンが保存されていません。"
-
-msgid "features.skin-weights.armature.parent"
-msgstr "親"
 
 msgid "features.skin-weights.armature.position"
 msgstr "位置"
@@ -1320,8 +1314,17 @@ msgstr "回転"
 msgid "features.skin-weights.armature.scale"
 msgstr "スケール"
 
-msgid "features.skin-weights.armature.title"
-msgstr "アーマチュア"
+msgid "features.skin-weights.armature.status.new"
+msgstr "新規"
+
+msgid "features.skin-weights.armature.status.new.tooltip"
+msgstr "対象 FBX に存在しない場合、このボーンを作成します。"
+
+msgid "features.skin-weights.armature.status.transform"
+msgstr "トランスフォーム"
+
+msgid "features.skin-weights.armature.status.transform.tooltip"
+msgstr "既存のボーンに保存済みのローカルトランスフォームを適用します。"
 
 msgid "features.skin-weights.bone"
 msgstr "ボーン"
