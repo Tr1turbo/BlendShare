@@ -1050,9 +1050,6 @@ msgstr "One or more meshes are incompatible with this FBX."
 msgid "patch.compatibility.missing_paths"
 msgstr "One or more mesh paths are missing from this FBX."
 
-msgid "patch.compatibility.not_evaluated"
-msgstr "Compatibility was not evaluated."
-
 msgid "patch.compatibility.pending"
 msgstr "Checking FBX topology..."
 
@@ -1065,12 +1062,6 @@ msgstr "Stored topology info is missing. Create this patch again."
 msgid "patch.compatibility.signature_unavailable"
 msgstr "Could not check target topology."
 
-msgid "patch.compatibility.summary"
-msgstr "{0} verified / {1} meshes"
-
-msgid "patch.compatibility.title"
-msgstr "FBX Compatibility"
-
 msgid "patch.compatibility.unknown_checks"
 msgstr "One or more mesh compatibility checks are unknown."
 
@@ -1079,9 +1070,6 @@ msgstr "Target FBX topology matches the stored mesh info."
 
 msgid "patch.contents.no_mesh_data"
 msgstr "This patch does not contain mesh data."
-
-msgid "patch.contents.title"
-msgstr "Patch Contents"
 
 msgid "patch.create_fbx.confirm.message"
 msgstr "This patch ID is already recorded on the target FBX. The new FBX will keep that history, so applying again may accumulate changes."
@@ -1133,9 +1121,6 @@ msgstr "Not resolved from current FBX"
 
 msgid "patch.mapping.progress"
 msgstr "Creating mapping for {0}..."
-
-msgid "patch.mapping.summary"
-msgstr "{0} ready / {1} needed"
 
 msgid "patch.mapping.target_missing"
 msgstr "Target FBX is not assigned."

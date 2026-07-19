@@ -32,7 +32,6 @@ namespace Triturbo.BlendShare.Inspector
         private Dictionary<MeshDataObject, MeshFbxCompatibilityStatus> cachedCompatibilityStatuses;
         private string cachedCompatibilityKey;
         private string pendingCompatibilityKey;
-        private readonly Dictionary<string, MeshMappingStatus> cachedMappingStatuses = new();
         private readonly Dictionary<string, string> cachedUnityVertexHashes = new();
         private UnityMeshTargetLookup cachedTargetLookup;
         private int cachedTargetLookupTargetId = UninitializedTargetLookupId;
@@ -75,7 +74,6 @@ namespace Triturbo.BlendShare.Inspector
                 var targetLookup = GetTargetLookup(patch);
                 ScheduleTargetLookupRetry(patch, content, RebuildContent);
                 content.Add(CreateHeader(patch, compatibilityStatuses, RefreshWhenTargetChanges));
-                content.Add(CreateContentSummary(patch, compatibilityStatuses, targetLookup));
                 content.Add(CreateMeshList(patch, targetLookup, () =>
                 {
                     ClearCompatibilityCaches();
@@ -152,84 +150,6 @@ namespace Triturbo.BlendShare.Inspector
             }
 
             return list;
-        }
-
-        private VisualElement CreateContentSummary(
-            BlendShareObject patch,
-            IReadOnlyDictionary<MeshDataObject, MeshFbxCompatibilityStatus> compatibilityStatuses,
-            UnityMeshTargetLookup targetLookup)
-        {
-            var section = BlendShareInspectorUi.Section(Localization.S("patch.contents.title"));
-            var meshes = (patch.Meshes ?? System.Array.Empty<MeshDataObject>())
-                .Where(mesh => mesh != null)
-                .ToArray();
-            int readyMappings = 0;
-            int requiredMappings = 0;
-            int verifiedMeshes = 0;
-            long estimatedVideoMemoryBytes = 0;
-
-            foreach (var mesh in meshes)
-            {
-                var mappingStatus = GetMappingStatusCached(patch, mesh, targetLookup);
-                if (mappingStatus.IsReady)
-                {
-                    readyMappings++;
-                }
-
-                if (mappingStatus.Kind != StatusKind.Neutral)
-                {
-                    requiredMappings++;
-                }
-
-                if (GetCompatibilityStatus(compatibilityStatuses, mesh).State == MeshFbxCompatibilityState.Verified)
-                {
-                    verifiedMeshes++;
-                }
-
-                estimatedVideoMemoryBytes += EstimateVideoMemoryBytes(mesh, targetLookup);
-            }
-
-            section.Add(BlendShareInspectorUi.Row(Localization.S("patch.compatibility.title"), Localization.SF("patch.compatibility.summary", verifiedMeshes, meshes.Length)));
-            section.Add(BlendShareInspectorUi.Row(Localization.S("patch.mapping.title"), Localization.SF("patch.mapping.summary", readyMappings, requiredMappings)));
-            //section.Add(BlendShareInspectorUi.Row("VRAM", FormatBytes(estimatedGraphicsMemoryBytes)));
-            return section;
-        }
-
-        private static long EstimateVideoMemoryBytes(MeshDataObject mesh, UnityMeshTargetLookup targetLookup)
-        {
-            if (mesh == null || targetLookup == null || !targetLookup.TryGetMesh(mesh, out var unityMesh) || unityMesh == null)
-            {
-                return 0;
-            }
-
-            long bytes = 0;
-            int unityVertexCount = unityMesh.vertexCount;
-            foreach (var feature in mesh.Features ?? System.Array.Empty<MeshFeatureObject>())
-            {
-                var editor = MeshFeatureEditorRegistry.GetEditor(feature);
-                if (editor == null)
-                {
-                    continue;
-                }
-
-                // bytes += editor.EstimateVideoMemoryBytes(
-                //     new MeshFeatureEditorContext(feature, mesh, null, null),
-                //     unityVertexCount);
-            }
-
-            return bytes;
-        }
-
-        private static string FormatBytes(long bytes)
-        {
-            if (bytes <= 0)
-            {
-                return "-";
-            }
-
-            const double kib = 1024d;
-            double mib = bytes / (kib * kib);
-            return mib >= 1d ? $"~{mib:0.##} MiB" : $"~{bytes / kib:0.##} KiB";
         }
 
         private VisualElement CreateMeshList(BlendShareObject patch, UnityMeshTargetLookup targetLookup, System.Action refresh)
@@ -414,7 +334,6 @@ namespace Triturbo.BlendShare.Inspector
             cachedCompatibilityStatuses = null;
             cachedCompatibilityKey = null;
             pendingCompatibilityKey = null;
-            cachedMappingStatuses.Clear();
             cachedUnityVertexHashes.Clear();
             cachedArtifactMappingStatusKey = null;
             hasCachedArtifactMappingStatus = false;
@@ -427,7 +346,6 @@ namespace Triturbo.BlendShare.Inspector
 
         private void ClearMappingStatusCaches()
         {
-            cachedMappingStatuses.Clear();
             cachedUnityVertexHashes.Clear();
             cachedArtifactMappingStatusKey = null;
             hasCachedArtifactMappingStatus = false;
@@ -442,15 +360,6 @@ namespace Triturbo.BlendShare.Inspector
         private static int GetTargetId(BlendShareObject patch)
         {
             return patch != null && patch.m_Target != null ? patch.m_Target.GetInstanceID() : 0;
-        }
-
-        private static MeshFbxCompatibilityStatus GetCompatibilityStatus(
-            IReadOnlyDictionary<MeshDataObject, MeshFbxCompatibilityStatus> statuses,
-            MeshDataObject mesh)
-        {
-            return statuses != null && mesh != null && statuses.TryGetValue(mesh, out var status)
-                ? status
-                : new MeshFbxCompatibilityStatus(MeshFbxCompatibilityState.Unknown, Localization.S("common.status.unknown"), Localization.S("patch.compatibility.not_evaluated"));
         }
 
         private static VisualElement CreatePatchCompatibilityIcon(
@@ -492,96 +401,6 @@ namespace Triturbo.BlendShare.Inspector
                 Localization.S("patch.compatibility.unknown_checks")));
         }
 
-        private MeshMappingStatus GetMappingStatusCached(
-            BlendShareObject patch,
-            MeshDataObject mesh,
-            UnityMeshTargetLookup targetLookup)
-        {
-            string key = CreateMappingStatusCacheKey(patch, mesh, targetLookup);
-            if (cachedMappingStatuses.TryGetValue(key, out var status))
-            {
-                return status;
-            }
-
-            status = GetMappingStatus(patch, mesh, targetLookup);
-            cachedMappingStatuses[key] = status;
-            return status;
-        }
-
-        private static string CreateMappingStatusCacheKey(
-            BlendShareObject patch,
-            MeshDataObject mesh,
-            UnityMeshTargetLookup targetLookup)
-        {
-            var builder = new System.Text.StringBuilder();
-            builder.Append(GetTargetId(patch));
-            builder.Append('|');
-            builder.Append(mesh != null ? mesh.GetInstanceID() : 0);
-            builder.Append('|');
-            if (targetLookup != null && targetLookup.TryGetMesh(mesh, out var targetMesh))
-            {
-                builder.Append(targetMesh.GetInstanceID());
-                builder.Append(':');
-                builder.Append(targetMesh.vertexCount);
-            }
-
-            foreach (var mapping in mesh?.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
-            {
-                builder.Append('|');
-                builder.Append(mapping != null ? mapping.GetInstanceID() : 0);
-                builder.Append(':');
-                builder.Append(mapping != null && mapping.m_IsValid);
-                builder.Append(':');
-                builder.Append(mapping?.m_UnityVertexHash ?? string.Empty);
-                builder.Append(':');
-                builder.Append(mapping?.m_UnityVertexCount ?? -1);
-                builder.Append(':');
-                builder.Append(mapping != null && mapping.m_UnityMesh != null ? mapping.m_UnityMesh.GetInstanceID() : 0);
-            }
-
-            return builder.ToString();
-        }
-
-        private MeshMappingStatus GetMappingStatus(
-            BlendShareObject patch,
-            MeshDataObject mesh,
-            UnityMeshTargetLookup targetLookup)
-        {
-            if (mesh == null)
-            {
-                return new MeshMappingStatus(Localization.S("common.status.unknown"), Localization.S("patch.mesh_data.missing"), false, StatusKind.Neutral);
-            }
-
-            if (patch == null || patch.m_Target == null)
-            {
-                return new MeshMappingStatus(Localization.S("common.status.missing_target"), Localization.S("patch.mapping.target_missing"), false, StatusKind.Warning);
-            }
-
-            if (targetLookup == null)
-            {
-                return new MeshMappingStatus(Localization.S("common.status.unknown"), Localization.S("patch.mapping.target_unreadable"), false, StatusKind.Neutral);
-            }
-
-            if (!targetLookup.TryGetMesh(mesh, out var targetMesh))
-            {
-                return new MeshMappingStatus(Localization.S("common.status.missing"), targetLookup.GetResolutionError(mesh), false, StatusKind.Warning);
-            }
-
-            var mappings = mesh.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>();
-            bool hasMapping = mappings.Any(mapping => mapping != null);
-            bool hasValidMapping = mappings.Any(mapping => IsCompatibleMapping(mapping, mesh, targetMesh));
-            if (hasValidMapping)
-            {
-                return new MeshMappingStatus(Localization.S("common.status.ready"), targetMesh.name, false, StatusKind.Success);
-            }
-
-            return new MeshMappingStatus(
-                hasMapping ? Localization.S("common.status.invalid") : Localization.S("common.status.missing"),
-                hasMapping ? Localization.S("patch.mapping.no_stored_match") : Localization.S("patch.mapping.no_mapping"),
-                true,
-                StatusKind.Warning);
-        }
-
         private VisualElement CreateActionsSection(BlendShareObject patch)
         {
             var section = BlendShareInspectorUi.Section(Localization.S("patch.actions.title"));
@@ -591,7 +410,7 @@ namespace Triturbo.BlendShare.Inspector
 
         private VisualElement CreateAdvancedSection()
         {
-            var foldout = new Foldout { text = Localization.S("patch.advanced") };
+            var foldout = new Foldout { text = Localization.S("patch.advanced"), value = false };
             var defaultName = new PropertyField(serializedObject.FindProperty(nameof(BlendShareObject.m_DefaultGeneratedAssetName)), Localization.S("common.default_asset_name"));
             defaultName.Bind(serializedObject);
             foldout.Add(defaultName);

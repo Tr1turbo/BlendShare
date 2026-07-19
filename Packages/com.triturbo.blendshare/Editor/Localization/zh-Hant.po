@@ -1050,9 +1050,6 @@ msgstr "有一個或多個網格與此 FBX 不相容。"
 msgid "patch.compatibility.missing_paths"
 msgstr "此 FBX 中缺少一個或多個網格路徑。"
 
-msgid "patch.compatibility.not_evaluated"
-msgstr "尚未評估相容性。"
-
 msgid "patch.compatibility.pending"
 msgstr "正在檢查 FBX 拓撲..."
 
@@ -1065,12 +1062,6 @@ msgstr "缺少已儲存的拓撲資訊。請重新建立此補丁。"
 msgid "patch.compatibility.signature_unavailable"
 msgstr "無法檢查目標拓撲。"
 
-msgid "patch.compatibility.summary"
-msgstr "{0} 已驗證 / {1} 網格"
-
-msgid "patch.compatibility.title"
-msgstr "FBX 相容性"
-
 msgid "patch.compatibility.unknown_checks"
 msgstr "一個或多個網格相容性檢查結果未知。"
 
@@ -1079,9 +1070,6 @@ msgstr "目標 FBX 拓撲與已儲存的網格資訊相符。"
 
 msgid "patch.contents.no_mesh_data"
 msgstr "此補丁不包含網格資料。"
-
-msgid "patch.contents.title"
-msgstr "補丁內容"
 
 msgid "patch.create_fbx.confirm.message"
 msgstr "目標 FBX 已記錄此補丁 ID。新 FBX 會保留此紀錄；再次套用可能累積變更。"
@@ -1133,9 +1121,6 @@ msgstr "未從目前 FBX 解析"
 
 msgid "patch.mapping.progress"
 msgstr "正在為 {0} 建立映射..."
-
-msgid "patch.mapping.summary"
-msgstr "{0} 可用 / {1} 需要"
 
 msgid "patch.mapping.target_missing"
 msgstr "未指定目標 FBX。"
