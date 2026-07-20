@@ -7,6 +7,7 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
     internal static class UfbxNative
     {
         private const string LibraryName = "BlendShareUfbx";
+        internal const int ExpectedAbiVersion = 2;
 
         [StructLayout(LayoutKind.Sequential)]
         internal struct Matrix
@@ -55,17 +56,27 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             public double LclScaleX;
             public double LclScaleY;
             public double LclScaleZ;
-            public int NameLength;
-            public int PathLength;
-            public double EulerRotationX;
-            public double EulerRotationY;
-            public double EulerRotationZ;
+            public int RotationOrder;
+            public int OriginalInheritMode;
+            public int RotationActive;
             public double PreRotationX;
             public double PreRotationY;
             public double PreRotationZ;
             public double PostRotationX;
             public double PostRotationY;
             public double PostRotationZ;
+            public double RotationPivotX;
+            public double RotationPivotY;
+            public double RotationPivotZ;
+            public double ScalingPivotX;
+            public double ScalingPivotY;
+            public double ScalingPivotZ;
+            public double RotationOffsetX;
+            public double RotationOffsetY;
+            public double RotationOffsetZ;
+            public double ScalingOffsetX;
+            public double ScalingOffsetY;
+            public double ScalingOffsetZ;
             public double UfbxLocalTranslationX;
             public double UfbxLocalTranslationY;
             public double UfbxLocalTranslationZ;
@@ -76,6 +87,9 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             public double UfbxLocalScaleX;
             public double UfbxLocalScaleY;
             public double UfbxLocalScaleZ;
+            public Matrix NodeToParent;
+            public int NameLength;
+            public int PathLength;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -136,6 +150,9 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             public int OffsetCount;
             public int NameLength;
         }
+
+        [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "bs_ufbx_get_abi_version")]
+        internal static extern int GetAbiVersion();
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "bs_ufbx_load")]
         internal static extern int Load([In] byte[] path, out IntPtr scene, [Out] byte[] error, int errorSize);

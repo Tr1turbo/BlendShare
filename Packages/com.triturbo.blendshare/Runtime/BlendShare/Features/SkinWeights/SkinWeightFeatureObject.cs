@@ -83,7 +83,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
         public const string Id = "skin-weights";
 
-        public ArmatureObject m_Armature;
+        public FbxArmatureObject m_Armature;
         public string m_RootBonePath = MeshNodePath.Root;
 
         [SerializeField, NonReorderable]
@@ -94,7 +94,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             m_Clusters != null
                 ? (IReadOnlyList<SkinWeightClusterData>)m_Clusters
                 : System.Array.Empty<SkinWeightClusterData>();
-        public ArmatureObject Armature => m_Armature;
+        public FbxArmatureObject Armature => m_Armature;
         public string RootBonePath => MeshNodePath.Normalize(m_RootBonePath);
         public int ClusterCount => m_Clusters?.Count ?? 0;
         public int WeightedControlPointCount => (m_Clusters ?? new List<SkinWeightClusterData>())
@@ -118,7 +118,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         public void SetSkinning(
-            ArmatureObject armature,
+            FbxArmatureObject armature,
             string rootBonePath,
             IEnumerable<SkinWeightClusterData> clusters)
         {

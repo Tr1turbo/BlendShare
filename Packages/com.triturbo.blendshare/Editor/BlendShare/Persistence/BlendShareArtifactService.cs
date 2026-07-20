@@ -211,6 +211,17 @@ namespace Triturbo.BlendShare.Persistence
             }
 
             options ??= new BlendShareArtifactApplyOptions();
+            bool requiresArmature = (artifact.m_AppliedBlendShares ?? Array.Empty<BlendShareObject>())
+                .Where(patch => patch != null)
+                .SelectMany(patch => patch.Meshes ?? Array.Empty<MeshDataObject>())
+                .Any(mesh => mesh?.GetFeature<SkinWeightFeatureObject>()?.Armature != null);
+            if (requiresArmature && artifact.m_Armature == null)
+            {
+                result.AddDiagnostic(
+                    "This artifact uses an unsupported pre-2.0 armature schema. Regenerate it from re-extracted BlendShare patches.");
+                return result;
+            }
+
             Transform bonePathRoot = options.BonePathRoot != null ? options.BonePathRoot : targetRoot;
             var boneTransformOverrides = BuildBoneTransformOverrideLookup(options.BoneTransformOverrides);
             var renderersByPath = targetRoot
@@ -235,6 +246,14 @@ namespace Triturbo.BlendShare.Persistence
             try
             {
                 var applyState = new ApplyState();
+                ApplyArmatureTransforms(
+                    artifact.m_Armature,
+                    targetRoot,
+                    transformsByPath,
+                    boneTransformOverrides,
+                    applyState,
+                    result,
+                    options);
 
                 foreach (var descriptor in artifact.m_Meshes ?? Array.Empty<BlendShareMeshDescriptor>())
                 {
@@ -602,7 +621,7 @@ namespace Triturbo.BlendShare.Persistence
             Object targetSource,
             IReadOnlyCollection<BlendShareObject> appliedPatches,
             IEnumerable<BlendShareMeshDescriptor> meshDescriptors,
-            ArmatureObject armature,
+            UnityArmatureObject armature,
             string path)
         {
             var descriptors = (meshDescriptors ?? Enumerable.Empty<BlendShareMeshDescriptor>())
@@ -639,9 +658,9 @@ namespace Triturbo.BlendShare.Persistence
                     .GroupBy(mesh => mesh.name)
                     .ToDictionary(group => group.Key, group => group.First());
                 var existingArmature = existingSubAssets
-                    .OfType<ArmatureObject>()
+                    .OfType<UnityArmatureObject>()
                     .FirstOrDefault(candidate => candidate.name == "Armature") ??
-                    existingSubAssets.OfType<ArmatureObject>().FirstOrDefault();
+                    existingSubAssets.OfType<UnityArmatureObject>().FirstOrDefault();
 
                 foreach (var descriptor in descriptors)
                 {
@@ -673,14 +692,14 @@ namespace Triturbo.BlendShare.Persistence
 
                 var armatureToSave = existingArmature != null
                     ? existingArmature
-                    : ScriptableObject.CreateInstance<ArmatureObject>();
+                    : ScriptableObject.CreateInstance<UnityArmatureObject>();
                 armatureToSave.name = "Armature";
-                armatureToSave.SetBones(armature?.Bones ?? Array.Empty<ArmatureBoneData>());
+                armatureToSave.SetBones(armature?.Bones ?? Array.Empty<UnityArmatureBoneData>());
                 if (existingArmature == null)
                 {
                     AssetDatabase.AddObjectToAsset(armatureToSave, artifact);
                 }
-                foreach (var staleArmature in existingSubAssets.OfType<ArmatureObject>())
+                foreach (var staleArmature in existingSubAssets.OfType<UnityArmatureObject>())
                 {
                     if (staleArmature != armatureToSave)
                     {
@@ -726,7 +745,7 @@ namespace Triturbo.BlendShare.Persistence
         private static bool ApplySkinBinding(
             SkinnedMeshRenderer renderer,
             BlendShareSkinBindingDescriptor skinBinding,
-            ArmatureObject armature,
+            UnityArmatureObject armature,
             Transform targetRoot,
             Transform bonePathRoot,
             Dictionary<string, Transform> transformsByPath,
@@ -773,6 +792,52 @@ namespace Triturbo.BlendShare.Persistence
             return result.Diagnostics.Count == diagnosticCountBefore;
         }
 
+        private static void ApplyArmatureTransforms(
+            UnityArmatureObject armature,
+            Transform targetRoot,
+            Dictionary<string, Transform> transformsByPath,
+            IReadOnlyDictionary<string, Transform> boneTransformOverrides,
+            ApplyState applyState,
+            BlendShareArtifactApplyResult result,
+            BlendShareArtifactApplyOptions options)
+        {
+            if (armature == null)
+            {
+                return;
+            }
+
+            foreach (string path in armature.GetBonePathsInHierarchyOrder())
+            {
+                if (boneTransformOverrides != null &&
+                    boneTransformOverrides.TryGetValue(path, out var overrideTransform) &&
+                    overrideTransform != null)
+                {
+                    applyState.GeneratedBonesByArtifactPath[path] = overrideTransform;
+                    result.AddGeneratedBone(path, overrideTransform, false);
+                    continue;
+                }
+
+                if (transformsByPath.TryGetValue(path, out var existing) && existing != null)
+                {
+                    ApplyAbsoluteBoneTransform(existing, armature.GetBone(path), options);
+                    applyState.GeneratedBonesByArtifactPath[path] = existing;
+                    continue;
+                }
+
+                ResolveOrCreateGeneratedBone(
+                    path,
+                    armature,
+                    targetRoot,
+                    transformsByPath,
+                    transformsByPath,
+                    boneTransformOverrides,
+                    applyState,
+                    result,
+                    options,
+                    new HashSet<string>());
+            }
+        }
+
         private static Transform ResolveTransform(
             IReadOnlyDictionary<string, Transform> transformsByPath,
             Transform targetRoot,
@@ -789,7 +854,7 @@ namespace Triturbo.BlendShare.Persistence
 
         private static Transform ResolveBindingTransform(
             string path,
-            ArmatureObject armature,
+            UnityArmatureObject armature,
             Transform targetRoot,
             Dictionary<string, Transform> transformsByPath,
             IReadOnlyDictionary<string, Transform> originalBonesByPath,
@@ -815,6 +880,7 @@ namespace Triturbo.BlendShare.Persistence
 
             if (originalBonesByPath.TryGetValue(path, out var originalBone) && originalBone != null)
             {
+                ApplyAbsoluteBoneTransform(originalBone, armature?.GetBone(path), options);
                 return originalBone;
             }
 
@@ -839,7 +905,7 @@ namespace Triturbo.BlendShare.Persistence
 
         private static Transform ResolveOrCreateGeneratedBone(
             string path,
-            ArmatureObject armature,
+            UnityArmatureObject armature,
             Transform targetRoot,
             Dictionary<string, Transform> transformsByPath,
             IReadOnlyDictionary<string, Transform> originalBonesByPath,
@@ -866,6 +932,7 @@ namespace Triturbo.BlendShare.Persistence
 
             if (originalBonesByPath.TryGetValue(path, out var originalBone) && originalBone != null)
             {
+                ApplyAbsoluteBoneTransform(originalBone, armature?.GetBone(path), options);
                 return originalBone;
             }
 
@@ -928,9 +995,7 @@ namespace Triturbo.BlendShare.Persistence
                 Undo.RecordObject(parent, "Create BlendShare Artifact Bone");
             }
             created.transform.SetParent(parent, false);
-            created.transform.localPosition = bone.m_FbxLocalTranslation;
-            created.transform.localRotation = bone.GetFbxLocalRotation();
-            created.transform.localScale = bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale;
+            bone.LocalTransform.ApplyTo(created.transform);
 
             string actualPath = MeshNodePath.GetRelativePath(created.transform, targetRoot);
             transformsByPath[MeshNodePath.Normalize(actualPath)] = created.transform;
@@ -943,7 +1008,7 @@ namespace Triturbo.BlendShare.Persistence
 
         private static Transform ResolveGeneratedBoneParent(
             string parentPath,
-            ArmatureObject armature,
+            UnityArmatureObject armature,
             Transform targetRoot,
             Dictionary<string, Transform> transformsByPath,
             IReadOnlyDictionary<string, Transform> originalBonesByPath,
@@ -982,17 +1047,31 @@ namespace Triturbo.BlendShare.Persistence
             return ResolveTransform(transformsByPath, targetRoot, parentPath) ?? targetRoot;
         }
 
-        private static bool IsCompatibleGeneratedBone(Transform existing, Transform intendedParent, ArmatureBoneData bone)
+        private static bool IsCompatibleGeneratedBone(Transform existing, Transform intendedParent, UnityArmatureBoneData bone)
         {
             if (existing == null || bone == null || existing.parent != intendedParent)
             {
                 return false;
             }
 
-            var intendedScale = bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale;
-            return Vector3.Distance(existing.localPosition, bone.m_FbxLocalTranslation) <= 0.0001f &&
-                   Quaternion.Angle(existing.localRotation, bone.GetFbxLocalRotation()) <= 0.01f &&
-                   Vector3.Distance(existing.localScale, intendedScale) <= 0.0001f;
+            return Vector3.Distance(existing.localPosition, bone.LocalTransform.Position) <= 0.0001f &&
+                   Quaternion.Angle(existing.localRotation, bone.LocalTransform.Rotation) <= 0.01f &&
+                   Vector3.Distance(existing.localScale, bone.LocalTransform.Scale) <= 0.0001f;
+        }
+
+        private static void ApplyAbsoluteBoneTransform(
+            Transform transform,
+            UnityArmatureBoneData bone,
+            BlendShareArtifactApplyOptions options)
+        {
+            if (transform == null || bone == null)
+            {
+                return;
+            }
+
+            RecordObject(transform, "Apply BlendShare Bone Transform", options);
+            bone.LocalTransform.ApplyTo(transform);
+            MarkDirty(transform, options);
         }
 
         private static Dictionary<string, Transform> BuildOriginalBonePathLookup(
@@ -1061,11 +1140,11 @@ namespace Triturbo.BlendShare.Persistence
             public Dictionary<string, Transform> GeneratedBonesByArtifactPath { get; } = new();
         }
 
-        private static ArmatureObject BuildArmatureArtifact(
+        private static UnityArmatureObject BuildArmatureArtifact(
             IEnumerable<BlendShareObject> patches,
             Func<BlendShareObject, MeshDataObject, bool> shouldGenerateMesh = null)
         {
-            var artifact = ScriptableObject.CreateInstance<ArmatureObject>();
+            var artifact = ScriptableObject.CreateInstance<UnityArmatureObject>();
             artifact.name = "Armature";
             artifact.SetBones((patches ?? Enumerable.Empty<BlendShareObject>())
                 .Where(patch => patch != null)
@@ -1078,21 +1157,45 @@ namespace Triturbo.BlendShare.Persistence
                         Mapping = GetFbxToUnityMapping(meshData)
                     }))
                 .Where(item => item.Feature?.Armature != null)
-                .SelectMany(item => (item.Feature.Armature.Bones ?? Array.Empty<ArmatureBoneData>())
+                .SelectMany(item => (item.Feature.Armature.Bones ?? Array.Empty<FbxArmatureBoneData>())
                     .Where(bone => bone != null)
                     .Select(bone => new { Bone = bone, item.Mapping }))
                 .GroupBy(item => MeshNodePath.Normalize(item.Bone.m_Path))
                 .Select(group =>
                 {
-                    var item = group.First();
+                    var items = group.ToArray();
+                    var item = items[0];
                     var bone = item.Bone;
-                    return new ArmatureBoneData(
-                        bone.m_Path,
-                        item.Mapping != null ? item.Mapping.ConvertFbxVectorToUnity(bone.m_FbxLocalTranslation) : bone.m_FbxLocalTranslation,
-                        item.Mapping != null ? item.Mapping.ConvertFbxRotationToUnityEuler(bone.GetFbxLocalRotation()) : bone.GetFbxLocalRotation().eulerAngles,
-                        item.Mapping != null ? item.Mapping.ConvertFbxRotationToUnity(bone.GetFbxLocalRotation()) : bone.GetFbxLocalRotation(),
-                        bone.m_FbxLocalScale,
-                        bone.m_CreateIfMissing);
+                    if (item.Mapping == null)
+                    {
+                        throw new InvalidOperationException($"Bone '{bone.Path}' has no valid FBX-to-Unity mapping.");
+                    }
+
+                    foreach (var candidate in items.Skip(1))
+                    {
+                        if (candidate.Mapping == null ||
+                            !item.Mapping.SpaceConversion.ApproximatelyEquals(candidate.Mapping.SpaceConversion))
+                        {
+                            throw new InvalidOperationException(
+                                $"Bone '{bone.Path}' is contributed through incompatible FBX importer settings.");
+                        }
+                    }
+
+                    if (!bone.HasTransformData)
+                    {
+                        throw new InvalidOperationException(
+                            $"Bone '{bone.Path}' has no FBX transform data. Re-extract the BlendShare patch.");
+                    }
+
+                    if (!item.Mapping.SpaceConversion.TryConvertLocalTransform(
+                            bone.EvaluatedNodeToParentMatrix,
+                            out UnityLocalTransform localTransform,
+                            out string diagnostic))
+                    {
+                        throw new InvalidOperationException($"Cannot convert bone '{bone.Path}': {diagnostic}");
+                    }
+
+                    return new UnityArmatureBoneData(bone.m_Path, localTransform, bone.m_CreateIfMissing);
             }));
             return artifact;
         }

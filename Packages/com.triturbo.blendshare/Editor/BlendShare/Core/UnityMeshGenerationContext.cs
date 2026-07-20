@@ -17,13 +17,14 @@ namespace Triturbo.BlendShare.Core
         private readonly Dictionary<string, Object> generatedObjectsByKey = new();
         private readonly Dictionary<string, object> stateByKey = new();
         private readonly Dictionary<string, UnityMeshSkinBindingOutput> skinBindingsByMeshKey = new();
-        private readonly Dictionary<string, ArmatureBoneData> armatureBonesByPath = new();
+        private readonly Dictionary<string, UnityArmatureBoneData> armatureBonesByPath = new();
         private readonly Dictionary<string, BlendShareObject> armatureBoneSourcesByPath = new();
+        private readonly Dictionary<FbxArmatureObject, FbxUnitySpaceConversion> armatureConversions = new();
         private readonly Dictionary<string, Matrix4x4> bindPosesByMeshAndBone = new();
         private readonly Dictionary<string, BlendShareObject> bindPoseSourcesByMeshAndBone = new();
         private readonly Dictionary<string, Transform> transformsByPath = new();
         private readonly HashSet<string> completedSteps = new();
-        private ArmatureObject armature;
+        private UnityArmatureObject armature;
 
         public Object TargetMeshContainer { get; }
         public IReadOnlyList<BlendShareObject> Patches { get; }
@@ -32,7 +33,7 @@ namespace Triturbo.BlendShare.Core
         public IBlendShareProgress Progress { get; }
         public IReadOnlyList<Object> GeneratedObjects => generatedObjects;
         public IReadOnlyDictionary<string, UnityMeshSkinBindingOutput> SkinBindingsByMeshKey => skinBindingsByMeshKey;
-        public ArmatureObject Armature => armature;
+        public UnityArmatureObject Armature => armature;
 
         /// <summary>
         /// Creates a generation session for a target mesh container and a set of BlendShare assets.
@@ -158,13 +159,13 @@ namespace Triturbo.BlendShare.Core
         }
 
         internal bool CanAddArmatureBones(
-            IEnumerable<ArmatureBoneData> bones,
+            IEnumerable<UnityArmatureBoneData> bones,
             BlendShareObject patch,
             out string error)
         {
             error = null;
-            var pendingByPath = new Dictionary<string, ArmatureBoneData>();
-            foreach (var bone in bones ?? System.Array.Empty<ArmatureBoneData>())
+            var pendingByPath = new Dictionary<string, UnityArmatureBoneData>();
+            foreach (var bone in bones ?? System.Array.Empty<UnityArmatureBoneData>())
             {
                 if (bone == null)
                 {
@@ -200,14 +201,14 @@ namespace Triturbo.BlendShare.Core
             return true;
         }
 
-        public void AddArmatureBones(IEnumerable<ArmatureBoneData> bones)
+        public void AddArmatureBones(IEnumerable<UnityArmatureBoneData> bones)
         {
             AddArmatureBones(bones, null);
         }
 
-        internal void AddArmatureBones(IEnumerable<ArmatureBoneData> bones, BlendShareObject patch)
+        internal void AddArmatureBones(IEnumerable<UnityArmatureBoneData> bones, BlendShareObject patch)
         {
-            foreach (var bone in bones ?? System.Array.Empty<ArmatureBoneData>())
+            foreach (var bone in bones ?? System.Array.Empty<UnityArmatureBoneData>())
             {
                 if (bone == null)
                 {
@@ -229,7 +230,7 @@ namespace Triturbo.BlendShare.Core
 
             if (armature == null)
             {
-                armature = ScriptableObject.CreateInstance<ArmatureObject>();
+                armature = ScriptableObject.CreateInstance<UnityArmatureObject>();
                 armature.name = "Armature";
                 AddObject("Armature", armature);
             }
@@ -273,20 +274,39 @@ namespace Triturbo.BlendShare.Core
             return true;
         }
 
-        private static bool AreCompatibleBoneDefinitions(ArmatureBoneData first, ArmatureBoneData second)
+        internal bool RegisterArmatureConversion(
+            FbxArmatureObject sourceArmature,
+            FbxUnitySpaceConversion conversion,
+            out string error)
+        {
+            error = null;
+            if (sourceArmature == null)
+            {
+                return true;
+            }
+
+            if (armatureConversions.TryGetValue(sourceArmature, out var existing) &&
+                !existing.ApproximatelyEquals(conversion))
+            {
+                error = $"Armature '{sourceArmature.name}' is referenced through incompatible FBX importer settings. " +
+                        "All meshes contributing one shared armature must use the same import scale and Bake Axis Conversion setting.";
+                return false;
+            }
+
+            armatureConversions[sourceArmature] = conversion;
+            return true;
+        }
+
+        private static bool AreCompatibleBoneDefinitions(UnityArmatureBoneData first, UnityArmatureBoneData second)
         {
             if (first == null || second == null)
             {
                 return first == second;
             }
 
-            var firstScale = first.m_FbxLocalScale == Vector3.zero ? Vector3.one : first.m_FbxLocalScale;
-            var secondScale = second.m_FbxLocalScale == Vector3.zero ? Vector3.one : second.m_FbxLocalScale;
-            return Vector3.Distance(first.m_FbxLocalTranslation, second.m_FbxLocalTranslation) <= 0.0001f &&
-                   Quaternion.Angle(
-                       first.GetFbxLocalRotation(),
-                       second.GetFbxLocalRotation()) <= 0.01f &&
-                   Vector3.Distance(firstScale, secondScale) <= 0.0001f;
+            return Vector3.Distance(first.LocalTransform.Position, second.LocalTransform.Position) <= 0.0001f &&
+                   Quaternion.Angle(first.LocalTransform.Rotation, second.LocalTransform.Rotation) <= 0.01f &&
+                   Vector3.Distance(first.LocalTransform.Scale, second.LocalTransform.Scale) <= 0.0001f;
         }
 
         private static bool AreEquivalentMatrices(Matrix4x4 first, Matrix4x4 second)

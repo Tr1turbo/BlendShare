@@ -401,7 +401,7 @@ namespace Triturbo.BlendShare.Core
                 .Where(meshData => meshData != null)
                 .SelectMany(meshData => meshData.m_Mappings ?? System.Array.Empty<UnityVertexMappingObject>())
                 .FirstOrDefault(candidate => candidate != null && candidate.m_IsValid);
-            return mapping != null ? mapping.FbxToUnityScale : 1f;
+            return mapping != null ? mapping.SpaceConversion.ImportScale : 1f;
         }
     }
 

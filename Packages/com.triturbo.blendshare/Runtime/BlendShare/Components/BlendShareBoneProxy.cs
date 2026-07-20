@@ -59,7 +59,7 @@ namespace Triturbo.BlendShare.Components
     public sealed class BlendShareBoneProxy : BlendShareComponent
     {
         [SerializeField, NotKeyable]
-        private ArmatureObject m_SourceArmature;
+        private FbxArmatureObject m_SourceArmature;
 
         [SerializeField, NotKeyable]
         private string m_SourceBonePath;
@@ -100,7 +100,7 @@ namespace Triturbo.BlendShare.Components
         /// <summary>
         /// Gets or sets the source armature shared by all bindings on this component.
         /// </summary>
-        public ArmatureObject SourceArmature
+        public FbxArmatureObject SourceArmature
         {
             get => m_SourceArmature;
             set => m_SourceArmature = value;
@@ -414,7 +414,7 @@ namespace Triturbo.BlendShare.Components
         /// <summary>
         /// Returns whether this proxy represents the specified armature bone.
         /// </summary>
-        public bool MatchesSource(ArmatureObject armature, string sourceBonePath)
+        public bool MatchesSource(FbxArmatureObject armature, string sourceBonePath)
         {
             return SourceArmature == armature && TryGetBinding(sourceBonePath, out _);
         }

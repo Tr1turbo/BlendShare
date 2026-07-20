@@ -30,8 +30,8 @@ namespace Triturbo.BlendShare.Inspector
                     null)));
 
                 var advanced = new Foldout { text = Localization.S("common.advanced") };
-                advanced.Add(BlendShareInspectorUi.Row(Localization.S("patch.mapping.fbx_to_unity_scale"), mapping != null ? mapping.FbxToUnityScale.ToString("0.###") : "-"));
-                advanced.Add(BlendShareInspectorUi.Row(Localization.S("patch.mapping.bake_axis_conversion"), mapping != null && mapping.m_BakeAxisConversion ? Localization.S("common.yes") : Localization.S("common.no")));
+                advanced.Add(BlendShareInspectorUi.Row(Localization.S("patch.mapping.fbx_to_unity_scale"), mapping != null ? mapping.SpaceConversion.ImportScale.ToString("0.###") : "-"));
+                advanced.Add(BlendShareInspectorUi.Row(Localization.S("patch.mapping.bake_axis_conversion"), mapping != null && mapping.SpaceConversion.BakeAxisConversion ? Localization.S("common.yes") : Localization.S("common.no")));
                 advanced.Add(BlendShareInspectorUi.Row(Localization.S("patch.mapping.index_entries"), mapping?.m_Indices != null ? mapping.m_Indices.Length.ToString() : "0"));
                 advanced.Add(BlendShareInspectorUi.Row(Localization.S("patch.mapping.grouped_entries"), mapping?.m_IndexGroups != null ? mapping.m_IndexGroups.Length.ToString() : "0"));
                 root.Add(advanced);

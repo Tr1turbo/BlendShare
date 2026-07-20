@@ -3,6 +3,26 @@ using UnityEngine;
 
 namespace Triturbo.BlendShare.Fbx
 {
+    /// <summary>Defines the axis order used to evaluate FBX Euler rotation properties.</summary>
+    public enum FbxRotationOrder
+    {
+        XYZ,
+        XZY,
+        YZX,
+        YXZ,
+        ZXY,
+        ZYX,
+        SphericXYZ
+    }
+
+    /// <summary>Defines how an FBX node inherits scaling from its parent.</summary>
+    public enum FbxTransformInheritMode
+    {
+        RrSs,
+        Rrs,
+        RSrs
+    }
+
     [Serializable]
     public struct FbxMatrix4x4 : IEquatable<FbxMatrix4x4>
     {
@@ -128,11 +148,14 @@ namespace Triturbo.BlendShare.Fbx
                 0, 0, 0, 1);
         }
 
-        public static FbxMatrix4x4 RotateEulerDegrees(Vector3d rotation)
+        /// <summary>Creates a rotation matrix from FBX Euler angles in the specified axis order.</summary>
+        public static FbxMatrix4x4 RotateEulerDegrees(
+            Vector3d eulerRotation,
+            FbxRotationOrder rotationOrder)
         {
-            double x = DegreesToRadians(rotation.x);
-            double y = DegreesToRadians(rotation.y);
-            double z = DegreesToRadians(rotation.z);
+            double x = DegreesToRadians(eulerRotation.x);
+            double y = DegreesToRadians(eulerRotation.y);
+            double z = DegreesToRadians(eulerRotation.z);
 
             var rx = new FbxMatrix4x4(
                 1, 0, 0, 0,
@@ -150,7 +173,18 @@ namespace Triturbo.BlendShare.Fbx
                 0, 0, 1, 0,
                 0, 0, 0, 1);
 
-            return rx * ry * rz;
+            return rotationOrder switch
+            {
+                FbxRotationOrder.XYZ => rx * ry * rz,
+                FbxRotationOrder.XZY => rx * rz * ry,
+                FbxRotationOrder.YZX => ry * rz * rx,
+                FbxRotationOrder.YXZ => ry * rx * rz,
+                FbxRotationOrder.ZXY => rz * rx * ry,
+                FbxRotationOrder.ZYX => rz * ry * rx,
+                FbxRotationOrder.SphericXYZ => throw new NotSupportedException(
+                    "FBX SphericXYZ rotation cannot be evaluated as an ordinary Euler axis order."),
+                _ => throw new ArgumentOutOfRangeException(nameof(rotationOrder), rotationOrder, null)
+            };
         }
 
         public static FbxMatrix4x4 RotateQuaternion(Quaterniond rotation)
@@ -177,12 +211,14 @@ namespace Triturbo.BlendShare.Fbx
                 0d, 0d, 0d, 1d);
         }
 
+        /// <summary>Creates a TRS matrix from FBX Euler angles in the specified axis order.</summary>
         public static FbxMatrix4x4 FromTranslationRotationScale(
             Vector3d translation,
-            Vector3d rotation,
-            Vector3d scale)
+            Vector3d eulerRotation,
+            Vector3d scale,
+            FbxRotationOrder rotationOrder)
         {
-            return Scale(scale) * RotateEulerDegrees(rotation) * Translate(translation);
+            return Scale(scale) * RotateEulerDegrees(eulerRotation, rotationOrder) * Translate(translation);
         }
 
         public static FbxMatrix4x4 FromTranslationRotationScale(
@@ -393,28 +429,6 @@ namespace Triturbo.BlendShare.Fbx
         private static double DegreesToRadians(double degrees)
         {
             return degrees * Math.PI / 180d;
-        }
-    }
-
-    [Serializable]
-    public struct FbxTransform
-    {
-        public static readonly FbxTransform Identity = new FbxTransform(Vector3d.zero, Vector3d.zero, Vector3d.one);
-
-        [SerializeField] private Vector3d translation;
-        [SerializeField] private Vector3d rotation;
-        [SerializeField] private Vector3d scale;
-
-        public Vector3d Translation => translation;
-        public Vector3d Rotation => rotation;
-        public Vector3d Scale => scale;
-        public FbxMatrix4x4 LocalMatrix => FbxMatrix4x4.FromTranslationRotationScale(Translation, Rotation, Scale);
-
-        public FbxTransform(Vector3d translation, Vector3d rotation, Vector3d scale)
-        {
-            this.translation = translation;
-            this.rotation = rotation;
-            this.scale = scale;
         }
     }
 

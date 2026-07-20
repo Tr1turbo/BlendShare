@@ -15,6 +15,8 @@ extern "C" {
 
 typedef struct bs_ufbx_scene bs_ufbx_scene;
 
+#define BS_UFBX_ABI_VERSION 2
+
 typedef struct bs_ufbx_matrix {
     double m[16];
 } bs_ufbx_matrix;
@@ -26,14 +28,21 @@ typedef struct bs_ufbx_node_info {
     double lcl_translation[3];
     double lcl_rotation[3];
     double lcl_scale[3];
-    int32_t name_length;
-    int32_t path_length;
-    double euler_rotation[3];
+    int32_t rotation_order;
+    int32_t original_inherit_mode;
+    int32_t rotation_active;
     double pre_rotation[3];
     double post_rotation[3];
+    double rotation_pivot[3];
+    double scaling_pivot[3];
+    double rotation_offset[3];
+    double scaling_offset[3];
     double ufbx_local_translation[3];
     double ufbx_local_rotation[4];
     double ufbx_local_scale[3];
+    bs_ufbx_matrix node_to_parent;
+    int32_t name_length;
+    int32_t path_length;
 } bs_ufbx_node_info;
 
 typedef struct bs_ufbx_mesh_info {
@@ -83,6 +92,7 @@ typedef struct bs_ufbx_blend_frame_info {
     int32_t name_length;
 } bs_ufbx_blend_frame_info;
 
+BS_UFBX_API int32_t bs_ufbx_get_abi_version(void);
 BS_UFBX_API int32_t bs_ufbx_load(const char *path, bs_ufbx_scene **out_scene, char *error, int32_t error_size);
 BS_UFBX_API void bs_ufbx_free(bs_ufbx_scene *scene);
 

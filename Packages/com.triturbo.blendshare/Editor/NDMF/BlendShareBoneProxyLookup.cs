@@ -49,7 +49,7 @@ namespace Triturbo.BlendShare.NDMF
             return new BlendShareBoneProxyLookup(proxies);
         }
 
-        internal bool TryGet(ArmatureObject armature, string sourceBonePath, out BlendShareBoneProxy proxy)
+        internal bool TryGet(FbxArmatureObject armature, string sourceBonePath, out BlendShareBoneProxy proxy)
         {
             if (TryGetBinding(armature, sourceBonePath, out var resolved))
             {
@@ -61,7 +61,7 @@ namespace Triturbo.BlendShare.NDMF
             return false;
         }
 
-        internal bool TryGetBinding(ArmatureObject armature, string sourceBonePath, out ResolvedBinding binding)
+        internal bool TryGetBinding(FbxArmatureObject armature, string sourceBonePath, out ResolvedBinding binding)
         {
             if (armature == null)
             {
@@ -90,10 +90,10 @@ namespace Triturbo.BlendShare.NDMF
 
         internal readonly struct SourceKey : IEquatable<SourceKey>
         {
-            private readonly ArmatureObject armature;
+            private readonly FbxArmatureObject armature;
             private readonly string sourceBonePath;
 
-            internal SourceKey(ArmatureObject armature, string sourceBonePath)
+            internal SourceKey(FbxArmatureObject armature, string sourceBonePath)
             {
                 this.armature = armature;
                 this.sourceBonePath = MeshNodePath.Normalize(sourceBonePath);

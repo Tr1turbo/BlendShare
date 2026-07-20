@@ -62,6 +62,26 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             IntPtr loaded = IntPtr.Zero;
             try
             {
+                int abiVersion;
+                try
+                {
+                    abiVersion = UfbxNative.GetAbiVersion();
+                }
+                catch (EntryPointNotFoundException)
+                {
+                    return FbxReadResult<UfbxScene>.Failed(
+                        FbxReadStatus.SectionUnavailable,
+                        "The loaded BlendShareUfbx native plugin uses an obsolete ABI. Restart Unity after updating BlendShare, then re-extract the patch.");
+                }
+
+                if (abiVersion != UfbxNative.ExpectedAbiVersion)
+                {
+                    return FbxReadResult<UfbxScene>.Failed(
+                        FbxReadStatus.SectionUnavailable,
+                        $"BlendShareUfbx ABI {abiVersion} is incompatible with the required ABI {UfbxNative.ExpectedAbiVersion}. " +
+                        "Restart Unity after updating BlendShare, then re-extract the patch.");
+                }
+
                 var error = new byte[2048];
                 if (UfbxNative.Load(ToUtf8NullTerminated(assetPath), out loaded, error, error.Length) == 0 || loaded == IntPtr.Zero)
                 {
@@ -173,18 +193,14 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             {
                 if (UfbxNative.GetNodeInfo(Handle, i, out var info) == 0)
                 {
-                    parentIndices[i] = -1;
-                    nodes[i] = new UfbxNode(this, i, 0, string.Empty, string.Empty, UfbxNodeType.Unknown, UfbxTransform.Identity);
-                    continue;
+                    throw new FbxReadException(
+                        FbxReadStatus.SectionUnavailable,
+                        $"The BlendShare ufbx native plugin could not read node {i}. Rebuild the native plugins.");
                 }
 
                 parentIndices[i] = info.ParentIndex;
                 string name = CopyString(info.NameLength, buffer => UfbxNative.CopyNodeName(Handle, i, buffer, buffer.Length));
                 string path = CopyString(info.PathLength, buffer => UfbxNative.CopyNodePath(Handle, i, buffer, buffer.Length));
-                var lclTransform = new FbxTransform(
-                    new Vector3d(info.LclTranslationX, info.LclTranslationY, info.LclTranslationZ),
-                    new Vector3d(info.LclRotationX, info.LclRotationY, info.LclRotationZ),
-                    new Vector3d(info.LclScaleX, info.LclScaleY, info.LclScaleZ));
                 var localTransform = new UfbxTransform(
                     new Vector3d(info.UfbxLocalTranslationX, info.UfbxLocalTranslationY, info.UfbxLocalTranslationZ),
                     new Quaterniond(info.UfbxLocalRotationX, info.UfbxLocalRotationY, info.UfbxLocalRotationZ, info.UfbxLocalRotationW),
@@ -197,10 +213,19 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
                     path,
                     ToNodeType(info.Type),
                     localTransform,
-                    lclTransform,
-                    new Vector3d(info.EulerRotationX, info.EulerRotationY, info.EulerRotationZ),
+                    new Vector3d(info.LclTranslationX, info.LclTranslationY, info.LclTranslationZ),
+                    new Vector3d(info.LclRotationX, info.LclRotationY, info.LclRotationZ),
+                    new Vector3d(info.LclScaleX, info.LclScaleY, info.LclScaleZ),
+                    ToRotationOrder(info.RotationOrder, path),
+                    ToInheritMode(info.OriginalInheritMode, path),
+                    info.RotationActive != 0,
                     new Vector3d(info.PreRotationX, info.PreRotationY, info.PreRotationZ),
-                    new Vector3d(info.PostRotationX, info.PostRotationY, info.PostRotationZ));
+                    new Vector3d(info.PostRotationX, info.PostRotationY, info.PostRotationZ),
+                    new Vector3d(info.RotationPivotX, info.RotationPivotY, info.RotationPivotZ),
+                    new Vector3d(info.ScalingPivotX, info.ScalingPivotY, info.ScalingPivotZ),
+                    new Vector3d(info.RotationOffsetX, info.RotationOffsetY, info.RotationOffsetZ),
+                    new Vector3d(info.ScalingOffsetX, info.ScalingOffsetY, info.ScalingOffsetZ),
+                    FbxMatrix4x4.FromRowMajor(info.NodeToParent.ToRowMajorArray()));
             }
 
             var children = nodes.ToDictionary(node => node, _ => new List<UfbxNode>());
@@ -219,6 +244,31 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             }
 
             return Array.AsReadOnly(nodes);
+        }
+
+        private static FbxRotationOrder ToRotationOrder(int value, string nodePath)
+        {
+            if (value >= (int)FbxRotationOrder.XYZ && value <= (int)FbxRotationOrder.SphericXYZ)
+            {
+                return (FbxRotationOrder)value;
+            }
+
+            throw new FbxReadException(
+                FbxReadStatus.ParseError,
+                $"FBX node '{nodePath}' uses unsupported rotation order value {value}.");
+        }
+
+        private static FbxTransformInheritMode ToInheritMode(int value, string nodePath)
+        {
+            return value switch
+            {
+                0 => FbxTransformInheritMode.RSrs,
+                1 => FbxTransformInheritMode.Rrs,
+                2 => FbxTransformInheritMode.RrSs,
+                _ => throw new FbxReadException(
+                    FbxReadStatus.ParseError,
+                    $"FBX node '{nodePath}' uses unsupported inheritance mode value {value}.")
+            };
         }
 
         private IReadOnlyList<UfbxMesh> BuildMeshes()

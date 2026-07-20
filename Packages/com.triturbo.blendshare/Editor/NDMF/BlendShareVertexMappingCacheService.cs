@@ -137,8 +137,8 @@ namespace Triturbo.BlendShare.NDMF
                 unityMeshId = lookup.UnityMeshId,
                 unityVertexHash = unityVertexHash,
                 unityVertexCount = unityVertexCount,
-                fbxToUnityScale = mapping.FbxToUnityScale,
-                bakeAxisConversion = mapping.m_BakeAxisConversion,
+                fbxToUnityScale = mapping.SpaceConversion.ImportScale,
+                bakeAxisConversion = mapping.SpaceConversion.BakeAxisConversion,
                 indices = mapping.m_Indices ?? Array.Empty<int>(),
                 indexGroups = mapping.m_IndexGroups ?? Array.Empty<FbxIndexGroup>()
             };
@@ -287,8 +287,9 @@ namespace Triturbo.BlendShare.NDMF
             mapping.m_UnityMesh = targetMesh;
             mapping.m_UnityVertexHash = payload.unityVertexHash ?? string.Empty;
             mapping.m_UnityVertexCount = payload.unityVertexCount;
-            mapping.m_FbxToUnityScale = payload.fbxToUnityScale == 0f ? 1f : payload.fbxToUnityScale;
-            mapping.m_BakeAxisConversion = payload.bakeAxisConversion;
+            mapping.m_SpaceConversion = new FbxUnitySpaceConversion(
+                payload.fbxToUnityScale,
+                payload.bakeAxisConversion);
             mapping.m_Indices = payload.indices ?? Array.Empty<int>();
             mapping.m_IndexGroups = payload.indexGroups ?? Array.Empty<FbxIndexGroup>();
             mapping.m_IsValid = true;

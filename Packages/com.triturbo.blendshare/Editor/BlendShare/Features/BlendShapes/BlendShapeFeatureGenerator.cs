@@ -138,11 +138,11 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                     }
 
                     var delta = GetDeltaFromGroup(frames[frameIndex], group);
-                    deltaVertices[unityIndex] = mapping.ConvertFbxVectorToUnity(new Vector3((float)delta.x, (float)delta.y, (float)delta.z));
+                    deltaVertices[unityIndex] = mapping.SpaceConversion.ConvertVector(new Vector3((float)delta.x, (float)delta.y, (float)delta.z));
                     if (emitNormalDeltas)
                     {
                         var normalDelta = GetNormalDeltaFromGroup(frames[frameIndex], group);
-                        deltaNormals[unityIndex] = mapping.ConvertFbxNormalDeltaToUnity(new Vector3((float)normalDelta.x, (float)normalDelta.y, (float)normalDelta.z));
+                        deltaNormals[unityIndex] = mapping.SpaceConversion.ConvertNormalDelta(new Vector3((float)normalDelta.x, (float)normalDelta.y, (float)normalDelta.z));
                     }
                 }
 

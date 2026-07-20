@@ -172,7 +172,7 @@ namespace Triturbo.BlendShare.Persistence
             EditorUtility.SetDirty(subAsset);
         }
 
-        private static ArmatureObject[] CollectArmatures(IEnumerable<MeshDataObject> meshes)
+        private static FbxArmatureObject[] CollectArmatures(IEnumerable<MeshDataObject> meshes)
         {
             return (meshes ?? Enumerable.Empty<MeshDataObject>())
                 .SelectMany(mesh => mesh?.Features ?? System.Array.Empty<MeshFeatureObject>())
@@ -194,7 +194,8 @@ namespace Triturbo.BlendShare.Persistence
 
                 if (subAsset is MeshDataObject ||
                     subAsset is MeshFeatureObject ||
-                    subAsset is ArmatureObject ||
+                    subAsset is FbxArmatureObject ||
+                    subAsset is UnityArmatureObject ||
                     subAsset is UnityVertexMappingObject ||
                     subAsset.name.StartsWith("Preset_"))
                 {

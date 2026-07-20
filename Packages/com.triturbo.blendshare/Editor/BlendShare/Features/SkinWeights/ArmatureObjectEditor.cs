@@ -10,7 +10,7 @@ using UnityEngine.UIElements;
 
 namespace Triturbo.BlendShare.Features.SkinWeights.Editor
 {
-    [CustomEditor(typeof(ArmatureObject))]
+    [CustomEditor(typeof(FbxArmatureObject))]
     public sealed class ArmatureObjectEditor : UnityEditor.Editor
     {
         private const float TransformLabelWidth = 82f;
@@ -21,7 +21,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
         public override VisualElement CreateInspectorGUI()
         {
             var root = BlendShareInspectorUi.CreateRoot();
-            ArmatureObject armature = target as ArmatureObject;
+            FbxArmatureObject armature = target as FbxArmatureObject;
 
             void Rebuild()
             {
@@ -39,7 +39,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
                     EditorGUIUtility.PingObject(armature);
                 });
 
-                var bones = (armature.Bones ?? Array.Empty<ArmatureBoneData>())
+                var bones = (armature.Bones ?? Array.Empty<FbxArmatureBoneData>())
                     .Where(bone => bone != null)
                     .ToArray();
                 EnsureValidExpandedBone(bones);
@@ -59,7 +59,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
             return root;
         }
 
-        private void EnsureValidExpandedBone(IReadOnlyList<ArmatureBoneData> bones)
+        private void EnsureValidExpandedBone(IReadOnlyList<FbxArmatureBoneData> bones)
         {
             if (bones.Count == 1)
             {
@@ -91,7 +91,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
             return header;
         }
 
-        private VisualElement CreateBoneTree(IReadOnlyList<ArmatureBoneData> bones)
+        private VisualElement CreateBoneTree(IReadOnlyList<FbxArmatureBoneData> bones)
         {
             var tree = new VisualElement();
             var boneFoldouts = new Dictionary<string, Foldout>(StringComparer.Ordinal);
@@ -186,7 +186,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
             return container;
         }
 
-        private Foldout CreateBoneFoldout(ArmatureBoneData bone)
+        private Foldout CreateBoneFoldout(FbxArmatureBoneData bone)
         {
             var foldout = new Foldout
             {
@@ -221,14 +221,14 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
             BlendShareInspectorUi.StyleStrong(transformTitle);
             transformTitle.style.marginBottom = 2;
             details.Add(transformTitle);
-            details.Add(CreateTransformRow(Localization.S("features.skin-weights.armature.position"), bone.m_FbxLocalTranslation));
-            details.Add(CreateTransformRow(Localization.S("features.skin-weights.armature.rotation"), bone.m_FbxLocalEulerRotation));
-            details.Add(CreateTransformRow(Localization.S("features.skin-weights.armature.scale"), bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale));
+            details.Add(CreateTransformRow(Localization.S("features.skin-weights.armature.position"), bone.LclTranslation.ToVector3()));
+            details.Add(CreateTransformRow(Localization.S("features.skin-weights.armature.rotation"), bone.LclRotation.ToVector3()));
+            details.Add(CreateTransformRow(Localization.S("features.skin-weights.armature.scale"), bone.LclScaling.ToVector3()));
             foldout.Add(details);
             return foldout;
         }
 
-        private static Label CreateBoneStatusBadge(ArmatureBoneData bone)
+        private static Label CreateBoneStatusBadge(FbxArmatureBoneData bone)
         {
             string key = bone.m_CreateIfMissing
                 ? "features.skin-weights.armature.status.new"
@@ -293,7 +293,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
             return group;
         }
 
-        private static BoneTreeNode BuildTree(IEnumerable<ArmatureBoneData> bones)
+        private static BoneTreeNode BuildTree(IEnumerable<FbxArmatureBoneData> bones)
         {
             var root = new BoneTreeNode(string.Empty, MeshNodePath.Root);
             foreach (var bone in bones.OrderBy(bone => bone.Path, StringComparer.Ordinal))
@@ -346,7 +346,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
         {
             public string Name { get; }
             public string Path { get; }
-            public ArmatureBoneData Bone { get; set; }
+            public FbxArmatureBoneData Bone { get; set; }
             public List<BoneTreeNode> Children { get; } = new();
 
             public BoneTreeNode(string name, string path)

@@ -394,11 +394,11 @@ namespace Triturbo.BlendShare.NDMF
             }
         }
 
-        private static IEnumerable<(ArmatureObject Armature, string Path)> GetRequiredBoneProxySources(
+        private static IEnumerable<(FbxArmatureObject Armature, string Path)> GetRequiredBoneProxySources(
             IEnumerable<BlendShareMesh> meshAppliers,
             Transform pathRoot)
         {
-            var requirements = new List<(BlendShareBoneProxyLookup.SourceKey Key, ArmatureObject Armature, string Path)>();
+            var requirements = new List<(BlendShareBoneProxyLookup.SourceKey Key, FbxArmatureObject Armature, string Path)>();
             foreach (var applier in meshAppliers ?? Array.Empty<BlendShareMesh>())
             {
                 var renderer = applier?.TargetRenderer;

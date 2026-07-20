@@ -85,6 +85,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
             StageUnitySkinBinding(
                 context,
+                feature,
+                mapping,
                 boneTable,
                 ResolveRootBonePath(context, feature),
                 artifactBones);
@@ -165,13 +167,30 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
         private static void StageUnitySkinBinding(
             UnityMeshGenerationContext context,
+            SkinWeightFeatureObject feature,
+            UnityVertexMappingObject mapping,
             BoneTable boneTable,
             string rootBonePath,
-            ArmatureBoneData[] artifactBones)
+            UnityArmatureBoneData[] artifactBones)
         {
             if (context.Session == null ||
                 !context.Session.TryGetState(BuildUnitySkinStateKey(context.MeshKey), out UnitySkinWeightState state))
             {
+                return;
+            }
+
+            if (mapping == null)
+            {
+                context.Session.Fail("A valid FBX-to-Unity space conversion is required for armature generation.");
+                return;
+            }
+
+            if (!context.Session.RegisterArmatureConversion(
+                    feature?.Armature,
+                    mapping.SpaceConversion,
+                    out string conversionError))
+            {
+                context.Session.Fail(conversionError);
                 return;
             }
 
@@ -411,7 +430,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
         private static bool ApplyArmatureNodesToFbx(
             FbxGenerationContext context,
-            ArmatureObject armature,
+            FbxArmatureObject armature,
             out string error)
         {
             error = null;
@@ -430,7 +449,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 }
             }
 
-            foreach (var bone in armature?.Bones ?? Array.Empty<ArmatureBoneData>())
+            foreach (var bone in armature?.Bones ?? Array.Empty<FbxArmatureBoneData>())
             {
                 if (bone == null)
                 {
@@ -456,7 +475,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
         private static FbxNode ResolveOrCreateFbxBone(
             FbxGenerationContext context,
-            ArmatureObject armature,
+            FbxArmatureObject armature,
             string path,
             HashSet<string> resolving,
             out string error)
@@ -508,15 +527,55 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return created;
         }
 
-        private static void SetLocalTransform(FbxNode node, ArmatureBoneData bone)
+        private static void SetLocalTransform(FbxNode node, FbxArmatureBoneData bone)
         {
-            var localPosition = bone.m_FbxLocalTranslation;
-            var localRotation = bone.m_FbxLocalEulerRotation;
-            var localScale = bone.m_FbxLocalScale;
+            if (!bone.HasTransformData)
+            {
+                throw new InvalidOperationException(
+                    $"Bone '{bone.Path}' uses an unsupported pre-2.0 armature transform schema. Re-extract the BlendShare patch.");
+            }
 
-            node.LclTranslation.Set(new FbxDouble3(localPosition.x, localPosition.y, localPosition.z));
-            node.LclRotation.Set(new FbxDouble3(localRotation.x, localRotation.y, localRotation.z));
-            node.LclScaling.Set(new FbxDouble3(localScale.x, localScale.y, localScale.z));
+            node.LclTranslation.Set(new FbxDouble3(bone.m_LclTranslation.x, bone.m_LclTranslation.y, bone.m_LclTranslation.z));
+            node.LclRotation.Set(new FbxDouble3(bone.m_LclRotation.x, bone.m_LclRotation.y, bone.m_LclRotation.z));
+            node.LclScaling.Set(new FbxDouble3(bone.m_LclScaling.x, bone.m_LclScaling.y, bone.m_LclScaling.z));
+            node.SetRotationOrder(FbxNode.EPivotSet.eSourcePivot, ToSdkRotationOrder(bone.m_RotationOrder));
+            node.SetTransformationInheritType(ToSdkInheritType(bone.m_InheritMode));
+            node.SetRotationActive(bone.m_RotationActive);
+            node.SetPreRotation(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(bone.m_PreRotation));
+            node.SetPostRotation(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(bone.m_PostRotation));
+            node.SetRotationPivot(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(bone.m_RotationPivot));
+            node.SetScalingPivot(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(bone.m_ScalingPivot));
+            node.SetRotationOffset(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(bone.m_RotationOffset));
+            node.SetScalingOffset(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(bone.m_ScalingOffset));
+        }
+
+        private static FbxVector4 ToFbxVector4(Vector3d value)
+        {
+            return new FbxVector4(value.x, value.y, value.z);
+        }
+
+        private static FbxEuler.EOrder ToSdkRotationOrder(FbxRotationOrder order)
+        {
+            return order switch
+            {
+                FbxRotationOrder.XZY => FbxEuler.EOrder.eOrderXZY,
+                FbxRotationOrder.YZX => FbxEuler.EOrder.eOrderYZX,
+                FbxRotationOrder.YXZ => FbxEuler.EOrder.eOrderYXZ,
+                FbxRotationOrder.ZXY => FbxEuler.EOrder.eOrderZXY,
+                FbxRotationOrder.ZYX => FbxEuler.EOrder.eOrderZYX,
+                FbxRotationOrder.SphericXYZ => FbxEuler.EOrder.eOrderSphericXYZ,
+                _ => FbxEuler.EOrder.eOrderXYZ
+            };
+        }
+
+        private static Autodesk.Fbx.FbxTransform.EInheritType ToSdkInheritType(FbxTransformInheritMode mode)
+        {
+            return mode switch
+            {
+                FbxTransformInheritMode.RrSs => Autodesk.Fbx.FbxTransform.EInheritType.eInheritRrSs,
+                FbxTransformInheritMode.Rrs => Autodesk.Fbx.FbxTransform.EInheritType.eInheritRrs,
+                _ => Autodesk.Fbx.FbxTransform.EInheritType.eInheritRSrs
+            };
         }
 
         private static bool TryGetCurrentSkinState(
@@ -872,15 +931,15 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
         private sealed class FbxArmatureDefinitionState
         {
-            private readonly Dictionary<string, ArmatureBoneData> definitionsByPath = new(StringComparer.Ordinal);
+            private readonly Dictionary<string, FbxArmatureBoneData> definitionsByPath = new(StringComparer.Ordinal);
             private readonly Dictionary<string, BlendShareObject> sourcesByPath = new(StringComparer.Ordinal);
 
             public bool Register(
-                IEnumerable<ArmatureBoneData> bones,
+                IEnumerable<FbxArmatureBoneData> bones,
                 BlendShareObject patch,
                 out string error)
             {
-                foreach (var bone in bones ?? Array.Empty<ArmatureBoneData>())
+                foreach (var bone in bones ?? Array.Empty<FbxArmatureBoneData>())
                 {
                     if (bone == null)
                     {
@@ -908,15 +967,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return true;
             }
 
-            private static bool AreCompatibleBoneDefinitions(ArmatureBoneData first, ArmatureBoneData second)
+            private static bool AreCompatibleBoneDefinitions(FbxArmatureBoneData first, FbxArmatureBoneData second)
             {
-                var firstScale = first.m_FbxLocalScale == Vector3.zero ? Vector3.one : first.m_FbxLocalScale;
-                var secondScale = second.m_FbxLocalScale == Vector3.zero ? Vector3.one : second.m_FbxLocalScale;
-                return Vector3.Distance(first.m_FbxLocalTranslation, second.m_FbxLocalTranslation) <= 0.0001f &&
-                       Quaternion.Angle(
-                           first.GetFbxLocalRotation(),
-                           second.GetFbxLocalRotation()) <= 0.01f &&
-                       Vector3.Distance(firstScale, secondScale) <= 0.0001f;
+                return first != null && first.ApproximatelyTransform(second);
             }
         }
 
@@ -1366,7 +1419,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     return false;
                 }
 
-                bindPose = mapping.ConvertFbxMatrixToUnity(fbxTransformMatrix * inverseTransformLinkMatrix);
+                bindPose = mapping.SpaceConversion.ConvertMatrix(fbxTransformMatrix * inverseTransformLinkMatrix);
                 return true;
             }
 
@@ -1431,24 +1484,31 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             }
 
             resolving.Remove(path);
-            var scale = armatureBone.m_FbxLocalScale == Vector3.zero ? Vector3.one : armatureBone.m_FbxLocalScale;
-            var rotation = armatureBone.GetFbxLocalRotation();
-            var deltaLocal = Matrix4x4.TRS(
-                mapping != null ? mapping.ConvertFbxVectorToUnity(armatureBone.m_FbxLocalTranslation) : armatureBone.m_FbxLocalTranslation,
-                mapping != null ? mapping.ConvertFbxRotationToUnity(rotation) : rotation,
-                scale);
-            var existingBone = context.ResolveTransform(path);
-            if (existingBone != null)
+            if (!armatureBone.HasTransformData)
             {
-                var currentLocal = Matrix4x4.TRS(
-                    existingBone.localPosition,
-                    existingBone.localRotation,
-                    existingBone.localScale == Vector3.zero ? Vector3.one : existingBone.localScale);
-                localToWorld = parentLocalToWorld * deltaLocal * currentLocal;
-                return true;
+                localToWorld = Matrix4x4.identity;
+                error = $"Cannot convert armature bone '{path}': missing FBX transform data. Re-extract the BlendShare patch.";
+                return false;
             }
 
-            localToWorld = parentLocalToWorld * deltaLocal;
+            if (mapping == null)
+            {
+                localToWorld = Matrix4x4.identity;
+                error = $"Cannot convert armature bone '{path}': missing FBX-to-Unity conversion.";
+                return false;
+            }
+
+            if (!mapping.SpaceConversion.TryConvertLocalTransform(
+                    armatureBone.EvaluatedNodeToParentMatrix,
+                    out UnityLocalTransform localTransform,
+                    out error))
+            {
+                localToWorld = Matrix4x4.identity;
+                error = $"Cannot convert armature bone '{path}': {error}";
+                return false;
+            }
+
+            localToWorld = parentLocalToWorld * localTransform.ToMatrix();
             return true;
         }
 
@@ -1501,47 +1561,62 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return true;
         }
 
-        private static ArmatureBoneData[] BuildArtifactBones(
+        private static UnityArmatureBoneData[] BuildArtifactBones(
             UnityMeshGenerationContext context,
             SkinWeightFeatureObject feature,
             UnityVertexMappingObject mapping)
         {
             if (context == null || feature?.Armature == null)
             {
-                return Array.Empty<ArmatureBoneData>();
+                return Array.Empty<UnityArmatureBoneData>();
             }
 
-            return (feature.Armature.Bones ?? Array.Empty<ArmatureBoneData>())
+            return (feature.Armature.Bones ?? Array.Empty<FbxArmatureBoneData>())
                 .Where(bone => bone != null)
                 .Select(bone => CreateArtifactBoneNode(context, feature, mapping, bone))
                 .ToArray();
         }
 
-        private static ArmatureBoneData CreateArtifactBoneNode(
+        private static UnityArmatureBoneData CreateArtifactBoneNode(
             UnityMeshGenerationContext context,
             SkinWeightFeatureObject feature,
             UnityVertexMappingObject mapping,
-            ArmatureBoneData bone)
+            FbxArmatureBoneData bone)
         {
             if (TryGetProxyBoneNode(context, feature, bone.m_Path, out var proxyBone))
             {
                 return proxyBone;
             }
 
-            return new ArmatureBoneData(
-                bone.m_Path,
-                mapping != null ? mapping.ConvertFbxVectorToUnity(bone.m_FbxLocalTranslation) : bone.m_FbxLocalTranslation,
-                mapping != null ? mapping.ConvertFbxRotationToUnityEuler(bone.GetFbxLocalRotation()) : bone.GetFbxLocalRotation().eulerAngles,
-                mapping != null ? mapping.ConvertFbxRotationToUnity(bone.GetFbxLocalRotation()) : bone.GetFbxLocalRotation(),
-                bone.m_FbxLocalScale,
-                bone.m_CreateIfMissing);
+            if (mapping == null)
+            {
+                context.Session?.Fail($"Cannot convert armature bone '{bone.Path}': missing FBX-to-Unity conversion.");
+                return null;
+            }
+
+            if (!bone.HasTransformData)
+            {
+                context.Session?.Fail($"Cannot convert armature bone '{bone.Path}': missing FBX transform data. Re-extract the BlendShare patch.");
+                return null;
+            }
+
+            if (!mapping.SpaceConversion.TryConvertLocalTransform(
+                    bone.EvaluatedNodeToParentMatrix,
+                    out var localTransform,
+                    out var diagnostic))
+            {
+                context.Session?.Fail($"Cannot convert armature bone '{bone.Path}': {diagnostic}");
+                return null;
+            }
+
+            return new UnityArmatureBoneData(bone.m_Path, localTransform, bone.m_CreateIfMissing);
         }
 
         private static bool TryGetProxyBoneNode(
             UnityMeshGenerationContext context,
             SkinWeightFeatureObject feature,
             string sourceBonePath,
-            out ArmatureBoneData boneNode)
+            out UnityArmatureBoneData boneNode)
         {
             boneNode = null;
             if (!TryGetBoneProxyData(context, feature, sourceBonePath, out var boneProxy))
@@ -1555,12 +1630,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 out var localPosition,
                 out var localEulerRotation,
                 out var localScale);
-            boneNode = new ArmatureBoneData(
+            boneNode = new UnityArmatureBoneData(
                 boneProxy.FinalBonePath,
-                localPosition,
-                localEulerRotation,
-                Quaternion.Euler(localEulerRotation),
-                localScale,
+                new UnityLocalTransform(localPosition, Quaternion.Euler(localEulerRotation), localScale),
                 true);
             return true;
         }
@@ -1895,7 +1967,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             private Mesh pendingMesh;
             private BoneTable pendingBoneTable;
             private string pendingRootBonePath;
-            private ArmatureBoneData[] pendingArtifactBones;
+            private UnityArmatureBoneData[] pendingArtifactBones;
             private BlendShareObject pendingPatch;
             private Mesh mesh;
             private BoneTable boneTable;
@@ -1948,12 +2020,12 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             public void StageBinding(
                 string rootBonePath,
                 BoneTable targetBoneTable,
-                ArmatureBoneData[] artifactBones,
+                UnityArmatureBoneData[] artifactBones,
                 BlendShareObject patch)
             {
                 pendingRootBonePath = rootBonePath;
                 pendingBoneTable = targetBoneTable;
-                pendingArtifactBones = artifactBones ?? Array.Empty<ArmatureBoneData>();
+                pendingArtifactBones = artifactBones ?? Array.Empty<UnityArmatureBoneData>();
                 pendingPatch = patch;
             }
 

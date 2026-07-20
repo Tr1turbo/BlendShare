@@ -197,13 +197,31 @@ namespace Triturbo.BlendShare.NDMF
                         var parent = ResolveProxyParent(bone, skin.Armature, targetRoot, transformsByPath, proxiesByBonePath);
                         bool useHierarchyParent = parent != null && proxiesByBonePath.Values.Any(candidate =>
                             candidate.FinalTransform == parent);
-                        var localScale = bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale;
-                        var localPosition = mapping != null
-                            ? mapping.ConvertFbxVectorToUnity(bone.m_FbxLocalTranslation)
-                            : bone.m_FbxLocalTranslation;
-                        var localEulerRotation = mapping != null
-                            ? mapping.ConvertFbxRotationToUnityEuler(bone.GetFbxLocalRotation())
-                            : bone.GetFbxLocalRotation().eulerAngles;
+                        if (mapping == null)
+                        {
+                            result.AddDiagnostic($"Cannot create proxy for bone '{bonePath}': missing FBX-to-Unity conversion.");
+                            continue;
+                        }
+
+                        if (!bone.HasTransformData)
+                        {
+                            result.AddDiagnostic(
+                                $"Cannot create proxy for bone '{bonePath}': missing FBX transform data. Re-extract the BlendShare patch.");
+                            continue;
+                        }
+
+                        if (!mapping.SpaceConversion.TryConvertLocalTransform(
+                                bone.EvaluatedNodeToParentMatrix,
+                                out var localTransform,
+                                out string transformDiagnostic))
+                        {
+                            result.AddDiagnostic($"Cannot create proxy for bone '{bonePath}': {transformDiagnostic}");
+                            continue;
+                        }
+
+                        var localPosition = localTransform.Position;
+                        var localEulerRotation = localTransform.Rotation.eulerAngles;
+                        var localScale = localTransform.Scale;
                         string desiredName = MeshNodePath.LeafName(bonePath);
                         string key = BuildProxyKey(parent, desiredName, localPosition, localEulerRotation, localScale);
                         var sourceKey = new BlendShareBoneProxyLookup.SourceKey(skin.Armature, bonePath);
@@ -748,8 +766,8 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         private static Transform ResolveProxyParent(
-            ArmatureBoneData bone,
-            ArmatureObject armature,
+            FbxArmatureBoneData bone,
+            FbxArmatureObject armature,
             Transform targetRoot,
             IReadOnlyDictionary<string, Transform> transformsByPath,
             IReadOnlyDictionary<BlendShareBoneProxyLookup.SourceKey, BlendShareBoneProxyLookup.ResolvedBinding> proxiesByBonePath)

@@ -275,13 +275,19 @@ namespace Triturbo.BlendShare.NDMF
                 .Where(applier => applier?.MeshData?.GetFeature<SkinWeightFeatureObject>()?.Armature == proxy.SourceArmature)
                 .Select(GetFbxToUnityMapping)
                 .FirstOrDefault(candidate => candidate != null);
-            position = mapping != null
-                ? mapping.ConvertFbxVectorToUnity(bone.m_FbxLocalTranslation)
-                : bone.m_FbxLocalTranslation;
-            eulerRotation = mapping != null
-                ? mapping.ConvertFbxRotationToUnityEuler(bone.GetFbxLocalRotation())
-                : bone.GetFbxLocalRotation().eulerAngles;
-            scale = bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale;
+            if (mapping == null ||
+                !bone.HasTransformData ||
+                !mapping.SpaceConversion.TryConvertLocalTransform(
+                    bone.EvaluatedNodeToParentMatrix,
+                    out var localTransform,
+                    out diagnostic))
+            {
+                return false;
+            }
+
+            position = localTransform.Position;
+            eulerRotation = localTransform.Rotation.eulerAngles;
+            scale = localTransform.Scale;
             return true;
         }
 
@@ -333,13 +339,19 @@ namespace Triturbo.BlendShare.NDMF
                 var bone = proxy.SourceArmature.GetBone(binding.SourceBonePath);
                 var finalTransform = binding.Transform;
                 var parent = proxy.GetEffectiveParent(binding);
-                var localPosition = mapping != null
-                    ? mapping.ConvertFbxVectorToUnity(bone.m_FbxLocalTranslation)
-                    : bone.m_FbxLocalTranslation;
-                var localRotation = mapping != null
-                    ? mapping.ConvertFbxRotationToUnity(bone.GetFbxLocalRotation())
-                    : bone.GetFbxLocalRotation();
-                var localScale = bone.m_FbxLocalScale == Vector3.zero ? Vector3.one : bone.m_FbxLocalScale;
+                if (mapping == null ||
+                    !bone.HasTransformData ||
+                    !mapping.SpaceConversion.TryConvertLocalTransform(
+                        bone.EvaluatedNodeToParentMatrix,
+                        out var localTransform,
+                        out _))
+                {
+                    continue;
+                }
+
+                var localPosition = localTransform.Position;
+                var localRotation = localTransform.Rotation;
+                var localScale = localTransform.Scale;
 
                 Undo.RecordObject(finalTransform, "Reset BlendShare Bone Proxy Chain");
                 if (parent == finalTransform.parent)

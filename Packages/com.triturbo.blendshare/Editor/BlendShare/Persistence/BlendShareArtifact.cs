@@ -17,6 +17,6 @@ namespace Triturbo.BlendShare.Persistence
         public BlendShareObject[] m_AppliedBlendShares = Array.Empty<BlendShareObject>();
 
         public BlendShareMeshDescriptor[] m_Meshes = Array.Empty<BlendShareMeshDescriptor>();
-        public ArmatureObject m_Armature;
+        public UnityArmatureObject m_Armature;
     }
 }

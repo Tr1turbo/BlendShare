@@ -181,7 +181,6 @@ static void bs_quat_to_array(ufbx_quat value, double *dst)
     dst[3] = value.w;
 }
 
-
 static ufbx_vec3 bs_vertex_attrib_value(const ufbx_vertex_vec3 *attrib, const ufbx_mesh *mesh, size_t vertex_index)
 {
     if (attrib == NULL || mesh == NULL || !attrib->exists || vertex_index >= mesh->vertex_first_index.count) {
@@ -301,6 +300,11 @@ BS_UFBX_API int32_t bs_ufbx_load(const char *path, bs_ufbx_scene **out_scene, ch
     return 1;
 }
 
+BS_UFBX_API int32_t bs_ufbx_get_abi_version(void)
+{
+    return BS_UFBX_ABI_VERSION;
+}
+
 BS_UFBX_API void bs_ufbx_free(bs_ufbx_scene *scene)
 {
     if (scene == NULL) return;
@@ -333,15 +337,22 @@ BS_UFBX_API int32_t bs_ufbx_get_node_info(bs_ufbx_scene *scene, int32_t node_ind
     bs_vec3_to_array(ufbx_find_vec3(&node->props, UFBX_Lcl_Rotation, ufbx_zero_vec3), out_info->lcl_rotation);
     ufbx_vec3 one = { 1.0, 1.0, 1.0 };
     bs_vec3_to_array(ufbx_find_vec3(&node->props, UFBX_Lcl_Scaling, one), out_info->lcl_scale);
-    out_info->name_length = bs_min_i32_size(node->name.length);
-    const char *path = scene->node_paths != NULL ? scene->node_paths[node_index] : "";
-    out_info->path_length = bs_min_i32_size(path != NULL ? strlen(path) : 0);
-    bs_vec3_to_array(node->euler_rotation, out_info->euler_rotation);
+    out_info->rotation_order = (int32_t)node->rotation_order;
+    out_info->original_inherit_mode = (int32_t)node->original_inherit_mode;
+    out_info->rotation_active = ufbx_find_bool(&node->props, "RotationActive", true) ? 1 : 0;
     bs_vec3_to_array(ufbx_find_vec3(&node->props, UFBX_PreRotation, ufbx_zero_vec3), out_info->pre_rotation);
     bs_vec3_to_array(ufbx_find_vec3(&node->props, UFBX_PostRotation, ufbx_zero_vec3), out_info->post_rotation);
+    bs_vec3_to_array(ufbx_find_vec3(&node->props, UFBX_RotationPivot, ufbx_zero_vec3), out_info->rotation_pivot);
+    bs_vec3_to_array(ufbx_find_vec3(&node->props, UFBX_ScalingPivot, ufbx_zero_vec3), out_info->scaling_pivot);
+    bs_vec3_to_array(ufbx_find_vec3(&node->props, UFBX_RotationOffset, ufbx_zero_vec3), out_info->rotation_offset);
+    bs_vec3_to_array(ufbx_find_vec3(&node->props, UFBX_ScalingOffset, ufbx_zero_vec3), out_info->scaling_offset);
     bs_vec3_to_array(node->local_transform.translation, out_info->ufbx_local_translation);
     bs_quat_to_array(node->local_transform.rotation, out_info->ufbx_local_rotation);
     bs_vec3_to_array(node->local_transform.scale, out_info->ufbx_local_scale);
+    bs_matrix_from_ufbx(&out_info->node_to_parent, &node->node_to_parent);
+    out_info->name_length = bs_min_i32_size(node->name.length);
+    const char *path = scene->node_paths != NULL ? scene->node_paths[node_index] : "";
+    out_info->path_length = bs_min_i32_size(path != NULL ? strlen(path) : 0);
     return 1;
 }
 

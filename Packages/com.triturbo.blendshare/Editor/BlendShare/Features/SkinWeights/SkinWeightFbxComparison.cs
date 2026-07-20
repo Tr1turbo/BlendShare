@@ -323,14 +323,31 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             bool hasOrigin = originNode != null;
             bool changed = hasSource &&
                            hasOrigin &&
-                           (!Approximately(sourceNode.LclTranslation.ToVector3(), originNode.LclTranslation.ToVector3()) ||
-                            !Approximately(sourceNode.LclRotation.ToVector3(), originNode.LclRotation.ToVector3()) ||
-                            !Approximately(sourceNode.LclScale.ToVector3(), originNode.LclScale.ToVector3()));
+                           !ApproximatelyNodeTransform(sourceNode, originNode, MatrixEpsilon);
             return new SkinWeightBoneTransformComparison
             {
                 BonePath = MeshNodePath.Normalize(bonePath),
                 Status = GetStatus(hasSource, hasOrigin, changed)
             };
+        }
+
+        private static bool ApproximatelyNodeTransform(UfbxNode first, UfbxNode second, double epsilon)
+        {
+            return first != null &&
+                   second != null &&
+                   first.RotationOrder == second.RotationOrder &&
+                   first.InheritMode == second.InheritMode &&
+                   first.RotationActive == second.RotationActive &&
+                   first.LclTranslation.Approximately(second.LclTranslation, epsilon) &&
+                   first.LclRotation.Approximately(second.LclRotation, epsilon) &&
+                   first.LclScaling.Approximately(second.LclScaling, epsilon) &&
+                   first.PreRotation.Approximately(second.PreRotation, epsilon) &&
+                   first.PostRotation.Approximately(second.PostRotation, epsilon) &&
+                   first.RotationPivot.Approximately(second.RotationPivot, epsilon) &&
+                   first.ScalingPivot.Approximately(second.ScalingPivot, epsilon) &&
+                   first.RotationOffset.Approximately(second.RotationOffset, epsilon) &&
+                   first.ScalingOffset.Approximately(second.ScalingOffset, epsilon) &&
+                   first.NodeToParentMatrix.Approximately(second.NodeToParentMatrix, epsilon);
         }
 
         internal static Dictionary<int, string> BuildBonePathsByIndex(UfbxSkinDeformer skin)

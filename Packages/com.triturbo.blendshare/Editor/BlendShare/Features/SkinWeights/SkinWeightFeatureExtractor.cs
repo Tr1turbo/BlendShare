@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.Core;
+using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Fbx.Unity;
 using Triturbo.BlendShare.Fbx.Ufbx;
 using UnityEngine;
@@ -17,7 +18,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         private bool defaultsInitialized;
         private bool sharedArmatureInitialized;
         private MeshFeatureExtractionSession sharedArmatureSession;
-        private ArmatureObject sharedArmature;
+        private FbxArmatureObject sharedArmature;
 
         public override string FeatureId => SkinWeightFeatureObject.Id;
 
@@ -42,9 +43,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     GetSelectedBindposeBonePaths(mesh.Path).Count > 0);
         }
 
-        internal ArmatureObject GetOrCreateSharedArmature(
+        internal FbxArmatureObject GetOrCreateSharedArmature(
             MeshFeatureExtractionSession session,
-            Func<ArmatureObject> createArmature)
+            Func<FbxArmatureObject> createArmature)
         {
             if (!sharedArmatureInitialized || !ReferenceEquals(sharedArmatureSession, session))
             {
@@ -458,7 +459,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 .ToList();
         }
 
-        private static ArmatureObject BuildSelectedArmature(
+        private static FbxArmatureObject BuildSelectedArmature(
             MeshFeatureExtractionSession session,
             IEnumerable<string> selectedTransformBonePaths,
             IEnumerable<string> selectedNewBonePaths)
@@ -488,7 +489,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return null;
             }
 
-            var armature = ScriptableObject.CreateInstance<ArmatureObject>();
+            var armature = ScriptableObject.CreateInstance<FbxArmatureObject>();
             armature.name = "Armature";
             foreach (string bonePath in transformPaths.Concat(createPaths)
                          .Select(MeshNodePath.Normalize)
@@ -501,7 +502,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static void AddArmaturePatch(
-            ArmatureObject armature,
+            FbxArmatureObject armature,
             MeshFeatureExtractionSession session,
             string bonePath,
             bool createIfMissing)
@@ -524,38 +525,38 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             armature.GetOrAddBone(CreateBoneNode(session, normalizedPath, createIfMissing));
         }
 
-        private static ArmatureBoneData CreateBoneNode(
+        private static FbxArmatureBoneData CreateBoneNode(
             MeshFeatureExtractionSession session,
             string path,
             bool createIfMissing)
         {
-            var node = new ArmatureBoneData
+            var node = new FbxArmatureBoneData
             {
                 m_Path = MeshNodePath.Normalize(path),
                 m_CreateIfMissing = createIfMissing
             };
 
             var sourceNode = session?.GetSourceNode(path);
-            if (sourceNode != null)
+            if (sourceNode == null)
             {
-                node.m_FbxLocalTranslation = sourceNode.LclTranslation.ToVector3();
-                node.m_FbxLocalEulerRotation = sourceNode.LclRotation.ToVector3();
-                var evaluatedRotation = sourceNode.LocalRotation;
-                node.m_FbxEvaluatedLocalRotation = new Quaternion(
-                    (float)evaluatedRotation.x,
-                    (float)evaluatedRotation.y,
-                    (float)evaluatedRotation.z,
-                    (float)evaluatedRotation.w);
-                node.m_HasFbxEvaluatedLocalRotation = true;
-                node.m_FbxLocalScale = sourceNode.LclScale.ToVector3();
-                return node;
+                throw new InvalidOperationException(
+                    $"Bone '{node.m_Path}' was not found in the source FBX. Re-open the extraction session and select a valid source model.");
             }
 
-            node.m_FbxLocalTranslation = Vector3.zero;
-            node.m_FbxLocalEulerRotation = Vector3.zero;
-            node.m_FbxEvaluatedLocalRotation = Quaternion.identity;
-            node.m_HasFbxEvaluatedLocalRotation = true;
-            node.m_FbxLocalScale = Vector3.one;
+            node.m_HasTransformData = true;
+            node.m_LclTranslation = sourceNode.LclTranslation;
+            node.m_LclRotation = sourceNode.LclRotation;
+            node.m_LclScaling = sourceNode.LclScaling;
+            node.m_RotationOrder = sourceNode.RotationOrder;
+            node.m_InheritMode = sourceNode.InheritMode;
+            node.m_RotationActive = sourceNode.RotationActive;
+            node.m_PreRotation = sourceNode.PreRotation;
+            node.m_PostRotation = sourceNode.PostRotation;
+            node.m_RotationPivot = sourceNode.RotationPivot;
+            node.m_ScalingPivot = sourceNode.ScalingPivot;
+            node.m_RotationOffset = sourceNode.RotationOffset;
+            node.m_ScalingOffset = sourceNode.ScalingOffset;
+            node.m_EvaluatedNodeToParentMatrix = sourceNode.NodeToParentMatrix;
             return node;
         }
 
