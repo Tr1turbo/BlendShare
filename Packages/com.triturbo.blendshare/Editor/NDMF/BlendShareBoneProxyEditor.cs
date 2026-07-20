@@ -1,7 +1,10 @@
+using System;
+using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShapeShare;
 using Triturbo.BlendShare.Components;
 using Triturbo.BlendShare.Core;
+using Triturbo.BlendShare.Editor;
 using Triturbo.BlendShare.Features.SkinWeights;
 using UnityEditor;
 using UnityEngine;
@@ -146,7 +149,7 @@ namespace Triturbo.BlendShare.NDMF
             }
 
             var duplicatePaths = proxy.Bindings
-                .Where(binding => binding != null && !string.IsNullOrWhiteSpace(binding.SourceBonePath))
+                .Where(binding => binding?.IsConfigured == true)
                 .GroupBy(binding => binding.SourceBonePath)
                 .Where(group => group.Count() > 1)
                 .Select(group => group.Key)
@@ -169,7 +172,7 @@ namespace Triturbo.BlendShare.NDMF
 
                 string finalPath = MeshNodePath.Normalize(MeshNodePath.GetRelativePath(binding.Transform, avatarRoot));
                 EditorGUILayout.LabelField(
-                    string.IsNullOrWhiteSpace(binding.SourceBonePath) ? Localization.S("common.none") : binding.SourceBonePath,
+                    binding.IsConfigured ? binding.SourceBonePath : Localization.S("common.none"),
                     finalPath);
                 if (binding.Transform != avatarRoot && !binding.Transform.IsChildOf(avatarRoot))
                 {
@@ -187,6 +190,9 @@ namespace Triturbo.BlendShare.NDMF
         private static void NotifyPreviewInputChanged(BlendShareBoneProxy proxy)
         {
             EditorUtility.SetDirty(proxy);
+            BlendShareEditorChangeEvents.NotifyChanged(
+                BlendShareEditorChangeKind.Explicit,
+                proxy);
             FlushNdmfPreviewInvalidatesIfAvailable();
             ForceResetNdmfPreviewIfAvailable();
             SceneView.RepaintAll();
@@ -200,18 +206,23 @@ namespace Triturbo.BlendShare.NDMF
             if (proxy == null ||
                 !proxy.isActiveAndEnabled ||
                 proxy.SourceArmature == null ||
-                !proxy.Bindings.Any(binding => binding != null && !string.IsNullOrWhiteSpace(binding.SourceBonePath)))
+                !proxy.Bindings.Any(binding => binding?.IsConfigured == true))
             {
                 return false;
             }
 
             var avatarRoot = proxy.transform.root;
-            var lookup = BlendShareBoneProxyLookup.Create(
-                avatarRoot.GetComponentsInChildren<BlendShareBoneProxy>(true));
             var overriddenBinding = proxy.Bindings.LastOrDefault(binding =>
-                binding != null && !string.IsNullOrWhiteSpace(binding.SourceBonePath));
+                binding?.IsConfigured == true);
+            var overridingProxy = avatarRoot.GetComponentsInChildren<BlendShareBoneProxy>(true)
+                .Where(candidate => candidate != null &&
+                                    candidate.isActiveAndEnabled &&
+                                    candidate.SourceArmature == proxy.SourceArmature &&
+                                    candidate.TryGetBinding(overriddenBinding?.SourceBonePath, out _))
+                .OrderBy(candidate => GetHierarchyOrder(candidate.transform), StringComparer.Ordinal)
+                .LastOrDefault();
             if (overriddenBinding == null ||
-                !lookup.TryGet(proxy.SourceArmature, overriddenBinding.SourceBonePath, out var overridingProxy) ||
+                overridingProxy == null ||
                 overridingProxy == proxy)
             {
                 return false;
@@ -220,6 +231,17 @@ namespace Triturbo.BlendShare.NDMF
             overridingProxyPath = MeshNodePath.Normalize(
                 MeshNodePath.GetRelativePath(overridingProxy.transform, avatarRoot));
             return true;
+        }
+
+        private static string GetHierarchyOrder(Transform transform)
+        {
+            var indices = new Stack<string>();
+            for (var current = transform; current != null; current = current.parent)
+            {
+                indices.Push(current.GetSiblingIndex().ToString("D8"));
+            }
+
+            return string.Join("/", indices);
         }
 
         private static void FlushNdmfPreviewInvalidatesIfAvailable()
@@ -257,7 +279,7 @@ namespace Triturbo.BlendShare.NDMF
             eulerRotation = default;
             scale = Vector3.one;
             diagnostic = null;
-            if (proxy?.SourceArmature == null || string.IsNullOrWhiteSpace(proxy.SourceBonePath))
+            if (proxy?.SourceArmature == null || string.IsNullOrEmpty(proxy.SourceBonePath))
             {
                 diagnostic = Localization.S("ndmf.bone_proxy.no_source_binding");
                 return false;
@@ -315,7 +337,7 @@ namespace Triturbo.BlendShare.NDMF
             {
                 if (binding == null ||
                     binding.Transform == null ||
-                    string.IsNullOrWhiteSpace(binding.SourceBonePath) ||
+                    !binding.IsConfigured ||
                     proxy.SourceArmature.GetBone(binding.SourceBonePath) == null ||
                     proxy.GetEffectiveParent(binding) == null)
                 {
@@ -418,12 +440,21 @@ namespace Triturbo.BlendShare.NDMF
     internal static class BlendShareBoneProxyEditorUpdater
     {
         private static BlendShareBoneProxy[] proxies = System.Array.Empty<BlendShareBoneProxy>();
+        private static readonly IDisposable EditorChangeSubscription;
 
         static BlendShareBoneProxyEditorUpdater()
         {
             EditorApplication.update += UpdateProxies;
-            EditorApplication.hierarchyChanged += RefreshProxies;
+            EditorChangeSubscription = BlendShareEditorChangeEvents.Subscribe(
+                BlendShareEditorChangeKind.Hierarchy | BlendShareEditorChangeKind.Explicit,
+                OnEditorChanged,
+                typeof(BlendShareBoneProxy));
             EditorApplication.delayCall += RefreshProxies;
+        }
+
+        private static void OnEditorChanged(BlendShareEditorChange change)
+        {
+            RefreshProxies();
         }
 
         private static void RefreshProxies()

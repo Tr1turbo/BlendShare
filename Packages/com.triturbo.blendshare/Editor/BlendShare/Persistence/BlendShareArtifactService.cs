@@ -149,7 +149,8 @@ namespace Triturbo.BlendShare.Persistence
         internal static BlendShareArtifact CreateInMemoryArtifact(
             GameObject targetRoot,
             IEnumerable<BlendShareComponent> components,
-            out string diagnostic)
+            out string diagnostic,
+            bool proxiesPrepared = false)
         {
             diagnostic = null;
             if (targetRoot == null)
@@ -167,9 +168,9 @@ namespace Triturbo.BlendShare.Persistence
             }
 
             var pipeline = new UnityMeshGenerationPipeline();
-            var artifact = pipeline.CreateArtifactFromComponents(
-                targetRoot,
-                componentArray);
+            var artifact = proxiesPrepared
+                ? pipeline.CreateArtifactFromPreparedComponents(targetRoot, componentArray)
+                : pipeline.CreateArtifactFromComponents(targetRoot, componentArray);
             diagnostic = pipeline.LastDiagnostic;
             return artifact;
         }

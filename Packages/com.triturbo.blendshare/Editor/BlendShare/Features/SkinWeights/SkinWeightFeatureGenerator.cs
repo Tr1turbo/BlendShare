@@ -1519,17 +1519,15 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             out BoneProxyGenerationData data)
         {
             data = null;
-            var resolved = context.Components
-                .OfType<BlendShareBoneProxy>()
-                .SelectMany(component => component != null
-                    ? component.Bindings.Select(binding => (Component: component, Binding: binding))
-                    : Array.Empty<(BlendShareBoneProxy Component, BlendShareBoneProxyBinding Binding)>())
-                .LastOrDefault(candidate =>
-                    candidate.Component.SourceArmature == feature?.Armature &&
-                    candidate.Binding != null &&
-                    candidate.Binding.SourceBonePath == MeshNodePath.Normalize(sourceBonePath));
-            var proxy = resolved.Component;
-            var binding = resolved.Binding;
+            var mesh = context?.GetComponent<BlendShareMesh>();
+            if (mesh == null ||
+                !mesh.TryGetCachedBoneProxy(sourceBonePath, out var proxy) ||
+                proxy.SourceArmature != feature?.Armature ||
+                !proxy.TryGetBinding(sourceBonePath, out var binding))
+            {
+                return false;
+            }
+
             var finalTransform = proxy?.GetFinalTransform(binding);
             var effectiveParent = proxy?.GetEffectiveParent(binding);
             if (proxy == null || binding == null || finalTransform == null || effectiveParent == null)

@@ -40,7 +40,7 @@ namespace Triturbo.BlendShare.NDMF
             IEnumerable<BlendShareBoneProxy> availableProxies,
             Transform pathRoot,
             AnimatorServicesContext animatorServices,
-            out IReadOnlyList<BlendShareBoneProxyLookup.ResolvedBinding> resolvedBindings,
+            out IReadOnlyList<ResolvedBinding> resolvedBindings,
             out string diagnostic,
             out BlendShareBoneProxy conflictingProxy)
         {
@@ -112,10 +112,10 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         internal static IReadOnlyDictionary<string, Transform> BuildBoneTransformOverrides(
-            IEnumerable<BlendShareBoneProxyLookup.ResolvedBinding> bindings,
+            IEnumerable<ResolvedBinding> bindings,
             Transform pathRoot)
         {
-            return (bindings ?? Array.Empty<BlendShareBoneProxyLookup.ResolvedBinding>())
+            return (bindings ?? Array.Empty<ResolvedBinding>())
                 .Where(binding => binding.Component != null && binding.FinalTransform != null)
                 .GroupBy(binding => GetFinalProxyPath(binding, pathRoot))
                 .ToDictionary(
@@ -141,10 +141,10 @@ namespace Triturbo.BlendShare.NDMF
             IEnumerable<BlendShareMesh> meshAppliers,
             IEnumerable<BlendShareBoneProxy> availableProxies,
             Transform pathRoot,
-            Func<BlendShareBoneProxyLookup.ResolvedBinding, bool> isAnimated,
-            out IReadOnlyList<BlendShareBoneProxyLookup.ResolvedBinding> resolvedBindings,
+            Func<ResolvedBinding, bool> isAnimated,
+            out IReadOnlyList<ResolvedBinding> resolvedBindings,
             out List<BoneMergeGroup> mergeGroups,
-            out List<BlendShareBoneProxyLookup.ResolvedBinding[]> renameGroups,
+            out List<ResolvedBinding[]> renameGroups,
             out string diagnostic,
             out BlendShareBoneProxy conflictingProxy)
         {
@@ -152,28 +152,33 @@ namespace Triturbo.BlendShare.NDMF
                 .Where(applier => applier != null && applier.isActiveAndEnabled)
                 .Distinct()
                 .ToArray();
-            var proxyLookup = BlendShareBoneProxyLookup.Create(availableProxies);
-            var selected = new List<BlendShareBoneProxyLookup.ResolvedBinding>();
+            BlendShareMesh.RefreshBoneProxyCaches(appliers, pathRoot, availableProxies);
+            var selected = new List<ResolvedBinding>();
             diagnostic = null;
             conflictingProxy = null;
 
             foreach (var source in GetRequiredBoneProxySources(appliers, pathRoot))
             {
-                if (!proxyLookup.TryGetBinding(source.Armature, source.Path, out var binding))
+                if (!source.Applier.TryGetCachedBoneProxy(source.Path, out var proxy) ||
+                    !proxy.TryGetBinding(source.Path, out var sourceBinding))
                 {
                     diagnostic = $"No BlendShare bone proxy represents source bone '{source.Path}'.";
                     resolvedBindings = selected;
                     mergeGroups = new List<BoneMergeGroup>();
-                    renameGroups = new List<BlendShareBoneProxyLookup.ResolvedBinding[]>();
+                    renameGroups = new List<ResolvedBinding[]>();
                     return false;
                 }
+
+                var binding = new ResolvedBinding(
+                    proxy,
+                    sourceBinding);
 
                 if (!ValidateBinding(binding, pathRoot, out diagnostic))
                 {
                     conflictingProxy = binding.Component;
                     resolvedBindings = selected;
                     mergeGroups = new List<BoneMergeGroup>();
-                    renameGroups = new List<BlendShareBoneProxyLookup.ResolvedBinding[]>();
+                    renameGroups = new List<ResolvedBinding[]>();
                     return false;
                 }
 
@@ -181,7 +186,7 @@ namespace Triturbo.BlendShare.NDMF
             }
 
             var groups = new List<BoneMergeGroup>();
-            var groupsToRename = new List<BlendShareBoneProxyLookup.ResolvedBinding[]>();
+            var groupsToRename = new List<ResolvedBinding[]>();
             foreach (var pathGroup in selected
                          .Distinct()
                          .GroupBy(binding => GetFinalProxyPath(binding, pathRoot)))
@@ -221,20 +226,20 @@ namespace Triturbo.BlendShare.NDMF
             return true;
         }
 
-        private static List<BlendShareBoneProxyLookup.ResolvedBinding[]> BuildMergePartitions(
-            IReadOnlyList<BlendShareBoneProxyLookup.ResolvedBinding> ordered,
-            IEnumerable<BlendShareBoneProxyLookup.ResolvedBinding> selectedBindings,
+        private static List<ResolvedBinding[]> BuildMergePartitions(
+            IReadOnlyList<ResolvedBinding> ordered,
+            IEnumerable<ResolvedBinding> selectedBindings,
             Transform pathRoot,
-            Func<BlendShareBoneProxyLookup.ResolvedBinding, bool> isAnimated)
+            Func<ResolvedBinding, bool> isAnimated)
         {
             var remaining = ordered.ToList();
-            var partitions = new List<BlendShareBoneProxyLookup.ResolvedBinding[]>();
+            var partitions = new List<ResolvedBinding[]>();
             var avatarRoot = pathRoot != null ? pathRoot.gameObject : null;
             while (remaining.Count > 0)
             {
                 var canonical = remaining[remaining.Count - 1];
                 remaining.RemoveAt(remaining.Count - 1);
-                var partition = new List<BlendShareBoneProxyLookup.ResolvedBinding> { canonical };
+                var partition = new List<ResolvedBinding> { canonical };
                 bool canonicalCanMerge = IsCleanProxyHost(
                                              canonical,
                                              selectedBindings,
@@ -267,14 +272,14 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         private static void AssignUniqueBuildNames(
-            IEnumerable<BlendShareBoneProxyLookup.ResolvedBinding> allBindings,
-            IEnumerable<BlendShareBoneProxyLookup.ResolvedBinding[]> renameGroups,
+            IEnumerable<ResolvedBinding> allBindings,
+            IEnumerable<ResolvedBinding[]> renameGroups,
             Transform pathRoot,
             ObjectPathRemapper pathRemapper)
         {
             var usedPaths = CollectUsedPaths(pathRoot, allBindings);
             bool renamed = false;
-            foreach (var group in renameGroups ?? Array.Empty<BlendShareBoneProxyLookup.ResolvedBinding[]>())
+            foreach (var group in renameGroups ?? Array.Empty<ResolvedBinding[]>())
             {
                 string uniqueName = CreateUniqueBoneName(group[group.Length - 1], pathRoot, usedPaths);
                 foreach (var binding in group)
@@ -293,19 +298,19 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         private static void CreatePreviewProxies(
-            IReadOnlyList<BlendShareBoneProxyLookup.ResolvedBinding> originalBindings,
-            IEnumerable<BlendShareBoneProxyLookup.ResolvedBinding[]> renameGroups,
+            IReadOnlyList<ResolvedBinding> originalBindings,
+            IEnumerable<ResolvedBinding[]> renameGroups,
             Transform pathRoot,
             out IReadOnlyList<BlendShareBoneProxy> generationProxies,
             out IReadOnlyDictionary<string, Transform> boneTransformOverrides,
             out IReadOnlyList<GameObject> temporaryObjects)
         {
             var proxies = new List<BlendShareBoneProxy>();
-            var targets = new Dictionary<BlendShareBoneProxyLookup.ResolvedBinding, Transform>();
+            var targets = new Dictionary<ResolvedBinding, Transform>();
             var temporary = new List<GameObject>();
             var usedPaths = CollectUsedPaths(pathRoot, originalBindings);
-            var renameByBinding = new Dictionary<BlendShareBoneProxyLookup.ResolvedBinding, string>();
-            foreach (var group in renameGroups ?? Array.Empty<BlendShareBoneProxyLookup.ResolvedBinding[]>())
+            var renameByBinding = new Dictionary<ResolvedBinding, string>();
+            foreach (var group in renameGroups ?? Array.Empty<ResolvedBinding[]>())
             {
                 string uniqueName = CreateUniqueBoneName(group[group.Length - 1], pathRoot, usedPaths);
                 foreach (var original in group)
@@ -314,7 +319,7 @@ namespace Triturbo.BlendShare.NDMF
                 }
             }
 
-            foreach (var original in originalBindings ?? Array.Empty<BlendShareBoneProxyLookup.ResolvedBinding>())
+            foreach (var original in originalBindings ?? Array.Empty<ResolvedBinding>())
             {
                 string finalName = renameByBinding.TryGetValue(original, out var uniqueName)
                     ? uniqueName
@@ -340,9 +345,9 @@ namespace Triturbo.BlendShare.NDMF
 
         private static HashSet<string> CollectUsedPaths(
             Transform pathRoot,
-            IEnumerable<BlendShareBoneProxyLookup.ResolvedBinding> bindings)
+            IEnumerable<ResolvedBinding> bindings)
         {
-            var usedPaths = new HashSet<string>((bindings ?? Array.Empty<BlendShareBoneProxyLookup.ResolvedBinding>())
+            var usedPaths = new HashSet<string>((bindings ?? Array.Empty<ResolvedBinding>())
                 .Where(binding => binding.Component != null && binding.FinalTransform != null)
                 .Select(binding => GetFinalProxyPath(binding, pathRoot)));
             if (pathRoot != null)
@@ -356,8 +361,8 @@ namespace Triturbo.BlendShare.NDMF
             return usedPaths;
         }
 
-        private static BlendShareBoneProxyLookup.ResolvedBinding CreatePreviewProxy(
-            BlendShareBoneProxyLookup.ResolvedBinding source,
+        private static ResolvedBinding CreatePreviewProxy(
+            ResolvedBinding source,
             string uniqueName)
         {
             var gameObject = new GameObject(uniqueName)
@@ -374,11 +379,11 @@ namespace Triturbo.BlendShare.NDMF
             proxy.transform.localScale = source.FinalTransform.lossyScale;
             var binding = new BlendShareBoneProxyBinding(source.SourceBonePath, proxy.transform);
             proxy.SetBindings(new[] { binding });
-            return new BlendShareBoneProxyLookup.ResolvedBinding(proxy, binding);
+            return new ResolvedBinding(proxy, binding);
         }
 
         private static string CreateUniqueBoneName(
-            BlendShareBoneProxyLookup.ResolvedBinding binding,
+            ResolvedBinding binding,
             Transform pathRoot,
             ISet<string> usedPaths)
         {
@@ -394,11 +399,15 @@ namespace Triturbo.BlendShare.NDMF
             }
         }
 
-        private static IEnumerable<(FbxArmatureObject Armature, string Path)> GetRequiredBoneProxySources(
+        private static IEnumerable<(BlendShareMesh Applier, FbxArmatureObject Armature, string Path)> GetRequiredBoneProxySources(
             IEnumerable<BlendShareMesh> meshAppliers,
             Transform pathRoot)
         {
-            var requirements = new List<(BlendShareBoneProxyLookup.SourceKey Key, FbxArmatureObject Armature, string Path)>();
+            var requirements = new List<(
+                SourceKey Key,
+                BlendShareMesh Applier,
+                FbxArmatureObject Armature,
+                string Path)>();
             foreach (var applier in meshAppliers ?? Array.Empty<BlendShareMesh>())
             {
                 var renderer = applier?.TargetRenderer;
@@ -417,7 +426,8 @@ namespace Triturbo.BlendShare.NDMF
                     if (!existingBonePaths.Contains(path) && bone != null && bone.m_CreateIfMissing)
                     {
                         requirements.Add((
-                            new BlendShareBoneProxyLookup.SourceKey(skin.Armature, path),
+                            new SourceKey(skin.Armature, path),
+                            applier,
                             skin.Armature,
                             MeshNodePath.Normalize(path)));
                     }
@@ -429,7 +439,7 @@ namespace Triturbo.BlendShare.NDMF
                 .Select(group =>
                 {
                     var first = group.First();
-                    return (first.Armature, first.Path);
+                    return (first.Applier, first.Armature, first.Path);
                 });
         }
 
@@ -489,14 +499,14 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         private static bool IsCleanProxyHost(
-            BlendShareBoneProxyLookup.ResolvedBinding binding,
-            IEnumerable<BlendShareBoneProxyLookup.ResolvedBinding> selectedBindings,
+            ResolvedBinding binding,
+            IEnumerable<ResolvedBinding> selectedBindings,
             GameObject avatarRoot,
             bool rejectExternalReferences)
         {
             var finalTransform = binding.FinalTransform;
             if (binding.Component == null || finalTransform == null || finalTransform.childCount != 0 ||
-                (selectedBindings ?? Array.Empty<BlendShareBoneProxyLookup.ResolvedBinding>()).Any(candidate =>
+                (selectedBindings ?? Array.Empty<ResolvedBinding>()).Any(candidate =>
                     candidate.FinalTransform != null &&
                     candidate.FinalTransform != finalTransform &&
                     candidate.EffectiveParent == finalTransform))
@@ -612,7 +622,7 @@ namespace Triturbo.BlendShare.NDMF
             }
         }
 
-        private static string GetFinalProxyPath(BlendShareBoneProxyLookup.ResolvedBinding binding, Transform pathRoot)
+        private static string GetFinalProxyPath(ResolvedBinding binding, Transform pathRoot)
         {
             return GetFinalProxyPath(
                 binding,
@@ -621,7 +631,7 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         private static string GetFinalProxyPath(
-            BlendShareBoneProxyLookup.ResolvedBinding binding,
+            ResolvedBinding binding,
             Transform pathRoot,
             string boneName)
         {
@@ -635,8 +645,8 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         private static bool AreEquivalentBoneProxies(
-            BlendShareBoneProxyLookup.ResolvedBinding first,
-            BlendShareBoneProxyLookup.ResolvedBinding second,
+            ResolvedBinding first,
+            ResolvedBinding second,
             Transform pathRoot)
         {
             if (first.Component == null || second.Component == null ||
@@ -686,7 +696,7 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         private static Transform ResolveEffectiveProxyParent(
-            BlendShareBoneProxyLookup.ResolvedBinding binding,
+            ResolvedBinding binding,
             Transform pathRoot)
         {
             var parent = binding.EffectiveParent;
@@ -700,7 +710,7 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         private static void GetEffectiveProxyTransform(
-            BlendShareBoneProxyLookup.ResolvedBinding binding,
+            ResolvedBinding binding,
             out Vector3 position,
             out Vector3 rotation,
             out Vector3 scale)
@@ -723,7 +733,7 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         private static bool ValidateBinding(
-            BlendShareBoneProxyLookup.ResolvedBinding binding,
+            ResolvedBinding binding,
             Transform avatarRoot,
             out string diagnostic)
         {
@@ -776,7 +786,7 @@ namespace Triturbo.BlendShare.NDMF
             return string.Join("/", indices);
         }
 
-        private static string GetBindingOrder(BlendShareBoneProxyLookup.ResolvedBinding binding)
+        private static string GetBindingOrder(ResolvedBinding binding)
         {
             int bindingIndex = -1;
             if (binding.Component != null)
@@ -792,6 +802,52 @@ namespace Triturbo.BlendShare.NDMF
             }
 
             return $"{GetHierarchyOrder(binding.Component != null ? binding.Component.transform : null)}/{bindingIndex:D8}";
+        }
+
+        internal readonly struct ResolvedBinding
+        {
+            public ResolvedBinding(BlendShareBoneProxy component, BlendShareBoneProxyBinding binding)
+            {
+                Component = component;
+                Binding = binding;
+            }
+
+            public BlendShareBoneProxy Component { get; }
+            public BlendShareBoneProxyBinding Binding { get; }
+            public Transform FinalTransform => Binding?.Transform;
+            public Transform EffectiveParent => Component?.GetEffectiveParent(Binding);
+            public string SourceBonePath => Binding?.SourceBonePath;
+        }
+
+        private readonly struct SourceKey : IEquatable<SourceKey>
+        {
+            private readonly FbxArmatureObject armature;
+            private readonly string sourceBonePath;
+
+            public SourceKey(FbxArmatureObject armature, string sourceBonePath)
+            {
+                this.armature = armature;
+                this.sourceBonePath = MeshNodePath.NormalizeOptional(sourceBonePath);
+            }
+
+            public bool Equals(SourceKey other)
+            {
+                return ReferenceEquals(armature, other.armature) && sourceBonePath == other.sourceBonePath;
+            }
+
+            public override bool Equals(object obj)
+            {
+                return obj is SourceKey other && Equals(other);
+            }
+
+            public override int GetHashCode()
+            {
+                unchecked
+                {
+                    return ((armature != null ? armature.GetInstanceID() : 0) * 397) ^
+                           (sourceBonePath != null ? sourceBonePath.GetHashCode() : 0);
+                }
+            }
         }
 
         private sealed class BoneMergeState

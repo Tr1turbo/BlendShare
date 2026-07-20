@@ -8,6 +8,7 @@ using UnityEngine;
 using Object = UnityEngine.Object;
 
 #if UNITY_EDITOR
+using Triturbo.BlendShare.Editor;
 using UnityEditor;
 #if UNITY_2021_2_OR_NEWER
 using UnityEditor.SceneManagement;
@@ -169,6 +170,9 @@ namespace Triturbo.BlendShare.Components
     public class AvatarObjectReference
     {
         private static long s_HierarchyChangedSequence = long.MinValue;
+#if UNITY_EDITOR
+        private static IDisposable s_EditorChangeSubscription;
+#endif
 
         public const string AvatarRoot = "$$$AVATAR_ROOT$$$";
 
@@ -190,13 +194,18 @@ namespace Triturbo.BlendShare.Components
         [InitializeOnLoadMethod]
         private static void Initialize()
         {
-            EditorApplication.hierarchyChanged -= OnHierarchyChanged;
-            EditorApplication.hierarchyChanged += OnHierarchyChanged;
+            s_EditorChangeSubscription?.Dispose();
+            s_EditorChangeSubscription = BlendShareEditorChangeEvents.Subscribe(
+                BlendShareEditorChangeKind.Hierarchy,
+                OnEditorChanged);
         }
 
-        private static void OnHierarchyChanged()
+        private static void OnEditorChanged(BlendShareEditorChange change)
         {
-            s_HierarchyChangedSequence++;
+            if ((change.Kinds & BlendShareEditorChangeKind.Hierarchy) != 0)
+            {
+                s_HierarchyChangedSequence++;
+            }
         }
 
         public static GameObject Get(SerializedProperty property)

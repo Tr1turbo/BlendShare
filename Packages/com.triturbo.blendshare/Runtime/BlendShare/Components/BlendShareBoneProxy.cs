@@ -24,9 +24,12 @@ namespace Triturbo.BlendShare.Components
         /// </summary>
         public string SourceBonePath
         {
-            get => MeshNodePath.Normalize(m_SourceBonePath);
-            set => m_SourceBonePath = MeshNodePath.Normalize(value);
+            get => MeshNodePath.NormalizeOptional(m_SourceBonePath);
+            set => m_SourceBonePath = MeshNodePath.NormalizeOptional(value);
         }
+
+        /// <summary>Gets whether this binding has a source path and a final transform.</summary>
+        public bool IsConfigured => !string.IsNullOrEmpty(SourceBonePath) && Transform != null;
 
         /// <summary>
         /// Gets or sets the final avatar Transform for this source bone.
@@ -111,8 +114,16 @@ namespace Triturbo.BlendShare.Components
         /// </summary>
         public string SourceBonePath
         {
-            get => MeshNodePath.Normalize(m_SourceBonePath);
-            set => m_SourceBonePath = MeshNodePath.Normalize(value);
+            get => MeshNodePath.NormalizeOptional(m_SourceBonePath);
+            set
+            {
+                string normalizedPath = MeshNodePath.NormalizeOptional(value);
+                m_SourceBonePath = normalizedPath;
+                if (m_LegacyBinding[0] != null)
+                {
+                    m_LegacyBinding[0].SourceBonePath = m_SourceBonePath;
+                }
+            }
         }
 
         /// <summary>
@@ -192,6 +203,13 @@ namespace Triturbo.BlendShare.Components
             }
         }
 
+        /// <summary>Assigns the complete source identity for a legacy single-binding proxy.</summary>
+        public void SetLegacySourceBinding(FbxArmatureObject sourceArmature, string sourceBonePath)
+        {
+            SourceArmature = sourceArmature;
+            SourceBonePath = sourceBonePath;
+        }
+
         /// <summary>
         /// Gets whether this component contains serialized multi-bone bindings.
         /// </summary>
@@ -218,17 +236,42 @@ namespace Triturbo.BlendShare.Components
             return binding;
         }
 
+        /// <summary>Updates one proxy binding.</summary>
+        public void UpdateBinding(
+            BlendShareBoneProxyBinding binding,
+            string sourceBonePath,
+            Transform finalTransform)
+        {
+            if (binding == null)
+            {
+                return;
+            }
+
+            binding.SourceBonePath = sourceBonePath;
+            binding.Transform = finalTransform;
+            if (!HasExplicitBindings && finalTransform == transform)
+            {
+                m_SourceBonePath = binding.SourceBonePath;
+            }
+        }
+
         /// <summary>
         /// Finds the last binding for a source path, matching inspector precedence.
         /// </summary>
         public bool TryGetBinding(string sourceBonePath, out BlendShareBoneProxyBinding binding)
         {
-            string normalizedPath = MeshNodePath.Normalize(sourceBonePath);
+            string normalizedPath = MeshNodePath.NormalizeOptional(sourceBonePath);
+            if (string.IsNullOrEmpty(normalizedPath))
+            {
+                binding = null;
+                return false;
+            }
+
             var bindings = Bindings;
             for (int i = bindings.Count - 1; i >= 0; i--)
             {
                 var candidate = bindings[i];
-                if (candidate != null && candidate.SourceBonePath == normalizedPath)
+                if (candidate?.IsConfigured == true && candidate.SourceBonePath == normalizedPath)
                 {
                     binding = candidate;
                     return true;
@@ -428,7 +471,7 @@ namespace Triturbo.BlendShare.Components
 
         private void OnValidate()
         {
-            m_SourceBonePath = MeshNodePath.Normalize(m_SourceBonePath);
+            m_SourceBonePath = MeshNodePath.NormalizeOptional(m_SourceBonePath);
             if (m_Bindings != null)
             {
                 foreach (var binding in m_Bindings)

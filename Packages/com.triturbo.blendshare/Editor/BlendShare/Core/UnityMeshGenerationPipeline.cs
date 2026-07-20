@@ -143,6 +143,35 @@ namespace Triturbo.BlendShare.Core
             IEnumerable<BlendShareObject> appliedPatches = null,
             IBlendShareProgress progress = null)
         {
+            return CreateArtifactFromComponents(
+                targetRoot,
+                components,
+                appliedPatches,
+                progress,
+                false);
+        }
+
+        internal BlendShareArtifact CreateArtifactFromPreparedComponents(
+            GameObject targetRoot,
+            IEnumerable<BlendShareComponent> components,
+            IEnumerable<BlendShareObject> appliedPatches = null,
+            IBlendShareProgress progress = null)
+        {
+            return CreateArtifactFromComponents(
+                targetRoot,
+                components,
+                appliedPatches,
+                progress,
+                true);
+        }
+
+        private BlendShareArtifact CreateArtifactFromComponents(
+            GameObject targetRoot,
+            IEnumerable<BlendShareComponent> components,
+            IEnumerable<BlendShareObject> appliedPatches,
+            IBlendShareProgress progress,
+            bool proxiesPrepared)
+        {
             LastDiagnostic = null;
             progress = BlendShareProgressUtility.Resolve(progress);
             if (targetRoot == null)
@@ -177,6 +206,20 @@ namespace Triturbo.BlendShare.Core
                     .Where(IsUsableMeshComponent)
                     .OrderBy(component => GetHierarchyOrder(component.transform)))
                 .ToArray();
+            IEnumerable<BlendShareBoneProxy> preparedProxies;
+            if (proxiesPrepared)
+            {
+                preparedProxies = componentList
+                    .OfType<BlendShareBoneProxy>()
+                    .Where(proxy => proxy != null && proxy.isActiveAndEnabled)
+                    .Distinct()
+                    .ToArray();
+            }
+            else
+            {
+                preparedProxies = targetRoot.GetComponentsInChildren<BlendShareBoneProxy>(true);
+            }
+            BlendShareMesh.RefreshBoneProxyCaches(meshComponents, targetRoot.transform, preparedProxies);
             try
             {
                 for (int meshStep = 0; meshStep < meshComponents.Length; meshStep++)
@@ -197,6 +240,7 @@ namespace Triturbo.BlendShare.Core
                         GetGenerationProgress(meshStep + 1, meshComponents.Length),
                         true);
 
+                    var meshPassComponents = GetComponentsForMeshPass(meshComponent);
                     GenerateMesh(
                         session,
                         targetLookup,
@@ -207,7 +251,7 @@ namespace Triturbo.BlendShare.Core
                         rendererPath,
                         renderer,
                         targetMesh,
-                        GetComponentsForMeshPass(componentList, meshComponent),
+                        meshPassComponents,
                         GetComponentMapping(meshComponent, meshComponent.MeshData));
                     if (!string.IsNullOrEmpty(session.FatalDiagnostic))
                     {
@@ -625,7 +669,6 @@ namespace Triturbo.BlendShare.Core
         }
 
         private static IReadOnlyList<BlendShareComponent> GetComponentsForMeshPass(
-            IEnumerable<BlendShareComponent> components,
             BlendShareMesh meshComponent)
         {
             var result = new List<BlendShareComponent>();
@@ -637,14 +680,13 @@ namespace Triturbo.BlendShare.Core
             var skin = meshComponent?.MeshData?.GetFeature<SkinWeightFeatureObject>();
             if (skin?.Armature != null)
             {
-                var requiredPaths = new HashSet<string>(skin.GetNeededBonePathsInArmatureOrder()
-                    .Select(MeshNodePath.Normalize));
-                result.AddRange((components ?? Array.Empty<BlendShareComponent>())
-                    .OfType<BlendShareBoneProxy>()
-                    .Where(proxy => proxy != null &&
-                                    proxy.SourceArmature == skin.Armature &&
-                                    proxy.Bindings.Any(binding =>
-                                        binding != null && requiredPaths.Contains(binding.SourceBonePath))));
+                foreach (string sourceBonePath in skin.GetNeededBonePathsInArmatureOrder())
+                {
+                    if (meshComponent.TryGetCachedBoneProxy(sourceBonePath, out var proxy))
+                    {
+                        result.Add(proxy);
+                    }
+                }
             }
 
             return result

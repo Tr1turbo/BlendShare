@@ -85,7 +85,7 @@ namespace Triturbo.BlendShare.NDMF
                     out string proxyDiagnostic,
                     out var conflictingProxy))
             {
-                ReportFailure("BlendShare bone proxy paths conflict.", proxyDiagnostic, conflictingProxy);
+                ReportFailure("BlendShare bone proxy setup is invalid.", proxyDiagnostic, conflictingProxy);
                 return;
             }
 
@@ -117,7 +117,8 @@ namespace Triturbo.BlendShare.NDMF
                 var artifact = BlendShareArtifactService.CreateInMemoryArtifact(
                     context.AvatarRootObject,
                     generationComponents,
-                    out string generationDiagnostic);
+                    out string generationDiagnostic,
+                    true);
                 if (artifact == null)
                 {
                     ReportFailure(
@@ -323,7 +324,7 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         private static void PlaceProxyInBuildHierarchy(
-            BlendShareBoneProxyLookup.ResolvedBinding binding,
+            BlendShareBoneMergePass.ResolvedBinding binding,
             Transform fallbackRoot,
             ObjectPathRemapper pathRemapper)
         {

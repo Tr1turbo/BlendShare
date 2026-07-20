@@ -472,6 +472,9 @@ namespace Triturbo.BlendShare.Core
         /// <param name="workingMesh">Mutable mesh instance that generators update.</param>
         /// <param name="targetRenderer">Target renderer for GameObject-backed generation, when available.</param>
         /// <param name="targetRootTransform">Target avatar/root transform for scene-backed generation, when available.</param>
+        /// <param name="meshKey">Stable key for the generated mesh.</param>
+        /// <param name="components">Authoring components participating in this mesh pass.</param>
+        /// <param name="mappingOverrides">Compatible vertex mappings that override stored mappings.</param>
         public UnityMeshGenerationContext(
             UnityMeshGenerationSession session,
             BlendShareObject patch,

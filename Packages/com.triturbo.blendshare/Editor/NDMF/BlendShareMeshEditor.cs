@@ -4,6 +4,7 @@ using System.Linq;
 using Triturbo.BlendShapeShare;
 using Triturbo.BlendShare.Components;
 using Triturbo.BlendShare.Core;
+using Triturbo.BlendShare.Editor;
 using Triturbo.BlendShare.Features.SkinWeights;
 using Triturbo.BlendShare.Inspector;
 using UnityEditor;
@@ -16,12 +17,39 @@ namespace Triturbo.BlendShare.NDMF
     {
         private readonly Dictionary<string, BlendShapeWeightSyncState> blendShapeWeightSyncStates = new();
         private bool boneProxiesExpanded = true;
+        private bool boneProxyCacheDirty = true;
+        private IDisposable boneProxyChangeSubscription;
         private double skipMappingValidationUntil;
 
         static BlendShareMeshEditor()
         {
             EditorApplication.contextualPropertyMenu -= AddBlendShapeAnimationMenuItems;
             EditorApplication.contextualPropertyMenu += AddBlendShapeAnimationMenuItems;
+        }
+
+        private void OnEnable()
+        {
+            boneProxyCacheDirty = true;
+            boneProxyChangeSubscription = BlendShareEditorChangeEvents.Subscribe(
+                BlendShareEditorChangeKind.Hierarchy |
+                BlendShareEditorChangeKind.SerializedObject |
+                BlendShareEditorChangeKind.Explicit,
+                OnEditorChanged,
+                typeof(BlendShareMesh),
+                typeof(BlendShareBoneProxy),
+                typeof(SkinnedMeshRenderer));
+        }
+
+        private void OnDisable()
+        {
+            boneProxyChangeSubscription?.Dispose();
+            boneProxyChangeSubscription = null;
+        }
+
+        private void OnEditorChanged(BlendShareEditorChange change)
+        {
+            boneProxyCacheDirty = true;
+            Repaint();
         }
 
         public override void OnInspectorGUI()
@@ -96,6 +124,10 @@ namespace Triturbo.BlendShare.NDMF
             if (serializedObject.ApplyModifiedProperties())
             {
                 // Mesh-data and renderer edits can change the required cache entry.
+                boneProxyCacheDirty = true;
+                BlendShareEditorChangeEvents.NotifyChanged(
+                    BlendShareEditorChangeKind.Explicit,
+                    applier);
                 BlendShareComponentSetupService.TryResolveMeshApplierMappingReference(applier, out _);
             }
 
@@ -119,6 +151,11 @@ namespace Triturbo.BlendShare.NDMF
             }
 
             var targetRoot = ResolveProxyTargetRoot(applier);
+            if (boneProxyCacheDirty)
+            {
+                RefreshBoneProxyCache(applier, targetRoot);
+                boneProxyCacheDirty = targetRoot == null;
+            }
             var entries = GetBoneProxyEntries(applier, skin, targetRoot);
 
             EditorGUILayout.Space();
@@ -183,6 +220,10 @@ namespace Triturbo.BlendShare.NDMF
                 new[] { applier },
                 targetRoot,
                 placementParent);
+            boneProxyCacheDirty = targetRoot == null;
+            BlendShareEditorChangeEvents.NotifyChanged(
+                BlendShareEditorChangeKind.Explicit,
+                applier);
             Undo.CollapseUndoOperations(undoGroup);
 
             foreach (string diagnostic in result.Diagnostics)
@@ -218,10 +259,6 @@ namespace Triturbo.BlendShare.NDMF
                     .Where(bone => bone != null)
                     .Select(bone => MeshNodePath.Normalize(MeshNodePath.GetRelativePath(bone, targetRoot))))
                 : new HashSet<string>();
-            var proxyLookup = BlendShareBoneProxyLookup.Create(
-                targetRoot != null
-                    ? targetRoot.GetComponentsInChildren<BlendShareBoneProxy>(true)
-                    : Array.Empty<BlendShareBoneProxy>());
             var entries = new List<(string BonePath, BlendShareBoneProxy Proxy, bool CanCreate)>();
 
             foreach (string bonePath in skin.GetNeededBonePathsInArmatureOrder())
@@ -231,7 +268,7 @@ namespace Triturbo.BlendShare.NDMF
                     continue;
                 }
 
-                proxyLookup.TryGet(skin.Armature, bonePath, out var proxy);
+                applier.TryGetCachedBoneProxy(bonePath, out var proxy);
                 entries.Add((
                     bonePath,
                     proxy,
@@ -239,6 +276,20 @@ namespace Triturbo.BlendShare.NDMF
             }
 
             return entries;
+        }
+
+        private static void RefreshBoneProxyCache(
+            BlendShareMesh applier,
+            Transform targetRoot)
+        {
+            if (applier == null || targetRoot == null)
+            {
+                return;
+            }
+
+            applier.RefreshBoneProxyCache(
+                targetRoot,
+                targetRoot.GetComponentsInChildren<BlendShareBoneProxy>(true));
         }
 
         /// <inheritdoc />

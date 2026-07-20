@@ -30,6 +30,12 @@ namespace Triturbo.BlendShare.Core
             return string.IsNullOrEmpty(normalized) ? Root : normalized;
         }
 
+        /// <summary>Normalizes an optional node path, returning an empty string only when it is unset or whitespace.</summary>
+        public static string NormalizeOptional(string path)
+        {
+            return string.IsNullOrWhiteSpace(path) ? string.Empty : Normalize(path);
+        }
+
         public static string ToFbxPath(string path)
         {
             string normalized = Normalize(path);

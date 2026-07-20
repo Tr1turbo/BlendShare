@@ -225,7 +225,8 @@ namespace Triturbo.BlendShare.NDMF
                     artifact = BlendShareArtifactService.CreateInMemoryArtifact(
                         sourceRoot != null ? sourceRoot.gameObject : originalRenderer.transform.root.gameObject,
                         generationComponents,
-                        out generationDiagnostic);
+                        out generationDiagnostic,
+                        true);
                 }
                 finally
                 {
