@@ -159,8 +159,7 @@ namespace Triturbo.BlendShare.NDMF
 
             foreach (var source in GetRequiredBoneProxySources(appliers, pathRoot))
             {
-                if (!source.Applier.TryGetCachedBoneProxy(source.Path, out var proxy) ||
-                    !proxy.TryGetBinding(source.Path, out var sourceBinding))
+                if (!source.Applier.TryGetCachedBone(source.Path, out var resolved))
                 {
                     diagnostic = $"No BlendShare bone proxy represents source bone '{source.Path}'.";
                     resolvedBindings = selected;
@@ -169,9 +168,7 @@ namespace Triturbo.BlendShare.NDMF
                     return false;
                 }
 
-                var binding = new ResolvedBinding(
-                    proxy,
-                    sourceBinding);
+                var binding = new ResolvedBinding(resolved.Proxy, resolved.Binding);
 
                 if (!ValidateBinding(binding, pathRoot, out diagnostic))
                 {
@@ -373,7 +370,6 @@ namespace Triturbo.BlendShare.NDMF
             proxy.SourceArmature = source.Component.SourceArmature;
             proxy.TargetParent = source.EffectiveParent;
             proxy.UseHierarchyParent = false;
-            proxy.RecalculateBindpose = source.Component.RecalculateBindpose;
             proxy.transform.position = source.FinalTransform.position;
             proxy.transform.rotation = source.FinalTransform.rotation;
             proxy.transform.localScale = source.FinalTransform.lossyScale;
@@ -635,13 +631,9 @@ namespace Triturbo.BlendShare.NDMF
             Transform pathRoot,
             string boneName)
         {
-            var parent = ResolveEffectiveProxyParent(binding, pathRoot);
-            string parentPath = parent != null
-                ? MeshNodePath.Normalize(MeshNodePath.GetRelativePath(parent, pathRoot))
-                : MeshNodePath.Root;
-            return parentPath == MeshNodePath.Root
-                ? MeshNodePath.Normalize(boneName)
-                : MeshNodePath.Normalize($"{parentPath}/{boneName}");
+            return binding.Component != null
+                ? binding.Component.GetFinalPath(binding.Binding, pathRoot, boneName)
+                : MeshNodePath.Normalize(boneName);
         }
 
         private static bool AreEquivalentBoneProxies(
@@ -652,8 +644,7 @@ namespace Triturbo.BlendShare.NDMF
             if (first.Component == null || second.Component == null ||
                 ResolveEffectiveProxyParent(first, pathRoot) != ResolveEffectiveProxyParent(second, pathRoot) ||
                 first.FinalTransform == null || second.FinalTransform == null ||
-                first.FinalTransform.name != second.FinalTransform.name ||
-                first.Component.RecalculateBindpose != second.Component.RecalculateBindpose)
+                first.FinalTransform.name != second.FinalTransform.name)
             {
                 return false;
             }
@@ -721,15 +712,9 @@ namespace Triturbo.BlendShare.NDMF
                 return;
             }
 
-            position = binding.Component != null && !binding.Component.HasExplicitBindings
-                ? binding.Component.LocalPosition
-                : Vector3.zero;
-            rotation = binding.Component != null && !binding.Component.HasExplicitBindings
-                ? binding.Component.LocalEulerRotation
-                : Vector3.zero;
-            scale = binding.Component != null && !binding.Component.HasExplicitBindings
-                ? binding.Component.LocalScale
-                : Vector3.one;
+            position = Vector3.zero;
+            rotation = Vector3.zero;
+            scale = Vector3.one;
         }
 
         private static bool ValidateBinding(

@@ -682,9 +682,9 @@ namespace Triturbo.BlendShare.Core
             {
                 foreach (string sourceBonePath in skin.GetNeededBonePathsInArmatureOrder())
                 {
-                    if (meshComponent.TryGetCachedBoneProxy(sourceBonePath, out var proxy))
+                    if (meshComponent.TryGetCachedBone(sourceBonePath, out var resolved))
                     {
-                        result.Add(proxy);
+                        result.Add(resolved.Proxy);
                     }
                 }
             }

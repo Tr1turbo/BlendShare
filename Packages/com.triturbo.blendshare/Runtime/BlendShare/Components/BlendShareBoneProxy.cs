@@ -65,34 +65,13 @@ namespace Triturbo.BlendShare.Components
         private FbxArmatureObject m_SourceArmature;
 
         [SerializeField, NotKeyable]
-        private string m_SourceBonePath;
-
-        [SerializeField, NotKeyable]
         private AvatarObjectReference<Transform> m_TargetParentReference = new();
 
         [SerializeField, NotKeyable]
         private bool m_UseHierarchyParent;
 
-        [SerializeField, HideInInspector, NotKeyable]
-        private Vector3 m_LocalPosition;
-
-        [SerializeField, HideInInspector, NotKeyable]
-        private Vector3 m_LocalEulerRotation;
-
-        [SerializeField, HideInInspector, NotKeyable]
-        private Vector3 m_LocalScale = Vector3.one;
-
-        [SerializeField, NotKeyable]
-        private bool m_RecalculateBindpose;
-
         [SerializeField, NotKeyable]
         private List<BlendShareBoneProxyBinding> m_Bindings = new();
-
-        [NonSerialized]
-        private readonly BlendShareBoneProxyBinding[] m_LegacyBinding = new BlendShareBoneProxyBinding[1];
-
-        [NonSerialized]
-        private ParentingTransformCache m_LegacyParentingCache = new();
 
         [NonSerialized]
         private Dictionary<Transform, ParentingTransformCache> m_BindingParentingCaches = new();
@@ -107,23 +86,6 @@ namespace Triturbo.BlendShare.Components
         {
             get => m_SourceArmature;
             set => m_SourceArmature = value;
-        }
-
-        /// <summary>
-        /// Gets or sets the legacy single-binding source bone path.
-        /// </summary>
-        public string SourceBonePath
-        {
-            get => MeshNodePath.NormalizeOptional(m_SourceBonePath);
-            set
-            {
-                string normalizedPath = MeshNodePath.NormalizeOptional(value);
-                m_SourceBonePath = normalizedPath;
-                if (m_LegacyBinding[0] != null)
-                {
-                    m_LegacyBinding[0].SourceBonePath = m_SourceBonePath;
-                }
-            }
         }
 
         /// <summary>
@@ -146,77 +108,16 @@ namespace Triturbo.BlendShare.Components
             set
             {
                 m_UseHierarchyParent = value;
-                EnsureLegacyParentingCache().HasSnapshot = false;
                 EnsureBindingParentingCaches().Clear();
             }
         }
 
-        /// <summary>
-        /// Gets the parent that defines this proxy's local transform and final build hierarchy.
-        /// </summary>
-        public Transform EffectiveParent => UseHierarchyParent ? transform.parent : TargetParent;
-
-        /// <summary>Gets or sets the legacy single-binding local position snapshot.</summary>
-        public Vector3 LocalPosition
-        {
-            get => m_LocalPosition;
-            set => m_LocalPosition = value;
-        }
-
-        /// <summary>Gets or sets the legacy single-binding local Euler rotation snapshot.</summary>
-        public Vector3 LocalEulerRotation
-        {
-            get => m_LocalEulerRotation;
-            set => m_LocalEulerRotation = value;
-        }
-
-        /// <summary>Gets or sets the legacy single-binding local scale snapshot.</summary>
-        public Vector3 LocalScale
-        {
-            get => m_LocalScale == Vector3.zero ? Vector3.one : m_LocalScale;
-            set => m_LocalScale = value == Vector3.zero ? Vector3.one : value;
-        }
-
-        /// <summary>Gets or sets whether bind poses are recalculated from mapped final transforms.</summary>
-        public bool RecalculateBindpose
-        {
-            get => m_RecalculateBindpose;
-            set => m_RecalculateBindpose = value;
-        }
+        /// <summary>Gets the serialized source-to-transform bindings.</summary>
+        public IReadOnlyList<BlendShareBoneProxyBinding> Bindings =>
+            m_Bindings ??= new List<BlendShareBoneProxyBinding>();
 
         /// <summary>
-        /// Gets the explicit bindings, or a transient legacy binding when no explicit bindings are serialized.
-        /// </summary>
-        public IReadOnlyList<BlendShareBoneProxyBinding> Bindings
-        {
-            get
-            {
-                if (m_Bindings != null && m_Bindings.Count > 0)
-                {
-                    return m_Bindings;
-                }
-
-                m_LegacyBinding[0] ??= new BlendShareBoneProxyBinding();
-                m_LegacyBinding[0].SourceBonePath = SourceBonePath;
-                m_LegacyBinding[0].Transform = transform;
-                return m_LegacyBinding;
-            }
-        }
-
-        /// <summary>Assigns the complete source identity for a legacy single-binding proxy.</summary>
-        public void SetLegacySourceBinding(FbxArmatureObject sourceArmature, string sourceBonePath)
-        {
-            SourceArmature = sourceArmature;
-            SourceBonePath = sourceBonePath;
-        }
-
-        /// <summary>
-        /// Gets whether this component contains serialized multi-bone bindings.
-        /// </summary>
-        public bool HasExplicitBindings => m_Bindings != null && m_Bindings.Count > 0;
-
-        /// <summary>
-        /// Replaces the explicit binding list without modifying legacy fallback fields.
+        /// Replaces the serialized binding list.
         /// </summary>
         public void SetBindings(IEnumerable<BlendShareBoneProxyBinding> bindings)
         {
@@ -249,10 +150,6 @@ namespace Triturbo.BlendShare.Components
 
             binding.SourceBonePath = sourceBonePath;
             binding.Transform = finalTransform;
-            if (!HasExplicitBindings && finalTransform == transform)
-            {
-                m_SourceBonePath = binding.SourceBonePath;
-            }
         }
 
         /// <summary>
@@ -307,6 +204,74 @@ namespace Triturbo.BlendShare.Components
             }
 
             return UseHierarchyParent ? finalTransform.parent : TargetParent;
+        }
+
+        /// <summary>Gets the build-time path for a binding under the supplied avatar root.</summary>
+        public string GetFinalPath(
+            BlendShareBoneProxyBinding binding,
+            Transform avatarRoot,
+            string finalBoneName = null)
+        {
+            return GetFinalPath(
+                binding,
+                avatarRoot,
+                finalBoneName,
+                new HashSet<BlendShareBoneProxyBinding>());
+        }
+
+        private string GetFinalPath(
+            BlendShareBoneProxyBinding binding,
+            Transform avatarRoot,
+            string finalBoneName,
+            ISet<BlendShareBoneProxyBinding> visitedBindings)
+        {
+            var finalTransform = GetFinalTransform(binding);
+            string boneName = string.IsNullOrEmpty(finalBoneName)
+                ? finalTransform != null ? finalTransform.name : string.Empty
+                : finalBoneName;
+            if (binding == null || !visitedBindings.Add(binding))
+            {
+                return MeshNodePath.Normalize(boneName);
+            }
+
+            BlendShareBoneProxyBinding parentBinding = null;
+            var bindings = Bindings;
+            for (int i = bindings.Count - 1; i >= 0; i--)
+            {
+                var candidate = bindings[i];
+                if (candidate != null &&
+                    candidate != binding &&
+                    candidate.Transform == finalTransform?.parent)
+                {
+                    parentBinding = candidate;
+                    break;
+                }
+            }
+            if (parentBinding != null)
+            {
+                string parentBindingPath = GetFinalPath(
+                    parentBinding,
+                    avatarRoot,
+                    null,
+                    visitedBindings);
+                return parentBindingPath == MeshNodePath.Root
+                    ? MeshNodePath.Normalize(boneName)
+                    : MeshNodePath.Normalize($"{parentBindingPath}/{boneName}");
+            }
+
+            var parent = GetEffectiveParent(binding);
+            if (avatarRoot != null &&
+                (parent == null || (parent != avatarRoot && !parent.IsChildOf(avatarRoot))))
+            {
+                parent = avatarRoot;
+            }
+
+            string parentPath = parent != null && avatarRoot != null
+                ? MeshNodePath.Normalize(MeshNodePath.GetRelativePath(parent, avatarRoot))
+                : MeshNodePath.Root;
+            return parentPath == MeshNodePath.Root
+                ? MeshNodePath.Normalize(boneName)
+                : MeshNodePath.Normalize($"{parentPath}/{boneName}");
         }
 
         /// <summary>
@@ -375,85 +340,6 @@ namespace Triturbo.BlendShare.Components
             return true;
         }
 
-        /// <summary>Gets the cached editor-following local position.</summary>
-        public Vector3 ParentingLocalPosition => EnsureLegacyParentingCache().LocalPosition;
-        /// <summary>Gets the cached editor-following local Euler rotation.</summary>
-        public Vector3 ParentingLocalEulerRotation => EnsureLegacyParentingCache().LocalEulerRotation;
-        /// <summary>Gets the cached editor-following local scale.</summary>
-        public Vector3 ParentingLocalScale => EnsureLegacyParentingCache().LocalScale == Vector3.zero
-            ? Vector3.one
-            : EnsureLegacyParentingCache().LocalScale;
-
-        /// <summary>Gets the legacy bind-pose world transform.</summary>
-        public bool TryGetBindPoseWorldTransform(
-            out Vector3 position,
-            out Quaternion rotation,
-            out Vector3 scale)
-        {
-            var parent = EffectiveParent;
-            if (parent == null)
-            {
-                position = default;
-                rotation = default;
-                scale = default;
-                return false;
-            }
-
-            position = parent.TransformPoint(LocalPosition);
-            rotation = parent.rotation * Quaternion.Euler(LocalEulerRotation);
-            scale = Vector3.Scale(parent.lossyScale, LocalScale);
-            return true;
-        }
-
-        /// <summary>Gets the legacy binding's current transform relative to its effective parent.</summary>
-        public bool TryGetCurrentLocalTransform(
-            out Vector3 position,
-            out Vector3 eulerRotation,
-            out Vector3 scale)
-        {
-            var parent = EffectiveParent;
-            if (parent == null)
-            {
-                position = default;
-                eulerRotation = default;
-                scale = default;
-                return false;
-            }
-
-            position = parent.InverseTransformPoint(transform.position);
-            eulerRotation = (Quaternion.Inverse(parent.rotation) * transform.rotation).eulerAngles;
-            scale = CalculateLocalScaleForWorldScale(parent, transform.lossyScale);
-            return true;
-        }
-
-        /// <summary>Resets the legacy single-binding transform to its stored bind pose.</summary>
-        public void ResetTransformToBindPose()
-        {
-            if (!TryGetBindPoseWorldTransform(out Vector3 position, out Quaternion rotation, out Vector3 scale))
-            {
-                return;
-            }
-
-            ApplyWorldTransform(position, rotation, scale);
-            RefreshParentingLocalFromCurrentTransform(EffectiveParent);
-            CacheSnapshot(EffectiveParent);
-        }
-
-        /// <summary>Captures the legacy single-binding transform as its bind-pose snapshot.</summary>
-        public bool CaptureBindingTransformFromCurrentTransform()
-        {
-            if (!TryGetCurrentLocalTransform(out var position, out var eulerRotation, out var scale))
-            {
-                return false;
-            }
-
-            LocalPosition = position;
-            LocalEulerRotation = eulerRotation;
-            LocalScale = scale;
-            RecalculateBindpose = true;
-            return true;
-        }
-
         /// <summary>
         /// Returns whether this proxy represents the specified armature bone.
         /// </summary>
@@ -462,16 +348,8 @@ namespace Triturbo.BlendShare.Components
             return SourceArmature == armature && TryGetBinding(sourceBonePath, out _);
         }
 
-        /// <summary>Gets whether the legacy single-binding transform is at its stored bind position.</summary>
-        public bool IsTransformAtBindPosition(float tolerance = 0.0001f)
-        {
-            return TryGetBindPoseWorldTransform(out Vector3 position, out _, out _) &&
-                   Vector3.Distance(transform.position, position) <= tolerance;
-        }
-
         private void OnValidate()
         {
-            m_SourceBonePath = MeshNodePath.NormalizeOptional(m_SourceBonePath);
             if (m_Bindings != null)
             {
                 foreach (var binding in m_Bindings)
@@ -483,15 +361,6 @@ namespace Triturbo.BlendShare.Components
                 }
             }
             EnsureTargetParentReferenceInitialized();
-            if (m_LocalScale == Vector3.zero)
-            {
-                m_LocalScale = Vector3.one;
-            }
-
-            if (EnsureLegacyParentingCache().LocalScale == Vector3.zero)
-            {
-                EnsureLegacyParentingCache().LocalScale = Vector3.one;
-            }
         }
 
         /// <summary>
@@ -506,51 +375,43 @@ namespace Triturbo.BlendShare.Components
 
             if (UseHierarchyParent)
             {
-                EnsureLegacyParentingCache().HasSnapshot = false;
                 EnsureBindingParentingCaches().Clear();
                 return;
             }
 
-            if (HasExplicitBindings)
+            var activeRoots = new HashSet<Transform>();
+            foreach (var binding in Bindings)
             {
-                var activeRoots = new HashSet<Transform>();
-                foreach (var binding in Bindings)
+                var finalTransform = GetFinalTransform(binding);
+                if (finalTransform == null || !IsRootBinding(binding))
                 {
-                    var finalTransform = GetFinalTransform(binding);
-                    if (finalTransform == null || !IsRootBinding(binding))
-                    {
-                        continue;
-                    }
-
-                    activeRoots.Add(finalTransform);
-                    var caches = EnsureBindingParentingCaches();
-                    if (!caches.TryGetValue(finalTransform, out var cache))
-                    {
-                        cache = new ParentingTransformCache();
-                        caches[finalTransform] = cache;
-                    }
-
-                    SynchronizeParentingTransform(finalTransform, GetEffectiveParent(binding), cache);
+                    continue;
                 }
 
-                var staleRoots = new List<Transform>();
-                foreach (var root in EnsureBindingParentingCaches().Keys)
+                activeRoots.Add(finalTransform);
+                var caches = EnsureBindingParentingCaches();
+                if (!caches.TryGetValue(finalTransform, out var cache))
                 {
-                    if (root == null || !activeRoots.Contains(root))
-                    {
-                        staleRoots.Add(root);
-                    }
+                    cache = new ParentingTransformCache();
+                    caches[finalTransform] = cache;
                 }
 
-                foreach (var staleRoot in staleRoots)
-                {
-                    EnsureBindingParentingCaches().Remove(staleRoot);
-                }
-
-                return;
+                SynchronizeParentingTransform(finalTransform, GetEffectiveParent(binding), cache);
             }
 
-            SynchronizeParentingTransform(transform, EffectiveParent, EnsureLegacyParentingCache());
+            var staleRoots = new List<Transform>();
+            foreach (var root in EnsureBindingParentingCaches().Keys)
+            {
+                if (root == null || !activeRoots.Contains(root))
+                {
+                    staleRoots.Add(root);
+                }
+            }
+
+            foreach (var staleRoot in staleRoots)
+            {
+                EnsureBindingParentingCaches().Remove(staleRoot);
+            }
         }
 
         private void SynchronizeParentingTransform(
@@ -624,11 +485,6 @@ namespace Triturbo.BlendShare.Components
             return Mathf.Abs(divisor) > 0.000001f ? value / divisor : value;
         }
 
-        private void RefreshParentingLocalFromCurrentTransform(Transform parent)
-        {
-            RefreshParentingLocalFromCurrentTransform(transform, parent, EnsureLegacyParentingCache());
-        }
-
         private static void RefreshParentingLocalFromCurrentTransform(
             Transform target,
             Transform parent,
@@ -653,11 +509,6 @@ namespace Triturbo.BlendShare.Components
             cache.HasSnapshot = true;
         }
 
-        private void ApplyParentingLocalToWorld(Transform parent)
-        {
-            ApplyParentingLocalToWorld(transform, parent, EnsureLegacyParentingCache());
-        }
-
         private void ApplyParentingLocalToWorld(
             Transform target,
             Transform parent,
@@ -673,11 +524,6 @@ namespace Triturbo.BlendShare.Components
             var localScale = cache.LocalScale == Vector3.zero ? Vector3.one : cache.LocalScale;
             var worldScale = Vector3.Scale(parent.lossyScale, localScale);
             ApplyWorldTransform(target, worldPosition, worldRotation, worldScale);
-        }
-
-        private void ApplyWorldTransform(Vector3 worldPosition, Quaternion worldRotation, Vector3 worldScale)
-        {
-            ApplyWorldTransform(transform, worldPosition, worldRotation, worldScale);
         }
 
         private void ApplyWorldTransform(
@@ -698,11 +544,6 @@ namespace Triturbo.BlendShare.Components
             }
         }
 
-        private void CacheSnapshot(Transform parent)
-        {
-            CacheSnapshot(transform, parent, EnsureLegacyParentingCache());
-        }
-
         private static void CacheSnapshot(
             Transform target,
             Transform parent,
@@ -713,11 +554,6 @@ namespace Triturbo.BlendShare.Components
             cache.WorldRotation = target.rotation;
             cache.WorldScale = target.lossyScale;
             cache.ParentMatrix = parent != null ? parent.localToWorldMatrix : Matrix4x4.identity;
-        }
-
-        private ParentingTransformCache EnsureLegacyParentingCache()
-        {
-            return m_LegacyParentingCache ??= new ParentingTransformCache();
         }
 
         private Dictionary<Transform, ParentingTransformCache> EnsureBindingParentingCaches()

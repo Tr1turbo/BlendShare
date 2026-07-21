@@ -15,8 +15,17 @@ namespace Triturbo.BlendShare.NDMF
     [CustomEditor(typeof(BlendShareMesh))]
     public sealed class BlendShareMeshEditor : UnityEditor.Editor
     {
+        private const float BoneColumnSpacing = 4f;
+        private const float BoneTrailingColumnWidth = 128f;
+        private const float BoneRestoreButtonWidth = 64f;
+        private const float BoneListIndent = 16f;
+        private const float BoneListPadding = 6f;
+        private const float BoneListRowSpacing = 2f;
+        private const float BoneRightGutter = 4f;
+
         private readonly Dictionary<string, BlendShapeWeightSyncState> blendShapeWeightSyncStates = new();
-        private bool boneProxiesExpanded = true;
+        private readonly Dictionary<int, bool> boneProxyExpanded = new();
+        private bool bonesExpanded = true;
         private bool boneProxyCacheDirty = true;
         private IDisposable boneProxyChangeSubscription;
         private double skipMappingValidationUntil;
@@ -83,7 +92,7 @@ namespace Triturbo.BlendShare.NDMF
                     new GUIContent(Localization.S("patch.mapping.display_name")));
             }
 
-            DrawBoneProxies(applier);
+            DrawBones(applier);
 
             bool changedBlendShapeWeight = DrawBlendShapeWeights(
                 applier,
@@ -142,7 +151,7 @@ namespace Triturbo.BlendShare.NDMF
             }
         }
 
-        private void DrawBoneProxies(BlendShareMesh applier)
+        private void DrawBones(BlendShareMesh applier)
         {
             var skin = applier.MeshData?.GetFeature<SkinWeightFeatureObject>();
             if (skin == null)
@@ -156,40 +165,34 @@ namespace Triturbo.BlendShare.NDMF
                 RefreshBoneProxyCache(applier, targetRoot);
                 boneProxyCacheDirty = targetRoot == null;
             }
-            var entries = GetBoneProxyEntries(applier, skin, targetRoot);
+            var entries = GetBoneEntries(applier, skin, targetRoot);
+            var proxyGroups = BuildBoneProxyGroups(applier, entries);
 
             EditorGUILayout.Space();
-            boneProxiesExpanded = EditorGUILayout.Foldout(
-                boneProxiesExpanded,
-                Localization.G("ndmf.mesh.bone_proxies"),
+            bonesExpanded = EditorGUILayout.Foldout(
+                bonesExpanded,
+                Localization.G("ndmf.mesh.armature"),
                 true);
-            if (!boneProxiesExpanded)
+            if (!bonesExpanded)
             {
                 return;
             }
 
             using (new EditorGUI.IndentLevelScope())
             {
-                if (entries.Count == 0)
+                if (proxyGroups.Count == 0)
                 {
                     EditorGUILayout.LabelField(Localization.S("common.none"), EditorStyles.miniLabel);
                 }
                 else
                 {
-                    using (new EditorGUI.DisabledScope(true))
+                    for (int i = 0; i < proxyGroups.Count; i++)
                     {
-                        foreach (var entry in entries)
-                        {
-                            EditorGUILayout.ObjectField(
-                                new GUIContent(MeshNodePath.LeafName(entry.BonePath), entry.BonePath),
-                                entry.Proxy,
-                                typeof(BlendShareBoneProxy),
-                                true);
-                        }
+                        DrawBoneProxyGroup(applier, proxyGroups[i]);
                     }
                 }
 
-                bool hasMissingProxy = entries.Any(entry => entry.Proxy == null && entry.CanCreate);
+                bool hasMissingProxy = entries.Any(entry => !entry.Resolved.IsResolved && entry.CanCreate);
                 if (hasMissingProxy)
                 {
                     EditorGUILayout.Space(2f);
@@ -201,6 +204,223 @@ namespace Triturbo.BlendShare.NDMF
                         }
                     }
                 }
+            }
+        }
+
+        private static IReadOnlyList<BoneProxyGroup> BuildBoneProxyGroups(
+            BlendShareMesh applier,
+            IReadOnlyList<BoneEntry> entries)
+        {
+            var groups = new List<BoneProxyGroup>();
+            var seenProxies = new HashSet<BlendShareBoneProxy>();
+            foreach (var entry in entries)
+            {
+                var proxy = entry.Resolved.Proxy;
+                if (!entry.Resolved.IsProxy || proxy == null || !seenProxies.Add(proxy))
+                {
+                    continue;
+                }
+
+                var group = new BoneProxyGroup(proxy);
+                foreach (var binding in proxy.Bindings)
+                {
+                    if (binding?.IsConfigured != true)
+                    {
+                        continue;
+                    }
+
+                    group.Entries.Add(new BoneEntry(
+                        binding.SourceBonePath,
+                        new BlendShareResolvedBone(proxy, binding),
+                        false,
+                        applier.TryGetBindPoseOverride(binding.SourceBonePath, out _)));
+                }
+
+                groups.Add(group);
+            }
+
+            return groups;
+        }
+
+        private void DrawBoneProxyGroup(
+            BlendShareMesh applier,
+            BoneProxyGroup group)
+        {
+            Rect rowRect = EditorGUILayout.GetControlRect();
+            const float foldoutWidth = 96f;
+            rowRect.xMax -= BoneRightGutter;
+            int proxyId = group.Proxy.GetInstanceID();
+            bool expanded = boneProxyExpanded.TryGetValue(proxyId, out bool storedExpanded) && storedExpanded;
+            var foldoutRect = new Rect(rowRect.x, rowRect.y, foldoutWidth, rowRect.height);
+            expanded = EditorGUI.Foldout(
+                foldoutRect,
+                expanded,
+                Localization.G("ndmf.mesh.bone_proxy"),
+                true);
+            boneProxyExpanded[proxyId] = expanded;
+
+            float contentRight = rowRect.xMax - BoneListPadding;
+            var buttonRect = new Rect(
+                contentRight - BoneTrailingColumnWidth,
+                rowRect.y,
+                BoneTrailingColumnWidth,
+                rowRect.height);
+            var proxyRect = new Rect(
+                foldoutRect.xMax,
+                rowRect.y,
+                Mathf.Max(0f, buttonRect.x - foldoutRect.xMax - BoneColumnSpacing),
+                rowRect.height);
+            using (new EditorGUI.DisabledScope(true))
+            {
+                EditorGUI.ObjectField(
+                    proxyRect,
+                    group.Proxy,
+                    typeof(BlendShareBoneProxy),
+                    true);
+            }
+
+            bool hasOverride = group.Entries.Any(entry => entry.HasBindPoseOverride);
+            using (new EditorGUI.DisabledScope(!hasOverride))
+            {
+                if (GUI.Button(
+                        buttonRect,
+                        new GUIContent(
+                            Localization.S("ndmf.mesh.restore_bindposes"),
+                            Localization.S("ndmf.mesh.restore_bindposes_tooltip"))))
+                {
+                    RestoreProxyBindPoses(applier, group);
+                }
+            }
+
+            if (!expanded)
+            {
+                return;
+            }
+
+            float rowHeight = EditorGUIUtility.singleLineHeight;
+            float listHeight = BoneListPadding * 2f +
+                               group.Entries.Count * rowHeight +
+                               Mathf.Max(0, group.Entries.Count - 1) * BoneListRowSpacing;
+            Rect listRect = EditorGUILayout.GetControlRect(false, listHeight);
+            listRect.xMin += BoneListIndent;
+            listRect.xMax -= BoneRightGutter;
+            GUI.Box(listRect, GUIContent.none, GUI.skin.box);
+
+            float rowY = listRect.y + BoneListPadding;
+            foreach (var entry in group.Entries)
+            {
+                DrawBoneProxyBinding(
+                    applier,
+                    entry,
+                    new Rect(
+                        listRect.x + BoneListPadding,
+                        rowY,
+                        Mathf.Max(0f, listRect.width - BoneListPadding * 2f),
+                        rowHeight));
+                rowY += rowHeight + BoneListRowSpacing;
+            }
+        }
+
+        private static void DrawBoneProxyBinding(
+            BlendShareMesh applier,
+            BoneEntry entry,
+            Rect rowRect)
+        {
+            string status = entry.HasBindPoseOverride
+                ? Localization.S("ndmf.mesh.bind_pose_custom")
+                : Localization.S("ndmf.mesh.bind_pose_source");
+            var trailingRect = new Rect(
+                rowRect.xMax - BoneTrailingColumnWidth,
+                rowRect.y,
+                BoneTrailingColumnWidth,
+                rowRect.height);
+            var restoreRect = new Rect(
+                trailingRect.x,
+                rowRect.y,
+                BoneRestoreButtonWidth,
+                rowRect.height);
+            var statusRect = new Rect(
+                restoreRect.xMax + BoneColumnSpacing,
+                rowRect.y,
+                Mathf.Max(0f, trailingRect.xMax - restoreRect.xMax - BoneColumnSpacing),
+                rowRect.height);
+            var contentRect = new Rect(
+                rowRect.x,
+                rowRect.y,
+                Mathf.Max(0f, trailingRect.x - rowRect.x - BoneColumnSpacing),
+                rowRect.height);
+            float pathWidth = Mathf.Clamp(contentRect.width * 0.34f, 90f, 200f);
+            pathWidth = Mathf.Min(pathWidth, contentRect.width);
+            var pathRect = new Rect(contentRect.x, contentRect.y, pathWidth, contentRect.height);
+            var transformRect = new Rect(
+                pathRect.xMax + BoneColumnSpacing,
+                contentRect.y,
+                Mathf.Max(0f, contentRect.xMax - pathRect.xMax - BoneColumnSpacing),
+                contentRect.height);
+
+            EditorGUI.LabelField(
+                pathRect,
+                new GUIContent(GetShortBonePath(entry.SourceBonePath), entry.SourceBonePath));
+            using (new EditorGUI.DisabledScope(true))
+            {
+                EditorGUI.ObjectField(
+                    transformRect,
+                    new GUIContent(string.Empty, Localization.S("ndmf.mesh.bone_transform_tooltip")),
+                    entry.Resolved.Transform,
+                    typeof(Transform),
+                    true);
+            }
+            using (new EditorGUI.DisabledScope(!entry.HasBindPoseOverride))
+            {
+                if (GUI.Button(
+                        restoreRect,
+                        new GUIContent(
+                            Localization.S("ndmf.mesh.restore"),
+                            Localization.S("ndmf.mesh.restore_tooltip"))))
+                {
+                    RestoreBoneBindPose(applier, entry);
+                }
+            }
+            EditorGUI.LabelField(statusRect, status, EditorStyles.miniLabel);
+        }
+
+        private static string GetShortBonePath(string sourceBonePath)
+        {
+            string normalizedPath = MeshNodePath.Normalize(sourceBonePath);
+            string[] parts = normalizedPath.Split('/');
+            if (parts.Length <= 2)
+            {
+                return normalizedPath;
+            }
+
+            return $".../{parts[^2]}/{parts[^1]}";
+        }
+
+        private static void RestoreBoneBindPose(
+            BlendShareMesh applier,
+            BoneEntry entry)
+        {
+            Undo.RecordObject(applier, "Restore BlendShare Source Bind Pose");
+            if (applier.RemoveBindPoseOverride(entry.SourceBonePath))
+            {
+                NotifyMeshChanged(applier);
+            }
+        }
+
+        private static void RestoreProxyBindPoses(
+            BlendShareMesh applier,
+            BoneProxyGroup group)
+        {
+            Undo.RecordObject(applier, "Restore BlendShare Source Bind Poses");
+            bool changed = false;
+            foreach (var entry in group.Entries)
+            {
+                changed |= applier.RemoveBindPoseOverride(entry.SourceBonePath);
+            }
+
+            if (changed)
+            {
+                NotifyMeshChanged(applier);
             }
         }
 
@@ -244,38 +464,67 @@ namespace Triturbo.BlendShare.NDMF
                    BlendShareComponentSetupService.ResolveTargetRoot(renderer, applier.MeshData);
         }
 
-        private static IReadOnlyList<(string BonePath, BlendShareBoneProxy Proxy, bool CanCreate)> GetBoneProxyEntries(
+        private static IReadOnlyList<BoneEntry> GetBoneEntries(
             BlendShareMesh applier,
             SkinWeightFeatureObject skin,
             Transform targetRoot)
         {
             if (applier.TargetRenderer == null || skin?.Armature == null)
             {
-                return Array.Empty<(string, BlendShareBoneProxy, bool)>();
+                return Array.Empty<BoneEntry>();
             }
 
-            var existingBonePaths = targetRoot != null
-                ? new HashSet<string>((applier.TargetRenderer.bones ?? Array.Empty<Transform>())
-                    .Where(bone => bone != null)
-                    .Select(bone => MeshNodePath.Normalize(MeshNodePath.GetRelativePath(bone, targetRoot))))
-                : new HashSet<string>();
-            var entries = new List<(string BonePath, BlendShareBoneProxy Proxy, bool CanCreate)>();
+            var entries = new List<BoneEntry>();
 
             foreach (string bonePath in skin.GetNeededBonePathsInArmatureOrder())
             {
-                if (existingBonePaths.Contains(bonePath))
-                {
-                    continue;
-                }
-
-                applier.TryGetCachedBoneProxy(bonePath, out var proxy);
-                entries.Add((
+                applier.TryGetCachedBone(bonePath, out var resolved);
+                entries.Add(new BoneEntry(
                     bonePath,
-                    proxy,
-                    skin.Armature.GetBone(bonePath)?.m_CreateIfMissing == true));
+                    resolved,
+                    skin.Armature.GetBone(bonePath)?.m_CreateIfMissing == true,
+                    applier.TryGetBindPoseOverride(bonePath, out _)));
             }
 
             return entries;
+        }
+
+        private static void NotifyMeshChanged(BlendShareMesh applier)
+        {
+            EditorUtility.SetDirty(applier);
+            BlendShareEditorChangeEvents.NotifyChanged(BlendShareEditorChangeKind.Explicit, applier);
+            SceneView.RepaintAll();
+        }
+
+        private sealed class BoneEntry
+        {
+            public BoneEntry(
+                string sourceBonePath,
+                BlendShareResolvedBone resolved,
+                bool canCreate,
+                bool hasBindPoseOverride)
+            {
+                SourceBonePath = sourceBonePath;
+                Resolved = resolved;
+                CanCreate = canCreate;
+                HasBindPoseOverride = hasBindPoseOverride;
+            }
+
+            public string SourceBonePath { get; }
+            public BlendShareResolvedBone Resolved { get; }
+            public bool CanCreate { get; }
+            public bool HasBindPoseOverride { get; }
+        }
+
+        private sealed class BoneProxyGroup
+        {
+            public BoneProxyGroup(BlendShareBoneProxy proxy)
+            {
+                Proxy = proxy;
+            }
+
+            public BlendShareBoneProxy Proxy { get; }
+            public List<BoneEntry> Entries { get; } = new();
         }
 
         private static void RefreshBoneProxyCache(

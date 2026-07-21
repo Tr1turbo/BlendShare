@@ -170,6 +170,7 @@ namespace Triturbo.BlendShare.NDMF
                 foreach (var applier in FindMeshAppliersForRenderer(originalRenderer, context))
                 {
                     ObserveMeshApplier(applier, context);
+                    ObserveBindPoseOverrides(applier, context);
                     if (!BlendShareComponentSetupService.ValidateMeshApplierMapping(applier, out _) &&
                         !BlendShareComponentSetupService.EnsureMeshApplierMappingCache(applier, out string mappingDiagnostic))
                     {
@@ -409,7 +410,10 @@ namespace Triturbo.BlendShare.NDMF
                 }
 
                 var enabledAppliers = FindMeshAppliersForRenderer(renderer, context)
-                    .Select(applier => new PreviewApplierState(applier, ObserveMeshApplier(applier, context)))
+                    .Select(applier => new PreviewApplierState(
+                        applier,
+                        ObserveMeshApplier(applier, context),
+                        ObserveBindPoseOverrides(applier, context)))
                     .ToArray();
                 bool hasNameCollision = enabledAppliers
                     .SelectMany(state => state.BlendShapeNames.Distinct())
@@ -428,6 +432,10 @@ namespace Triturbo.BlendShare.NDMF
                     foreach (string shapeName in state.BlendShapeNames)
                     {
                         builder.Append(":shape:").Append(shapeName);
+                    }
+                    foreach (string bindPose in state.BindPoseSignatures)
+                    {
+                        builder.Append(":bindPose:").Append(bindPose);
                     }
 
                 }
@@ -450,14 +458,19 @@ namespace Triturbo.BlendShare.NDMF
 
             private readonly struct PreviewApplierState
             {
-                public PreviewApplierState(BlendShareMesh applier, string[] blendShapeNames)
+                public PreviewApplierState(
+                    BlendShareMesh applier,
+                    string[] blendShapeNames,
+                    string[] bindPoseSignatures)
                 {
                     Applier = applier;
                     BlendShapeNames = blendShapeNames ?? System.Array.Empty<string>();
+                    BindPoseSignatures = bindPoseSignatures ?? System.Array.Empty<string>();
                 }
 
                 public BlendShareMesh Applier { get; }
                 public string[] BlendShapeNames { get; }
+                public string[] BindPoseSignatures { get; }
             }
 
             private static void AppendProxyState(StringBuilder builder, BlendShareBoneProxy proxy, ComputeContext context)
@@ -471,7 +484,6 @@ namespace Triturbo.BlendShare.NDMF
                 builder.Append(":proxyState:").Append(proxy.GetInstanceID());
                 builder.Append(":name:").Append(context.Observe(proxy.gameObject, item => item.name));
                 AppendObject(builder, ":sourceArmature:", context.Observe(proxy, item => item.SourceArmature));
-                builder.Append(":sourceBonePath:").Append(context.Observe(proxy, item => item.SourceBonePath));
                 builder.Append(":bindings:");
                 foreach (var binding in context.Observe(
                              proxy,
@@ -494,10 +506,6 @@ namespace Triturbo.BlendShare.NDMF
                     .Append(context.Observe(proxy, item => item.UseHierarchyParent));
                 AppendObject(builder, ":targetParent:", targetParent);
                 AppendTransformPath(builder, ":targetParentPath:", targetParent, context);
-                builder.Append(":recalc:").Append(context.Observe(proxy, item => item.RecalculateBindpose));
-                AppendVector(builder, ":bindP:", context.Observe(proxy, item => item.LocalPosition));
-                AppendVector(builder, ":bindR:", context.Observe(proxy, item => item.LocalEulerRotation));
-                AppendVector(builder, ":bindS:", context.Observe(proxy, item => item.LocalScale));
             }
 
             private static void AppendObject(StringBuilder builder, string label, Object value)
@@ -643,6 +651,32 @@ namespace Triturbo.BlendShare.NDMF
                 return blendShapeNames ?? System.Array.Empty<string>();
             }
 
+            private static string[] ObserveBindPoseOverrides(BlendShareMesh applier, ComputeContext context)
+            {
+                if (applier == null)
+                {
+                    return System.Array.Empty<string>();
+                }
+
+                return context.Observe(applier, item => item.BindPoseOverrides
+                    .Where(entry => entry != null)
+                    .Select(entry => $"{entry.SourceBonePath}:{MatrixSignature(entry.BindPose)}")
+                    .ToArray(), Enumerable.SequenceEqual) ?? System.Array.Empty<string>();
+            }
+
+            private static string MatrixSignature(Matrix4x4 matrix)
+            {
+                var builder = new StringBuilder();
+                for (int row = 0; row < 4; row++)
+                {
+                    for (int column = 0; column < 4; column++)
+                    {
+                        builder.Append(matrix[row, column].ToString("R")).Append(',');
+                    }
+                }
+                return builder.ToString();
+            }
+
             private void ObserveProxyInputs(
                 IEnumerable<BlendShareMesh> meshAppliers,
                 IEnumerable<BlendShareBoneProxy> boneProxies,
@@ -673,15 +707,10 @@ namespace Triturbo.BlendShare.NDMF
                 context.Observe(proxy, item => item.TargetParent);
                 context.Observe(proxy, item => item.UseHierarchyParent);
                 context.Observe(proxy, item => item.SourceArmature);
-                context.Observe(proxy, item => item.SourceBonePath);
                 var bindings = context.Observe(
                     proxy,
                     item => item.Bindings.ToArray(),
                     Enumerable.SequenceEqual);
-                context.Observe(proxy, item => item.RecalculateBindpose);
-                context.Observe(proxy, item => item.LocalPosition);
-                context.Observe(proxy, item => item.LocalEulerRotation);
-                context.Observe(proxy, item => item.LocalScale);
                 context.Observe(proxy.gameObject, item => item.name);
                 ObserveTransformPath(proxy.transform, context);
                 foreach (var binding in bindings)
@@ -691,9 +720,13 @@ namespace Triturbo.BlendShare.NDMF
                         ObserveTransformPath(binding.Transform, context);
                     }
                 }
-                if (proxy.EffectiveParent != null)
+                foreach (var binding in bindings)
                 {
-                    ObserveTransformPath(proxy.EffectiveParent, context);
+                    var effectiveParent = proxy.GetEffectiveParent(binding);
+                    if (effectiveParent != null)
+                    {
+                        ObserveTransformPath(effectiveParent, context);
+                    }
                 }
             }
 

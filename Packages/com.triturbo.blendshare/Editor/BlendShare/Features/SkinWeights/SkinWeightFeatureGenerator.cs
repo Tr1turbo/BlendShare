@@ -1343,7 +1343,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             SkinWeightFeatureObject feature,
             string sourcePath)
         {
-            return TryGetBoneProxyData(context, feature, sourcePath, out var proxy) && proxy.RecalculateBindpose ||
+            return context?.GetComponent<BlendShareMesh>()?.TryGetBindPoseOverride(sourcePath, out _) == true ||
                    feature.TryGetBindPoseFbxClusterMatrices(sourcePath, out _, out _);
         }
 
@@ -1373,11 +1373,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             out string error)
         {
             bindPose = Matrix4x4.identity;
-            if (TryGetBoneProxyData(context, feature, path, out var boneProxy) &&
-                boneProxy.RecalculateBindpose &&
-                boneProxy.TryGetLocalToWorld(out var overrideLocalToWorld))
+            if (context?.GetComponent<BlendShareMesh>()?.TryGetBindPoseOverride(path, out bindPose) == true)
             {
-                bindPose = overrideLocalToWorld.inverse * context.TargetRenderer.transform.localToWorldMatrix;
                 error = null;
                 return true;
             }
@@ -1446,7 +1443,6 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             }
 
             if (TryGetBoneProxyData(context, feature, path, out var boneProxy) &&
-                boneProxy.RecalculateBindpose &&
                 boneProxy.TryGetLocalToWorld(out localToWorld))
             {
                 return true;
@@ -1521,12 +1517,14 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             data = null;
             var mesh = context?.GetComponent<BlendShareMesh>();
             if (mesh == null ||
-                !mesh.TryGetCachedBoneProxy(sourceBonePath, out var proxy) ||
-                proxy.SourceArmature != feature?.Armature ||
-                !proxy.TryGetBinding(sourceBonePath, out var binding))
+                !mesh.TryGetCachedBone(sourceBonePath, out var resolved) ||
+                !resolved.IsProxy ||
+                resolved.Proxy.SourceArmature != feature?.Armature)
             {
                 return false;
             }
+            var proxy = resolved.Proxy;
+            var binding = resolved.Binding;
 
             var finalTransform = proxy?.GetFinalTransform(binding);
             var effectiveParent = proxy?.GetEffectiveParent(binding);
@@ -1535,10 +1533,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return false;
             }
 
-            string parentPath = MeshNodePath.Normalize(MeshNodePath.GetRelativePath(effectiveParent, context.TargetRootTransform));
-            string finalPath = parentPath == MeshNodePath.Root
-                ? MeshNodePath.Normalize(finalTransform.name)
-                : MeshNodePath.Normalize($"{parentPath}/{finalTransform.name}");
+            string finalPath = proxy.GetFinalPath(binding, context.TargetRootTransform);
+            string parentPath = MeshNodePath.ParentPath(finalPath);
             GetProxyLocalTransform(
                 proxy,
                 binding,
@@ -1554,8 +1550,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 effectiveParent,
                 localPosition,
                 localEulerRotation,
-                localScale,
-                proxy.RecalculateBindpose);
+                localScale);
             return true;
         }
 
@@ -1649,9 +1644,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return;
             }
 
-            localPosition = proxy != null && !proxy.HasExplicitBindings ? proxy.LocalPosition : Vector3.zero;
-            localEulerRotation = proxy != null && !proxy.HasExplicitBindings ? proxy.LocalEulerRotation : Vector3.zero;
-            localScale = proxy != null && !proxy.HasExplicitBindings ? proxy.LocalScale : Vector3.one;
+            localPosition = Vector3.zero;
+            localEulerRotation = Vector3.zero;
+            localScale = Vector3.one;
         }
 
         private sealed class BoneProxyGenerationData
@@ -1665,8 +1660,6 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             public Vector3 LocalPosition { get; }
             public Vector3 LocalEulerRotation { get; }
             public Vector3 LocalScale { get; }
-            public bool RecalculateBindpose { get; }
-
             public BoneProxyGenerationData(
                 string finalBonePath,
                 string parentPath,
@@ -1676,8 +1669,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 Transform targetParent,
                 Vector3 localPosition,
                 Vector3 localEulerRotation,
-                Vector3 localScale,
-                bool recalculateBindpose)
+                Vector3 localScale)
             {
                 FinalBonePath = MeshNodePath.Normalize(finalBonePath);
                 ParentPath = MeshNodePath.Normalize(parentPath);
@@ -1688,7 +1680,6 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 LocalPosition = localPosition;
                 LocalEulerRotation = localEulerRotation;
                 LocalScale = localScale == Vector3.zero ? Vector3.one : localScale;
-                RecalculateBindpose = recalculateBindpose;
             }
 
             public bool TryGetLocalToWorld(out Matrix4x4 localToWorld)

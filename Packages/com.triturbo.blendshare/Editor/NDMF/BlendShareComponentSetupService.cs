@@ -151,12 +151,6 @@ namespace Triturbo.BlendShare.NDMF
                 .Where(proxy => proxy != null)
                 .ToList();
             var existingBindingsBySource = BuildBindingsBySource(existingProxies);
-            var proxiesByKey = existingProxies
-                .GroupBy(proxy => BuildProxyKey(proxy.EffectiveParent, proxy.name, proxy.LocalPosition, proxy.LocalEulerRotation, proxy.LocalScale))
-                .ToDictionary(group => group.Key, group => group.ToList());
-            var proxiesByName = existingProxies
-                .GroupBy(proxy => proxy.name)
-                .ToDictionary(group => group.Key, group => group.ToList());
             var usedProxies = new HashSet<BlendShareBoneProxy>();
             var proxiesByBonePath = new Dictionary<SourceKey, ResolvedBinding>();
             var boneProxyPlacementParent = placementParent != null ? placementParent : targetRoot;
@@ -227,7 +221,6 @@ namespace Triturbo.BlendShare.NDMF
                         var localEulerRotation = localTransform.Rotation.eulerAngles;
                         var localScale = localTransform.Scale;
                         string desiredName = MeshNodePath.LeafName(bonePath);
-                        string key = BuildProxyKey(parent, desiredName, localPosition, localEulerRotation, localScale);
                         var sourceKey = new SourceKey(skin.Armature, bonePath);
                         bool createdProxy = false;
                         BlendShareBoneProxy proxy;
@@ -239,25 +232,6 @@ namespace Triturbo.BlendShare.NDMF
                             proxy = resolved.Component;
                             binding = resolved.Binding;
                             finalTransform = resolved.FinalTransform;
-                        }
-                        else if (TryClaimUninitializedProxy(
-                                     proxiesByKey,
-                                     key,
-                                     skin.Armature,
-                                     bonePath,
-                                     usedProxies,
-                                     out proxy,
-                                     out binding) ||
-                                 TryClaimUninitializedProxy(
-                                     proxiesByName,
-                                     desiredName,
-                                     skin.Armature,
-                                     bonePath,
-                                     usedProxies,
-                                     out proxy,
-                                     out binding))
-                        {
-                            finalTransform = proxy.transform;
                         }
                         else
                         {
@@ -296,21 +270,14 @@ namespace Triturbo.BlendShare.NDMF
                             proxy.TargetParent = useHierarchyParent ? null : parent;
                         }
 
-                        if (createdProxy || !proxy.RecalculateBindpose)
+                        if (createdProxy)
                         {
-                            if (!proxy.HasExplicitBindings && finalTransform == proxy.transform)
-                            {
-                                proxy.LocalPosition = localPosition;
-                                proxy.LocalEulerRotation = localEulerRotation;
-                                proxy.LocalScale = localScale;
-                                proxy.ResetTransformToBindPose();
-                            }
-                            else if (useHierarchyParent)
-                            {
-                                finalTransform.localPosition = localPosition;
-                                finalTransform.localRotation = Quaternion.Euler(localEulerRotation);
-                                finalTransform.localScale = localScale;
-                            }
+                            ApplyBindingLocalTransform(
+                                finalTransform,
+                                parent,
+                                localPosition,
+                                Quaternion.Euler(localEulerRotation),
+                                localScale);
                         }
                         EditorUtility.SetDirty(proxy);
                         EditorUtility.SetDirty(finalTransform);
@@ -378,46 +345,10 @@ namespace Triturbo.BlendShare.NDMF
         {
             var component = resolved.Component;
             return component != null &&
-                   !component.HasExplicitBindings &&
+                   component.Bindings.Count == 1 &&
                    resolved.FinalTransform == component.transform &&
                    component.gameObject.GetComponents<Component>().All(candidate =>
                        candidate is Transform || candidate == component);
-        }
-
-        private static bool TryClaimUninitializedProxy(
-            IReadOnlyDictionary<string, List<BlendShareBoneProxy>> proxies,
-            string key,
-            FbxArmatureObject sourceArmature,
-            string sourceBonePath,
-            ISet<BlendShareBoneProxy> usedProxies,
-            out BlendShareBoneProxy proxy,
-            out BlendShareBoneProxyBinding binding)
-        {
-            proxy = null;
-            binding = null;
-            if (string.IsNullOrWhiteSpace(key) ||
-                proxies == null ||
-                !proxies.TryGetValue(key, out var candidates))
-            {
-                return false;
-            }
-
-            proxy = candidates.FirstOrDefault(candidate =>
-                candidate != null &&
-                candidate.isActiveAndEnabled &&
-                !candidate.HasExplicitBindings &&
-                (candidate.SourceArmature == null || candidate.SourceArmature == sourceArmature) &&
-                string.IsNullOrEmpty(candidate.SourceBonePath) &&
-                !usedProxies.Contains(candidate));
-            if (proxy == null)
-            {
-                return false;
-            }
-
-            Undo.RecordObject(proxy, "Repair BlendShare Bone Proxy Binding");
-            InitializeSingleBindingProxy(proxy, sourceArmature, sourceBonePath);
-            binding = proxy.Bindings[0];
-            return true;
         }
 
         private static UnityVertexMappingObject GetFbxToUnityMapping(BlendShareMesh meshApplier, MeshDataObject meshData)
@@ -809,7 +740,52 @@ namespace Triturbo.BlendShare.NDMF
             FbxArmatureObject sourceArmature,
             string sourceBonePath)
         {
-            proxy.SetLegacySourceBinding(sourceArmature, sourceBonePath);
+            proxy.SourceArmature = sourceArmature;
+            proxy.SetBindings(new[]
+            {
+                new BlendShareBoneProxyBinding(sourceBonePath, proxy.transform)
+            });
+        }
+
+        private static void ApplyBindingLocalTransform(
+            Transform finalTransform,
+            Transform effectiveParent,
+            Vector3 localPosition,
+            Quaternion localRotation,
+            Vector3 localScale)
+        {
+            if (finalTransform == null || effectiveParent == null)
+            {
+                return;
+            }
+
+            if (finalTransform.parent == effectiveParent)
+            {
+                finalTransform.localPosition = localPosition;
+                finalTransform.localRotation = localRotation;
+                finalTransform.localScale = localScale;
+                return;
+            }
+
+            var worldScale = Vector3.Scale(effectiveParent.lossyScale, localScale);
+            finalTransform.SetPositionAndRotation(
+                effectiveParent.TransformPoint(localPosition),
+                effectiveParent.rotation * localRotation);
+            finalTransform.localScale = DivideScale(worldScale, finalTransform.parent);
+        }
+
+        private static Vector3 DivideScale(Vector3 worldScale, Transform parent)
+        {
+            var parentScale = parent != null ? parent.lossyScale : Vector3.one;
+            return new Vector3(
+                SafeDivide(worldScale.x, parentScale.x),
+                SafeDivide(worldScale.y, parentScale.y),
+                SafeDivide(worldScale.z, parentScale.z));
+        }
+
+        private static float SafeDivide(float value, float divisor)
+        {
+            return Mathf.Abs(divisor) > 0.000001f ? value / divisor : value;
         }
 
         private static Transform GetOrCreateBoneProxyContainer(Transform placementParent)
@@ -944,27 +920,6 @@ namespace Triturbo.BlendShare.NDMF
             public BlendShareBoneProxyBinding Binding { get; }
             public Transform FinalTransform => Binding?.Transform;
             public string SourceBonePath => Binding?.SourceBonePath;
-        }
-
-        private static string BuildProxyKey(
-            Transform parent,
-            string boneName,
-            Vector3 localPosition,
-            Vector3 localEulerRotation,
-            Vector3 localScale)
-        {
-            string parentId = parent != null ? parent.GetInstanceID().ToString() : "0";
-            return string.Join("|",
-                parentId,
-                boneName ?? string.Empty,
-                Quantize(localPosition.x), Quantize(localPosition.y), Quantize(localPosition.z),
-                Quantize(localEulerRotation.x), Quantize(localEulerRotation.y), Quantize(localEulerRotation.z),
-                Quantize(localScale.x), Quantize(localScale.y), Quantize(localScale.z));
-        }
-
-        private static string Quantize(float value)
-        {
-            return Mathf.RoundToInt(value * 10000f).ToString();
         }
 
         private static string GetHierarchyOrder(Transform transform)

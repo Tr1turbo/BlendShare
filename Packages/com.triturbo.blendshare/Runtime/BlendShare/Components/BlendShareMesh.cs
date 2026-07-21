@@ -10,6 +10,72 @@ using UnityEngine.Animations;
 namespace Triturbo.BlendShare.Components
 {
     [Serializable]
+    public sealed class BlendShareBindPoseOverride
+    {
+        [SerializeField, NotKeyable]
+        private string m_SourceBonePath;
+
+        [SerializeField, NotKeyable]
+        private Matrix4x4 m_BindPose = Matrix4x4.identity;
+
+        /// <summary>Gets the normalized source bone path.</summary>
+        public string SourceBonePath
+        {
+            get => MeshNodePath.NormalizeOptional(m_SourceBonePath);
+            set => m_SourceBonePath = MeshNodePath.NormalizeOptional(value);
+        }
+
+        /// <summary>Gets or sets the renderer-relative bind-pose matrix.</summary>
+        public Matrix4x4 BindPose
+        {
+            get => m_BindPose;
+            set => m_BindPose = value;
+        }
+
+        /// <summary>Creates an empty override for Unity serialization.</summary>
+        public BlendShareBindPoseOverride() { }
+
+        /// <summary>Creates a source-path bind-pose override.</summary>
+        public BlendShareBindPoseOverride(string sourceBonePath, Matrix4x4 bindPose)
+        {
+            SourceBonePath = sourceBonePath;
+            BindPose = bindPose;
+        }
+    }
+
+    public readonly struct BlendShareResolvedBone
+    {
+        /// <summary>Creates an exact resolved proxy binding.</summary>
+        public BlendShareResolvedBone(
+            BlendShareBoneProxy proxy,
+            BlendShareBoneProxyBinding binding)
+        {
+            Proxy = proxy;
+            Binding = binding;
+            Transform = binding?.Transform;
+        }
+
+        /// <summary>Creates a resolved existing renderer bone.</summary>
+        public BlendShareResolvedBone(Transform transform)
+        {
+            Proxy = null;
+            Binding = null;
+            Transform = transform;
+        }
+
+        /// <summary>Gets the owning proxy component, or null for an existing renderer bone.</summary>
+        public BlendShareBoneProxy Proxy { get; }
+        /// <summary>Gets the selected proxy binding, or null for an existing renderer bone.</summary>
+        public BlendShareBoneProxyBinding Binding { get; }
+        /// <summary>Gets the actual resolved bone Transform.</summary>
+        public Transform Transform { get; }
+        /// <summary>Gets whether an actual bone Transform was resolved.</summary>
+        public bool IsResolved => Transform != null;
+        /// <summary>Gets whether this resolution came from a proxy binding.</summary>
+        public bool IsProxy => Proxy != null && Binding?.IsConfigured == true;
+    }
+
+    [Serializable]
     public sealed class BlendShareProxyBlendShapeWeight
     {
         public const string ShapeNameFieldName = "m_ShapeName";
@@ -66,8 +132,11 @@ namespace Triturbo.BlendShare.Components
         [SerializeField]
         private List<BlendShareProxyBlendShapeWeight> m_BlendShapeWeights = new();
 
+        [SerializeField, NotKeyable]
+        private List<BlendShareBindPoseOverride> m_BindPoseOverrides = new();
+
         [NonSerialized]
-        private Dictionary<string, BlendShareBoneProxy> m_BoneProxiesBySourcePath = new(StringComparer.Ordinal);
+        private Dictionary<string, BlendShareResolvedBone> m_BonesBySourcePath = new(StringComparer.Ordinal);
 
         public BlendShareObject Patch
         {
@@ -104,33 +173,88 @@ namespace Triturbo.BlendShare.Components
         public IReadOnlyList<BlendShareProxyBlendShapeWeight> BlendShapeWeights =>
             m_BlendShapeWeights ??= new List<BlendShareProxyBlendShapeWeight>();
 
+        /// <summary>Gets the persistent renderer-relative bind-pose overrides.</summary>
+        public IReadOnlyList<BlendShareBindPoseOverride> BindPoseOverrides =>
+            m_BindPoseOverrides ??= new List<BlendShareBindPoseOverride>();
+
         /// <summary>Gets the currently cached proxy components.</summary>
         public IReadOnlyCollection<BlendShareBoneProxy> CachedBoneProxies =>
-            EnsureBoneProxyCache().Values
+            EnsureBoneCache().Values
+                .Select(resolved => resolved.Proxy)
                 .Where(proxy => proxy != null)
                 .Distinct()
                 .ToArray();
 
-        /// <summary>Gets a cached proxy by required source bone path.</summary>
-        public bool TryGetCachedBoneProxy(string sourceBonePath, out BlendShareBoneProxy proxy)
+        /// <summary>Gets the exact cached proxy binding selected for a required source bone path.</summary>
+        public bool TryGetCachedBone(string sourceBonePath, out BlendShareResolvedBone resolved)
         {
-            proxy = null;
+            resolved = default;
             string normalizedPath = MeshNodePath.NormalizeOptional(sourceBonePath);
             return !string.IsNullOrEmpty(normalizedPath) &&
-                   EnsureBoneProxyCache().TryGetValue(normalizedPath, out proxy) &&
-                   proxy != null;
+                   EnsureBoneCache().TryGetValue(normalizedPath, out resolved) &&
+                   resolved.IsResolved;
         }
 
-        private void SetBoneProxyCache(
-            IEnumerable<KeyValuePair<string, BlendShareBoneProxy>> references)
+        /// <summary>Gets a stored bind-pose override for a source bone path.</summary>
+        public bool TryGetBindPoseOverride(string sourceBonePath, out Matrix4x4 bindPose)
         {
-            m_BoneProxiesBySourcePath = references?
+            string normalizedPath = MeshNodePath.NormalizeOptional(sourceBonePath);
+            var entry = BindPoseOverrides.LastOrDefault(candidate =>
+                candidate != null && candidate.SourceBonePath == normalizedPath);
+            bindPose = entry?.BindPose ?? Matrix4x4.identity;
+            return entry != null;
+        }
+
+        /// <summary>Captures the selected proxy bone's current position as a persistent bind pose.</summary>
+        public bool CaptureBindPose(string sourceBonePath)
+        {
+            if (TargetRenderer == null ||
+                !TryGetCachedBone(sourceBonePath, out var resolved) ||
+                resolved.Transform == null)
+            {
+                return false;
+            }
+
+            SetBindPoseOverride(
+                sourceBonePath,
+                resolved.Transform.worldToLocalMatrix * TargetRenderer.transform.localToWorldMatrix);
+            return true;
+        }
+
+        /// <summary>Creates or replaces a persistent bind-pose override.</summary>
+        public void SetBindPoseOverride(string sourceBonePath, Matrix4x4 bindPose)
+        {
+            string normalizedPath = MeshNodePath.NormalizeOptional(sourceBonePath);
+            if (string.IsNullOrEmpty(normalizedPath))
+            {
+                return;
+            }
+
+            m_BindPoseOverrides ??= new List<BlendShareBindPoseOverride>();
+            m_BindPoseOverrides.RemoveAll(candidate =>
+                candidate == null || candidate.SourceBonePath == normalizedPath);
+            m_BindPoseOverrides.Add(new BlendShareBindPoseOverride(normalizedPath, bindPose));
+        }
+
+        /// <summary>Removes a persistent bind-pose override so source bind-pose data is used.</summary>
+        public bool RemoveBindPoseOverride(string sourceBonePath)
+        {
+            string normalizedPath = MeshNodePath.NormalizeOptional(sourceBonePath);
+            return m_BindPoseOverrides != null &&
+                   m_BindPoseOverrides.RemoveAll(candidate =>
+                       candidate == null || candidate.SourceBonePath == normalizedPath) > 0;
+        }
+
+        private void SetBoneCache(
+            IEnumerable<KeyValuePair<string, BlendShareResolvedBone>> references)
+        {
+            m_BonesBySourcePath = references?
                 .Where(reference =>
                     !string.IsNullOrEmpty(MeshNodePath.NormalizeOptional(reference.Key)) &&
-                    reference.Value != null)
+                    reference.Value.IsResolved)
                 .GroupBy(reference => MeshNodePath.NormalizeOptional(reference.Key), StringComparer.Ordinal)
                 .ToDictionary(group => group.Key, group => group.Last().Value, StringComparer.Ordinal) ??
-                new Dictionary<string, BlendShareBoneProxy>(StringComparer.Ordinal);
+                new Dictionary<string, BlendShareResolvedBone>(StringComparer.Ordinal);
         }
 
         /// <summary>
@@ -141,7 +265,7 @@ namespace Triturbo.BlendShare.Components
             Transform targetRoot,
             IEnumerable<BlendShareBoneProxy> availableProxies)
         {
-            var proxiesBySource = new Dictionary<SourceKey, BlendShareBoneProxy>();
+            var proxiesBySource = new Dictionary<SourceKey, BlendShareResolvedBone>();
             foreach (var proxy in (availableProxies ?? Enumerable.Empty<BlendShareBoneProxy>())
                          .Where(proxy => proxy != null && proxy.isActiveAndEnabled && proxy.SourceArmature != null)
                          .Distinct()
@@ -149,7 +273,8 @@ namespace Triturbo.BlendShare.Components
             {
                 foreach (var binding in proxy.Bindings.Where(binding => binding?.IsConfigured == true))
                 {
-                    proxiesBySource[new SourceKey(proxy.SourceArmature, binding.SourceBonePath)] = proxy;
+                    proxiesBySource[new SourceKey(proxy.SourceArmature, binding.SourceBonePath)] =
+                        new BlendShareResolvedBone(proxy, binding);
                 }
             }
 
@@ -171,36 +296,42 @@ namespace Triturbo.BlendShare.Components
 
         private void RefreshBoneProxyCache(
             Transform targetRoot,
-            IReadOnlyDictionary<SourceKey, BlendShareBoneProxy> proxiesBySource)
+            IReadOnlyDictionary<SourceKey, BlendShareResolvedBone> proxiesBySource)
         {
             var skin = MeshData?.GetFeature<SkinWeightFeatureObject>();
             var renderer = TargetRenderer;
             if (targetRoot == null || renderer == null || skin?.Armature == null)
             {
-                SetBoneProxyCache(Array.Empty<KeyValuePair<string, BlendShareBoneProxy>>());
+                SetBoneCache(Array.Empty<KeyValuePair<string, BlendShareResolvedBone>>());
                 return;
             }
 
-            var existingBonePaths = new HashSet<string>((renderer.bones ?? Array.Empty<Transform>())
+            var existingBonesByPath = (renderer.bones ?? Array.Empty<Transform>())
                 .Where(bone => bone != null)
-                .Select(bone => MeshNodePath.Normalize(MeshNodePath.GetRelativePath(bone, targetRoot))));
-            var references = new List<KeyValuePair<string, BlendShareBoneProxy>>();
+                .GroupBy(bone => MeshNodePath.Normalize(MeshNodePath.GetRelativePath(bone, targetRoot)), StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.Last(), StringComparer.Ordinal);
+            var references = new List<KeyValuePair<string, BlendShareResolvedBone>>();
             foreach (string sourceBonePath in skin.GetNeededBonePathsInArmatureOrder())
             {
-                if (!existingBonePaths.Contains(sourceBonePath) &&
-                    proxiesBySource != null &&
-                    proxiesBySource.TryGetValue(new SourceKey(skin.Armature, sourceBonePath), out var proxy))
+                if (existingBonesByPath.TryGetValue(sourceBonePath, out var existingBone))
                 {
-                    references.Add(new KeyValuePair<string, BlendShareBoneProxy>(sourceBonePath, proxy));
+                    references.Add(new KeyValuePair<string, BlendShareResolvedBone>(
+                        sourceBonePath,
+                        new BlendShareResolvedBone(existingBone)));
+                }
+                else if (proxiesBySource != null &&
+                    proxiesBySource.TryGetValue(new SourceKey(skin.Armature, sourceBonePath), out var resolved))
+                {
+                    references.Add(new KeyValuePair<string, BlendShareResolvedBone>(sourceBonePath, resolved));
                 }
             }
 
-            SetBoneProxyCache(references);
+            SetBoneCache(references);
         }
 
-        private Dictionary<string, BlendShareBoneProxy> EnsureBoneProxyCache()
+        private Dictionary<string, BlendShareResolvedBone> EnsureBoneCache()
         {
-            return m_BoneProxiesBySourcePath ??= new Dictionary<string, BlendShareBoneProxy>(StringComparer.Ordinal);
+            return m_BonesBySourcePath ??= new Dictionary<string, BlendShareResolvedBone>(StringComparer.Ordinal);
         }
 
         private static string GetHierarchyOrder(Transform transform)
@@ -301,7 +432,12 @@ namespace Triturbo.BlendShare.Components
             }
 
             m_RendererNodePath = MeshNodePath.Normalize(m_RendererNodePath);
-            m_BoneProxiesBySourcePath = new Dictionary<string, BlendShareBoneProxy>(StringComparer.Ordinal);
+            m_BonesBySourcePath = new Dictionary<string, BlendShareResolvedBone>(StringComparer.Ordinal);
+            m_BindPoseOverrides = (m_BindPoseOverrides ?? new List<BlendShareBindPoseOverride>())
+                .Where(entry => entry != null && !string.IsNullOrEmpty(entry.SourceBonePath))
+                .GroupBy(entry => entry.SourceBonePath, StringComparer.Ordinal)
+                .Select(group => group.Last())
+                .ToList();
             SyncActiveBlendShapeWeights();
         }
 

@@ -1416,6 +1416,66 @@ msgstr "<缺失渲染器>"
 msgid "ndmf.mesh.bone_proxies"
 msgstr "骨骼代理"
 
+msgid "ndmf.mesh.bone_proxy"
+msgstr "骨骼代理"
+
+msgid "ndmf.mesh.bones"
+msgstr "骨骼"
+
+msgid "ndmf.mesh.armature"
+msgstr "骨架"
+
+msgid "ndmf.mesh.restore_bindposes"
+msgstr "還原綁定姿勢"
+
+msgid "ndmf.mesh.restore_bindposes_tooltip"
+msgstr "移除此代理所提供的所有骨骼在此網格上的綁定姿勢覆寫，並使用來源 BlendShare 資料中儲存的綁定姿勢。"
+
+msgid "ndmf.mesh.bone"
+msgstr "骨骼"
+
+msgid "ndmf.mesh.bind_pose"
+msgstr "綁定姿勢"
+
+msgid "ndmf.mesh.bind_pose_source"
+msgstr "來源"
+
+msgid "ndmf.mesh.bind_pose_custom"
+msgstr "自訂覆寫"
+
+msgid "ndmf.mesh.bind_pose_unavailable"
+msgstr "無法使用"
+
+msgid "ndmf.mesh.rebind"
+msgstr "重新綁定"
+
+msgid "ndmf.mesh.restore"
+msgstr "還原"
+
+msgid "ndmf.mesh.bone_transform_tooltip"
+msgstr "作為此網格最終骨骼使用的 Transform。"
+
+msgid "ndmf.mesh.bone_proxy_tooltip"
+msgstr "提供此骨骼的 BlendShare 骨骼代理綁定。"
+
+msgid "ndmf.mesh.rebind_tooltip"
+msgstr "擷取並綁定此骨骼目前的 Transform，作為此網格的綁定姿勢覆寫。"
+
+msgid "ndmf.mesh.restore_tooltip"
+msgstr "移除此骨骼在此網格上的綁定姿勢覆寫，並使用來源 BlendShare 資料中儲存的綁定姿勢。"
+
+msgid "ndmf.mesh.bone_status_existing"
+msgstr "現有"
+
+msgid "ndmf.mesh.bone_status_proxy"
+msgstr "代理"
+
+msgid "ndmf.mesh.bone_status_missing"
+msgstr "缺失"
+
+msgid "ndmf.mesh.bone_status_override"
+msgstr "覆寫"
+
 msgid "ndmf.mesh.create_missing_bones"
 msgstr "建立缺失骨骼"
 
@@ -1446,9 +1506,6 @@ msgstr "使用現有父物件（不重新導向或跟隨）"
 msgid "ndmf.bone_proxy.bindings"
 msgstr "骨骼綁定"
 
-msgid "ndmf.bone_proxy.legacy_binding"
-msgstr "未儲存明確綁定。此元件繼續使用舊版單骨骼欄位，不會改寫資產。"
-
 msgid "ndmf.bone_proxy.duplicate_bindings"
 msgstr "重複的來源路徑將使用較後面的綁定：{0}"
 
@@ -1464,8 +1521,11 @@ msgstr "某個綁定將自身或其子孫設為父物件。"
 msgid "ndmf.bone_proxy.reset_chain_from_source"
 msgstr "從來源骨架重設鏈"
 
-msgid "ndmf.bone_proxy.recalculate_bindpose"
-msgstr "重新計算綁定姿勢"
+msgid "ndmf.bone_proxy.capture_bindposes_all_meshes"
+msgstr "在所有使用中的網格擷取綁定姿勢"
+
+msgid "ndmf.bone_proxy.restore_chain_and_bindposes"
+msgstr "還原來源骨骼鏈和綁定姿勢"
 
 msgid "ndmf.bone_proxy.final_parent"
 msgstr "最終父物件"

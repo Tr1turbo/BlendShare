@@ -135,7 +135,7 @@ namespace Triturbo.BlendShare.Editor
             return Subscriptions.Any(subscription => subscription.Includes(kind));
         }
 
-        private static void Publish()
+        internal static void Publish()
         {
             publishScheduled = false;
             var kinds = pendingKinds;
