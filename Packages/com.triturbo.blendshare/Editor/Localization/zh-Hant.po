@@ -1426,31 +1426,31 @@ msgid "ndmf.mesh.armature"
 msgstr "骨架"
 
 msgid "ndmf.mesh.restore_bindposes"
-msgstr "還原綁定姿勢"
+msgstr "還原綁定"
 
 msgid "ndmf.mesh.restore_bindposes_tooltip"
-msgstr "移除此代理所提供的所有骨骼在此網格上的綁定姿勢覆寫，並使用來源 BlendShare 資料中儲存的綁定姿勢。"
+msgstr "移除此代理所提供骨骼的自訂綁定姿勢，並使此網格還原為來源綁定。"
 
 msgid "ndmf.mesh.bone"
 msgstr "骨骼"
 
 msgid "ndmf.mesh.bind_pose"
-msgstr "綁定姿勢"
+msgstr "綁定"
 
 msgid "ndmf.mesh.bind_pose_source"
 msgstr "來源"
 
 msgid "ndmf.mesh.bind_pose_custom"
-msgstr "自訂覆寫"
+msgstr "自訂"
 
 msgid "ndmf.mesh.bind_pose_unavailable"
 msgstr "無法使用"
 
 msgid "ndmf.mesh.rebind"
-msgstr "重新綁定"
+msgstr "更新綁定"
 
 msgid "ndmf.mesh.restore"
-msgstr "還原"
+msgstr "還原綁定"
 
 msgid "ndmf.mesh.bone_transform_tooltip"
 msgstr "作為此網格最終骨骼使用的 Transform。"
@@ -1459,10 +1459,10 @@ msgid "ndmf.mesh.bone_proxy_tooltip"
 msgstr "提供此骨骼的 BlendShare 骨骼代理綁定。"
 
 msgid "ndmf.mesh.rebind_tooltip"
-msgstr "擷取並綁定此骨骼目前的 Transform，作為此網格的綁定姿勢覆寫。"
+msgstr "從此骨骼目前的 Transform 更新綁定姿勢。"
 
 msgid "ndmf.mesh.restore_tooltip"
-msgstr "移除此骨骼在此網格上的綁定姿勢覆寫，並使用來源 BlendShare 資料中儲存的綁定姿勢。"
+msgstr "移除此骨骼的自訂綁定姿勢，並使其還原為來源綁定。"
 
 msgid "ndmf.mesh.bone_status_existing"
 msgstr "現有"
@@ -1488,9 +1488,6 @@ msgstr "移除鍵"
 msgid "ndmf.mesh.animation.remove_all_keys"
 msgstr "移除所有鍵"
 
-msgid "ndmf.bone_proxy.title"
-msgstr "BlendShare 骨骼代理"
-
 msgid "ndmf.bone_proxy.source_armature"
 msgstr "來源骨架"
 
@@ -1500,8 +1497,32 @@ msgstr "來源骨骼路徑"
 msgid "ndmf.bone_proxy.target_parent"
 msgstr "目標父物件"
 
-msgid "ndmf.bone_proxy.use_hierarchy_parent"
-msgstr "使用現有父物件（不重新導向或跟隨）"
+msgid "ndmf.bone_proxy.source_and_bindings"
+msgstr "來源與綁定"
+
+msgid "ndmf.bone_proxy.parenting"
+msgstr "父級關係"
+
+msgid "ndmf.bone_proxy.parenting_mode"
+msgstr "模式"
+
+msgid "ndmf.bone_proxy.parenting_retarget"
+msgstr "重新導向"
+
+msgid "ndmf.bone_proxy.parenting_existing"
+msgstr "使用現有父物件"
+
+msgid "ndmf.bone_proxy.parenting_retarget_description"
+msgstr "在預覽和建置期間，將根綁定重新導向至選取的父物件。"
+
+msgid "ndmf.bone_proxy.parenting_existing_description"
+msgstr "保留根綁定目前的 Transform 父物件，不重新導向或跟隨其他父物件。"
+
+msgid "ndmf.bone_proxy.bind_pose_actions"
+msgstr "綁定"
+
+msgid "ndmf.bone_proxy.bind_pose_actions_description"
+msgstr "影響所有使用此代理的已啟用 BlendShare Mesh 元件。"
 
 msgid "ndmf.bone_proxy.bindings"
 msgstr "骨骼綁定"
@@ -1521,11 +1542,38 @@ msgstr "某個綁定將自身或其子孫設為父物件。"
 msgid "ndmf.bone_proxy.reset_chain_from_source"
 msgstr "從來源骨架重設鏈"
 
-msgid "ndmf.bone_proxy.capture_bindposes_all_meshes"
-msgstr "在所有使用中的網格擷取綁定姿勢"
+msgid "ndmf.bone_proxy.rebind_bones"
+msgstr "更新綁定"
 
-msgid "ndmf.bone_proxy.restore_chain_and_bindposes"
-msgstr "還原來源骨骼鏈和綁定姿勢"
+msgid "ndmf.bone_proxy.rebind_bones_tooltip"
+msgstr "使用目前骨骼 Transform 更新所有使用此代理的網格綁定姿勢。"
+
+msgid "ndmf.bone_proxy.restore"
+msgstr "還原綁定"
+
+msgid "ndmf.bone_proxy.restore_tooltip"
+msgstr "移除自訂綁定姿勢，並使骨骼和受影響的網格還原為來源綁定。"
+
+msgid "ndmf.bone_proxy.final_path"
+msgstr "最終路徑"
+
+msgid "ndmf.bone_proxy.status_source"
+msgstr "來源"
+
+msgid "ndmf.bone_proxy.status_source_tooltip"
+msgstr "所有受影響的網格都使用來源綁定。"
+
+msgid "ndmf.bone_proxy.status_override"
+msgstr "自訂"
+
+msgid "ndmf.bone_proxy.status_override_tooltip"
+msgstr "至少一個受影響的網格使用從此骨骼 Transform 擷取的自訂綁定。"
+
+msgid "ndmf.bone_proxy.status_modified"
+msgstr "已修改"
+
+msgid "ndmf.bone_proxy.status_modified_tooltip"
+msgstr "目前 Transform 與生效的來源綁定或自訂綁定不同。"
 
 msgid "ndmf.bone_proxy.final_parent"
 msgstr "最終父物件"
@@ -1555,22 +1603,28 @@ msgid "ndmf.bone_proxy.bind_world_position"
 msgstr "綁定世界位置"
 
 msgid "ndmf.bone_proxy.update_bindpose"
-msgstr "從目前變換更新綁定姿勢"
+msgstr "更新綁定"
 
 msgid "ndmf.bone_proxy.restore_from_source"
-msgstr "從來源還原綁定變換"
+msgstr "還原綁定"
 
 msgid "ndmf.bone_proxy.reset_to_bind_pose"
 msgstr "將變換重設為綁定姿勢"
 
-msgid "ndmf.bone_proxy.duplicate_ignored"
-msgstr "此骨骼代理將被忽略，因為階層中較後的代理「{0}」具有相同的來源骨架與骨骼路徑。"
+msgid "ndmf.bone_proxy.bindings_overridden"
+msgstr "階層中較後的骨骼代理會覆寫以下綁定：{0}"
 
 msgid "ndmf.bone_proxy.no_owner"
 msgstr "未找到擁有此物件的 BlendShare 套用元件。"
 
 msgid "ndmf.bone_proxy.no_source_binding"
 msgstr "未找到此代理的來源骨骼綁定。"
+
+msgid "ndmf.bone_proxy.revert_mapping_missing"
+msgstr "找不到有效的 Unity 對應，無法還原綁定。"
+
+msgid "ndmf.bone_proxy.revert_source_unavailable"
+msgstr "綁定「{0}」的來源 Transform 無法使用，無法還原。"
 
 msgid "ndmf.bone_proxy.shared_different_transforms"
 msgstr "此代理由具有不同綁定變換的多個來源骨骼共享。"

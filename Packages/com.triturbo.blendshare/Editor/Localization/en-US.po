@@ -1426,31 +1426,31 @@ msgid "ndmf.mesh.armature"
 msgstr "Armature"
 
 msgid "ndmf.mesh.restore_bindposes"
-msgstr "Restore Bind Pose"
+msgstr "Revert Binding"
 
 msgid "ndmf.mesh.restore_bindposes_tooltip"
-msgstr "Remove this mesh's bind-pose overrides for every bone supplied by this proxy and use the bind poses stored in the source BlendShare data."
+msgstr "Remove custom bind poses for the bones supplied by this proxy and return this mesh to the source binding."
 
 msgid "ndmf.mesh.bone"
 msgstr "Bone"
 
 msgid "ndmf.mesh.bind_pose"
-msgstr "Bind Pose"
+msgstr "Binding"
 
 msgid "ndmf.mesh.bind_pose_source"
 msgstr "Source"
 
 msgid "ndmf.mesh.bind_pose_custom"
-msgstr "Custom override"
+msgstr "Custom"
 
 msgid "ndmf.mesh.bind_pose_unavailable"
 msgstr "Unavailable"
 
 msgid "ndmf.mesh.rebind"
-msgstr "Rebind"
+msgstr "Update Binding"
 
 msgid "ndmf.mesh.restore"
-msgstr "Restore"
+msgstr "Revert Binding"
 
 msgid "ndmf.mesh.bone_transform_tooltip"
 msgstr "The Transform used as this mesh's final bone."
@@ -1459,10 +1459,10 @@ msgid "ndmf.mesh.bone_proxy_tooltip"
 msgstr "The BlendShare Bone Proxy binding that supplies this bone."
 
 msgid "ndmf.mesh.rebind_tooltip"
-msgstr "Capture and bind this bone's current Transform as a bind-pose override for this mesh."
+msgstr "Update this bone's bind pose from its current Transform."
 
 msgid "ndmf.mesh.restore_tooltip"
-msgstr "Remove this mesh's bind-pose override for this bone and use the bind pose stored in the source BlendShare data."
+msgstr "Remove the custom bind pose for this bone and return it to the source binding."
 
 msgid "ndmf.mesh.bone_status_existing"
 msgstr "Existing"
@@ -1488,9 +1488,6 @@ msgstr "Remove Key"
 msgid "ndmf.mesh.animation.remove_all_keys"
 msgstr "Remove All Keys"
 
-msgid "ndmf.bone_proxy.title"
-msgstr "BlendShare Bone Proxy"
-
 msgid "ndmf.bone_proxy.source_armature"
 msgstr "Source Armature"
 
@@ -1500,8 +1497,32 @@ msgstr "Source Bone Path"
 msgid "ndmf.bone_proxy.target_parent"
 msgstr "Target Parent"
 
-msgid "ndmf.bone_proxy.use_hierarchy_parent"
-msgstr "Use Existing Parent (No Retarget or Follow)"
+msgid "ndmf.bone_proxy.source_and_bindings"
+msgstr "Source & Bindings"
+
+msgid "ndmf.bone_proxy.parenting"
+msgstr "Parenting"
+
+msgid "ndmf.bone_proxy.parenting_mode"
+msgstr "Mode"
+
+msgid "ndmf.bone_proxy.parenting_retarget"
+msgstr "Retarget"
+
+msgid "ndmf.bone_proxy.parenting_existing"
+msgstr "Use Existing Parent"
+
+msgid "ndmf.bone_proxy.parenting_retarget_description"
+msgstr "Retarget the root binding to the selected parent during preview and build."
+
+msgid "ndmf.bone_proxy.parenting_existing_description"
+msgstr "Keep the root binding under its current Transform parent without retargeting or following another parent."
+
+msgid "ndmf.bone_proxy.bind_pose_actions"
+msgstr "Binding"
+
+msgid "ndmf.bone_proxy.bind_pose_actions_description"
+msgstr "Affects all active BlendShare Mesh components using this proxy."
 
 msgid "ndmf.bone_proxy.bindings"
 msgstr "Bone Bindings"
@@ -1521,11 +1542,38 @@ msgstr "A binding targets itself or one of its descendants as its parent."
 msgid "ndmf.bone_proxy.reset_chain_from_source"
 msgstr "Reset Chain from Source"
 
-msgid "ndmf.bone_proxy.capture_bindposes_all_meshes"
-msgstr "Capture Bind Poses in All Using Meshes"
+msgid "ndmf.bone_proxy.rebind_bones"
+msgstr "Update Binding"
 
-msgid "ndmf.bone_proxy.restore_chain_and_bindposes"
-msgstr "Restore Source Chain and Bind Poses"
+msgid "ndmf.bone_proxy.rebind_bones_tooltip"
+msgstr "Update the bind pose for all meshes using this proxy from the current bone transforms."
+
+msgid "ndmf.bone_proxy.restore"
+msgstr "Revert Binding"
+
+msgid "ndmf.bone_proxy.restore_tooltip"
+msgstr "Remove custom bind poses and return the bones and affected meshes to the source binding."
+
+msgid "ndmf.bone_proxy.final_path"
+msgstr "Final Path"
+
+msgid "ndmf.bone_proxy.status_source"
+msgstr "Source"
+
+msgid "ndmf.bone_proxy.status_source_tooltip"
+msgstr "All affected meshes use the source binding."
+
+msgid "ndmf.bone_proxy.status_override"
+msgstr "Custom"
+
+msgid "ndmf.bone_proxy.status_override_tooltip"
+msgstr "At least one affected mesh uses a custom binding captured from this bone's Transform."
+
+msgid "ndmf.bone_proxy.status_modified"
+msgstr "Modified"
+
+msgid "ndmf.bone_proxy.status_modified_tooltip"
+msgstr "The current Transform differs from its active source or custom binding."
 
 msgid "ndmf.bone_proxy.final_parent"
 msgstr "Final Parent"
@@ -1555,22 +1603,28 @@ msgid "ndmf.bone_proxy.bind_world_position"
 msgstr "Bind World Position"
 
 msgid "ndmf.bone_proxy.update_bindpose"
-msgstr "Update Bindpose From Current Transform"
+msgstr "Update Binding"
 
 msgid "ndmf.bone_proxy.restore_from_source"
-msgstr "Restore Binding Transform From Source"
+msgstr "Revert Binding"
 
 msgid "ndmf.bone_proxy.reset_to_bind_pose"
 msgstr "Reset Transform To Bind Pose"
 
-msgid "ndmf.bone_proxy.duplicate_ignored"
-msgstr "This bone proxy is ignored because the later proxy '{0}' represents the same source armature and bone path."
+msgid "ndmf.bone_proxy.bindings_overridden"
+msgstr "Later bone proxies override these bindings: {0}"
 
 msgid "ndmf.bone_proxy.no_owner"
 msgstr "No owning BlendShare applier was found."
 
 msgid "ndmf.bone_proxy.no_source_binding"
 msgstr "No source bone binding was found for this proxy."
+
+msgid "ndmf.bone_proxy.revert_mapping_missing"
+msgstr "Revert Binding requires a valid Unity mapping from an affected BlendShare Mesh."
+
+msgid "ndmf.bone_proxy.revert_source_unavailable"
+msgstr "Binding '{0}' cannot be reverted because its source Transform is unavailable."
 
 msgid "ndmf.bone_proxy.shared_different_transforms"
 msgstr "This proxy is shared by source bones with different binding transforms."

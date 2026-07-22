@@ -1426,31 +1426,31 @@ msgid "ndmf.mesh.armature"
 msgstr "アーマチュア"
 
 msgid "ndmf.mesh.restore_bindposes"
-msgstr "バインドポーズを復元"
+msgstr "バインディングを戻す"
 
 msgid "ndmf.mesh.restore_bindposes_tooltip"
-msgstr "このプロキシが提供するすべてのボーンについて、このメッシュのバインドポーズ上書きを削除し、ソース BlendShare データに保存されたバインドポーズを使用します。"
+msgstr "このプロキシが提供するボーンのカスタムバインドポーズを削除し、このメッシュをソースバインディングに戻します。"
 
 msgid "ndmf.mesh.bone"
 msgstr "ボーン"
 
 msgid "ndmf.mesh.bind_pose"
-msgstr "バインドポーズ"
+msgstr "バインディング"
 
 msgid "ndmf.mesh.bind_pose_source"
 msgstr "ソース"
 
 msgid "ndmf.mesh.bind_pose_custom"
-msgstr "カスタム上書き"
+msgstr "カスタム"
 
 msgid "ndmf.mesh.bind_pose_unavailable"
 msgstr "利用不可"
 
 msgid "ndmf.mesh.rebind"
-msgstr "再バインド"
+msgstr "バインディングを更新"
 
 msgid "ndmf.mesh.restore"
-msgstr "復元"
+msgstr "バインディングを戻す"
 
 msgid "ndmf.mesh.bone_transform_tooltip"
 msgstr "このメッシュの最終ボーンとして使用される Transform です。"
@@ -1459,10 +1459,10 @@ msgid "ndmf.mesh.bone_proxy_tooltip"
 msgstr "このボーンを提供する BlendShare ボーンプロキシのバインディングです。"
 
 msgid "ndmf.mesh.rebind_tooltip"
-msgstr "このボーンの現在の Transform を、このメッシュのバインドポーズ上書きとして保存してバインドします。"
+msgstr "このボーンの現在の Transform からバインドポーズを更新します。"
 
 msgid "ndmf.mesh.restore_tooltip"
-msgstr "このボーンのバインドポーズ上書きを削除し、ソース BlendShare データに保存されたバインドポーズを使用します。"
+msgstr "このボーンのカスタムバインドポーズを削除し、ソースバインディングに戻します。"
 
 msgid "ndmf.mesh.bone_status_existing"
 msgstr "既存"
@@ -1488,9 +1488,6 @@ msgstr "キーを削除"
 msgid "ndmf.mesh.animation.remove_all_keys"
 msgstr "すべてのキーを削除"
 
-msgid "ndmf.bone_proxy.title"
-msgstr "BlendShare ボーンプロキシ"
-
 msgid "ndmf.bone_proxy.source_armature"
 msgstr "ソースアーマチュア"
 
@@ -1500,8 +1497,32 @@ msgstr "ソースボーンパス"
 msgid "ndmf.bone_proxy.target_parent"
 msgstr "ターゲット親"
 
-msgid "ndmf.bone_proxy.use_hierarchy_parent"
-msgstr "既存の親を使用（リターゲット・追従なし）"
+msgid "ndmf.bone_proxy.source_and_bindings"
+msgstr "ソースとバインディング"
+
+msgid "ndmf.bone_proxy.parenting"
+msgstr "親子関係"
+
+msgid "ndmf.bone_proxy.parenting_mode"
+msgstr "モード"
+
+msgid "ndmf.bone_proxy.parenting_retarget"
+msgstr "リターゲット"
+
+msgid "ndmf.bone_proxy.parenting_existing"
+msgstr "既存の親を使用"
+
+msgid "ndmf.bone_proxy.parenting_retarget_description"
+msgstr "プレビューおよびビルド時に、ルートバインディングを選択した親へリターゲットします。"
+
+msgid "ndmf.bone_proxy.parenting_existing_description"
+msgstr "リターゲットや別の親への追従を行わず、ルートバインディングの現在の Transform 親を維持します。"
+
+msgid "ndmf.bone_proxy.bind_pose_actions"
+msgstr "バインディング"
+
+msgid "ndmf.bone_proxy.bind_pose_actions_description"
+msgstr "このプロキシを使用するすべての有効な BlendShare Mesh コンポーネントに影響します。"
 
 msgid "ndmf.bone_proxy.bindings"
 msgstr "ボーンバインディング"
@@ -1521,11 +1542,38 @@ msgstr "バインディングの親が自身または子孫を参照していま
 msgid "ndmf.bone_proxy.reset_chain_from_source"
 msgstr "ソースからチェーンをリセット"
 
-msgid "ndmf.bone_proxy.capture_bindposes_all_meshes"
-msgstr "使用中の全メッシュにバインドポーズを保存"
+msgid "ndmf.bone_proxy.rebind_bones"
+msgstr "バインディングを更新"
 
-msgid "ndmf.bone_proxy.restore_chain_and_bindposes"
-msgstr "ソースのチェーンとバインドポーズを復元"
+msgid "ndmf.bone_proxy.rebind_bones_tooltip"
+msgstr "現在のボーン Transform から、このプロキシを使用するすべてのメッシュのバインドポーズを更新します。"
+
+msgid "ndmf.bone_proxy.restore"
+msgstr "バインディングを戻す"
+
+msgid "ndmf.bone_proxy.restore_tooltip"
+msgstr "カスタムバインドポーズを削除し、ボーンと対象メッシュをソースバインディングに戻します。"
+
+msgid "ndmf.bone_proxy.final_path"
+msgstr "最終パス"
+
+msgid "ndmf.bone_proxy.status_source"
+msgstr "ソース"
+
+msgid "ndmf.bone_proxy.status_source_tooltip"
+msgstr "対象となるすべてのメッシュがソースバインディングを使用しています。"
+
+msgid "ndmf.bone_proxy.status_override"
+msgstr "カスタム"
+
+msgid "ndmf.bone_proxy.status_override_tooltip"
+msgstr "少なくとも 1 つの対象メッシュが、このボーンの Transform から取得したカスタムバインディングを使用しています。"
+
+msgid "ndmf.bone_proxy.status_modified"
+msgstr "変更済み"
+
+msgid "ndmf.bone_proxy.status_modified_tooltip"
+msgstr "現在の Transform は、有効なソースまたはカスタムバインディングと異なります。"
 
 msgid "ndmf.bone_proxy.final_parent"
 msgstr "最終親"
@@ -1555,22 +1603,28 @@ msgid "ndmf.bone_proxy.bind_world_position"
 msgstr "バインドワールド位置"
 
 msgid "ndmf.bone_proxy.update_bindpose"
-msgstr "現在のトランスフォームからバインドポーズを更新"
+msgstr "バインディングを更新"
 
 msgid "ndmf.bone_proxy.restore_from_source"
-msgstr "ソースからバインディングトランスフォームを復元"
+msgstr "バインディングを戻す"
 
 msgid "ndmf.bone_proxy.reset_to_bind_pose"
 msgstr "トランスフォームをバインドポーズにリセット"
 
-msgid "ndmf.bone_proxy.duplicate_ignored"
-msgstr "同じソースアーマチュアとボーンパスを表す後順位のプロキシ「{0}」が優先されるため、このボーンプロキシは無視されます。"
+msgid "ndmf.bone_proxy.bindings_overridden"
+msgstr "後順位のボーンプロキシが次のバインディングを上書きします: {0}"
 
 msgid "ndmf.bone_proxy.no_owner"
 msgstr "所有する BlendShare 適用コンポーネントが見つかりません。"
 
 msgid "ndmf.bone_proxy.no_source_binding"
 msgstr "このプロキシのソースボーンバインディングが見つかりません。"
+
+msgid "ndmf.bone_proxy.revert_mapping_missing"
+msgstr "有効な Unity マッピングが見つからないため、バインディングを戻せません。"
+
+msgid "ndmf.bone_proxy.revert_source_unavailable"
+msgstr "ソース Transform を使用できないため、バインディング「{0}」を戻せません。"
 
 msgid "ndmf.bone_proxy.shared_different_transforms"
 msgstr "このプロキシは、バインディングトランスフォームが異なる複数のソースボーンで共有されています。"

@@ -16,8 +16,8 @@ namespace Triturbo.BlendShare.NDMF
     public sealed class BlendShareMeshEditor : UnityEditor.Editor
     {
         private const float BoneColumnSpacing = 4f;
-        private const float BoneTrailingColumnWidth = 128f;
-        private const float BoneRestoreButtonWidth = 64f;
+        private const float BoneTrailingColumnWidth = 164f;
+        private const float BoneRestoreButtonWidth = 96f;
         private const float BoneListIndent = 16f;
         private const float BoneListPadding = 6f;
         private const float BoneListRowSpacing = 2f;

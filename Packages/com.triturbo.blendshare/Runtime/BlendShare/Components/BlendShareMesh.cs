@@ -265,6 +265,22 @@ namespace Triturbo.BlendShare.Components
             Transform targetRoot,
             IEnumerable<BlendShareBoneProxy> availableProxies)
         {
+            var proxiesBySource = ResolveBoneProxyBindings(availableProxies);
+
+            foreach (var mesh in (meshes ?? Enumerable.Empty<BlendShareMesh>())
+                         .Where(mesh => mesh != null)
+                         .Distinct())
+            {
+                mesh.RefreshBoneProxyCache(targetRoot, proxiesBySource);
+            }
+        }
+
+        /// <summary>
+        /// Resolves hierarchy-winning proxy bindings by source armature and normalized bone path.
+        /// </summary>
+        internal static IReadOnlyDictionary<SourceKey, BlendShareResolvedBone> ResolveBoneProxyBindings(
+            IEnumerable<BlendShareBoneProxy> availableProxies)
+        {
             var proxiesBySource = new Dictionary<SourceKey, BlendShareResolvedBone>();
             foreach (var proxy in (availableProxies ?? Enumerable.Empty<BlendShareBoneProxy>())
                          .Where(proxy => proxy != null && proxy.isActiveAndEnabled && proxy.SourceArmature != null)
@@ -278,12 +294,7 @@ namespace Triturbo.BlendShare.Components
                 }
             }
 
-            foreach (var mesh in (meshes ?? Enumerable.Empty<BlendShareMesh>())
-                         .Where(mesh => mesh != null)
-                         .Distinct())
-            {
-                mesh.RefreshBoneProxyCache(targetRoot, proxiesBySource);
-            }
+            return proxiesBySource;
         }
 
         /// <summary>Refreshes this mesh's transient proxy cache.</summary>
@@ -345,12 +356,12 @@ namespace Triturbo.BlendShare.Components
             return string.Join("/", indices);
         }
 
-        private readonly struct SourceKey : IEquatable<SourceKey>
+        internal readonly struct SourceKey : IEquatable<SourceKey>
         {
             private readonly FbxArmatureObject armature;
             private readonly string sourceBonePath;
 
-            public SourceKey(FbxArmatureObject armature, string sourceBonePath)
+            internal SourceKey(FbxArmatureObject armature, string sourceBonePath)
             {
                 this.armature = armature;
                 this.sourceBonePath = MeshNodePath.NormalizeOptional(sourceBonePath);
