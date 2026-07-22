@@ -5,6 +5,7 @@ using Triturbo.BlendShare.Core;
 using Triturbo.BlendShapeShare;
 using Triturbo.BlendShare.Components;
 using Triturbo.BlendShare.Features.SkinWeights;
+using Triturbo.BlendShare.Inspector;
 using UnityEditor;
 using UnityEditor.IMGUI.Controls;
 using UnityEngine;
@@ -35,18 +36,6 @@ namespace Triturbo.BlendShare.NDMF
         private static readonly Lazy<GUIStyle> DropdownTextStyle = new(() => new GUIStyle("TextFieldDropDownText"));
         private static readonly Lazy<GUIStyle> StatusStyle = new(() =>
             new GUIStyle(EditorStyles.miniLabel)
-            {
-                alignment = TextAnchor.MiddleRight,
-                clipping = TextClipping.Clip
-            });
-        private static readonly Lazy<GUIStyle> PathLeftStyle = new(() =>
-            new GUIStyle(EditorStyles.label)
-            {
-                alignment = TextAnchor.MiddleLeft,
-                clipping = TextClipping.Clip
-            });
-        private static readonly Lazy<GUIStyle> PathRightStyle = new(() =>
-            new GUIStyle(EditorStyles.label)
             {
                 alignment = TextAnchor.MiddleRight,
                 clipping = TextClipping.Clip
@@ -107,11 +96,11 @@ namespace Triturbo.BlendShare.NDMF
                     row.y,
                     Mathf.Max(0f, indentedFoldoutRect.width - FoldoutArrowWidth),
                     row.height);
-                var pathContent = new GUIContent(summary, sourcePathProperty.stringValue);
-                GUIStyle pathStyle = PathLeftStyle.Value.CalcSize(pathContent).x > pathRect.width
-                    ? PathRightStyle.Value
-                    : PathLeftStyle.Value;
-                GUI.Label(pathRect, pathContent, pathStyle);
+                BlendShareInspectorWidgets.DrawPathLabel(
+                    pathRect,
+                    summary,
+                    sourcePathProperty.stringValue,
+                    fadeClippedHead: true);
 
                 if (statusContent != null)
                 {

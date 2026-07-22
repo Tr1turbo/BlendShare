@@ -709,10 +709,122 @@ namespace Triturbo.BlendShare.NDMF
     }
 
     [InitializeOnLoad]
+    internal static class BlendShareBoneProxyGizmoDrawer
+    {
+        private const float BoneGizmoLineWidth = 3f;
+        private const float BoneGizmoJointSize = 0.06f;
+
+        private static readonly Color BoneGizmoColor = new(0.2f, 0.75f, 1f, 0.8f);
+        private static readonly Color SelectedBoneGizmoColor = new(1f, 0.8f, 0.1f, 1f);
+
+        static BlendShareBoneProxyGizmoDrawer()
+        {
+            SceneView.duringSceneGui -= DrawBoneChainGizmos;
+            SceneView.duringSceneGui += DrawBoneChainGizmos;
+        }
+
+        private static void DrawBoneChainGizmos(SceneView sceneView)
+        {
+            var selectedTransform = Selection.activeTransform;
+            if (selectedTransform == null ||
+                !sceneView.drawGizmos ||
+                Event.current.type != EventType.Repaint)
+            {
+                return;
+            }
+
+            Color previousColor = Handles.color;
+            var previousZTest = Handles.zTest;
+            Handles.zTest = UnityEngine.Rendering.CompareFunction.Always;
+            try
+            {
+                var availableProxies = BlendShareBoneProxyEditorUpdater.Proxies;
+                var selectedProxy = availableProxies.FirstOrDefault(proxy =>
+                    IsProxyOrBindingSelected(proxy, selectedTransform));
+                foreach (var proxy in availableProxies)
+                {
+                    if (proxy == null ||
+                        !proxy.isActiveAndEnabled ||
+                        !ShouldDrawProxy(proxy, selectedTransform, selectedProxy))
+                    {
+                        continue;
+                    }
+
+                    DrawBoneChain(proxy, selectedProxy);
+                }
+            }
+            finally
+            {
+                Handles.color = previousColor;
+                Handles.zTest = previousZTest;
+            }
+        }
+
+        private static bool IsProxyOrBindingSelected(
+            BlendShareBoneProxy proxy,
+            Transform selectedTransform)
+        {
+            return proxy != null &&
+                   (proxy.transform == selectedTransform ||
+                    proxy.Bindings.Any(binding => binding?.Transform == selectedTransform));
+        }
+
+        private static bool ShouldDrawProxy(
+            BlendShareBoneProxy proxy,
+            Transform selectedTransform,
+            BlendShareBoneProxy selectedProxy)
+        {
+            var proxyTransform = proxy.transform;
+            if (selectedProxy != null)
+            {
+                return proxyTransform.parent == selectedProxy.transform.parent;
+            }
+
+            return proxyTransform == selectedTransform ||
+                   proxyTransform.IsChildOf(selectedTransform) ||
+                   (proxyTransform.parent != null && proxyTransform.parent == selectedTransform.parent);
+        }
+
+        private static void DrawBoneChain(
+            BlendShareBoneProxy proxy,
+            BlendShareBoneProxy selectedProxy)
+        {
+            bool isSelectedProxy = proxy == selectedProxy;
+            foreach (var binding in proxy.Bindings)
+            {
+                var bone = proxy.GetFinalTransform(binding);
+                if (bone == null)
+                {
+                    continue;
+                }
+
+                Handles.color = isSelectedProxy
+                    ? SelectedBoneGizmoColor
+                    : BoneGizmoColor;
+                var parent = proxy.GetEffectiveParent(binding);
+                if (parent != null && parent != bone)
+                {
+                    Handles.DrawAAPolyLine(BoneGizmoLineWidth, parent.position, bone.position);
+                }
+
+                float jointSize = HandleUtility.GetHandleSize(bone.position) * BoneGizmoJointSize;
+                Handles.SphereHandleCap(
+                    0,
+                    bone.position,
+                    Quaternion.identity,
+                    jointSize,
+                    EventType.Repaint);
+            }
+        }
+    }
+
+    [InitializeOnLoad]
     internal static class BlendShareBoneProxyEditorUpdater
     {
         private static BlendShareBoneProxy[] proxies = System.Array.Empty<BlendShareBoneProxy>();
         private static readonly IDisposable EditorChangeSubscription;
+
+        internal static IReadOnlyList<BlendShareBoneProxy> Proxies => proxies;
 
         static BlendShareBoneProxyEditorUpdater()
         {

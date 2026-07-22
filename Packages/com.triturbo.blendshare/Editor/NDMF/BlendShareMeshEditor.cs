@@ -22,6 +22,8 @@ namespace Triturbo.BlendShare.NDMF
         private const float BoneListPadding = 6f;
         private const float BoneListRowSpacing = 2f;
         private const float BoneRightGutter = 4f;
+        private const float BonePathMinimumWidth = 90f;
+        private const float BonePathMaximumWidthRatio = 0.6f;
 
         private readonly Dictionary<string, BlendShapeWeightSyncState> blendShapeWeightSyncStates = new();
         private readonly Dictionary<int, bool> boneProxyExpanded = new();
@@ -306,6 +308,8 @@ namespace Triturbo.BlendShare.NDMF
             listRect.xMax -= BoneRightGutter;
             GUI.Box(listRect, GUIContent.none, GUI.skin.box);
 
+            float bindingRowWidth = Mathf.Max(0f, listRect.width - BoneListPadding * 2f);
+            float pathColumnWidth = GetBonePathColumnWidth(group.Entries, bindingRowWidth);
             float rowY = listRect.y + BoneListPadding;
             foreach (var entry in group.Entries)
             {
@@ -315,8 +319,9 @@ namespace Triturbo.BlendShare.NDMF
                     new Rect(
                         listRect.x + BoneListPadding,
                         rowY,
-                        Mathf.Max(0f, listRect.width - BoneListPadding * 2f),
-                        rowHeight));
+                        bindingRowWidth,
+                        rowHeight),
+                    pathColumnWidth);
                 rowY += rowHeight + BoneListRowSpacing;
             }
         }
@@ -324,7 +329,8 @@ namespace Triturbo.BlendShare.NDMF
         private static void DrawBoneProxyBinding(
             BlendShareMesh applier,
             BoneEntry entry,
-            Rect rowRect)
+            Rect rowRect,
+            float pathColumnWidth)
         {
             string status = entry.HasBindPoseOverride
                 ? Localization.S("ndmf.mesh.bind_pose_custom")
@@ -349,8 +355,7 @@ namespace Triturbo.BlendShare.NDMF
                 rowRect.y,
                 Mathf.Max(0f, trailingRect.x - rowRect.x - BoneColumnSpacing),
                 rowRect.height);
-            float pathWidth = Mathf.Clamp(contentRect.width * 0.34f, 90f, 200f);
-            pathWidth = Mathf.Min(pathWidth, contentRect.width);
+            float pathWidth = Mathf.Min(pathColumnWidth, contentRect.width);
             var pathRect = new Rect(contentRect.x, contentRect.y, pathWidth, contentRect.height);
             var transformRect = new Rect(
                 pathRect.xMax + BoneColumnSpacing,
@@ -358,9 +363,10 @@ namespace Triturbo.BlendShare.NDMF
                 Mathf.Max(0f, contentRect.xMax - pathRect.xMax - BoneColumnSpacing),
                 contentRect.height);
 
-            EditorGUI.LabelField(
+            BlendShareInspectorWidgets.DrawPathLabel(
                 pathRect,
-                new GUIContent(GetShortBonePath(entry.SourceBonePath), entry.SourceBonePath));
+                entry.SourceBonePath,
+                fadeClippedHead: true);
             using (new EditorGUI.DisabledScope(true))
             {
                 EditorGUI.ObjectField(
@@ -384,16 +390,20 @@ namespace Triturbo.BlendShare.NDMF
             EditorGUI.LabelField(statusRect, status, EditorStyles.miniLabel);
         }
 
-        private static string GetShortBonePath(string sourceBonePath)
+        private static float GetBonePathColumnWidth(
+            IEnumerable<BoneEntry> entries,
+            float rowWidth)
         {
-            string normalizedPath = MeshNodePath.Normalize(sourceBonePath);
-            string[] parts = normalizedPath.Split('/');
-            if (parts.Length <= 2)
-            {
-                return normalizedPath;
-            }
-
-            return $".../{parts[^2]}/{parts[^1]}";
+            float contentWidth = Mathf.Max(
+                0f,
+                rowWidth - BoneTrailingColumnWidth - BoneColumnSpacing);
+            float maximumPathWidth = contentWidth * BonePathMaximumWidthRatio;
+            float minimumPathWidth = Mathf.Min(BonePathMinimumWidth, maximumPathWidth);
+            float preferredPathWidth = (entries ?? Enumerable.Empty<BoneEntry>())
+                .Select(entry => BlendShareInspectorWidgets.GetPathLabelWidth(entry.SourceBonePath))
+                .DefaultIfEmpty(0f)
+                .Max();
+            return Mathf.Clamp(preferredPathWidth, minimumPathWidth, maximumPathWidth);
         }
 
         private static void RestoreBoneBindPose(
