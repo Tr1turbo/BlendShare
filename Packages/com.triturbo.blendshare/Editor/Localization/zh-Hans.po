@@ -1438,7 +1438,7 @@ msgid "ndmf.mesh.bind_pose"
 msgstr "绑定"
 
 msgid "ndmf.mesh.bind_pose_source"
-msgstr "源"
+msgstr "来源"
 
 msgid "ndmf.mesh.bind_pose_custom"
 msgstr "自定义"
@@ -1450,7 +1450,7 @@ msgid "ndmf.mesh.rebind"
 msgstr "更新绑定"
 
 msgid "ndmf.mesh.restore"
-msgstr "还原绑定"
+msgstr "还原"
 
 msgid "ndmf.mesh.bone_transform_tooltip"
 msgstr "用作此网格最终骨骼的 Transform。"
@@ -1558,7 +1558,7 @@ msgid "ndmf.bone_proxy.final_path"
 msgstr "最终路径"
 
 msgid "ndmf.bone_proxy.status_source"
-msgstr "源"
+msgstr "来源"
 
 msgid "ndmf.bone_proxy.status_source_tooltip"
 msgstr "所有受影响的网格都使用源绑定。"

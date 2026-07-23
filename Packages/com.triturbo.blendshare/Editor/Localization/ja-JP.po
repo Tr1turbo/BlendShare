@@ -1450,7 +1450,7 @@ msgid "ndmf.mesh.rebind"
 msgstr "バインディングを更新"
 
 msgid "ndmf.mesh.restore"
-msgstr "バインディングを戻す"
+msgstr "戻す"
 
 msgid "ndmf.mesh.bone_transform_tooltip"
 msgstr "このメッシュの最終ボーンとして使用される Transform です。"

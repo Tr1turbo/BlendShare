@@ -1450,7 +1450,7 @@ msgid "ndmf.mesh.rebind"
 msgstr "Update Binding"
 
 msgid "ndmf.mesh.restore"
-msgstr "Revert Binding"
+msgstr "Revert"
 
 msgid "ndmf.mesh.bone_transform_tooltip"
 msgstr "The Transform used as this mesh's final bone."

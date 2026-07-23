@@ -1450,7 +1450,7 @@ msgid "ndmf.mesh.rebind"
 msgstr "更新綁定"
 
 msgid "ndmf.mesh.restore"
-msgstr "還原綁定"
+msgstr "還原"
 
 msgid "ndmf.mesh.bone_transform_tooltip"
 msgstr "作為此網格最終骨骼使用的 Transform。"

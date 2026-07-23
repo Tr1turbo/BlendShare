@@ -15,18 +15,42 @@ namespace Triturbo.BlendShare.NDMF
     [CustomEditor(typeof(BlendShareMesh))]
     public sealed class BlendShareMeshEditor : UnityEditor.Editor
     {
+        // Horizontal gap separating the path, Transform, and trailing control columns.
         private const float BoneColumnSpacing = 4f;
-        private const float BoneTrailingColumnWidth = 164f;
-        private const float BoneRestoreButtonWidth = 96f;
+
+        // Fixed width of each per-bone Revert button and the first part of the shared trailing area.
+        private const float BoneRestoreButtonWidth = 80f;
+
+        // Tight horizontal gap between a per-bone Revert button and its status label.
+        private const float BoneStatusSpacing = 4f;
+
+        // Extra width around the measured localized status text to prevent edge clipping.
+        private const float BoneStatusHorizontalPadding = 4f;
+
+        // Minimum width reserved for the Transform field and required before trailing controls remain visible.
+        private const float BoneTransformMinimumWidth = 160f;
+
+        // Horizontal inset that visually nests an expanded binding list beneath its proxy row.
         private const float BoneListIndent = 16f;
-        private const float BoneListPadding = 6f;
+
+        // Inner padding around the binding rows and the proxy row's right-aligned controls.
+        private const float BoneListPadding = 2f;
+
+        // Vertical separation between adjacent binding rows inside an expanded proxy group.
         private const float BoneListRowSpacing = 2f;
+
+        // Right-side inset that keeps proxy and binding controls away from the inspector edge.
         private const float BoneRightGutter = 4f;
+
+        // Minimum source-path column width preserved while the trailing controls are visible.
         private const float BonePathMinimumWidth = 90f;
+
+        // Maximum share of the main content area given to paths so the Transform field keeps room.
         private const float BonePathMaximumWidthRatio = 0.6f;
 
         private readonly Dictionary<string, BlendShapeWeightSyncState> blendShapeWeightSyncStates = new();
         private readonly Dictionary<int, bool> boneProxyExpanded = new();
+        private static GUIStyle boneStatusStyle;
         private bool bonesExpanded = true;
         private bool boneProxyCacheDirty = true;
         private IDisposable boneProxyChangeSubscription;
@@ -262,15 +286,20 @@ namespace Triturbo.BlendShare.NDMF
             boneProxyExpanded[proxyId] = expanded;
 
             float contentRight = rowRect.xMax - BoneListPadding;
+            float availableBindingRowWidth = rowRect.width - BoneListIndent - BoneListPadding * 2f;
+            bool showTrailingControls = ShouldShowBoneTrailingControls(availableBindingRowWidth);
+            float trailingColumnWidth = showTrailingControls ? GetBoneTrailingColumnWidth() : 0f;
             var buttonRect = new Rect(
-                contentRight - BoneTrailingColumnWidth,
+                contentRight - trailingColumnWidth,
                 rowRect.y,
-                BoneTrailingColumnWidth,
+                trailingColumnWidth,
                 rowRect.height);
             var proxyRect = new Rect(
                 foldoutRect.xMax,
                 rowRect.y,
-                Mathf.Max(0f, buttonRect.x - foldoutRect.xMax - BoneColumnSpacing),
+                Mathf.Max(
+                    0f,
+                    (showTrailingControls ? buttonRect.x - BoneColumnSpacing : contentRight) - foldoutRect.xMax),
                 rowRect.height);
             using (new EditorGUI.DisabledScope(true))
             {
@@ -281,16 +310,19 @@ namespace Triturbo.BlendShare.NDMF
                     true);
             }
 
-            bool hasOverride = group.Entries.Any(entry => entry.HasBindPoseOverride);
-            using (new EditorGUI.DisabledScope(!hasOverride))
+            if (showTrailingControls)
             {
-                if (GUI.Button(
-                        buttonRect,
-                        new GUIContent(
-                            Localization.S("ndmf.mesh.restore_bindposes"),
-                            Localization.S("ndmf.mesh.restore_bindposes_tooltip"))))
+                bool hasOverride = group.Entries.Any(entry => entry.HasBindPoseOverride);
+                using (new EditorGUI.DisabledScope(!hasOverride))
                 {
-                    RestoreProxyBindPoses(applier, group);
+                    if (GUI.Button(
+                            buttonRect,
+                            new GUIContent(
+                                Localization.S("ndmf.mesh.restore_bindposes"),
+                                Localization.S("ndmf.mesh.restore_bindposes_tooltip"))))
+                    {
+                        RestoreProxyBindPoses(applier, group);
+                    }
                 }
             }
 
@@ -335,10 +367,13 @@ namespace Triturbo.BlendShare.NDMF
             string status = entry.HasBindPoseOverride
                 ? Localization.S("ndmf.mesh.bind_pose_custom")
                 : Localization.S("ndmf.mesh.bind_pose_source");
+            bool showTrailingControls = ShouldShowBoneTrailingControls(rowRect.width);
+            float statusWidth = showTrailingControls ? GetBoneStatusWidth() : 0f;
+            float trailingColumnWidth = showTrailingControls ? GetBoneTrailingColumnWidth() : 0f;
             var trailingRect = new Rect(
-                rowRect.xMax - BoneTrailingColumnWidth,
+                rowRect.xMax - trailingColumnWidth,
                 rowRect.y,
-                BoneTrailingColumnWidth,
+                trailingColumnWidth,
                 rowRect.height);
             var restoreRect = new Rect(
                 trailingRect.x,
@@ -346,14 +381,16 @@ namespace Triturbo.BlendShare.NDMF
                 BoneRestoreButtonWidth,
                 rowRect.height);
             var statusRect = new Rect(
-                restoreRect.xMax + BoneColumnSpacing,
+                restoreRect.xMax + BoneStatusSpacing,
                 rowRect.y,
-                Mathf.Max(0f, trailingRect.xMax - restoreRect.xMax - BoneColumnSpacing),
+                statusWidth,
                 rowRect.height);
             var contentRect = new Rect(
                 rowRect.x,
                 rowRect.y,
-                Mathf.Max(0f, trailingRect.x - rowRect.x - BoneColumnSpacing),
+                Mathf.Max(
+                    0f,
+                    (showTrailingControls ? trailingRect.x - BoneColumnSpacing : rowRect.xMax) - rowRect.x),
                 rowRect.height);
             float pathWidth = Mathf.Min(pathColumnWidth, contentRect.width);
             var pathRect = new Rect(contentRect.x, contentRect.y, pathWidth, contentRect.height);
@@ -376,28 +413,37 @@ namespace Triturbo.BlendShare.NDMF
                     typeof(Transform),
                     true);
             }
-            using (new EditorGUI.DisabledScope(!entry.HasBindPoseOverride))
+            if (showTrailingControls)
             {
-                if (GUI.Button(
-                        restoreRect,
-                        new GUIContent(
-                            Localization.S("ndmf.mesh.restore"),
-                            Localization.S("ndmf.mesh.restore_tooltip"))))
+                using (new EditorGUI.DisabledScope(!entry.HasBindPoseOverride))
                 {
-                    RestoreBoneBindPose(applier, entry);
+                    if (GUI.Button(
+                            restoreRect,
+                            new GUIContent(
+                                Localization.S("ndmf.mesh.restore"),
+                                Localization.S("ndmf.mesh.restore_tooltip"))))
+                    {
+                        RestoreBoneBindPose(applier, entry);
+                    }
                 }
+
+                GUI.Label(statusRect, status, BoneStatusStyle);
             }
-            EditorGUI.LabelField(statusRect, status, EditorStyles.miniLabel);
         }
 
         private static float GetBonePathColumnWidth(
             IEnumerable<BoneEntry> entries,
             float rowWidth)
         {
+            float trailingColumnWidth = ShouldShowBoneTrailingControls(rowWidth)
+                ? GetBoneTrailingColumnWidth() + BoneColumnSpacing
+                : 0f;
             float contentWidth = Mathf.Max(
                 0f,
-                rowWidth - BoneTrailingColumnWidth - BoneColumnSpacing);
-            float maximumPathWidth = contentWidth * BonePathMaximumWidthRatio;
+                rowWidth - trailingColumnWidth);
+            float maximumPathWidth = Mathf.Min(
+                contentWidth * BonePathMaximumWidthRatio,
+                Mathf.Max(0f, contentWidth - BoneColumnSpacing - BoneTransformMinimumWidth));
             float minimumPathWidth = Mathf.Min(BonePathMinimumWidth, maximumPathWidth);
             float preferredPathWidth = (entries ?? Enumerable.Empty<BoneEntry>())
                 .Select(entry => BlendShareInspectorWidgets.GetPathLabelWidth(entry.SourceBonePath))
@@ -405,6 +451,33 @@ namespace Triturbo.BlendShare.NDMF
                 .Max();
             return Mathf.Clamp(preferredPathWidth, minimumPathWidth, maximumPathWidth);
         }
+
+        private static bool ShouldShowBoneTrailingControls(float rowWidth)
+        {
+            float minimumContentWidth =
+                BonePathMinimumWidth + BoneColumnSpacing + BoneTransformMinimumWidth;
+            return rowWidth >= minimumContentWidth + BoneColumnSpacing + GetBoneTrailingColumnWidth();
+        }
+
+        private static float GetBoneTrailingColumnWidth()
+        {
+            return BoneRestoreButtonWidth + BoneStatusSpacing + GetBoneStatusWidth();
+        }
+
+        private static float GetBoneStatusWidth()
+        {
+            float sourceWidth = BoneStatusStyle.CalcSize(
+                new GUIContent(Localization.S("ndmf.mesh.bind_pose_source"))).x;
+            float customWidth = BoneStatusStyle.CalcSize(
+                new GUIContent(Localization.S("ndmf.mesh.bind_pose_custom"))).x;
+            return Mathf.Ceil(Mathf.Max(sourceWidth, customWidth) + BoneStatusHorizontalPadding);
+        }
+
+        private static GUIStyle BoneStatusStyle => boneStatusStyle ??= new GUIStyle(EditorStyles.miniLabel)
+        {
+            alignment = TextAnchor.MiddleCenter,
+            padding = new RectOffset()
+        };
 
         private static void RestoreBoneBindPose(
             BlendShareMesh applier,
