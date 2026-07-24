@@ -1703,3 +1703,15 @@ msgstr "All Shown"
 
 msgid "patch_creator.preview.all_meshes"
 msgstr "All Meshes"
+
+msgid "ndmf.bone_proxy.effective_transform"
+msgstr "Effective Transform"
+
+msgid "ndmf.bone_proxy.effective_final_path"
+msgstr "Effective Final Path"
+
+msgid "ndmf.bone_proxy.status_shadowed"
+msgstr "Shadowed"
+
+msgid "ndmf.bone_proxy.status_shadowed_tooltip"
+msgstr "Another proxy component is selected for this armature bone path. Preview and build use the effective transform shown below."

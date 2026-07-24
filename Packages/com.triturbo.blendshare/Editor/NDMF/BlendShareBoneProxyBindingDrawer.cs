@@ -16,6 +16,7 @@ namespace Triturbo.BlendShare.NDMF
     internal sealed class BlendShareBoneProxyBindingDrawer : PropertyDrawer
     {
         private const int ExpandedRowCount = 4;
+        private const int ShadowedExpandedRowCount = 6;
 
 
         private const float FoldoutArrowWidth = 1f;// margin between element Foldout Arrow and title
@@ -42,14 +43,17 @@ namespace Triturbo.BlendShare.NDMF
             });
         private static readonly Dictionary<int, IReadOnlyDictionary<BlendShareBoneProxyBinding,
             BlendShareBoneProxyBindingStatus>> BindingStatusesByProxy = new();
+        private static readonly Dictionary<int, BlendShareArmatureBoneProxyResolution> ResolutionsByProxy = new();
 
-        internal static void SetBindingStatuses(
+        internal static void SetBindingState(
             BlendShareBoneProxy proxy,
-            IReadOnlyDictionary<BlendShareBoneProxyBinding, BlendShareBoneProxyBindingStatus> statuses)
+            IReadOnlyDictionary<BlendShareBoneProxyBinding, BlendShareBoneProxyBindingStatus> statuses,
+            BlendShareArmatureBoneProxyResolution resolution)
         {
             if (proxy != null)
             {
                 BindingStatusesByProxy[proxy.GetInstanceID()] = statuses;
+                ResolutionsByProxy[proxy.GetInstanceID()] = resolution;
             }
         }
 
@@ -132,6 +136,17 @@ namespace Triturbo.BlendShare.NDMF
                         TakeRow(ref position),
                         property,
                         new GUIContent(Localization.S("ndmf.bone_proxy.final_path")));
+                    if (TryGetEffectiveOverride(property, out var effective))
+                    {
+                        DrawEffectiveTransform(
+                            TakeRow(ref position),
+                            effective,
+                            new GUIContent(Localization.S("ndmf.bone_proxy.effective_transform")));
+                        DrawEffectiveFinalPath(
+                            TakeRow(ref position),
+                            effective,
+                            new GUIContent(Localization.S("ndmf.bone_proxy.effective_final_path")));
+                    }
                 }
                 finally
                 {
@@ -146,7 +161,9 @@ namespace Triturbo.BlendShare.NDMF
 
         public override float GetPropertyHeight(SerializedProperty property, GUIContent label)
         {
-            int rows = property.isExpanded ? ExpandedRowCount : 1;
+            int rows = property.isExpanded
+                ? TryGetEffectiveOverride(property, out _) ? ShadowedExpandedRowCount : ExpandedRowCount
+                : 1;
             return rows * EditorGUIUtility.singleLineHeight +
                    (rows - 1) * EditorGUIUtility.standardVerticalSpacing;
         }
@@ -212,6 +229,32 @@ namespace Triturbo.BlendShare.NDMF
                 finalPath = proxy.GetFinalPath(binding, proxy.transform.root);
             }
 
+            Rect valueRect = EditorGUI.PrefixLabel(position, label);
+            int previousIndent = EditorGUI.indentLevel;
+            EditorGUI.indentLevel = 0;
+            EditorGUI.SelectableLabel(valueRect, finalPath, EditorStyles.miniLabel);
+            EditorGUI.indentLevel = previousIndent;
+        }
+
+        private static void DrawEffectiveTransform(
+            Rect position,
+            BlendShareResolvedBone effective,
+            GUIContent label)
+        {
+            using (new EditorGUI.DisabledScope(true))
+            {
+                EditorGUI.ObjectField(position, label, effective.Transform, typeof(Transform), true);
+            }
+        }
+
+        private static void DrawEffectiveFinalPath(
+            Rect position,
+            BlendShareResolvedBone effective,
+            GUIContent label)
+        {
+            string finalPath = effective.Proxy != null && effective.Binding != null
+                ? effective.Proxy.GetFinalPath(effective.Binding, effective.Proxy.transform.root)
+                : string.Empty;
             Rect valueRect = EditorGUI.PrefixLabel(position, label);
             int previousIndent = EditorGUI.indentLevel;
             EditorGUI.indentLevel = 0;
@@ -294,7 +337,10 @@ namespace Triturbo.BlendShare.NDMF
             {
                 AddStatus("modified");
             }
-
+            if ((status & BlendShareBoneProxyBindingStatus.Shadowed) != 0)
+            {
+                AddStatus("shadowed");
+            }
             return labels.Count == 0
                 ? null
                 : new GUIContent(string.Join(" · ", labels), string.Join("\n", tooltips));
@@ -304,6 +350,24 @@ namespace Triturbo.BlendShare.NDMF
                 labels.Add(Localization.S($"ndmf.bone_proxy.status_{key}"));
                 tooltips.Add(Localization.S($"ndmf.bone_proxy.status_{key}_tooltip"));
             }
+        }
+
+        private static bool TryGetEffectiveOverride(
+            SerializedProperty bindingProperty,
+            out BlendShareResolvedBone effective)
+        {
+            effective = default;
+            if (bindingProperty.serializedObject.targetObject is not BlendShareBoneProxy proxy ||
+                !TryGetBinding(proxy, bindingProperty.propertyPath, out var binding) ||
+                binding?.IsConfigured != true ||
+                !ResolutionsByProxy.TryGetValue(proxy.GetInstanceID(), out var resolution) ||
+                resolution == null ||
+                !resolution.TryGetBinding(binding.SourceBonePath, out effective))
+            {
+                return false;
+            }
+
+            return effective.Proxy != proxy || !ReferenceEquals(effective.Binding, binding);
         }
 
         private static Rect TakeRow(ref Rect position)

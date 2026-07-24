@@ -192,7 +192,7 @@ namespace Triturbo.BlendShare.NDMF
                 boneProxyCacheDirty = targetRoot == null;
             }
             var entries = GetBoneEntries(applier, skin, targetRoot);
-            var proxyGroups = BuildBoneProxyGroups(applier, entries);
+            var proxyGroups = BuildBoneProxyGroups(entries);
 
             EditorGUILayout.Space();
             bonesExpanded = EditorGUILayout.Foldout(
@@ -234,35 +234,28 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         private static IReadOnlyList<BoneProxyGroup> BuildBoneProxyGroups(
-            BlendShareMesh applier,
             IReadOnlyList<BoneEntry> entries)
         {
             var groups = new List<BoneProxyGroup>();
-            var seenProxies = new HashSet<BlendShareBoneProxy>();
+            var groupsByProxy = new Dictionary<BlendShareBoneProxy, BoneProxyGroup>();
             foreach (var entry in entries)
             {
                 var proxy = entry.Resolved.Proxy;
-                if (!entry.Resolved.IsProxy || proxy == null || !seenProxies.Add(proxy))
+                if (!entry.Resolved.IsProxy || proxy == null)
                 {
                     continue;
                 }
 
-                var group = new BoneProxyGroup(proxy);
-                foreach (var binding in proxy.Bindings)
+                if (!groupsByProxy.TryGetValue(proxy, out var group))
                 {
-                    if (binding?.IsConfigured != true)
-                    {
-                        continue;
-                    }
-
-                    group.Entries.Add(new BoneEntry(
-                        binding.SourceBonePath,
-                        new BlendShareResolvedBone(proxy, binding),
-                        false,
-                        applier.TryGetBindPoseOverride(binding.SourceBonePath, out _)));
+                    group = new BoneProxyGroup(proxy);
+                    groupsByProxy[proxy] = group;
+                    groups.Add(group);
                 }
 
-                groups.Add(group);
+                // Entries already come from this mesh's resolved per-path cache. Do not expand
+                // every raw binding on the component, because some bindings may be shadowed.
+                group.Entries.Add(entry);
             }
 
             return groups;

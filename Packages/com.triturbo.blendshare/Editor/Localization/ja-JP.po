@@ -1703,3 +1703,15 @@ msgstr "すべて表示中"
 
 msgid "patch_creator.preview.all_meshes"
 msgstr "すべてのメッシュ"
+
+msgid "ndmf.bone_proxy.effective_transform"
+msgstr "有効なトランスフォーム"
+
+msgid "ndmf.bone_proxy.effective_final_path"
+msgstr "有効な最終パス"
+
+msgid "ndmf.bone_proxy.status_shadowed"
+msgstr "上書き済み"
+
+msgid "ndmf.bone_proxy.status_shadowed_tooltip"
+msgstr "このアーマチュアボーンパスには別のプロキシコンポーネントが選択されています。プレビューとビルドでは下に表示された有効なトランスフォームを使用します。"

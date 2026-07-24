@@ -152,10 +152,20 @@ namespace Triturbo.BlendShare.NDMF
                 .Where(applier => applier != null && applier.isActiveAndEnabled)
                 .Distinct()
                 .ToArray();
-            BlendShareMesh.RefreshBoneProxyCaches(appliers, pathRoot, availableProxies);
+            var resolutions = BlendShareMesh.RefreshBoneProxyCaches(appliers, pathRoot, availableProxies);
             var selected = new List<ResolvedBinding>();
             diagnostic = null;
             conflictingProxy = null;
+
+            var failedResolution = resolutions.Values.FirstOrDefault(resolution => !resolution.Success);
+            if (failedResolution != null)
+            {
+                diagnostic = string.Join("\n", failedResolution.Diagnostics);
+                resolvedBindings = selected;
+                mergeGroups = new List<BoneMergeGroup>();
+                renameGroups = new List<ResolvedBinding[]>();
+                return false;
+            }
 
             foreach (var source in GetRequiredBoneProxySources(appliers, pathRoot))
             {
@@ -188,11 +198,19 @@ namespace Triturbo.BlendShare.NDMF
                          .Distinct()
                          .GroupBy(binding => GetFinalProxyPath(binding, pathRoot)))
             {
+                string finalPath = pathGroup.Key;
                 var ordered = pathGroup
                     .OrderBy(GetBindingOrder, StringComparer.Ordinal)
                     .ToArray();
+                var existingAtFinalPath = MeshNodePath.FindRelativeTransform(pathRoot, finalPath);
+                bool collidesWithExistingBone = existingAtFinalPath != null &&
+                                                ordered.All(binding => binding.FinalTransform != existingAtFinalPath);
                 if (ordered.Length == 1)
                 {
+                    if (collidesWithExistingBone)
+                    {
+                        groupsToRename.Add(ordered);
+                    }
                     continue;
                 }
 
@@ -209,10 +227,9 @@ namespace Triturbo.BlendShare.NDMF
                         partition.Take(partition.Length - 1).Select(binding => binding.FinalTransform)));
                 }
 
-                if (partitions.Count > 1)
+                if (partitions.Count > 1 || collidesWithExistingBone)
                 {
-                    // Once one collider must remain separate, every resulting bone receives a
-                    // build-only name. Proxies in the same merge partition share that name.
+                    // Keep distinct transform identities addressable; equivalent generated proxies may still merge later.
                     groupsToRename.AddRange(partitions);
                 }
             }
@@ -384,15 +401,18 @@ namespace Triturbo.BlendShare.NDMF
             ISet<string> usedPaths)
         {
             string baseName = binding.FinalTransform != null ? binding.FinalTransform.name : "BlendShareBone";
-            while (true)
+            string candidateBase = $"{baseName} BlendShare";
+            for (int suffix = 1; suffix < int.MaxValue; suffix++)
             {
-                string candidate = $"{baseName} BlendShare {Guid.NewGuid():N}";
+                string candidate = suffix == 1 ? candidateBase : $"{candidateBase} {suffix}";
                 string candidatePath = GetFinalProxyPath(binding, pathRoot, candidate);
                 if (usedPaths.Add(candidatePath))
                 {
                     return candidate;
                 }
             }
+
+            return candidateBase;
         }
 
         private static IEnumerable<(BlendShareMesh Applier, FbxArmatureObject Armature, string Path)> GetRequiredBoneProxySources(
@@ -406,20 +426,16 @@ namespace Triturbo.BlendShare.NDMF
                 string Path)>();
             foreach (var applier in meshAppliers ?? Array.Empty<BlendShareMesh>())
             {
-                var renderer = applier?.TargetRenderer;
                 var skin = applier?.MeshData?.GetFeature<SkinWeightFeatureObject>();
-                if (renderer == null || skin?.Armature == null)
+                if (applier?.TargetRenderer == null || skin?.Armature == null)
                 {
                     continue;
                 }
 
-                var existingBonePaths = new HashSet<string>((renderer.bones ?? Array.Empty<Transform>())
-                    .Where(bone => bone != null)
-                    .Select(bone => MeshNodePath.Normalize(MeshNodePath.GetRelativePath(bone, pathRoot))));
                 foreach (string path in skin.GetNeededBonePathsInArmatureOrder())
                 {
                     var bone = skin.Armature.GetBone(path);
-                    if (!existingBonePaths.Contains(path) && bone != null && bone.m_CreateIfMissing)
+                    if (bone != null && bone.m_CreateIfMissing)
                     {
                         requirements.Add((
                             new SourceKey(skin.Armature, path),

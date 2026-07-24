@@ -1703,3 +1703,15 @@ msgstr "已显示全部"
 
 msgid "patch_creator.preview.all_meshes"
 msgstr "全部网格"
+
+msgid "ndmf.bone_proxy.effective_transform"
+msgstr "生效变换"
+
+msgid "ndmf.bone_proxy.effective_final_path"
+msgstr "生效最终路径"
+
+msgid "ndmf.bone_proxy.status_shadowed"
+msgstr "已被覆盖"
+
+msgid "ndmf.bone_proxy.status_shadowed_tooltip"
+msgstr "此骨架骨骼路径已选择其他代理组件。预览和构建将使用下方显示的生效变换。"

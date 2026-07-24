@@ -260,41 +260,40 @@ namespace Triturbo.BlendShare.Components
         /// <summary>
         /// Refreshes transient proxy caches for the supplied meshes from one hierarchy-ordered proxy pass.
         /// </summary>
-        public static void RefreshBoneProxyCaches(
+        public static IReadOnlyDictionary<FbxArmatureObject, BlendShareArmatureBoneProxyResolution>
+            RefreshBoneProxyCaches(
             IEnumerable<BlendShareMesh> meshes,
             Transform targetRoot,
             IEnumerable<BlendShareBoneProxy> availableProxies)
         {
-            var proxiesBySource = ResolveBoneProxyBindings(availableProxies);
+            var meshArray = (meshes ?? Enumerable.Empty<BlendShareMesh>())
+                .Where(mesh => mesh != null)
+                .Distinct()
+                .ToArray();
+            var proxyArray = (availableProxies ?? Enumerable.Empty<BlendShareBoneProxy>())
+                .Where(proxy => proxy != null)
+                .Distinct()
+                .ToArray();
+            var resolutions = meshArray
+                .Select(mesh => mesh.MeshData?.GetFeature<SkinWeightFeatureObject>()?.Armature)
+                .Where(armature => armature != null)
+                .Distinct()
+                .ToDictionary(
+                    armature => armature,
+                    armature => BlendShareBoneProxyResolver.Resolve(armature, proxyArray));
 
-            foreach (var mesh in (meshes ?? Enumerable.Empty<BlendShareMesh>())
-                         .Where(mesh => mesh != null)
-                         .Distinct())
+            foreach (var mesh in meshArray)
             {
-                mesh.RefreshBoneProxyCache(targetRoot, proxiesBySource);
-            }
-        }
-
-        /// <summary>
-        /// Resolves hierarchy-winning proxy bindings by source armature and normalized bone path.
-        /// </summary>
-        internal static IReadOnlyDictionary<SourceKey, BlendShareResolvedBone> ResolveBoneProxyBindings(
-            IEnumerable<BlendShareBoneProxy> availableProxies)
-        {
-            var proxiesBySource = new Dictionary<SourceKey, BlendShareResolvedBone>();
-            foreach (var proxy in (availableProxies ?? Enumerable.Empty<BlendShareBoneProxy>())
-                         .Where(proxy => proxy != null && proxy.isActiveAndEnabled && proxy.SourceArmature != null)
-                         .Distinct()
-                         .OrderBy(proxy => GetHierarchyOrder(proxy.transform), StringComparer.Ordinal))
-            {
-                foreach (var binding in proxy.Bindings.Where(binding => binding?.IsConfigured == true))
+                var armature = mesh.MeshData?.GetFeature<SkinWeightFeatureObject>()?.Armature;
+                BlendShareArmatureBoneProxyResolution resolution = null;
+                if (armature != null)
                 {
-                    proxiesBySource[new SourceKey(proxy.SourceArmature, binding.SourceBonePath)] =
-                        new BlendShareResolvedBone(proxy, binding);
+                    resolutions.TryGetValue(armature, out resolution);
                 }
+                mesh.RefreshBoneProxyCache(resolution);
             }
 
-            return proxiesBySource;
+            return resolutions;
         }
 
         /// <summary>Refreshes this mesh's transient proxy cache.</summary>
@@ -305,33 +304,19 @@ namespace Triturbo.BlendShare.Components
             RefreshBoneProxyCaches(new[] { this }, targetRoot, availableProxies);
         }
 
-        private void RefreshBoneProxyCache(
-            Transform targetRoot,
-            IReadOnlyDictionary<SourceKey, BlendShareResolvedBone> proxiesBySource)
+        private void RefreshBoneProxyCache(BlendShareArmatureBoneProxyResolution resolution)
         {
             var skin = MeshData?.GetFeature<SkinWeightFeatureObject>();
-            var renderer = TargetRenderer;
-            if (targetRoot == null || renderer == null || skin?.Armature == null)
+            if (skin?.Armature == null || resolution == null || resolution.Armature != skin.Armature)
             {
                 SetBoneCache(Array.Empty<KeyValuePair<string, BlendShareResolvedBone>>());
                 return;
             }
 
-            var existingBonesByPath = (renderer.bones ?? Array.Empty<Transform>())
-                .Where(bone => bone != null)
-                .GroupBy(bone => MeshNodePath.Normalize(MeshNodePath.GetRelativePath(bone, targetRoot)), StringComparer.Ordinal)
-                .ToDictionary(group => group.Key, group => group.Last(), StringComparer.Ordinal);
             var references = new List<KeyValuePair<string, BlendShareResolvedBone>>();
             foreach (string sourceBonePath in skin.GetNeededBonePathsInArmatureOrder())
             {
-                if (existingBonesByPath.TryGetValue(sourceBonePath, out var existingBone))
-                {
-                    references.Add(new KeyValuePair<string, BlendShareResolvedBone>(
-                        sourceBonePath,
-                        new BlendShareResolvedBone(existingBone)));
-                }
-                else if (proxiesBySource != null &&
-                    proxiesBySource.TryGetValue(new SourceKey(skin.Armature, sourceBonePath), out var resolved))
+                if (resolution.TryGetBinding(sourceBonePath, out var resolved))
                 {
                     references.Add(new KeyValuePair<string, BlendShareResolvedBone>(sourceBonePath, resolved));
                 }
@@ -343,48 +328,6 @@ namespace Triturbo.BlendShare.Components
         private Dictionary<string, BlendShareResolvedBone> EnsureBoneCache()
         {
             return m_BonesBySourcePath ??= new Dictionary<string, BlendShareResolvedBone>(StringComparer.Ordinal);
-        }
-
-        private static string GetHierarchyOrder(Transform transform)
-        {
-            var indices = new Stack<string>();
-            for (var current = transform; current != null; current = current.parent)
-            {
-                indices.Push(current.GetSiblingIndex().ToString("D8"));
-            }
-
-            return string.Join("/", indices);
-        }
-
-        internal readonly struct SourceKey : IEquatable<SourceKey>
-        {
-            private readonly FbxArmatureObject armature;
-            private readonly string sourceBonePath;
-
-            internal SourceKey(FbxArmatureObject armature, string sourceBonePath)
-            {
-                this.armature = armature;
-                this.sourceBonePath = MeshNodePath.NormalizeOptional(sourceBonePath);
-            }
-
-            public bool Equals(SourceKey other)
-            {
-                return ReferenceEquals(armature, other.armature) && sourceBonePath == other.sourceBonePath;
-            }
-
-            public override bool Equals(object obj)
-            {
-                return obj is SourceKey other && Equals(other);
-            }
-
-            public override int GetHashCode()
-            {
-                unchecked
-                {
-                    return ((armature != null ? armature.GetInstanceID() : 0) * 397) ^
-                           (sourceBonePath != null ? sourceBonePath.GetHashCode() : 0);
-                }
-            }
         }
 
         public bool SyncActiveBlendShapeWeights()

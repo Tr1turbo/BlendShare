@@ -18,7 +18,8 @@ namespace Triturbo.BlendShare.NDMF
         Source = 1 << 0,
         Override = 1 << 1,
         Modified = 1 << 2,
-        Unknown = 1 << 3
+        Unknown = 1 << 3,
+        Shadowed = 1 << 4
     }
 
     internal readonly struct BlendShareOverriddenBinding
@@ -82,8 +83,10 @@ namespace Triturbo.BlendShare.NDMF
         {
             var proxy = (BlendShareBoneProxy)target;
             serializedObject.Update();
-            var bindingStatuses = GetBindingStatuses(proxy);
-            BlendShareBoneProxyBindingDrawer.SetBindingStatuses(proxy, bindingStatuses);
+            var availableProxies = proxy.transform.root.GetComponentsInChildren<BlendShareBoneProxy>(true);
+            var resolution = BlendShareBoneProxyResolver.Resolve(proxy.SourceArmature, availableProxies);
+            var bindingStatuses = GetBindingStatuses(proxy, resolution);
+            BlendShareBoneProxyBindingDrawer.SetBindingState(proxy, bindingStatuses, resolution);
 
             Localization.DrawLanguageSelection();
             EditorGUILayout.Space();
@@ -114,7 +117,7 @@ namespace Triturbo.BlendShare.NDMF
             DrawBindingValidation(proxy);
 
             EditorGUILayout.Space(4f);
-            foreach (var conflicts in GetOverriddenBindings(proxy)
+            foreach (var conflicts in GetOverriddenBindings(proxy, resolution)
                          .GroupBy(conflict => conflict.OverridingProxyPath, StringComparer.Ordinal))
             {
                 string details = string.Join(", ", conflicts.Select(conflict =>
@@ -188,7 +191,9 @@ namespace Triturbo.BlendShare.NDMF
         }
 
         private static IReadOnlyDictionary<BlendShareBoneProxyBinding, BlendShareBoneProxyBindingStatus>
-            GetBindingStatuses(BlendShareBoneProxy proxy)
+            GetBindingStatuses(
+                BlendShareBoneProxy proxy,
+                BlendShareArmatureBoneProxyResolution resolution)
         {
             var result = new Dictionary<BlendShareBoneProxyBinding, BlendShareBoneProxyBindingStatus>();
             if (proxy == null)
@@ -203,6 +208,14 @@ namespace Triturbo.BlendShare.NDMF
                 if (!binding.IsConfigured)
                 {
                     result[binding] = BlendShareBoneProxyBindingStatus.Unavailable;
+                    continue;
+                }
+
+                if (resolution != null &&
+                    resolution.TryGetBinding(binding.SourceBonePath, out var effective) &&
+                    (effective.Proxy != proxy || !ReferenceEquals(effective.Binding, binding)))
+                {
+                    result[binding] = BlendShareBoneProxyBindingStatus.Shadowed;
                     continue;
                 }
 
@@ -418,12 +431,13 @@ namespace Triturbo.BlendShare.NDMF
         {
             var availableProxies = proxy?.transform.root
                 .GetComponentsInChildren<BlendShareBoneProxy>(true);
-            return GetOverriddenBindings(proxy, availableProxies);
+            var resolution = BlendShareBoneProxyResolver.Resolve(proxy?.SourceArmature, availableProxies);
+            return GetOverriddenBindings(proxy, resolution);
         }
 
         private static IReadOnlyList<BlendShareOverriddenBinding> GetOverriddenBindings(
             BlendShareBoneProxy proxy,
-            IEnumerable<BlendShareBoneProxy> availableProxies)
+            BlendShareArmatureBoneProxyResolution resolution)
         {
             var result = new List<BlendShareOverriddenBinding>();
             if (proxy == null ||
@@ -434,17 +448,15 @@ namespace Triturbo.BlendShare.NDMF
             }
 
             var avatarRoot = proxy.transform.root;
-            var winners = BlendShareMesh.ResolveBoneProxyBindings(availableProxies);
             foreach (var binding in proxy.Bindings
                          .Where(binding => binding?.IsConfigured == true)
                          .GroupBy(binding => binding.SourceBonePath, StringComparer.Ordinal)
                          .Select(group => group.Last()))
             {
-                if (!winners.TryGetValue(
-                        new BlendShareMesh.SourceKey(proxy.SourceArmature, binding.SourceBonePath),
-                        out var winner) ||
+                if (resolution == null ||
+                    !resolution.TryGetBinding(binding.SourceBonePath, out var winner) ||
                     winner.Proxy == null ||
-                    winner.Proxy == proxy)
+                    (winner.Proxy == proxy && ReferenceEquals(winner.Binding, binding)))
                 {
                     continue;
                 }
@@ -739,6 +751,7 @@ namespace Triturbo.BlendShare.NDMF
             try
             {
                 var availableProxies = BlendShareBoneProxyEditorUpdater.Proxies;
+                var resolutions = BlendShareBoneProxyEditorUpdater.ResolutionsByProxy;
                 var selectedProxy = availableProxies.FirstOrDefault(proxy =>
                     IsProxyOrBindingSelected(proxy, selectedTransform));
                 foreach (var proxy in availableProxies)
@@ -750,7 +763,8 @@ namespace Triturbo.BlendShare.NDMF
                         continue;
                     }
 
-                    DrawBoneChain(proxy, selectedProxy);
+                    resolutions.TryGetValue(proxy, out var resolution);
+                    DrawBoneChain(proxy, selectedProxy, resolution);
                 }
             }
             finally
@@ -787,11 +801,18 @@ namespace Triturbo.BlendShare.NDMF
 
         private static void DrawBoneChain(
             BlendShareBoneProxy proxy,
-            BlendShareBoneProxy selectedProxy)
+            BlendShareBoneProxy selectedProxy,
+            BlendShareArmatureBoneProxyResolution resolution)
         {
             bool isSelectedProxy = proxy == selectedProxy;
             foreach (var binding in proxy.Bindings)
             {
+                if (proxy.SourceArmature != null &&
+                    (resolution == null || !resolution.IsEffective(proxy, binding)))
+                {
+                    continue;
+                }
+
                 var bone = proxy.GetFinalTransform(binding);
                 if (bone == null)
                 {
@@ -816,15 +837,20 @@ namespace Triturbo.BlendShare.NDMF
                     EventType.Repaint);
             }
         }
+
     }
 
     [InitializeOnLoad]
     internal static class BlendShareBoneProxyEditorUpdater
     {
         private static BlendShareBoneProxy[] proxies = System.Array.Empty<BlendShareBoneProxy>();
+        private static IReadOnlyDictionary<BlendShareBoneProxy, BlendShareArmatureBoneProxyResolution>
+            resolutionsByProxy = new Dictionary<BlendShareBoneProxy, BlendShareArmatureBoneProxyResolution>();
         private static readonly IDisposable EditorChangeSubscription;
 
         internal static IReadOnlyList<BlendShareBoneProxy> Proxies => proxies;
+        internal static IReadOnlyDictionary<BlendShareBoneProxy, BlendShareArmatureBoneProxyResolution>
+            ResolutionsByProxy => resolutionsByProxy;
 
         static BlendShareBoneProxyEditorUpdater()
         {
@@ -846,6 +872,21 @@ namespace Triturbo.BlendShare.NDMF
             proxies = Resources.FindObjectsOfTypeAll<BlendShareBoneProxy>()
                 .Where(proxy => proxy != null && !EditorUtility.IsPersistent(proxy))
                 .ToArray();
+            var resolved = new Dictionary<BlendShareBoneProxy, BlendShareArmatureBoneProxyResolution>();
+            foreach (var group in proxies
+                         .Where(proxy => proxy.isActiveAndEnabled && proxy.SourceArmature != null)
+                         .GroupBy(proxy => (proxy.transform.root, proxy.SourceArmature)))
+            {
+                var armatureProxies = group.ToArray();
+                var resolution = BlendShareBoneProxyResolver.Resolve(
+                    group.Key.SourceArmature,
+                    armatureProxies);
+                foreach (var proxy in armatureProxies)
+                {
+                    resolved[proxy] = resolution;
+                }
+            }
+            resolutionsByProxy = resolved;
         }
 
         private static void UpdateProxies()

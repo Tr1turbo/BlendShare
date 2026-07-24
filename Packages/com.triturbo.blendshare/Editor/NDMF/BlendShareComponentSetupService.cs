@@ -150,7 +150,36 @@ namespace Triturbo.BlendShare.NDMF
             var existingProxies = targetRoot.GetComponentsInChildren<BlendShareBoneProxy>(true)
                 .Where(proxy => proxy != null)
                 .ToList();
-            var existingBindingsBySource = BuildBindingsBySource(existingProxies);
+            var existingBindingsBySource = new Dictionary<SourceKey, ResolvedBinding>();
+            bool proxyResolutionFailed = false;
+            foreach (var armature in appliers
+                         .SelectMany(GetMeshDataForApplier)
+                         .Select(meshData => meshData.GetFeature<SkinWeightFeatureObject>()?.Armature)
+                         .Where(armature => armature != null)
+                         .Distinct())
+            {
+                var resolution = BlendShareBoneProxyResolver.Resolve(armature, existingProxies);
+                if (!resolution.Success)
+                {
+                    proxyResolutionFailed = true;
+                    foreach (string diagnostic in resolution.Diagnostics)
+                    {
+                        result.AddDiagnostic(diagnostic);
+                    }
+                    continue;
+                }
+
+                foreach (var pair in resolution.BindingsByPath)
+                {
+                    existingBindingsBySource[new SourceKey(armature, pair.Key)] =
+                        new ResolvedBinding(pair.Value.Proxy, pair.Value.Binding);
+                }
+            }
+            if (proxyResolutionFailed)
+            {
+                return result;
+            }
+
             var usedProxies = new HashSet<BlendShareBoneProxy>();
             var proxiesByBonePath = new Dictionary<SourceKey, ResolvedBinding>();
             var boneProxyPlacementParent = placementParent != null ? placementParent : targetRoot;
@@ -165,9 +194,6 @@ namespace Triturbo.BlendShare.NDMF
                     continue;
                 }
 
-                var existingRendererBonePaths = new HashSet<string>((renderer.bones ?? Array.Empty<Transform>())
-                    .Where(bone => bone != null)
-                    .Select(bone => MeshNodePath.Normalize(MeshNodePath.GetRelativePath(bone, targetRoot))));
                 foreach (var meshData in GetMeshDataForApplier(meshApplier))
                 {
                     var skin = meshData != null ? meshData.GetFeature<SkinWeightFeatureObject>() : null;
@@ -180,15 +206,9 @@ namespace Triturbo.BlendShare.NDMF
 
                     foreach (string bonePath in skin.GetNeededBonePathsInArmatureOrder())
                     {
-                        if (existingRendererBonePaths.Contains(bonePath))
-                        {
-                            continue;
-                        }
-
                         var bone = skin.Armature.GetBone(bonePath);
                         if (bone == null || !bone.m_CreateIfMissing)
                         {
-                            result.AddDiagnostic($"Bone '{bonePath}' is required but cannot be auto-created.");
                             continue;
                         }
 
@@ -856,25 +876,6 @@ namespace Triturbo.BlendShare.NDMF
             }
 
             return targetRoot;
-        }
-
-        private static Dictionary<SourceKey, ResolvedBinding> BuildBindingsBySource(
-            IEnumerable<BlendShareBoneProxy> proxies)
-        {
-            var result = new Dictionary<SourceKey, ResolvedBinding>();
-            foreach (var proxy in (proxies ?? Enumerable.Empty<BlendShareBoneProxy>())
-                         .Where(proxy => proxy != null && proxy.isActiveAndEnabled && proxy.SourceArmature != null)
-                         .Distinct()
-                         .OrderBy(proxy => GetHierarchyOrder(proxy.transform), StringComparer.Ordinal))
-            {
-                foreach (var binding in proxy.Bindings.Where(binding => binding?.IsConfigured == true))
-                {
-                    result[new SourceKey(proxy.SourceArmature, binding.SourceBonePath)] =
-                        new ResolvedBinding(proxy, binding);
-                }
-            }
-
-            return result;
         }
 
         private readonly struct SourceKey : IEquatable<SourceKey>
