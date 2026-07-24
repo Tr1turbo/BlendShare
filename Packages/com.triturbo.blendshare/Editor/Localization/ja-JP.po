@@ -1018,7 +1018,7 @@ msgid "patch.advanced"
 msgstr "詳細"
 
 msgid "patch.apply.confirm.message"
-msgstr "このパッチ ID はすでに FBX に記録されています。再度適用すると変更が累積する可能性があります。避けるには先にターゲットを復元してください。"
+msgstr "このパッチ ID はすでに FBX で有効です。再度適用すると、同じ ID のパッチを置き換え、BlendShare のベースラインから FBX を再構築します。"
 
 msgid "patch.apply.confirm.title"
 msgstr "BlendShare パッチを適用"
@@ -1027,10 +1027,10 @@ msgid "patch.apply.failed"
 msgstr "BlendShare パッチの適用に失敗しました。"
 
 msgid "patch.apply.locked_conflict"
-msgstr "ターゲット FBX には同じパッチ ID が記録済みです。ロックを解除すると適用できますが、変更の累積や競合が起きる可能性があります。"
+msgstr "ターゲット FBX には同じパッチ ID がすでにあります。ロックを解除すると、このパッチで置き換えます。"
 
 msgid "patch.apply.locked_exact"
-msgstr "このパッチはターゲット FBX に記録済みです。ロックを解除すると再度適用できますが、変更が累積する可能性があります。"
+msgstr "このパッチはターゲット FBX ですでに有効です。ロックを解除すると、ベースラインから再構築して置き換えます。"
 
 msgid "patch.compatibility.all_verified"
 msgstr "この FBX のすべてのメッシュを検証しました。"

@@ -5,8 +5,6 @@ using Triturbo.BlendShare.Core;
 using UnityEditor;
 using UnityEngine;
 using Vector3d = Triturbo.BlendShare.Fbx.Vector3d;
-using UnityBlendShapeData = Triturbo.BlendShapeShare.BlendShapeData.UnityBlendShapeData;
-using UnityBlendShapeFrame = Triturbo.BlendShapeShare.BlendShapeData.UnityBlendShapeFrame;
 
 #if ENABLE_FBX_SDK
 using Autodesk.Fbx;
@@ -21,144 +19,198 @@ namespace Triturbo.BlendShare.Features.BlendShapes
     {
         public static readonly BlendShapeFeatureGenerator Instance = new();
 
+        /// <inheritdoc />
         protected override MeshFeatureGenerationResult CanApplyToUnityMesh(
-            UnityMeshGenerationContext context,
-            BlendShapeFeatureObject feature)
+            UnityMeshFeatureContext context,
+            IReadOnlyList<BlendShapeFeatureObject> features)
         {
-            if (context.MeshData == null || context.WorkingMesh == null)
+            if (context?.WorkingMesh == null)
             {
-                return MeshFeatureGenerationResult.FailedResult("Blendshape generation requires mesh data and a target mesh.");
+                return MeshFeatureGenerationResult.FailedResult("Blendshape generation requires a target mesh.");
             }
 
-            return context.GetMappingFor(context.WorkingMesh) != null
+            return features.Any(feature => context.GetMappingFor(feature, context.WorkingMesh) != null)
                 ? MeshFeatureGenerationResult.Success(false)
-                : MeshFeatureGenerationResult.FailedResult("Target mesh does not match any stored Unity vertex mapping.");
+                : MeshFeatureGenerationResult.FailedResult("No blendshape feature has a compatible Unity vertex mapping.");
         }
 
+        /// <inheritdoc />
         protected override MeshFeatureGenerationResult ApplyToUnityMesh(
-            UnityMeshGenerationContext context,
-            BlendShapeFeatureObject feature)
+            UnityMeshFeatureContext context,
+            IReadOnlyList<BlendShapeFeatureObject> features)
         {
-            if (context.MeshData == null || context.WorkingMesh == null)
-            {
-                return MeshFeatureGenerationResult.FailedResult("Blendshape generation requires mesh data and a target mesh.");
-            }
-
-            if (context.GetMappingFor(context.WorkingMesh) == null)
-            {
-                return MeshFeatureGenerationResult.FailedResult("Target mesh does not match any stored Unity vertex mapping.");
-            }
-
             var mesh = context.WorkingMesh;
-            var activeBlendShapes = feature.GetActiveBlendShapes().ToArray();
-            var activeNames = new HashSet<string>(activeBlendShapes.Select(blendShape => blendShape.m_Name));
-            var blendShapesToApply = new List<(string name, UnityBlendShapeData data)>();
-
-            // Preserve existing target blendshapes that are not replaced by the active BlendShare shapes.
-            for (int i = 0; i < mesh.blendShapeCount; i++)
+            int writeOrder = mesh.blendShapeCount;
+            var slots = new Dictionary<string, BlendShapeCandidate>(System.StringComparer.Ordinal);
+            var mappingValidity = new Dictionary<UnityVertexMappingObject, bool>(ReferenceComparer<UnityVertexMappingObject>.Instance);
+            foreach (var feature in features)
             {
-                string name = mesh.GetBlendShapeName(i);
-                if (!activeNames.Contains(name))
+                var mapping = context.GetMappingFor(feature, mesh);
+                if (mapping == null)
                 {
-                    blendShapesToApply.Add((name, new UnityBlendShapeData(mesh, i)));
-                }
-            }
-
-            foreach (var blendShape in activeBlendShapes)
-            {
-                var unityData = CreateUnityBlendShapeData(context, blendShape, mesh);
-                if (unityData == null)
-                {
-                    Debug.LogError($"[BlendShare] Cannot generate Unity blendshape '{blendShape.m_Name}' for mesh '{context.MeshData.m_Path}'.");
+                    Debug.LogError(
+                        $"[BlendShare] Skipped blendshape feature from '{context.GetHandle(feature).Patch?.name}': no compatible Unity vertex mapping.");
                     continue;
                 }
 
-                blendShapesToApply.Add((blendShape.m_Name, unityData));
-            }
-
-            if (blendShapesToApply.Count == 0)
-            {
-                return MeshFeatureGenerationResult.FailedResult("No blendshape frames could be generated.");
-            }
-
-            mesh.ClearBlendShapes();
-            foreach (var blendShape in blendShapesToApply)
-            {
-                foreach (var frame in blendShape.data.m_Frames ?? System.Array.Empty<UnityBlendShapeFrame>())
+                if (!mappingValidity.TryGetValue(mapping, out bool mappingIsValid))
                 {
-                    frame?.AddBlendShapeFrame(ref mesh, blendShape.name);
+                    mappingIsValid = MappingCoversMesh(mapping, mesh.vertexCount);
+                    mappingValidity.Add(mapping, mappingIsValid);
                 }
+
+                if (!mappingIsValid)
+                {
+                    Debug.LogError(
+                        $"[BlendShare] Skipped blendshape feature from '{context.GetHandle(feature).Patch?.name}': mapping does not cover every Unity vertex.");
+                    continue;
+                }
+
+                foreach (var blendShape in feature.GetActiveBlendShapes())
+                {
+                    if (blendShape == null ||
+                        string.IsNullOrWhiteSpace(blendShape.m_Name) ||
+                        blendShape.m_Frames == null ||
+                        !blendShape.m_Frames.Any(frame => frame != null))
+                    {
+                        continue;
+                    }
+
+                    slots[blendShape.m_Name] = new BlendShapeCandidate(blendShape, mapping, ++writeOrder);
+                }
+            }
+
+            var selected = slots.Values
+                .OrderBy(candidate => candidate.WriteOrder)
+                .ToArray();
+            if (selected.Length == 0)
+            {
+                return MeshFeatureGenerationResult.Skipped("No valid blendshape frames were selected.");
+            }
+
+            var existingNames = Enumerable.Range(0, mesh.blendShapeCount)
+                .Select(mesh.GetBlendShapeName)
+                .ToHashSet(System.StringComparer.Ordinal);
+            bool rebuild = selected.Any(candidate => existingNames.Contains(candidate.Shape.m_Name));
+            var deltaVertices = new Vector3[mesh.vertexCount];
+            var deltaNormals = new Vector3[mesh.vertexCount];
+            if (!rebuild)
+            {
+                foreach (var candidate in selected)
+                {
+                    AppendCandidate(context, candidate, mesh, deltaVertices, deltaNormals);
+                }
+
+                context.WorkingMesh = mesh;
+                return MeshFeatureGenerationResult.Success();
+            }
+
+            var sourceMesh = Object.Instantiate(mesh);
+            sourceMesh.name = mesh.name;
+            var deltaTangents = new Vector3[mesh.vertexCount];
+            try
+            {
+                var selectedByName = selected.ToDictionary(
+                    candidate => candidate.Shape.m_Name,
+                    System.StringComparer.Ordinal);
+                mesh.ClearBlendShapes();
+                for (int blendShapeIndex = 0; blendShapeIndex < sourceMesh.blendShapeCount; blendShapeIndex++)
+                {
+                    string name = sourceMesh.GetBlendShapeName(blendShapeIndex);
+                    if (selectedByName.ContainsKey(name))
+                    {
+                        continue;
+                    }
+
+                    int frameCount = sourceMesh.GetBlendShapeFrameCount(blendShapeIndex);
+                    for (int frameIndex = 0; frameIndex < frameCount; frameIndex++)
+                    {
+                        sourceMesh.GetBlendShapeFrameVertices(
+                            blendShapeIndex,
+                            frameIndex,
+                            deltaVertices,
+                            deltaNormals,
+                            deltaTangents);
+                        mesh.AddBlendShapeFrame(
+                            name,
+                            sourceMesh.GetBlendShapeFrameWeight(blendShapeIndex, frameIndex),
+                            deltaVertices,
+                            deltaNormals,
+                            deltaTangents);
+                    }
+                }
+
+                foreach (var candidate in selected)
+                {
+                    AppendCandidate(context, candidate, mesh, deltaVertices, deltaNormals);
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(sourceMesh);
             }
 
             context.WorkingMesh = mesh;
             return MeshFeatureGenerationResult.Success();
         }
 
-        private static UnityBlendShapeData CreateUnityBlendShapeData(
-            UnityMeshGenerationContext context,
-            FbxBlendShapeData blendShape,
-            Mesh targetMesh)
+        private static bool MappingCoversMesh(UnityVertexMappingObject mapping, int vertexCount)
         {
-            var mapping = context.GetMappingFor(targetMesh);
-
-            if (mapping != null)
+            if (mapping == null || vertexCount <= 0)
             {
-                return CreateUnityBlendShapeDataFromMapping(
-                    mapping,
-                    blendShape,
-                    targetMesh.vertexCount,
-                    ShouldEmitBlendShapeNormals(context, targetMesh));
+                return false;
             }
 
-            return null;
+            for (int index = 0; index < vertexCount; index++)
+            {
+                if (!mapping.TryGetFbxGroup(index, out _))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
-        private static UnityBlendShapeData CreateUnityBlendShapeDataFromMapping(
-            UnityVertexMappingObject mapping,
-            FbxBlendShapeData blendShape,
-            int unityVertexCount,
-            bool emitNormalDeltas)
+        private static void AppendCandidate(
+            UnityMeshFeatureContext context,
+            BlendShapeCandidate candidate,
+            Mesh mesh,
+            Vector3[] deltaVertices,
+            Vector3[] deltaNormals)
         {
-            var frames = blendShape?.m_Frames;
-            if (frames == null || frames.Length == 0)
+            bool emitNormals = ShouldEmitBlendShapeNormals(context, mesh);
+            foreach (var frame in candidate.Shape.m_Frames ?? System.Array.Empty<FbxBlendShapeFrame>())
             {
-                return null;
-            }
-
-            var unityData = new UnityBlendShapeData(frames.Length);
-            for (int frameIndex = 0; frameIndex < frames.Length; frameIndex++)
-            {
-                var deltaVertices = new Vector3[unityVertexCount];
-                var deltaNormals = emitNormalDeltas ? new Vector3[unityVertexCount] : null;
-                for (int unityIndex = 0; unityIndex < unityVertexCount; unityIndex++)
+                if (frame == null)
                 {
-                    if (!mapping.TryGetFbxGroup(unityIndex, out FbxIndexGroup group))
-                    {
-                        return null;
-                    }
+                    continue;
+                }
 
-                    var delta = GetDeltaFromGroup(frames[frameIndex], group);
-                    deltaVertices[unityIndex] = mapping.SpaceConversion.ConvertVector(new Vector3((float)delta.x, (float)delta.y, (float)delta.z));
-                    if (emitNormalDeltas)
+                for (int unityIndex = 0; unityIndex < mesh.vertexCount; unityIndex++)
+                {
+                    candidate.Mapping.TryGetFbxGroup(unityIndex, out FbxIndexGroup group);
+                    var delta = GetDeltaFromGroup(frame, group);
+                    deltaVertices[unityIndex] = candidate.Mapping.SpaceConversion.ConvertVector(
+                        new Vector3((float)delta.x, (float)delta.y, (float)delta.z));
+                    if (emitNormals)
                     {
-                        var normalDelta = GetNormalDeltaFromGroup(frames[frameIndex], group);
-                        deltaNormals[unityIndex] = mapping.SpaceConversion.ConvertNormalDelta(new Vector3((float)normalDelta.x, (float)normalDelta.y, (float)normalDelta.z));
+                        var normalDelta = GetNormalDeltaFromGroup(frame, group);
+                        deltaNormals[unityIndex] = candidate.Mapping.SpaceConversion.ConvertNormalDelta(
+                            new Vector3((float)normalDelta.x, (float)normalDelta.y, (float)normalDelta.z));
                     }
                 }
 
-                float weight = frames[frameIndex]?.m_FrameWeight ?? 100f;
-                unityData.AddFrameAt(frameIndex, new UnityBlendShapeFrame(
-                    weight,
-                    unityVertexCount,
+                mesh.AddBlendShapeFrame(
+                    candidate.Shape.m_Name,
+                    frame.m_FrameWeight,
                     deltaVertices,
-                    deltaNormals,
-                    null));
+                    emitNormals ? deltaNormals : null,
+                    null);
             }
-
-            return unityData;
         }
 
-        private static bool ShouldEmitBlendShapeNormals(UnityMeshGenerationContext context, Mesh targetMesh)
+        private static bool ShouldEmitBlendShapeNormals(UnityMeshFeatureContext context, Mesh targetMesh)
         {
             var importer = ResolveModelImporter(context, targetMesh);
             return importer != null &&
@@ -166,7 +218,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                    !UsesLegacyBlendShapeNormals(importer);
         }
 
-        private static ModelImporter ResolveModelImporter(UnityMeshGenerationContext context, Mesh targetMesh)
+        private static ModelImporter ResolveModelImporter(UnityMeshFeatureContext context, Mesh targetMesh)
         {
             var importer = GetModelImporter(targetMesh);
             if (importer != null)
@@ -254,104 +306,143 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             return Vector3d.zero;
         }
 
+        private readonly struct BlendShapeCandidate
+        {
+            internal BlendShapeCandidate(
+                FbxBlendShapeData shape,
+                UnityVertexMappingObject mapping,
+                int writeOrder)
+            {
+                Shape = shape;
+                Mapping = mapping;
+                WriteOrder = writeOrder;
+            }
+
+            internal FbxBlendShapeData Shape { get; }
+            internal UnityVertexMappingObject Mapping { get; }
+            internal int WriteOrder { get; }
+        }
+
 #if ENABLE_FBX_SDK
+        private sealed class FbxBlendShapeSlot
+        {
+            internal FbxBlendShapeSlot(string name, BlendShareObject ownerPatch)
+            {
+                Name = name;
+                OwnerPatch = ownerPatch;
+            }
+
+            internal string Name { get; }
+            internal BlendShareObject OwnerPatch { get; }
+            internal FbxBlendShapeData Shape { get; set; }
+            internal int Order { get; set; }
+        }
+
+        /// <inheritdoc />
         protected override MeshFeatureGenerationResult CanApplyToFbx(
-            FbxGenerationContext context,
-            BlendShapeFeatureObject feature)
+            FbxMeshFeatureContext context,
+            IReadOnlyList<BlendShapeFeatureObject> features)
         {
             return MeshFeatureGenerationResult.Success(false);
         }
 
+        /// <inheritdoc />
         protected override MeshFeatureGenerationResult ApplyToFbx(
-            FbxGenerationContext context,
-            BlendShapeFeatureObject feature)
+            FbxMeshFeatureContext context,
+            IReadOnlyList<BlendShapeFeatureObject> features)
         {
-            FbxMesh targetMesh = context.TargetMesh;
+            var targetMesh = context.TargetMesh;
             if (targetMesh == null)
             {
-                return MeshFeatureGenerationResult.FailedResult($"Can not find mesh at path: {context.MeshData?.m_Path} in FBX file");
+                return MeshFeatureGenerationResult.FailedResult($"Can not find mesh at path: {context.MeshKey} in FBX file");
             }
 
-            GetDeformer(context.Patch, targetMesh, false)?.Destroy();
-
-            var existingBlendShapes = new HashSet<string>();
-            var activeBlendShapes = feature.GetActiveBlendShapes().ToArray();
-            var activeNames = new HashSet<string>(activeBlendShapes.Select(record => record.m_Name));
-
-            for (int i = 0; i < targetMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape); i++)
+            var contributors = features
+                .Select(feature => context.GetHandle(feature).Patch)
+                .Where(patch => patch != null)
+                .Distinct()
+                .ToArray();
+            bool modified = false;
+            foreach (var patch in contributors)
             {
-                var deformer = targetMesh.GetBlendShapeDeformer(i);
-                for (int j = deformer.GetBlendShapeChannelCount() - 1; j >= 0; j--)
+                var deformer = GetDeformer(patch, targetMesh, false);
+                if (deformer != null)
                 {
-                    var name = deformer.GetBlendShapeChannel(j).GetName();
-                    if (!activeNames.Contains(name))
+                    deformer.Destroy();
+                    modified = true;
+                }
+            }
+
+            var existingChannels = new Dictionary<string, List<FbxBlendShapeChannel>>(System.StringComparer.Ordinal);
+            for (int deformerIndex = 0;
+                 deformerIndex < targetMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape);
+                 deformerIndex++)
+            {
+                var deformer = targetMesh.GetBlendShapeDeformer(deformerIndex);
+                for (int channelIndex = 0; channelIndex < deformer.GetBlendShapeChannelCount(); channelIndex++)
+                {
+                    var channel = deformer.GetBlendShapeChannel(channelIndex);
+                    string channelName = channel.GetName();
+                    if (!existingChannels.TryGetValue(channelName, out var channels))
+                    {
+                        channels = new List<FbxBlendShapeChannel>();
+                        existingChannels.Add(channelName, channels);
+                    }
+
+                    channels.Add(channel);
+                }
+            }
+
+            var slots = new Dictionary<string, FbxBlendShapeSlot>(System.StringComparer.Ordinal);
+            int order = 0;
+            foreach (var feature in features)
+            {
+                var patch = context.GetHandle(feature).Patch;
+                foreach (var shape in feature.GetActiveBlendShapes())
+                {
+                    if (shape == null || string.IsNullOrWhiteSpace(shape.m_Name))
                     {
                         continue;
                     }
 
-                    var channel = deformer.GetBlendShapeChannel(j);
-                    for (int shape = channel.GetTargetShapeCount() - 1; shape >= 0; shape--)
+                    if (!slots.TryGetValue(shape.m_Name, out var slot))
                     {
-                        channel.RemoveTargetShape(channel.GetTargetShape(shape));
+                        slot = new FbxBlendShapeSlot(shape.m_Name, patch);
+                        slots.Add(slot.Name, slot);
                     }
 
-                    CreateFbxBlendShapeChannel(channel, targetMesh, feature.GetBlendShape(name));
-                    existingBlendShapes.Add(name);
+                    slot.Shape = shape;
+                    slot.Order = ++order;
                 }
             }
 
-            var targetDeformer = GetDeformer(context.Patch, targetMesh);
-            foreach (var blendShape in activeBlendShapes)
+            foreach (var slot in slots.Values.OrderBy(slot => slot.Order))
             {
-                if (existingBlendShapes.Contains(blendShape.m_Name))
+                if (existingChannels.TryGetValue(slot.Name, out var channels))
                 {
-                    continue;
-                }
-
-                targetDeformer.AddBlendShapeChannel(CreateFbxBlendShapeChannel(
-                    blendShape.m_Name,
-                    targetMesh,
-                    blendShape));
-            }
-
-            return MeshFeatureGenerationResult.Success();
-        }
-
-        protected override MeshFeatureGenerationResult RemoveFromFbx(
-            FbxGenerationContext context,
-            BlendShapeFeatureObject feature)
-        {
-            return MeshFeatureGenerationResult.FailedResult("Feature-level BlendShare revert is disabled; use baseline replay revert instead.");
-#if false
-            // Disabled until feature-level inverse can restore previous same-id state safely.
-            FbxMesh targetMesh = context.TargetMesh;
-            if (targetMesh == null)
-            {
-                return MeshFeatureGenerationResult.FailedResult($"Can not find mesh at path: {context.MeshData?.m_Path} in FBX file");
-            }
-
-            GetDeformer(context.Patch, targetMesh, false)?.Destroy();
-            if (!context.RemoveInAllDeformer)
-            {
-                return MeshFeatureGenerationResult.Success();
-            }
-
-            var activeNames = new HashSet<string>(feature.GetActiveBlendShapes().Select(record => record.m_Name));
-            for (int i = 0; i < targetMesh.GetDeformerCount(FbxDeformer.EDeformerType.eBlendShape); i++)
-            {
-                var deformer = targetMesh.GetBlendShapeDeformer(i);
-                for (int j = deformer.GetBlendShapeChannelCount() - 1; j >= 0; j--)
-                {
-                    var name = deformer.GetBlendShapeChannel(j).GetName();
-                    if (activeNames.Contains(name))
+                    foreach (var channel in channels)
                     {
-                        deformer.RemoveBlendShapeChannel(deformer.GetBlendShapeChannel(j));
+                        for (int shapeIndex = channel.GetTargetShapeCount() - 1; shapeIndex >= 0; shapeIndex--)
+                        {
+                            channel.RemoveTargetShape(channel.GetTargetShape(shapeIndex));
+                        }
+
+                        CreateFbxBlendShapeChannel(channel, targetMesh, slot.Shape);
                     }
+
+                    modified = true;
+                }
+                else
+                {
+                    GetDeformer(slot.OwnerPatch, targetMesh)
+                        .AddBlendShapeChannel(CreateFbxBlendShapeChannel(slot.Name, targetMesh, slot.Shape));
+                    modified = true;
                 }
             }
 
-            return MeshFeatureGenerationResult.Success();
-#endif
+            return modified
+                ? MeshFeatureGenerationResult.Success()
+                : MeshFeatureGenerationResult.Skipped();
         }
 
         private static FbxBlendShape GetDeformer(BlendShareObject patch, FbxMesh targetMesh, bool create = true)

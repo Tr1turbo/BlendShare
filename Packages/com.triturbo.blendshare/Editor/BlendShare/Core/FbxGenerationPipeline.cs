@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Triturbo.BlendShare.Features.SkinWeights;
 
 #if ENABLE_FBX_SDK
 using Autodesk.Fbx;
@@ -25,40 +24,8 @@ namespace Triturbo.BlendShare.Core
 
         public bool CanApply(IEnumerable<BlendShareObject> patches)
         {
-            foreach (var patch in BlendSharePatchIdUtility.DeduplicateByPatchId(patches))
-            {
-                foreach (var meshData in patch.Meshes ?? System.Array.Empty<MeshDataObject>())
-                {
-                    if (meshData == null)
-                    {
-                        continue;
-                    }
-
-                    bool canGenerateFeature = false;
-                    var context = new FbxGenerationContext(patch, meshData, null);
-
-                    foreach (var generator in FeatureGenerators)
-                    {
-                        var result = generator.CanApplyToFbx(context);
-                        if (result.Failed)
-                        {
-                            return false;
-                        }
-
-                        if (result.Status != MeshFeatureGenerationStatus.Skipped)
-                        {
-                            canGenerateFeature = true;
-                        }
-                    }
-
-                    if (!canGenerateFeature || context.HasUnhandledFeatures)
-                    {
-                        return false;
-                    }
-                }
-            }
-
-            return true;
+            var deduplicatedPatches = BlendSharePatchIdUtility.DeduplicateByPatchId(patches).ToArray();
+            return CanApplyBatched(deduplicatedPatches);
         }
 
         public bool Create(
@@ -66,13 +33,10 @@ namespace Triturbo.BlendShare.Core
             IEnumerable<BlendShareObject> patches,
             string outputPath = null,
             bool onlyNecessary = false,
-            bool deduplicatePatchIds = true,
             IBlendShareProgress progress = null)
         {
             progress = BlendShareProgressUtility.Resolve(progress);
-            var deduplicatedPatches = deduplicatePatchIds
-                ? BlendSharePatchIdUtility.DeduplicateByPatchId(patches).ToArray()
-                : (patches ?? Enumerable.Empty<BlendShareObject>()).Where(patch => patch != null).ToArray();
+            var deduplicatedPatches = BlendSharePatchIdUtility.DeduplicateByPatchId(patches).ToArray();
             if (string.IsNullOrWhiteSpace(sourcePath) || deduplicatedPatches.Length == 0)
             {
                 return false;
@@ -126,66 +90,14 @@ namespace Triturbo.BlendShare.Core
                     readerScene,
                     progress);
                 var modifiedNodes = new HashSet<FbxNode>();
-                int meshStep = 0;
-                int meshStepCount = CountMeshes(deduplicatedPatches);
-                foreach (var patch in deduplicatedPatches)
+                if (!ApplyBatched(
+                        sourceRootNode,
+                        deduplicatedPatches,
+                        generationSession,
+                        modifiedNodes,
+                        progress,
+                        title))
                 {
-                    foreach (var meshData in patch.Meshes ?? System.Array.Empty<MeshDataObject>())
-                    {
-                        if (meshData == null)
-                        {
-                            continue;
-                        }
-
-                        meshStep++;
-                        float meshProgress = GetGenerationProgress(meshStep, meshStepCount, 0f);
-                        BlendShareProgressUtility.Report(progress, title, $"Applying {FormatMesh(meshData)}...", meshProgress, true);
-
-                        FbxNode node = FindFbxMeshNode(sourceRootNode, meshData);
-                        if (node?.GetMesh() == null)
-                        {
-                            LogError($"Can not find mesh: {FormatMesh(meshData)} in FBX file");
-                            return false;
-                        }
-
-                        var context = new FbxGenerationContext(
-                            patch,
-                            meshData,
-                            node,
-                            session: generationSession);
-
-                        foreach (var generator in FeatureGenerators)
-                        {
-                            BlendShareProgressUtility.Report(progress, title, $"Applying {generator.GetType().Name} to {FormatMesh(meshData)}...", meshProgress, true);
-                            var result = generator.ApplyToFbx(context);
-                            if (result.Failed)
-                            {
-                                LogFeatureFailure("apply to FBX", generator, meshData, result);
-                                return false;
-                            }
-
-                            if (result.Status == MeshFeatureGenerationStatus.Skipped)
-                            {
-                                continue;
-                            }
-
-                            if (result.Modified)
-                            {
-                                modifiedNodes.Add(node);
-                            }
-                        }
-
-                        if (context.HasUnhandledFeatures)
-                        {
-                            LogUnhandledFeatures("apply to FBX", meshData, context.GetUnhandledFeatures());
-                            return false;
-                        }
-                    }
-                }
-
-                if (!SkinWeightFeatureGenerator.FinalizeFbxSkinWeights(generationSession, out string skinError))
-                {
-                    LogError($"[BlendShare] Failed to finalize FBX skin weights: {skinError}");
                     return false;
                 }
 
@@ -222,15 +134,143 @@ namespace Triturbo.BlendShare.Core
             }
         }
 
-        private static int CountMeshes(IEnumerable<BlendShareObject> patches)
+        private bool CanApplyBatched(IReadOnlyList<BlendShareObject> patches)
         {
-            int count = 0;
-            foreach (var patch in patches ?? Enumerable.Empty<BlendShareObject>())
+            foreach (var definition in BuildBatchDefinitions(patches))
             {
-                count += (patch?.Meshes ?? System.Array.Empty<MeshDataObject>()).Count(mesh => mesh != null);
+                var context = new FbxMeshFeatureContext(null, definition.MeshKey, null, definition.Handles);
+                bool canGenerateFeature = false;
+                foreach (var generator in FeatureGenerators)
+                {
+                    var result = generator.CanApplyToFbx(context);
+                    if (result.Failed)
+                    {
+                        return false;
+                    }
+
+                    if (result.Status != MeshFeatureGenerationStatus.Skipped)
+                    {
+                        canGenerateFeature = true;
+                    }
+                }
+
+                if (!canGenerateFeature || context.GetUnhandledHandles().Count > 0)
+                {
+                    return false;
+                }
             }
 
-            return count;
+            return true;
+        }
+
+        private static bool ApplyBatched(
+            FbxNode sourceRootNode,
+            IReadOnlyList<BlendShareObject> patches,
+            FbxGenerationSession session,
+            ISet<FbxNode> modifiedNodes,
+            IBlendShareProgress progress,
+            string title)
+        {
+            var definitions = BuildBatchDefinitions(patches);
+            for (int index = 0; index < definitions.Count; index++)
+            {
+                var definition = definitions[index];
+                float meshProgress = GetGenerationProgress(index + 1, definitions.Count, 0f);
+                BlendShareProgressUtility.Report(progress, title, $"Applying {definition.MeshKey}...", meshProgress, true);
+                var node = FindFbxNodeByPath(sourceRootNode, definition.MeshKey);
+                if (node?.GetMesh() == null)
+                {
+                    LogError($"Can not find mesh: {definition.MeshKey} in FBX file");
+                    return false;
+                }
+
+                var context = new FbxMeshFeatureContext(session, definition.MeshKey, node, definition.Handles);
+                foreach (var generator in FeatureGenerators)
+                {
+                    BlendShareProgressUtility.Report(
+                        progress,
+                        title,
+                        $"Applying {generator.GetType().Name} to {definition.MeshKey}...",
+                        meshProgress,
+                        true);
+                    var canApply = generator.CanApplyToFbx(context);
+                    if (canApply.Failed)
+                    {
+                        LogError(
+                            $"[BlendShare] Failed to validate FBX generator '{generator.GetType().Name}' for mesh '{definition.MeshKey}': {canApply.Message}");
+                        return false;
+                    }
+
+                    if (canApply.Status == MeshFeatureGenerationStatus.Skipped)
+                    {
+                        continue;
+                    }
+
+                    var result = generator.ApplyToFbx(context);
+                    if (result.Failed)
+                    {
+                        LogError(
+                            $"[BlendShare] Failed to apply FBX generator '{generator.GetType().Name}' for mesh '{definition.MeshKey}': {result.Message}");
+                        return false;
+                    }
+
+                    if (result.Modified)
+                    {
+                        modifiedNodes.Add(node);
+                    }
+                }
+
+                var unhandled = context.GetUnhandledHandles();
+                if (unhandled.Count > 0)
+                {
+                    LogUnhandledFeatures(
+                        "apply to FBX",
+                        unhandled[0].MeshData,
+                        unhandled.Select(handle => handle.Feature));
+                    return false;
+                }
+            }
+
+            foreach (var generator in FeatureGenerators)
+            {
+                var result = generator.FinalizeFbxGeneration(session);
+                if (result.Failed)
+                {
+                    LogError($"[BlendShare] Failed to finalize FBX generator '{generator.GetType().Name}': {result.Message}");
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static IReadOnlyList<FbxBatchDefinition> BuildBatchDefinitions(
+            IEnumerable<BlendShareObject> patches)
+        {
+            var ordered = new List<FbxBatchDefinition>();
+            var byKey = new Dictionary<string, FbxBatchDefinition>(System.StringComparer.Ordinal);
+            foreach (var patch in patches ?? System.Array.Empty<BlendShareObject>())
+            {
+                foreach (var meshData in patch?.Meshes ?? System.Array.Empty<MeshDataObject>())
+                {
+                    if (meshData == null)
+                    {
+                        continue;
+                    }
+
+                    string meshKey = MeshNodePath.Normalize(meshData.m_Path);
+                    if (!byKey.TryGetValue(meshKey, out var definition))
+                    {
+                        definition = new FbxBatchDefinition(meshKey);
+                        byKey.Add(meshKey, definition);
+                        ordered.Add(definition);
+                    }
+
+                    definition.AddFeatures(patch, meshData);
+                }
+            }
+
+            return ordered;
         }
 
         private static float GetGenerationProgress(int currentMesh, int meshCount, float featureProgress)
@@ -247,35 +287,39 @@ namespace Triturbo.BlendShare.Core
 
         private static bool RequiresFbxReaderScene(IEnumerable<BlendShareObject> patches)
         {
-            foreach (var patch in patches ?? Enumerable.Empty<BlendShareObject>())
+            var patchArray = (patches ?? Enumerable.Empty<BlendShareObject>()).ToArray();
+            return BuildBatchDefinitions(patchArray)
+                .Any(definition => FeatureGenerators.Any(generator => generator.RequiresFbxReaderScene(
+                    new FbxMeshFeatureContext(null, definition.MeshKey, null, definition.Handles))));
+        }
+
+        private sealed class FbxBatchDefinition
+        {
+            internal FbxBatchDefinition(string meshKey)
             {
-                foreach (var meshData in patch.Meshes ?? System.Array.Empty<MeshDataObject>())
+                MeshKey = MeshNodePath.Normalize(meshKey);
+            }
+
+            internal string MeshKey { get; }
+            internal List<MeshFeatureHandle> Handles { get; } = new();
+
+            internal void AddFeatures(BlendShareObject patch, MeshDataObject meshData)
+            {
+                foreach (var feature in meshData?.Features ?? System.Array.Empty<MeshFeatureObject>())
                 {
-                    if (meshData == null)
+                    if (feature == null)
                     {
                         continue;
                     }
 
-                    var context = new FbxGenerationContext(patch, meshData, null);
-                    if (FeatureGenerators.Any(generator => generator.RequiresFbxReaderScene(context)))
-                    {
-                        return true;
-                    }
+                    Handles.Add(new MeshFeatureHandle(
+                        feature,
+                        patch,
+                        meshData,
+                        MeshKey,
+                        Handles.Count));
                 }
             }
-
-            return false;
-        }
-
-        private static FbxNode FindFbxMeshNode(FbxNode rootNode, MeshDataObject meshData)
-        {
-            if (rootNode == null || meshData == null)
-            {
-                return null;
-            }
-
-            var pathNode = FindFbxNodeByPath(rootNode, MeshNodePath.Normalize(meshData.m_Path));
-            return pathNode?.GetMesh() != null ? pathNode : null;
         }
 
         private static FbxNode FindFbxNodeByPath(FbxNode rootNode, string path)
@@ -332,16 +376,6 @@ namespace Triturbo.BlendShare.Core
                     DeleteFbxNodesWithMesh(node, exceptionSet, true);
                 }
             }
-        }
-
-        private static void LogFeatureFailure(
-            string action,
-            IMeshFeatureGenerator generator,
-            MeshDataObject meshData,
-            MeshFeatureGenerationResult result)
-        {
-            LogError(
-                $"[BlendShare] Failed to {action} generator '{generator.GetType().Name}' for mesh '{FormatMesh(meshData)}': {result.Message}");
         }
 
         private static void LogUnhandledFeatures(

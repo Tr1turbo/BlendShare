@@ -1018,7 +1018,7 @@ msgid "patch.advanced"
 msgstr "高级"
 
 msgid "patch.apply.confirm.message"
-msgstr "此补丁 ID 已记录在 FBX。再次应用可能累积更改。若要避免累积，请先还原目标。"
+msgstr "此补丁 ID 已在 FBX 上生效。再次应用将替换该补丁，并从 BlendShare 基线重新构建 FBX。"
 
 msgid "patch.apply.confirm.title"
 msgstr "应用 BlendShare 补丁"
@@ -1027,10 +1027,10 @@ msgid "patch.apply.failed"
 msgstr "应用 BlendShare 补丁失败。"
 
 msgid "patch.apply.locked_conflict"
-msgstr "目标 FBX 已记录相同补丁 ID。解锁后仍可应用，但可能累积更改或产生冲突。"
+msgstr "目标 FBX 已有相同 ID 的补丁。解锁后可用此补丁替换它。"
 
 msgid "patch.apply.locked_exact"
-msgstr "此补丁已记录在目标 FBX。解锁后可再次应用，但可能累积更改。"
+msgstr "此补丁已在目标 FBX 上生效。解锁后将从基线重新构建并替换它。"
 
 msgid "patch.compatibility.all_verified"
 msgstr "此 FBX 的所有网格均已验证。"

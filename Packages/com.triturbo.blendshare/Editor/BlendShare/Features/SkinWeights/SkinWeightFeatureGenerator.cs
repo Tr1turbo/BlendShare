@@ -27,37 +27,17 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
         public override int Order => -100;
 
-        protected override MeshFeatureGenerationResult CanApplyToUnityMesh(
-            UnityMeshGenerationContext context,
+        private static MeshFeatureGenerationResult ApplyUnityContribution(
+            UnityMeshFeatureContext context,
             SkinWeightFeatureObject feature)
         {
-            if (context.MeshData == null || context.WorkingMesh == null)
-            {
-                return MeshFeatureGenerationResult.FailedResult("Skin weight generation requires mesh data and a target mesh.");
-            }
-
-            if (context.TargetRenderer == null || context.TargetRootTransform == null)
-            {
-                return MeshFeatureGenerationResult.FailedResult("Skin weight generation requires a SkinnedMeshRenderer target hierarchy.");
-            }
-
-            feature.Sanitize(context.MeshData);
-            return context.GetMappingFor(context.WorkingMesh) != null
-                ? MeshFeatureGenerationResult.Success(false)
-                : MeshFeatureGenerationResult.FailedResult("Target mesh does not match any stored Unity vertex mapping.");
-        }
-
-        protected override MeshFeatureGenerationResult ApplyToUnityMesh(
-            UnityMeshGenerationContext context,
-            SkinWeightFeatureObject feature)
-        {
-            var canApply = CanApplyToUnityMesh(context, feature);
+            var canApply = ValidateUnityContribution(context, feature);
             if (canApply.Failed)
             {
                 return canApply;
             }
 
-            var mapping = context.GetMappingFor(context.WorkingMesh);
+            var mapping = context.GetMappingFor(feature, context.WorkingMesh);
             if (mapping == null)
             {
                 return MeshFeatureGenerationResult.FailedResult("Target mesh does not match any stored Unity vertex mapping.");
@@ -71,8 +51,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             }
 
             var artifactBones = BuildArtifactBones(context, feature, mapping);
+            var patch = context.GetHandle(feature).Patch;
             if (context.Session != null &&
-                !context.Session.CanAddArmatureBones(artifactBones, context.Patch, out boneError))
+                !context.Session.CanAddArmatureBones(artifactBones, patch, out boneError))
             {
                 context.Session.Fail(boneError);
                 return MeshFeatureGenerationResult.FailedResult(boneError);
@@ -94,7 +75,94 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return MeshFeatureGenerationResult.Success();
         }
 
-        internal static void CommitUnitySkinWeights(UnityMeshGenerationSession session, string meshKey)
+        private static MeshFeatureGenerationResult ValidateUnityContribution(
+            UnityMeshFeatureContext context,
+            SkinWeightFeatureObject feature)
+        {
+            var meshData = context?.GetHandle(feature).MeshData;
+            if (meshData == null || context.WorkingMesh == null)
+            {
+                return MeshFeatureGenerationResult.FailedResult(
+                    "Skin weight generation requires mesh data and a target mesh.");
+            }
+
+            if (context.TargetRenderer == null || context.TargetRootTransform == null)
+            {
+                return MeshFeatureGenerationResult.FailedResult(
+                    "Skin weight generation requires a SkinnedMeshRenderer target hierarchy.");
+            }
+
+            feature.Sanitize(meshData);
+            return context.GetMappingFor(feature, context.WorkingMesh) != null
+                ? MeshFeatureGenerationResult.Success(false)
+                : MeshFeatureGenerationResult.FailedResult(
+                    "Target mesh does not match any stored Unity vertex mapping.");
+        }
+
+        /// <inheritdoc />
+        protected override MeshFeatureGenerationResult CanApplyToUnityMesh(
+            UnityMeshFeatureContext context,
+            IReadOnlyList<SkinWeightFeatureObject> features)
+        {
+            if (context?.WorkingMesh == null)
+            {
+                return MeshFeatureGenerationResult.FailedResult("Skin weight generation requires a target mesh.");
+            }
+
+            if (context.TargetRenderer == null || context.TargetRootTransform == null)
+            {
+                return MeshFeatureGenerationResult.FailedResult("Skin weight generation requires a SkinnedMeshRenderer target hierarchy.");
+            }
+
+            return features.Any(feature => context.GetMappingFor(feature, context.WorkingMesh) != null)
+                ? MeshFeatureGenerationResult.Success(false)
+                : MeshFeatureGenerationResult.FailedResult("No skin-weight feature has a compatible Unity vertex mapping.");
+        }
+
+        /// <inheritdoc />
+        protected override MeshFeatureGenerationResult ApplyToUnityMesh(
+            UnityMeshFeatureContext context,
+            IReadOnlyList<SkinWeightFeatureObject> features)
+        {
+            bool modified = false;
+            foreach (var feature in features)
+            {
+                var canApply = ValidateUnityContribution(context, feature);
+                if (canApply.Failed)
+                {
+                    Debug.LogError(
+                        $"[BlendShare] Skipped skin-weight feature from '{context.GetHandle(feature).Patch?.name}': {canApply.Message}");
+                    DiscardUnitySkinWeights(context.Session, context.MeshKey);
+                    continue;
+                }
+
+                var result = ApplyUnityContribution(context, feature);
+                if (result.Failed)
+                {
+                    Debug.LogError(
+                        $"[BlendShare] Skipped skin-weight feature from '{context.GetHandle(feature).Patch?.name}': {result.Message}");
+                    DiscardUnitySkinWeights(context.Session, context.MeshKey);
+                    continue;
+                }
+
+                CommitUnitySkinWeights(context.Session, context.MeshKey);
+                modified |= result.Modified;
+            }
+
+            return modified
+                ? MeshFeatureGenerationResult.Success()
+                : MeshFeatureGenerationResult.Skipped("No valid skin-weight contribution was applied.");
+        }
+
+        /// <inheritdoc />
+        public override MeshFeatureGenerationResult FinalizeUnityGeneration(UnityMeshGenerationSession session)
+        {
+            return FinalizeUnitySkinWeights(session, out string error)
+                ? MeshFeatureGenerationResult.Success(false)
+                : MeshFeatureGenerationResult.FailedResult(error);
+        }
+
+        private static void CommitUnitySkinWeights(UnityMeshGenerationSession session, string meshKey)
         {
             if (session != null && session.TryGetState(BuildUnitySkinStateKey(meshKey), out UnitySkinWeightState state))
             {
@@ -102,22 +170,11 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             }
         }
 
-        internal static void DiscardUnitySkinWeights(UnityMeshGenerationSession session, string meshKey)
+        private static void DiscardUnitySkinWeights(UnityMeshGenerationSession session, string meshKey)
         {
             if (session != null && session.TryGetState(BuildUnitySkinStateKey(meshKey), out UnitySkinWeightState state))
             {
                 state.Discard();
-            }
-        }
-
-        internal static void RestoreUnitySkinMesh(
-            UnityMeshGenerationSession session,
-            string meshKey,
-            Mesh mesh)
-        {
-            if (session != null && session.TryGetState(BuildUnitySkinStateKey(meshKey), out UnitySkinWeightState state))
-            {
-                state.RestoreMesh(mesh);
             }
         }
 
@@ -142,7 +199,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static bool StageUnityBoneWeights(
-            UnityMeshGenerationContext context,
+            UnityMeshFeatureContext context,
             SkinWeightFeatureObject feature,
             UnityVertexMappingObject mapping,
             Mesh mesh,
@@ -166,7 +223,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static void StageUnitySkinBinding(
-            UnityMeshGenerationContext context,
+            UnityMeshFeatureContext context,
             SkinWeightFeatureObject feature,
             UnityVertexMappingObject mapping,
             BoneTable boneTable,
@@ -198,7 +255,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 rootBonePath,
                 boneTable,
                 artifactBones,
-                context.Patch);
+                context.GetHandle(feature).Patch);
         }
 
         private static string BuildUnitySkinStateKey(string meshKey)
@@ -207,25 +264,60 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
 #if ENABLE_FBX_SDK
-        protected override MeshFeatureGenerationResult CanApplyToFbx(
-            FbxGenerationContext context,
-            SkinWeightFeatureObject feature)
+        /// <inheritdoc />
+        public override MeshFeatureGenerationResult FinalizeFbxGeneration(FbxGenerationSession session)
         {
-            feature.Sanitize(context.MeshData);
+            return FinalizeFbxSkinWeights(session, out string error)
+                ? MeshFeatureGenerationResult.Success(false)
+                : MeshFeatureGenerationResult.FailedResult(error);
+        }
+
+        /// <inheritdoc />
+        protected override MeshFeatureGenerationResult CanApplyToFbx(
+            FbxMeshFeatureContext context,
+            IReadOnlyList<SkinWeightFeatureObject> features)
+        {
+            foreach (var feature in features)
+            {
+                feature.Sanitize(context.GetHandle(feature).MeshData);
+            }
+
             return MeshFeatureGenerationResult.Success(false);
         }
 
+        /// <inheritdoc />
         protected override MeshFeatureGenerationResult ApplyToFbx(
-            FbxGenerationContext context,
+            FbxMeshFeatureContext context,
+            IReadOnlyList<SkinWeightFeatureObject> features)
+        {
+            bool modified = false;
+            foreach (var feature in features)
+            {
+                var result = ApplyFbxContribution(context, feature);
+                if (result.Failed)
+                {
+                    return result;
+                }
+
+                modified |= result.Modified;
+            }
+
+            return MeshFeatureGenerationResult.Success(modified);
+        }
+
+        private static MeshFeatureGenerationResult ApplyFbxContribution(
+            FbxMeshFeatureContext context,
             SkinWeightFeatureObject feature)
         {
             FbxMesh targetMesh = context.TargetMesh;
+            var handle = context.GetHandle(feature);
             if (targetMesh == null)
             {
-                return MeshFeatureGenerationResult.FailedResult($"Can not find mesh at path: {context.MeshData?.m_Path} in FBX file");
+                return MeshFeatureGenerationResult.FailedResult(
+                    $"Can not find mesh at path: {handle.MeshData?.m_Path} in FBX file");
             }
 
-            feature.Sanitize(context.MeshData);
+            feature.Sanitize(handle.MeshData);
             if (feature.ClusterCount == 0)
             {
                 return MeshFeatureGenerationResult.Skipped("No skin weight clusters were stored for this mesh.");
@@ -237,7 +329,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return MeshFeatureGenerationResult.FailedResult(rangeError);
             }
 
-            if (!ApplyArmatureNodesToFbx(context, feature.Armature, out string armatureError))
+            if (!ApplyArmatureNodesToFbx(context, feature.Armature, handle.Patch, out string armatureError))
             {
                 return MeshFeatureGenerationResult.FailedResult(armatureError);
             }
@@ -247,7 +339,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return MeshFeatureGenerationResult.FailedResult(skinError);
             }
 
-            if (!skinState.RegisterClusterMatrices(feature, context.Patch, out skinError))
+            if (!skinState.RegisterClusterMatrices(feature, handle.Patch, out skinError))
             {
                 return MeshFeatureGenerationResult.FailedResult(skinError);
             }
@@ -285,58 +377,12 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return true;
         }
 
+        /// <inheritdoc />
         protected override bool RequiresFbxReaderScene(
-            FbxGenerationContext context,
-            SkinWeightFeatureObject feature)
+            FbxMeshFeatureContext context,
+            IReadOnlyList<SkinWeightFeatureObject> features)
         {
             return true;
-        }
-
-        protected override MeshFeatureGenerationResult RemoveFromFbx(
-            FbxGenerationContext context,
-            SkinWeightFeatureObject feature)
-        {
-            return MeshFeatureGenerationResult.FailedResult("Feature-level BlendShare revert is disabled; use baseline replay revert instead.");
-#if false
-            // Disabled until feature-level inverse can restore all skin, bone, cluster, and bind-pose state safely.
-            FbxMesh targetMesh = context.TargetMesh;
-            if (targetMesh == null)
-            {
-                return MeshFeatureGenerationResult.FailedResult($"Can not find mesh at path: {context.MeshData?.m_Path} in FBX file");
-            }
-
-            feature.Sanitize(context.MeshData);
-            if (feature.WeightedControlPointCount == 0)
-            {
-                return MeshFeatureGenerationResult.Skipped("No skin weight deltas were stored for this mesh.");
-            }
-
-            int controlPointCount = targetMesh.GetControlPointsCount();
-            if (!ValidateControlPointRange(feature, controlPointCount, out string rangeError))
-            {
-                return MeshFeatureGenerationResult.FailedResult(rangeError);
-            }
-
-            if (!TryGetCurrentSkinState(context, out var skinState, out string skinError))
-            {
-                return MeshFeatureGenerationResult.FailedResult(skinError);
-            }
-
-            var deltaWeights = BuildDeltaWeights(feature);
-            if (deltaWeights.Count == 0)
-            {
-                return MeshFeatureGenerationResult.Skipped("No usable skin weight deltas were stored for this mesh.");
-            }
-
-            ApplyDeltaWeights(skinState, InvertDeltaWeights(deltaWeights));
-            if (!RebuildFbxSkin(context, feature, skinState, out skinError, true))
-            {
-                return MeshFeatureGenerationResult.FailedResult(skinError);
-            }
-
-            context.Session?.SetState(BuildSkinStateKey(context), skinState);
-            return MeshFeatureGenerationResult.Success();
-#endif
         }
 
         private static bool ValidateControlPointRange(
@@ -429,8 +475,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static bool ApplyArmatureNodesToFbx(
-            FbxGenerationContext context,
+            FbxMeshFeatureContext context,
             FbxArmatureObject armature,
+            BlendShareObject patch,
             out string error)
         {
             error = null;
@@ -443,7 +490,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     context.Session.SetState(stateKey, state);
                 }
 
-                if (!state.Register(armature?.Bones, context.Patch, out error))
+                if (!state.Register(armature?.Bones, patch, out error))
                 {
                     return false;
                 }
@@ -474,7 +521,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static FbxNode ResolveOrCreateFbxBone(
-            FbxGenerationContext context,
+            FbxMeshFeatureContext context,
             FbxArmatureObject armature,
             string path,
             HashSet<string> resolving,
@@ -579,7 +626,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static bool TryGetCurrentSkinState(
-            FbxGenerationContext context,
+            FbxMeshFeatureContext context,
             out FbxSkinRebuildState state,
             out string error)
         {
@@ -601,7 +648,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                              readerMesh.SkinDeformers.FirstOrDefault(skin => skin != null);
             if (readerSkin == null)
             {
-                error = $"Original FBX mesh '{context.MeshData?.m_Path}' does not contain a skin deformer to rebuild.";
+                error = $"Original FBX mesh '{context.MeshKey}' does not contain a skin deformer to rebuild.";
                 return false;
             }
 
@@ -610,9 +657,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return true;
         }
 
-        private static string BuildSkinStateKey(FbxGenerationContext context)
+        private static string BuildSkinStateKey(FbxMeshFeatureContext context)
         {
-            return $"fbx-skin::{MeshNodePath.Normalize(context?.MeshData?.m_Path)}";
+            return $"fbx-skin::{MeshNodePath.Normalize(context?.MeshKey)}";
         }
 
         private static string FormatPatchName(BlendShareObject patch)
@@ -621,7 +668,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static UfbxMesh GetReaderMesh(
-            FbxGenerationContext context,
+            FbxMeshFeatureContext context,
             out string error)
         {
             error = null;
@@ -632,10 +679,10 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return null;
             }
 
-            var mesh = scene.FindMeshByNodePath(MeshNodePath.Normalize(context.MeshData?.m_Path));
+            var mesh = scene.FindMeshByNodePath(context.MeshKey);
             if (mesh == null)
             {
-                error = $"FBX mesh node '{MeshNodePath.Normalize(context.MeshData?.m_Path)}' was not found.";
+                error = $"FBX mesh node '{context.MeshKey}' was not found.";
                 return null;
             }
 
@@ -698,7 +745,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static bool RebuildFbxSkin(
-            FbxGenerationContext context,
+            FbxMeshFeatureContext context,
             SkinWeightFeatureObject feature,
             FbxSkinRebuildState state,
             out string error)
@@ -753,7 +800,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static List<FbxClusterRebuildData> BuildClusterRebuildData(
-            FbxGenerationContext context,
+            FbxMeshFeatureContext context,
             SkinWeightFeatureObject feature,
             FbxSkinRebuildState state,
             out string error)
@@ -807,7 +854,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static ClusterMatrices ResolveClusterMatrices(
-            FbxGenerationContext context,
+            FbxMeshFeatureContext context,
             FbxSkinRebuildState state,
             string path,
             FbxNode boneNode)
@@ -834,7 +881,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             }
         }
 
-        private static FbxNode GetRootNode(FbxGenerationContext context)
+        private static FbxNode GetRootNode(FbxMeshFeatureContext context)
         {
             if (context.RootNode != null)
             {
@@ -983,7 +1030,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             public string SkinName { get; }
             public int ControlPointCount { get; }
             public IReadOnlyList<FbxOriginalClusterData> Clusters { get; }
-            public FbxGenerationContext FinalContext { get; private set; }
+            public FbxMeshFeatureContext FinalContext { get; private set; }
             public SkinWeightFeatureObject FinalFeature { get; private set; }
 
             private FbxSkinRebuildState(
@@ -1095,7 +1142,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return true;
             }
 
-            public void SetFinalContext(FbxGenerationContext context, SkinWeightFeatureObject feature)
+            public void SetFinalContext(FbxMeshFeatureContext context, SkinWeightFeatureObject feature)
             {
                 FinalContext = context;
                 FinalFeature = feature;
@@ -1257,7 +1304,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 #endif
 
         private static BoneTable BuildBoneTable(
-            UnityMeshGenerationContext context,
+            UnityMeshFeatureContext context,
             SkinWeightFeatureObject feature,
             Mesh mesh,
             UnityVertexMappingObject mapping,
@@ -1309,7 +1356,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     if (DefinesBindPose(context, feature, path))
                     {
                         if (!TryResolveBindPose(context, feature, path, mapping, out var updatedBindPose, out error) ||
-                            !RegisterBindPose(context, finalPath, updatedBindPose, out error))
+                            !RegisterBindPose(context, feature, finalPath, updatedBindPose, out error))
                         {
                             return null;
                         }
@@ -1329,7 +1376,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 table.Add(finalPath, bindPose);
                 table.AddAlias(path, finalPath);
                 if (DefinesBindPose(context, feature, path) &&
-                    !RegisterBindPose(context, finalPath, bindPose, out error))
+                    !RegisterBindPose(context, feature, finalPath, bindPose, out error))
                 {
                     return null;
                 }
@@ -1339,22 +1386,28 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static bool DefinesBindPose(
-            UnityMeshGenerationContext context,
+            UnityMeshFeatureContext context,
             SkinWeightFeatureObject feature,
             string sourcePath)
         {
-            return context?.GetComponent<BlendShareMesh>()?.TryGetBindPoseOverride(sourcePath, out _) == true ||
+            return context?.GetComponent<BlendShareMesh>(feature)?.TryGetBindPoseOverride(sourcePath, out _) == true ||
                    feature.TryGetBindPoseFbxClusterMatrices(sourcePath, out _, out _);
         }
 
         private static bool RegisterBindPose(
-            UnityMeshGenerationContext context,
+            UnityMeshFeatureContext context,
+            SkinWeightFeatureObject feature,
             string finalPath,
             Matrix4x4 bindPose,
             out string error)
         {
             if (context.Session == null ||
-                context.Session.RegisterBindPose(context.MeshKey, finalPath, bindPose, context.Patch, out error))
+                context.Session.RegisterBindPose(
+                    context.MeshKey,
+                    finalPath,
+                    bindPose,
+                    context.GetHandle(feature).Patch,
+                    out error))
             {
                 error = null;
                 return true;
@@ -1365,7 +1418,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static bool TryResolveBindPose(
-            UnityMeshGenerationContext context,
+            UnityMeshFeatureContext context,
             SkinWeightFeatureObject feature,
             string path,
             UnityVertexMappingObject mapping,
@@ -1373,7 +1426,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             out string error)
         {
             bindPose = Matrix4x4.identity;
-            if (context?.GetComponent<BlendShareMesh>()?.TryGetBindPoseOverride(path, out bindPose) == true)
+            if (context?.GetComponent<BlendShareMesh>(feature)?.TryGetBindPoseOverride(path, out bindPose) == true)
             {
                 error = null;
                 return true;
@@ -1424,7 +1477,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static bool TryResolveBoneLocalToWorld(
-            UnityMeshGenerationContext context,
+            UnityMeshFeatureContext context,
             SkinWeightFeatureObject feature,
             string path,
             UnityVertexMappingObject mapping,
@@ -1509,13 +1562,13 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static bool TryGetBoneProxyData(
-            UnityMeshGenerationContext context,
+            UnityMeshFeatureContext context,
             SkinWeightFeatureObject feature,
             string sourceBonePath,
             out BoneProxyGenerationData data)
         {
             data = null;
-            var mesh = context?.GetComponent<BlendShareMesh>();
+            var mesh = context?.GetComponent<BlendShareMesh>(feature);
             if (mesh == null ||
                 !mesh.TryGetCachedBone(sourceBonePath, out var resolved) ||
                 !resolved.IsProxy ||
@@ -1555,7 +1608,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static UnityArmatureBoneData[] BuildArtifactBones(
-            UnityMeshGenerationContext context,
+            UnityMeshFeatureContext context,
             SkinWeightFeatureObject feature,
             UnityVertexMappingObject mapping)
         {
@@ -1571,7 +1624,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static UnityArmatureBoneData CreateArtifactBoneNode(
-            UnityMeshGenerationContext context,
+            UnityMeshFeatureContext context,
             SkinWeightFeatureObject feature,
             UnityVertexMappingObject mapping,
             FbxArmatureBoneData bone)
@@ -1606,7 +1659,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static bool TryGetProxyBoneNode(
-            UnityMeshGenerationContext context,
+            UnityMeshFeatureContext context,
             SkinWeightFeatureObject feature,
             string sourceBonePath,
             out UnityArmatureBoneData boneNode)
@@ -1699,7 +1752,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static string ResolveRootBonePath(
-            UnityMeshGenerationContext context,
+            UnityMeshFeatureContext context,
             SkinWeightFeatureObject feature)
         {
             string rootBonePath = feature.RootBonePath;
@@ -2053,14 +2106,6 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 pendingRootBonePath = null;
                 pendingArtifactBones = null;
                 pendingPatch = null;
-            }
-
-            public void RestoreMesh(Mesh restoredMesh)
-            {
-                if (restoredMesh != null)
-                {
-                    mesh = restoredMesh;
-                }
             }
 
             public bool FinalizeWeights(out string error)

@@ -233,7 +233,7 @@ namespace Triturbo.BlendShare.Persistence
                 records.Add(CreateRecord(source, patch, sourceHash, outputHash));
             }
 
-            metadata.activeRecords = records.ToArray();
+            metadata.activeRecords = DeduplicateRecordsByPatchId(records).ToArray();
             importer.userData = MetadataPrefix + JsonUtility.ToJson(metadata, false);
             importer.SaveAndReimport();
             RefreshBackupImporterMetadata(metadata);
@@ -299,7 +299,65 @@ namespace Triturbo.BlendShare.Persistence
                 metadata.currentFbxHash = record.hashAfter;
             }
 
-            metadata.activeRecords = records.ToArray();
+            metadata.activeRecords = DeduplicateRecordsByPatchId(records).ToArray();
+        }
+
+        internal static IReadOnlyList<BlendShareFbxPatchRecord> DeduplicateRecordsByPatchId(
+            IEnumerable<BlendShareFbxPatchRecord> records)
+        {
+            var result = new List<BlendShareFbxPatchRecord>();
+            var patchIdSlots = new Dictionary<string, int>(StringComparer.Ordinal);
+            var assetSlots = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var record in records ?? Enumerable.Empty<BlendShareFbxPatchRecord>())
+            {
+                if (record == null)
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrEmpty(record.patchId))
+                {
+                    AddOrReplaceRecord(result, patchIdSlots, record.patchId, record);
+                    continue;
+                }
+
+                string assetIdentity = GetRecordAssetIdentity(record);
+                if (string.IsNullOrEmpty(assetIdentity))
+                {
+                    result.Add(record);
+                    continue;
+                }
+
+                AddOrReplaceRecord(result, assetSlots, assetIdentity, record);
+            }
+
+            return result;
+        }
+
+        private static void AddOrReplaceRecord(
+            IList<BlendShareFbxPatchRecord> records,
+            IDictionary<string, int> slots,
+            string key,
+            BlendShareFbxPatchRecord record)
+        {
+            if (slots.TryGetValue(key, out int slot))
+            {
+                records[slot] = record;
+                return;
+            }
+
+            slots.Add(key, records.Count);
+            records.Add(record);
+        }
+
+        private static string GetRecordAssetIdentity(BlendShareFbxPatchRecord record)
+        {
+            if (!string.IsNullOrEmpty(record.blendShareGuid))
+            {
+                return $"{record.blendShareGuid}:{record.blendShareLocalId}";
+            }
+
+            return record.blendSharePath ?? string.Empty;
         }
 
         public static bool Save(GameObject target, BlendShareFbxMetadata metadata, out string error)
@@ -518,7 +576,13 @@ namespace Triturbo.BlendShare.Persistence
                 return false;
             }
 
-            return string.Equals(record.patchId ?? string.Empty, patch.m_PatchId ?? string.Empty, StringComparison.Ordinal);
+            string patchId = patch.m_PatchId ?? string.Empty;
+            if (!string.IsNullOrEmpty(patchId) || !string.IsNullOrEmpty(record.patchId))
+            {
+                return string.Equals(record.patchId ?? string.Empty, patchId, StringComparison.Ordinal);
+            }
+
+            return IsSamePatchAsset(record, patch);
         }
 
         public static bool IsSamePatchAsset(BlendShareFbxPatchRecord record, BlendShareObject patch)
@@ -552,7 +616,9 @@ namespace Triturbo.BlendShare.Persistence
             metadata.version = CurrentVersion;
             metadata.targetPath = path ?? string.Empty;
             metadata.targetGuid = string.IsNullOrEmpty(path) ? string.Empty : AssetDatabase.AssetPathToGUID(path);
-            metadata.activeRecords ??= Array.Empty<BlendShareFbxPatchRecord>();
+            metadata.activeRecords = DeduplicateRecordsByPatchId(
+                    metadata.activeRecords ?? Array.Empty<BlendShareFbxPatchRecord>())
+                .ToArray();
         }
 
         private static string GetAssetPath(GameObject target)

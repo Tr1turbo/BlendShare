@@ -1018,7 +1018,7 @@ msgid "patch.advanced"
 msgstr "進階"
 
 msgid "patch.apply.confirm.message"
-msgstr "此補丁 ID 已記錄在 FBX。再次套用可能累積變更。若要避免累積，請先還原目標。"
+msgstr "此補丁 ID 已在 FBX 上生效。再次套用會取代該補丁，並從 BlendShare 基準重新建構 FBX。"
 
 msgid "patch.apply.confirm.title"
 msgstr "套用 BlendShare 補丁"
@@ -1027,10 +1027,10 @@ msgid "patch.apply.failed"
 msgstr "套用 BlendShare 補丁失敗。"
 
 msgid "patch.apply.locked_conflict"
-msgstr "目標 FBX 已記錄相同補丁 ID。解鎖後仍可套用，但可能累積變更或產生衝突。"
+msgstr "目標 FBX 已有相同 ID 的補丁。解鎖後可用此補丁取代它。"
 
 msgid "patch.apply.locked_exact"
-msgstr "此補丁已記錄在目標 FBX。解鎖後可再次套用，但可能累積變更。"
+msgstr "此補丁已在目標 FBX 上生效。解鎖後會從基準重新建構並取代它。"
 
 msgid "patch.compatibility.all_verified"
 msgstr "此 FBX 的所有網格均已驗證。"

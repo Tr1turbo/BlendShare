@@ -358,8 +358,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
 
         private BlendShareObject[] GetBlendSharesForGeneration(
             IEnumerable<Object> assets,
-            bool includeTargetGeneratedAssetApplied,
-            bool deduplicatePatchIds = true)
+            bool includeTargetGeneratedAssetApplied)
         {
             var blendShares = new List<BlendShareObject>();
             if (includeTargetGeneratedAssetApplied && targetMeshContainer is GeneratedMeshAssetSO generatedAsset)
@@ -396,9 +395,7 @@ namespace Triturbo.BlendShapeShare.BlendShapeData
                 }
             }
 
-            return deduplicatePatchIds
-                ? BlendSharePatchIdUtility.DeduplicateByPatchId(blendShares).ToArray()
-                : blendShares.Where(share => share != null).Distinct().ToArray();
+            return BlendSharePatchIdUtility.DeduplicateByPatchId(blendShares).ToArray();
         }
     
         

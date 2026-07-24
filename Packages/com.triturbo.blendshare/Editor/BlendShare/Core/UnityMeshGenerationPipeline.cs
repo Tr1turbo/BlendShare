@@ -49,92 +49,13 @@ namespace Triturbo.BlendShare.Core
                 return null;
             }
 
-            var targetRoot = targetMeshContainer is GameObject gameObject ? gameObject.transform : null;
-            var session = new UnityMeshGenerationSession(
+            return CreateBatchedArtifact(
                 targetMeshContainer,
                 deduplicatedPatches,
-                targetLookup,
-                Array.Empty<BlendShareComponent>(),
-                progress);
-            var generatedByMeshKey = new Dictionary<string, Mesh>();
-
-            try
-            {
-                int meshStep = 0;
-                int meshStepCount = CountMeshes(deduplicatedPatches, shouldGenerateMesh);
-                foreach (var patch in deduplicatedPatches)
-                {
-                    foreach (var meshData in patch?.Meshes ?? Array.Empty<MeshDataObject>())
-                    {
-                        if (meshData == null || (shouldGenerateMesh != null && !shouldGenerateMesh(patch, meshData)))
-                        {
-                            continue;
-                        }
-
-                        meshStep++;
-                        BlendShareProgressUtility.Report(
-                            progress,
-                            null,
-                            $"Generating mesh {FormatMesh(meshData)}...",
-                            GetGenerationProgress(meshStep, meshStepCount),
-                            true);
-
-                        GenerateMesh(
-                            session,
-                            targetLookup,
-                            generatedByMeshKey,
-                            targetRoot,
-                            patch,
-                            meshData,
-                            MeshNodePath.Normalize(meshData.m_Path));
-                        if (!string.IsNullOrEmpty(session.FatalDiagnostic))
-                        {
-                            LastDiagnostic = session.FatalDiagnostic;
-                            DestroyGeneratedObjects(generatedByMeshKey.Values);
-                            session.DestroyGeneratedObjects();
-                            return null;
-                        }
-                    }
-                }
-            }
-            catch (BlendShareOperationCanceledException)
-            {
-                DestroyGeneratedObjects(generatedByMeshKey.Values);
-                session.DestroyGeneratedObjects();
-                throw;
-            }
-
-            if (generatedByMeshKey.Count == 0)
-            {
-                session.DestroyGeneratedObjects();
-                return null;
-            }
-
-            if (!SkinWeightFeatureGenerator.FinalizeUnitySkinWeights(session, out string skinError))
-            {
-                LastDiagnostic = skinError;
-                Debug.LogError($"[BlendShare] Failed to finalize skin weights: {skinError}");
-                DestroyGeneratedObjects(generatedByMeshKey.Values);
-                session.DestroyGeneratedObjects();
-                return null;
-            }
-
-            try
-            {
-                BlendShareProgressUtility.Report(progress, null, "Preparing artifact data...", 0.82f, true);
-                return BuildArtifact(
-                    targetMeshContainer,
-                    targetRoot,
-                    appliedPatches ?? deduplicatedPatches,
-                    generatedByMeshKey.Values,
-                    session);
-            }
-            catch (BlendShareOperationCanceledException)
-            {
-                DestroyGeneratedObjects(generatedByMeshKey.Values);
-                session.DestroyGeneratedObjects();
-                throw;
-            }
+                shouldGenerateMesh,
+                appliedPatches,
+                progress,
+                targetLookup);
         }
 
         public BlendShareArtifact CreateArtifactFromComponents(
@@ -199,63 +120,114 @@ namespace Triturbo.BlendShare.Core
                 return null;
             }
 
+            return CreateBatchedArtifactFromComponents(
+                targetRoot,
+                componentList,
+                patches,
+                appliedPatches,
+                progress,
+                targetLookup,
+                proxiesPrepared);
+        }
+
+        private BlendShareArtifact CreateBatchedArtifact(
+            Object targetMeshContainer,
+            IReadOnlyList<BlendShareObject> patches,
+            Func<BlendShareObject, MeshDataObject, bool> shouldGenerateMesh,
+            IEnumerable<BlendShareObject> appliedPatches,
+            IBlendShareProgress progress,
+            UnityMeshTargetLookup targetLookup)
+        {
+            var targetRoot = targetMeshContainer is GameObject gameObject ? gameObject.transform : null;
+            var session = new UnityMeshGenerationSession(
+                targetMeshContainer,
+                patches,
+                targetLookup,
+                Array.Empty<BlendShareComponent>(),
+                progress);
+            var definitions = BuildPatchBatchDefinitions(patches, shouldGenerateMesh, targetLookup);
+            return GenerateBatchedArtifact(
+                targetMeshContainer,
+                targetRoot,
+                appliedPatches ?? patches,
+                session,
+                definitions,
+                progress);
+        }
+
+        private BlendShareArtifact CreateBatchedArtifactFromComponents(
+            GameObject targetRoot,
+            IReadOnlyList<BlendShareComponent> componentList,
+            IReadOnlyList<BlendShareObject> patches,
+            IEnumerable<BlendShareObject> appliedPatches,
+            IBlendShareProgress progress,
+            UnityMeshTargetLookup targetLookup,
+            bool proxiesPrepared)
+        {
             var session = new UnityMeshGenerationSession(targetRoot, patches, targetLookup, componentList, progress);
-            var generatedByMeshKey = new Dictionary<string, Mesh>();
             var meshComponents = BlendSharePatchIdUtility.DeduplicateMeshComponents(componentList
                     .OfType<BlendShareMesh>()
                     .Where(IsUsableMeshComponent)
                     .OrderBy(component => GetHierarchyOrder(component.transform)))
                 .ToArray();
-            IEnumerable<BlendShareBoneProxy> preparedProxies;
-            if (proxiesPrepared)
-            {
-                preparedProxies = componentList
-                    .OfType<BlendShareBoneProxy>()
+            IEnumerable<BlendShareBoneProxy> preparedProxies = proxiesPrepared
+                ? componentList.OfType<BlendShareBoneProxy>()
                     .Where(proxy => proxy != null && proxy.isActiveAndEnabled)
                     .Distinct()
-                    .ToArray();
-            }
-            else
-            {
-                preparedProxies = targetRoot.GetComponentsInChildren<BlendShareBoneProxy>(true);
-            }
+                    .ToArray()
+                : targetRoot.GetComponentsInChildren<BlendShareBoneProxy>(true);
             BlendShareMesh.RefreshBoneProxyCaches(meshComponents, targetRoot.transform, preparedProxies);
+            var definitions = BuildComponentBatchDefinitions(meshComponents, targetRoot.transform);
+            return GenerateBatchedArtifact(
+                targetRoot,
+                targetRoot.transform,
+                appliedPatches ?? patches,
+                session,
+                definitions,
+                progress);
+        }
+
+        private BlendShareArtifact GenerateBatchedArtifact(
+            Object targetMeshContainer,
+            Transform targetRoot,
+            IEnumerable<BlendShareObject> appliedPatches,
+            UnityMeshGenerationSession session,
+            IReadOnlyList<UnityBatchDefinition> definitions,
+            IBlendShareProgress progress)
+        {
+            var generatedByMeshKey = new Dictionary<string, Mesh>();
             try
             {
-                for (int meshStep = 0; meshStep < meshComponents.Length; meshStep++)
+                for (int index = 0; index < definitions.Count; index++)
                 {
-                    var meshComponent = meshComponents[meshStep];
-                    var patch = meshComponent.Patch;
-
-                    var renderer = meshComponent.TargetRenderer;
-                    var targetMesh = renderer != null ? renderer.sharedMesh : null;
-                    string rendererPath = renderer != null
-                        ? MeshNodePath.Normalize(MeshNodePath.GetRelativePath(renderer.transform, targetRoot.transform))
-                        : meshComponent.RendererNodePath;
-
+                    var definition = definitions[index];
                     BlendShareProgressUtility.Report(
                         progress,
                         null,
-                        $"Generating mesh {FormatMesh(meshComponent.MeshData)}...",
-                        GetGenerationProgress(meshStep + 1, meshComponents.Length),
+                        $"Generating mesh {definition.MeshKey}...",
+                        GetGenerationProgress(index + 1, definitions.Count),
                         true);
+                    if (!GenerateMeshBatch(session, definition, targetRoot, generatedByMeshKey))
+                    {
+                        continue;
+                    }
 
-                    var meshPassComponents = GetComponentsForMeshPass(meshComponent);
-                    GenerateMesh(
-                        session,
-                        targetLookup,
-                        generatedByMeshKey,
-                        targetRoot.transform,
-                        patch,
-                        meshComponent.MeshData,
-                        rendererPath,
-                        renderer,
-                        targetMesh,
-                        meshPassComponents,
-                        GetComponentMapping(meshComponent, meshComponent.MeshData));
                     if (!string.IsNullOrEmpty(session.FatalDiagnostic))
                     {
                         LastDiagnostic = session.FatalDiagnostic;
+                        DestroyGeneratedObjects(generatedByMeshKey.Values);
+                        session.DestroyGeneratedObjects();
+                        return null;
+                    }
+                }
+
+                foreach (var generator in FeatureGenerators)
+                {
+                    var result = generator.FinalizeUnityGeneration(session);
+                    if (result.Failed)
+                    {
+                        LastDiagnostic = result.Message;
+                        Debug.LogError($"[BlendShare] Failed to finalize '{generator.GetType().Name}': {result.Message}");
                         DestroyGeneratedObjects(generatedByMeshKey.Values);
                         session.DestroyGeneratedObjects();
                         return null;
@@ -268,6 +240,14 @@ namespace Triturbo.BlendShare.Core
                 session.DestroyGeneratedObjects();
                 throw;
             }
+            catch (Exception ex)
+            {
+                LastDiagnostic = ex.Message;
+                DestroyGeneratedObjects(generatedByMeshKey.Values);
+                session.DestroyGeneratedObjects();
+                Debug.LogException(ex);
+                return null;
+            }
 
             if (generatedByMeshKey.Count == 0)
             {
@@ -275,30 +255,218 @@ namespace Triturbo.BlendShare.Core
                 return null;
             }
 
-            if (!SkinWeightFeatureGenerator.FinalizeUnitySkinWeights(session, out string skinError))
+            BlendShareProgressUtility.Report(progress, null, "Preparing artifact data...", 0.82f, true);
+            return BuildArtifact(
+                targetMeshContainer,
+                targetRoot,
+                appliedPatches,
+                generatedByMeshKey.Values,
+                session);
+        }
+
+        private static bool GenerateMeshBatch(
+            UnityMeshGenerationSession session,
+            UnityBatchDefinition definition,
+            Transform targetRoot,
+            IDictionary<string, Mesh> generatedByMeshKey)
+        {
+            if (definition?.OriginalMesh == null || definition.Handles.Count == 0)
             {
-                LastDiagnostic = skinError;
-                Debug.LogError($"[BlendShare] Failed to finalize skin weights: {skinError}");
-                DestroyGeneratedObjects(generatedByMeshKey.Values);
-                session.DestroyGeneratedObjects();
-                return null;
+                return false;
             }
 
-            try
+            var workingMesh = Object.Instantiate(definition.OriginalMesh);
+            workingMesh.name = definition.MeshKey;
+            TryEnableGeneratedMeshReadability(workingMesh);
+            var context = new UnityMeshFeatureContext(
+                session,
+                definition.MeshKey,
+                definition.OriginalMesh,
+                workingMesh,
+                definition.Renderer,
+                targetRoot,
+                definition.Handles);
+            bool generatedFeature = false;
+            foreach (var generator in FeatureGenerators)
             {
-                BlendShareProgressUtility.Report(progress, null, "Preparing artifact data...", 0.82f, true);
-                return BuildArtifact(
-                    targetRoot,
-                    targetRoot.transform,
-                    appliedPatches ?? patches,
-                    generatedByMeshKey.Values,
-                    session);
+                BlendShareProgressUtility.Report(
+                    session.Progress,
+                    null,
+                    $"Applying {generator.GetType().Name} to {definition.MeshKey}...",
+                    0.5f,
+                    true);
+                var canApply = generator.CanApplyToUnityMesh(context);
+                if (canApply.Failed)
+                {
+                    LogBatchFeatureFailure("validate", generator, definition.MeshKey, canApply);
+                    continue;
+                }
+
+                if (canApply.Status == MeshFeatureGenerationStatus.Skipped)
+                {
+                    continue;
+                }
+
+                var result = generator.ApplyToUnityMesh(context);
+                if (result.Failed)
+                {
+                    LogBatchFeatureFailure("apply", generator, definition.MeshKey, result);
+                    continue;
+                }
+
+                if (result.Status != MeshFeatureGenerationStatus.Skipped)
+                {
+                    generatedFeature = true;
+                }
             }
-            catch (BlendShareOperationCanceledException)
+
+            var unhandled = context.GetUnhandledHandles();
+            if (unhandled.Count > 0)
             {
-                DestroyGeneratedObjects(generatedByMeshKey.Values);
-                session.DestroyGeneratedObjects();
-                throw;
+                LogUnhandledFeatures(
+                    "apply",
+                    unhandled[0].MeshData,
+                    unhandled.Select(handle => handle.Feature));
+                DestroyGeneratedObject(context.WorkingMesh);
+                return false;
+            }
+
+            if (!generatedFeature)
+            {
+                DestroyGeneratedObject(context.WorkingMesh);
+                return false;
+            }
+
+            TryEnableGeneratedMeshReadability(context.WorkingMesh);
+            generatedByMeshKey[definition.MeshKey] = context.WorkingMesh;
+            return true;
+        }
+
+        private static IReadOnlyList<UnityBatchDefinition> BuildPatchBatchDefinitions(
+            IEnumerable<BlendShareObject> patches,
+            Func<BlendShareObject, MeshDataObject, bool> shouldGenerateMesh,
+            UnityMeshTargetLookup targetLookup)
+        {
+            var ordered = new List<UnityBatchDefinition>();
+            var byKey = new Dictionary<string, UnityBatchDefinition>(StringComparer.Ordinal);
+            foreach (var patch in patches ?? Array.Empty<BlendShareObject>())
+            {
+                foreach (var meshData in patch?.Meshes ?? Array.Empty<MeshDataObject>())
+                {
+                    if (meshData == null || (shouldGenerateMesh != null && !shouldGenerateMesh(patch, meshData)))
+                    {
+                        continue;
+                    }
+
+                    string meshKey = MeshNodePath.Normalize(meshData.m_Path);
+                    if (!targetLookup.TryGetMesh(meshKey, out var targetMesh))
+                    {
+                        Debug.LogError($"[BlendShare] Target mesh '{FormatMesh(meshData)}' was not found: {targetLookup.GetResolutionError(meshData)}");
+                        continue;
+                    }
+
+                    targetLookup.TryGetRenderer(meshKey, out var renderer);
+                    var definition = GetOrCreateDefinition(ordered, byKey, meshKey, targetMesh, renderer);
+                    definition.AddFeatures(patch, meshData);
+                }
+            }
+
+            return ordered;
+        }
+
+        private static IReadOnlyList<UnityBatchDefinition> BuildComponentBatchDefinitions(
+            IEnumerable<BlendShareMesh> meshComponents,
+            Transform targetRoot)
+        {
+            var ordered = new List<UnityBatchDefinition>();
+            var byKey = new Dictionary<string, UnityBatchDefinition>(StringComparer.Ordinal);
+            foreach (var component in meshComponents ?? Array.Empty<BlendShareMesh>())
+            {
+                var renderer = component?.TargetRenderer;
+                var targetMesh = renderer != null ? renderer.sharedMesh : null;
+                if (component == null || targetMesh == null || component.MeshData == null)
+                {
+                    continue;
+                }
+
+                string meshKey = renderer != null
+                    ? MeshNodePath.Normalize(MeshNodePath.GetRelativePath(renderer.transform, targetRoot))
+                    : component.RendererNodePath;
+                var definition = GetOrCreateDefinition(ordered, byKey, meshKey, targetMesh, renderer);
+                definition.AddFeatures(
+                    component.Patch,
+                    component.MeshData,
+                    GetComponentsForMeshPass(component),
+                    GetComponentMapping(component, component.MeshData));
+            }
+
+            return ordered;
+        }
+
+        private static UnityBatchDefinition GetOrCreateDefinition(
+            ICollection<UnityBatchDefinition> ordered,
+            IDictionary<string, UnityBatchDefinition> byKey,
+            string meshKey,
+            Mesh targetMesh,
+            SkinnedMeshRenderer renderer)
+        {
+            if (byKey.TryGetValue(meshKey, out var existing))
+            {
+                return existing;
+            }
+
+            var created = new UnityBatchDefinition(meshKey, targetMesh, renderer);
+            byKey.Add(meshKey, created);
+            ordered.Add(created);
+            return created;
+        }
+
+        private static void LogBatchFeatureFailure(
+            string action,
+            IMeshFeatureGenerator generator,
+            string meshKey,
+            MeshFeatureGenerationResult result)
+        {
+            Debug.LogError(
+                $"[BlendShare] Failed to {action} generator '{generator.GetType().Name}' for mesh '{meshKey}': {result.Message}");
+        }
+
+        private sealed class UnityBatchDefinition
+        {
+            internal UnityBatchDefinition(string meshKey, Mesh originalMesh, SkinnedMeshRenderer renderer)
+            {
+                MeshKey = MeshNodePath.Normalize(meshKey);
+                OriginalMesh = originalMesh;
+                Renderer = renderer;
+            }
+
+            internal string MeshKey { get; }
+            internal Mesh OriginalMesh { get; }
+            internal SkinnedMeshRenderer Renderer { get; }
+            internal List<MeshFeatureHandle> Handles { get; } = new();
+
+            internal void AddFeatures(
+                BlendShareObject patch,
+                MeshDataObject meshData,
+                IEnumerable<BlendShareComponent> components = null,
+                IEnumerable<UnityVertexMappingObject> mappingOverrides = null)
+            {
+                foreach (var feature in meshData?.Features ?? Array.Empty<MeshFeatureObject>())
+                {
+                    if (feature == null)
+                    {
+                        continue;
+                    }
+
+                    Handles.Add(new MeshFeatureHandle(
+                        feature,
+                        patch,
+                        meshData,
+                        MeshKey,
+                        Handles.Count,
+                        components,
+                        mappingOverrides));
+                }
             }
         }
 
@@ -333,8 +501,18 @@ namespace Triturbo.BlendShare.Core
                 return false;
             }
 
-            var session = new UnityMeshGenerationSession(targetMeshContainer, deduplicatedPatches, targetLookup);
-            foreach (var patch in deduplicatedPatches)
+            return CanApplyBatched(targetLookup, targetMeshContainer, deduplicatedPatches);
+        }
+
+        private static bool CanApplyBatched(
+            UnityMeshTargetLookup targetLookup,
+            Object targetMeshContainer,
+            IReadOnlyList<BlendShareObject> patches)
+        {
+            var session = new UnityMeshGenerationSession(targetMeshContainer, patches, targetLookup);
+            var definitions = new List<UnityBatchDefinition>();
+            var definitionsByKey = new Dictionary<string, UnityBatchDefinition>(StringComparer.Ordinal);
+            foreach (var patch in patches)
             {
                 foreach (var meshData in patch?.Meshes ?? Array.Empty<MeshDataObject>())
                 {
@@ -343,181 +521,50 @@ namespace Triturbo.BlendShare.Core
                         return false;
                     }
 
-                    targetLookup.TryGetRenderer(meshData, out var targetRenderer);
-                    var context = new UnityMeshGenerationContext(
-                        session,
-                        patch,
-                        meshData,
+                    string meshKey = MeshNodePath.Normalize(meshData.m_Path);
+                    targetLookup.TryGetRenderer(meshData, out var renderer);
+                    var definition = GetOrCreateDefinition(
+                        definitions,
+                        definitionsByKey,
+                        meshKey,
                         targetMesh,
-                        targetMesh,
-                        targetRenderer,
-                        targetLookup.RootTransform,
-                        UnityMeshGenerationSession.BuildMeshKey(meshData));
+                        renderer);
+                    definition.AddFeatures(patch, meshData);
+                }
+            }
 
-                    bool canGenerateFeature = false;
-                    foreach (var generator in FeatureGenerators)
-                    {
-                        var result = generator.CanApplyToUnityMesh(context);
-                        if (result.Failed)
-                        {
-                            return false;
-                        }
-
-                        if (result.Status != MeshFeatureGenerationStatus.Skipped)
-                        {
-                            canGenerateFeature = true;
-                        }
-                    }
-
-                    if (!canGenerateFeature || context.HasUnhandledFeatures)
+            foreach (var definition in definitions)
+            {
+                var context = new UnityMeshFeatureContext(
+                    session,
+                    definition.MeshKey,
+                    definition.OriginalMesh,
+                    definition.OriginalMesh,
+                    definition.Renderer,
+                    targetLookup.RootTransform,
+                    definition.Handles);
+                bool canGenerateFeature = false;
+                foreach (var generator in FeatureGenerators)
+                {
+                    var result = generator.CanApplyToUnityMesh(context);
+                    if (result.Failed)
                     {
                         return false;
                     }
+
+                    if (result.Status != MeshFeatureGenerationStatus.Skipped)
+                    {
+                        canGenerateFeature = true;
+                    }
+                }
+
+                if (!canGenerateFeature || context.GetUnhandledHandles().Count > 0)
+                {
+                    return false;
                 }
             }
 
             return true;
-        }
-
-        private static void GenerateMesh(
-            UnityMeshGenerationSession session,
-            UnityMeshTargetLookup targetLookup,
-            Dictionary<string, Mesh> generatedByMeshKey,
-            Transform targetRoot,
-            BlendShareObject patch,
-            MeshDataObject meshData,
-            string rendererPath,
-            SkinnedMeshRenderer targetRenderer = null,
-            Mesh targetMesh = null,
-            IEnumerable<BlendShareComponent> components = null,
-            IEnumerable<UnityVertexMappingObject> mappingOverrides = null)
-        {
-            string meshKey = !string.IsNullOrWhiteSpace(rendererPath)
-                ? MeshNodePath.Normalize(rendererPath)
-                : UnityMeshGenerationSession.BuildMeshKey(meshData);
-            bool createdForThisPass = false;
-            if (!generatedByMeshKey.TryGetValue(meshKey, out var workingMesh))
-            {
-                if (targetMesh == null)
-                {
-                    targetLookup.TryGetMesh(rendererPath, out targetMesh);
-                }
-
-                if (targetMesh == null && !targetLookup.TryGetMesh(meshData, out targetMesh))
-                {
-                    Debug.LogError($"[BlendShare] Target mesh '{FormatMesh(meshData)}' was not found in '{session.FormatTargetName()}': {targetLookup.GetResolutionError(meshData)}");
-                    return;
-                }
-
-                workingMesh = Object.Instantiate(targetMesh);
-                workingMesh.name = meshKey;
-                TryEnableGeneratedMeshReadability(workingMesh);
-                generatedByMeshKey.Add(meshKey, workingMesh);
-                createdForThisPass = true;
-            }
-
-            Mesh baseline = null;
-            if (!createdForThisPass && workingMesh != null)
-            {
-                baseline = Object.Instantiate(workingMesh);
-                baseline.name = workingMesh.name;
-                TryEnableGeneratedMeshReadability(baseline);
-            }
-
-            if (targetRenderer == null)
-            {
-                targetLookup.TryGetRenderer(rendererPath, out targetRenderer);
-            }
-
-            if (targetRenderer == null)
-            {
-                targetLookup.TryGetRenderer(meshData, out targetRenderer);
-            }
-
-            bool failed = false;
-            bool generatedFeature = false;
-            var context = new UnityMeshGenerationContext(
-                session,
-                patch,
-                meshData,
-                targetMesh,
-                workingMesh,
-                targetRenderer,
-                targetRoot != null ? targetRoot : targetLookup.RootTransform,
-                meshKey,
-                components,
-                mappingOverrides);
-
-            foreach (var generator in FeatureGenerators)
-            {
-                BlendShareProgressUtility.Report(
-                    session.Progress,
-                    null,
-                    $"Applying {generator.GetType().Name} to {FormatMesh(meshData)}...",
-                    0.5f,
-                    true);
-                var canApply = generator.CanApplyToUnityMesh(context);
-                if (canApply.Failed)
-                {
-                    LogFeatureFailure("validate", generator, meshData, canApply);
-                    failed = true;
-                    break;
-                }
-
-                if (canApply.Status == MeshFeatureGenerationStatus.Skipped)
-                {
-                    continue;
-                }
-
-                var result = generator.ApplyToUnityMesh(context);
-                if (result.Failed)
-                {
-                    LogFeatureFailure("apply", generator, meshData, result);
-                    failed = true;
-                    break;
-                }
-
-                if (result.Status == MeshFeatureGenerationStatus.Skipped)
-                {
-                    continue;
-                }
-
-                generatedFeature = true;
-                workingMesh = context.WorkingMesh;
-                generatedByMeshKey[meshKey] = workingMesh;
-            }
-
-            if (!failed && context.HasUnhandledFeatures)
-            {
-                LogUnhandledFeatures("apply", meshData, context.GetUnhandledFeatures());
-                failed = true;
-            }
-
-            if ((failed || !generatedFeature) && createdForThisPass)
-            {
-                SkinWeightFeatureGenerator.DiscardUnitySkinWeights(session, meshKey);
-                generatedByMeshKey.Remove(meshKey);
-                DestroyGeneratedObject(baseline);
-                DestroyGeneratedObject(workingMesh);
-            }
-            else if (failed)
-            {
-                SkinWeightFeatureGenerator.DiscardUnitySkinWeights(session, meshKey);
-                if (baseline != null)
-                {
-                    generatedByMeshKey[meshKey] = baseline;
-                    DestroyGeneratedObject(workingMesh);
-                    SkinWeightFeatureGenerator.RestoreUnitySkinMesh(session, meshKey, baseline);
-                }
-
-                Debug.LogWarning($"[BlendShare] Skipped BlendShare patch '{patch.name}' for mesh '{FormatMesh(meshData)}'. Earlier accumulated output for this mesh will be kept.");
-            }
-            else
-            {
-                SkinWeightFeatureGenerator.CommitUnitySkinWeights(session, meshKey);
-                TryEnableGeneratedMeshReadability(workingMesh);
-                DestroyGeneratedObject(baseline);
-            }
         }
 
         private static void TryEnableGeneratedMeshReadability(Mesh mesh)
@@ -526,25 +573,6 @@ namespace Triturbo.BlendShare.Core
             {
                 Debug.LogWarning($"[BlendShare] Generated mesh '{mesh.name}' could not be marked readable. Generation will continue.");
             }
-        }
-
-        private static int CountMeshes(
-            IEnumerable<BlendShareObject> patches,
-            Func<BlendShareObject, MeshDataObject, bool> shouldGenerateMesh)
-        {
-            int count = 0;
-            foreach (var patch in patches ?? Array.Empty<BlendShareObject>())
-            {
-                foreach (var meshData in patch?.Meshes ?? Array.Empty<MeshDataObject>())
-                {
-                    if (meshData != null && (shouldGenerateMesh == null || shouldGenerateMesh(patch, meshData)))
-                    {
-                        count++;
-                    }
-                }
-            }
-
-            return count;
         }
 
         private static float GetGenerationProgress(int currentMesh, int meshCount)
@@ -750,16 +778,6 @@ namespace Triturbo.BlendShare.Core
             }
 
             return string.Join("/", indices);
-        }
-
-        private static void LogFeatureFailure(
-            string action,
-            IMeshFeatureGenerator generator,
-            MeshDataObject meshData,
-            MeshFeatureGenerationResult result)
-        {
-            Debug.LogError(
-                $"[BlendShare] Failed to {action} generator '{generator.GetType().Name}' for mesh '{FormatMesh(meshData)}': {result.Message}");
         }
 
         private static void LogUnhandledFeatures(

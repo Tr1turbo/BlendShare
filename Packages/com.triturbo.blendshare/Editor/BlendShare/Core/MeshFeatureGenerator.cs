@@ -1,219 +1,205 @@
+using System.Collections.Generic;
+
 namespace Triturbo.BlendShare.Core
 {
     /// <summary>
-    /// Pass-style generator that applies one feature family to a Unity mesh or FBX mesh target.
+    /// Generates one feature family from all ordered contributions targeting a mesh.
     /// </summary>
     public interface IMeshFeatureGenerator
     {
         /// <summary>
-        /// Ordering value used when multiple feature generators apply to the same mesh.
+        /// Gets the feature object type claimed by this generator.
+        /// </summary>
+        System.Type FeatureType { get; }
+
+        /// <summary>
+        /// Gets the deterministic ordering value used between independent feature families.
         /// </summary>
         int Order { get; }
 
         /// <summary>
-        /// Checks whether this feature can be applied to the current Unity mesh target.
+        /// Checks whether the ordered feature contributions can be applied to a Unity mesh batch.
         /// </summary>
-        /// <param name="context">Unity mesh generation context for the current mesh.</param>
-        /// <returns>A skipped result when this generator has no feature data in the context.</returns>
-        MeshFeatureGenerationResult CanApplyToUnityMesh(UnityMeshGenerationContext context);
+        /// <param name="context">Shared Unity mesh feature context.</param>
+        /// <returns>A skipped result when the batch has no contribution for this generator.</returns>
+        MeshFeatureGenerationResult CanApplyToUnityMesh(UnityMeshFeatureContext context);
 
         /// <summary>
-        /// Applies this feature to the current Unity mesh target.
+        /// Applies the ordered feature contributions to a Unity mesh batch.
         /// </summary>
-        /// <param name="context">Unity mesh generation context for the current mesh.</param>
-        /// <returns>Generation result for this feature.</returns>
-        MeshFeatureGenerationResult ApplyToUnityMesh(UnityMeshGenerationContext context);
+        /// <param name="context">Shared Unity mesh feature context.</param>
+        /// <returns>The accumulated generation result for this feature family.</returns>
+        MeshFeatureGenerationResult ApplyToUnityMesh(UnityMeshFeatureContext context);
+
+        /// <summary>
+        /// Finalizes session-wide Unity data after every mesh batch has run.
+        /// </summary>
+        /// <param name="session">Unity generation session.</param>
+        /// <returns>The finalization result.</returns>
+        MeshFeatureGenerationResult FinalizeUnityGeneration(UnityMeshGenerationSession session);
 
 #if ENABLE_FBX_SDK
         /// <summary>
-        /// Checks whether this feature can be applied to the current FBX mesh target.
+        /// Checks whether the ordered feature contributions can be applied to an FBX mesh batch.
         /// </summary>
-        /// <param name="context">FBX generation context for the current mesh.</param>
-        /// <returns>A skipped result when this generator has no feature data in the context.</returns>
-        MeshFeatureGenerationResult CanApplyToFbx(FbxGenerationContext context);
+        /// <param name="context">Shared FBX mesh feature context.</param>
+        /// <returns>A skipped result when the batch has no contribution for this generator.</returns>
+        MeshFeatureGenerationResult CanApplyToFbx(FbxMeshFeatureContext context);
 
         /// <summary>
-        /// Applies this feature to the current FBX mesh node.
+        /// Applies the ordered feature contributions to an FBX mesh batch.
         /// </summary>
-        /// <param name="context">FBX generation context for the current mesh.</param>
-        /// <returns>Generation result for this feature.</returns>
-        MeshFeatureGenerationResult ApplyToFbx(FbxGenerationContext context);
+        /// <param name="context">Shared FBX mesh feature context.</param>
+        /// <returns>The accumulated generation result for this feature family.</returns>
+        MeshFeatureGenerationResult ApplyToFbx(FbxMeshFeatureContext context);
 
         /// <summary>
-        /// Checks whether this feature needs the original FBX reader scene during generation.
+        /// Checks whether this FBX batch needs the original reader scene.
         /// </summary>
-        /// <param name="context">FBX generation context for the current mesh.</param>
-        /// <returns><c>true</c> when the generation session should include a reader scene.</returns>
-        bool RequiresFbxReaderScene(FbxGenerationContext context);
+        /// <param name="context">Shared FBX mesh feature context.</param>
+        /// <returns><c>true</c> when the reader scene must be loaded.</returns>
+        bool RequiresFbxReaderScene(FbxMeshFeatureContext context);
 
         /// <summary>
-        /// Removes this feature from the current FBX mesh node.
+        /// Finalizes session-wide FBX data after every mesh batch has run.
         /// </summary>
-        /// <param name="context">FBX generation context for the current mesh.</param>
-        /// <returns>Generation result for this feature.</returns>
-        MeshFeatureGenerationResult RemoveFromFbx(FbxGenerationContext context);
+        /// <param name="session">FBX generation session.</param>
+        /// <returns>The finalization result.</returns>
+        MeshFeatureGenerationResult FinalizeFbxGeneration(FbxGenerationSession session);
 #endif
     }
 
     /// <summary>
-    /// Typed base class for feature generator passes that claim a specific feature object from the context.
+    /// Typed base class for generators that process one ordered feature family per target mesh.
     /// </summary>
     /// <typeparam name="TFeature">Concrete feature object handled by the generator.</typeparam>
     public abstract class MeshFeatureGenerator<TFeature> : IMeshFeatureGenerator
         where TFeature : MeshFeatureObject
     {
         /// <inheritdoc />
+        public System.Type FeatureType => typeof(TFeature);
+
+        /// <inheritdoc />
         public virtual int Order => 0;
 
         /// <inheritdoc />
-        public MeshFeatureGenerationResult CanApplyToUnityMesh(UnityMeshGenerationContext context)
+        public MeshFeatureGenerationResult CanApplyToUnityMesh(UnityMeshFeatureContext context)
         {
-            if (!TryGetFeature(context, out TFeature feature, out var result))
-            {
-                return result;
-            }
-
-            return CanApplyToUnityMesh(context, feature);
+            var features = context?.GetFeatures<TFeature>() ?? System.Array.Empty<TFeature>();
+            return features.Count == 0
+                ? MeshFeatureGenerationResult.Skipped()
+                : CanApplyToUnityMesh(context, features);
         }
 
         /// <inheritdoc />
-        public MeshFeatureGenerationResult ApplyToUnityMesh(UnityMeshGenerationContext context)
+        public MeshFeatureGenerationResult ApplyToUnityMesh(UnityMeshFeatureContext context)
         {
-            if (!TryGetFeature(context, out TFeature feature, out var result))
-            {
-                return result;
-            }
-
-            return ApplyToUnityMesh(context, feature);
+            var features = context?.GetFeatures<TFeature>() ?? System.Array.Empty<TFeature>();
+            return features.Count == 0
+                ? MeshFeatureGenerationResult.Skipped()
+                : ApplyToUnityMesh(context, features);
         }
 
-        protected virtual MeshFeatureGenerationResult CanApplyToUnityMesh(
-            UnityMeshGenerationContext context,
-            TFeature feature)
+        /// <inheritdoc />
+        public virtual MeshFeatureGenerationResult FinalizeUnityGeneration(UnityMeshGenerationSession session)
         {
             return MeshFeatureGenerationResult.Success(false);
         }
 
+        /// <summary>
+        /// Checks all ordered contributions for this feature family before Unity generation.
+        /// </summary>
+        /// <param name="context">Shared Unity mesh feature context.</param>
+        /// <param name="features">Feature contributions in stable patch order.</param>
+        /// <returns>The validation result for the feature family.</returns>
+        protected virtual MeshFeatureGenerationResult CanApplyToUnityMesh(
+            UnityMeshFeatureContext context,
+            IReadOnlyList<TFeature> features)
+        {
+            return MeshFeatureGenerationResult.Success(false);
+        }
+
+        /// <summary>
+        /// Applies all ordered contributions for this feature family to the shared Unity mesh.
+        /// </summary>
+        /// <param name="context">Shared Unity mesh feature context.</param>
+        /// <param name="features">Feature contributions in stable patch order.</param>
+        /// <returns>The accumulated generation result for the feature family.</returns>
         protected abstract MeshFeatureGenerationResult ApplyToUnityMesh(
-            UnityMeshGenerationContext context,
-            TFeature feature);
+            UnityMeshFeatureContext context,
+            IReadOnlyList<TFeature> features);
 
 #if ENABLE_FBX_SDK
         /// <inheritdoc />
-        public MeshFeatureGenerationResult CanApplyToFbx(FbxGenerationContext context)
+        public MeshFeatureGenerationResult CanApplyToFbx(FbxMeshFeatureContext context)
         {
-            if (!TryGetFeature(context, out TFeature feature, out var result))
-            {
-                return result;
-            }
-
-            return CanApplyToFbx(context, feature);
+            var features = context?.GetFeatures<TFeature>() ?? System.Array.Empty<TFeature>();
+            return features.Count == 0
+                ? MeshFeatureGenerationResult.Skipped()
+                : CanApplyToFbx(context, features);
         }
 
         /// <inheritdoc />
-        public MeshFeatureGenerationResult ApplyToFbx(FbxGenerationContext context)
+        public MeshFeatureGenerationResult ApplyToFbx(FbxMeshFeatureContext context)
         {
-            if (!TryGetFeature(context, out TFeature feature, out var result))
-            {
-                return result;
-            }
-
-            return ApplyToFbx(context, feature);
+            var features = context?.GetFeatures<TFeature>() ?? System.Array.Empty<TFeature>();
+            return features.Count == 0
+                ? MeshFeatureGenerationResult.Skipped()
+                : ApplyToFbx(context, features);
         }
 
         /// <inheritdoc />
-        public bool RequiresFbxReaderScene(FbxGenerationContext context)
+        public bool RequiresFbxReaderScene(FbxMeshFeatureContext context)
         {
-            return TryGetFeature(context, out TFeature feature, out _) && RequiresFbxReaderScene(context, feature);
+            var features = context?.GetFeatures<TFeature>() ?? System.Array.Empty<TFeature>();
+            return features.Count > 0 && RequiresFbxReaderScene(context, features);
         }
 
         /// <inheritdoc />
-        public MeshFeatureGenerationResult RemoveFromFbx(FbxGenerationContext context)
+        public virtual MeshFeatureGenerationResult FinalizeFbxGeneration(FbxGenerationSession session)
         {
-            if (!TryGetFeature(context, out TFeature feature, out var result))
-            {
-                return result;
-            }
-
-            return RemoveFromFbx(context, feature);
+            return MeshFeatureGenerationResult.Success(false);
         }
 
+        /// <summary>
+        /// Checks all ordered contributions for this feature family before FBX generation.
+        /// </summary>
+        /// <param name="context">Shared FBX mesh feature context.</param>
+        /// <param name="features">Feature contributions in stable patch order.</param>
+        /// <returns>The validation result for the feature family.</returns>
         protected virtual MeshFeatureGenerationResult CanApplyToFbx(
-            FbxGenerationContext context,
-            TFeature feature)
+            FbxMeshFeatureContext context,
+            IReadOnlyList<TFeature> features)
         {
-            return MeshFeatureGenerationResult.FailedResult($"Feature '{typeof(TFeature).Name}' does not support FBX generation.");
+            return MeshFeatureGenerationResult.FailedResult(
+                $"Feature '{typeof(TFeature).Name}' does not support FBX generation.");
         }
 
+        /// <summary>
+        /// Applies all ordered contributions for this feature family to the shared FBX mesh.
+        /// </summary>
+        /// <param name="context">Shared FBX mesh feature context.</param>
+        /// <param name="features">Feature contributions in stable patch order.</param>
+        /// <returns>The accumulated generation result for the feature family.</returns>
         protected virtual MeshFeatureGenerationResult ApplyToFbx(
-            FbxGenerationContext context,
-            TFeature feature)
+            FbxMeshFeatureContext context,
+            IReadOnlyList<TFeature> features)
         {
-            return MeshFeatureGenerationResult.FailedResult($"Feature '{typeof(TFeature).Name}' does not support FBX generation.");
+            return MeshFeatureGenerationResult.FailedResult(
+                $"Feature '{typeof(TFeature).Name}' does not support FBX generation.");
         }
 
+        /// <summary>
+        /// Checks whether the ordered contributions need the original FBX reader scene.
+        /// </summary>
+        /// <param name="context">Shared FBX mesh feature context.</param>
+        /// <param name="features">Feature contributions in stable patch order.</param>
+        /// <returns><c>true</c> when the reader scene must be loaded.</returns>
         protected virtual bool RequiresFbxReaderScene(
-            FbxGenerationContext context,
-            TFeature feature)
+            FbxMeshFeatureContext context,
+            IReadOnlyList<TFeature> features)
         {
             return false;
-        }
-
-        protected virtual MeshFeatureGenerationResult RemoveFromFbx(
-            FbxGenerationContext context,
-            TFeature feature)
-        {
-            return MeshFeatureGenerationResult.FailedResult($"Feature '{typeof(TFeature).Name}' does not support FBX removal.");
-        }
-#endif
-
-        private bool TryGetFeature(
-            UnityMeshGenerationContext context,
-            out TFeature feature,
-            out MeshFeatureGenerationResult result)
-        {
-            feature = null;
-            result = default;
-
-            if (context == null)
-            {
-                result = MeshFeatureGenerationResult.FailedResult("Generation context is null.");
-                return false;
-            }
-
-            feature = context.GetFeature<TFeature>();
-            if (feature == null)
-            {
-                result = MeshFeatureGenerationResult.Skipped();
-                return false;
-            }
-
-            return true;
-        }
-
-#if ENABLE_FBX_SDK
-        private bool TryGetFeature(
-            FbxGenerationContext context,
-            out TFeature feature,
-            out MeshFeatureGenerationResult result)
-        {
-            feature = null;
-            result = default;
-
-            if (context == null)
-            {
-                result = MeshFeatureGenerationResult.FailedResult("Generation context is null.");
-                return false;
-            }
-
-            feature = context.GetFeature<TFeature>();
-            if (feature == null)
-            {
-                result = MeshFeatureGenerationResult.Skipped();
-                return false;
-            }
-
-            return true;
         }
 #endif
     }

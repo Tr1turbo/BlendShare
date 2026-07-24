@@ -1018,7 +1018,7 @@ msgid "patch.advanced"
 msgstr "Advanced"
 
 msgid "patch.apply.confirm.message"
-msgstr "This patch ID is already recorded on the FBX. Applying again may accumulate changes. Restore the target first to avoid this."
+msgstr "This patch ID is already active on the FBX. Applying again will replace that patch and rebuild the FBX from its BlendShare baseline."
 
 msgid "patch.apply.confirm.title"
 msgstr "Apply BlendShare Patch"
@@ -1027,10 +1027,10 @@ msgid "patch.apply.failed"
 msgstr "Failed to apply BlendShare patch."
 
 msgid "patch.apply.locked_conflict"
-msgstr "The target FBX already has a patch with this ID. Unlock to apply anyway; changes may accumulate or conflict."
+msgstr "The target FBX already has a patch with this ID. Unlock to replace it with this patch."
 
 msgid "patch.apply.locked_exact"
-msgstr "This patch is already recorded on the target FBX. Unlock to apply it again; changes may accumulate."
+msgstr "This patch is already active on the target FBX. Unlock to rebuild and replace it."
 
 msgid "patch.compatibility.all_verified"
 msgstr "All meshes verified for this FBX."
