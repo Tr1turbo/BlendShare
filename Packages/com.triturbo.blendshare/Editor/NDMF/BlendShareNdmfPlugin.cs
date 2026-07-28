@@ -21,13 +21,6 @@ namespace Triturbo.BlendShare.NDMF
                     sequence.Run(BlendShareNdmfPass.Instance)
                         .PreviewingWith(new BlendShareNdmfPreview());
                 });
-
-            InPhase(BuildPhase.Optimizing)
-                .BeforePlugin("nadena.dev.modular-avatar")
-                .WithRequiredExtension(typeof(AnimatorServicesContext), sequence =>
-                {
-                    sequence.Run(BlendShareBoneMergePass.Instance);
-                });
         }
     }
 }

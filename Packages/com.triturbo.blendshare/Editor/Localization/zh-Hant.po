@@ -1410,6 +1410,12 @@ msgstr "還原失敗"
 msgid "ndmf.mesh.target_renderer"
 msgstr "目標渲染器"
 
+msgid "ndmf.mesh.skin_weights_over_four_limit"
+msgstr "部分頂點受到超過4根骨骼影響。BlendShare 將移除最強4個之外的權重。"
+
+msgid "ndmf.mesh.skin_weights_over_255"
+msgstr "部分頂點受到超過255根骨骼影響。BlendShare 將移除最強255個之外的權重。"
+
 msgid "ndmf.mesh.missing_renderer"
 msgstr "<缺失渲染器>"
 

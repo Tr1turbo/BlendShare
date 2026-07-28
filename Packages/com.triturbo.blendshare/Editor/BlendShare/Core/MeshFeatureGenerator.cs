@@ -73,7 +73,12 @@ namespace Triturbo.BlendShare.Core
     /// Typed base class for generators that process one ordered feature family per target mesh.
     /// </summary>
     /// <typeparam name="TFeature">Concrete feature object handled by the generator.</typeparam>
-    public abstract class MeshFeatureGenerator<TFeature> : IMeshFeatureGenerator
+    internal interface IUnityMeshFeaturePreparation
+    {
+        MeshFeatureGenerationResult PrepareUnityGeneration(UnityMeshFeatureContext context);
+    }
+
+    public abstract class MeshFeatureGenerator<TFeature> : IMeshFeatureGenerator, IUnityMeshFeaturePreparation
         where TFeature : MeshFeatureObject
     {
         /// <inheritdoc />
@@ -81,6 +86,25 @@ namespace Triturbo.BlendShare.Core
 
         /// <inheritdoc />
         public virtual int Order => 0;
+
+        MeshFeatureGenerationResult IUnityMeshFeaturePreparation.PrepareUnityGeneration(
+            UnityMeshFeatureContext context)
+        {
+            var features = context?.GetFeatures<TFeature>() ?? System.Array.Empty<TFeature>();
+            return features.Count == 0
+                ? MeshFeatureGenerationResult.Skipped()
+                : PrepareUnityGeneration(context, features);
+        }
+
+        /// <summary>
+        /// Collects ordered feature facts before Unity mesh batches are generated.
+        /// </summary>
+        protected virtual MeshFeatureGenerationResult PrepareUnityGeneration(
+            UnityMeshFeatureContext context,
+            IReadOnlyList<TFeature> features)
+        {
+            return MeshFeatureGenerationResult.Success(false);
+        }
 
         /// <inheritdoc />
         public MeshFeatureGenerationResult CanApplyToUnityMesh(UnityMeshFeatureContext context)

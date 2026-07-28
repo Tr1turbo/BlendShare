@@ -1410,6 +1410,12 @@ msgstr "復元に失敗しました"
 msgid "ndmf.mesh.target_renderer"
 msgstr "ターゲットレンダラー"
 
+msgid "ndmf.mesh.skin_weights_over_four_limit"
+msgstr "一部の頂点に5本以上のボーンがあります。BlendShare は最も強い4つを超えるウェイトを削除します。"
+
+msgid "ndmf.mesh.skin_weights_over_255"
+msgstr "一部の頂点に256本以上のボーンがあります。BlendShare は最も強い255個を超えるウェイトを削除します。"
+
 msgid "ndmf.mesh.missing_renderer"
 msgstr "<レンダラーなし>"
 

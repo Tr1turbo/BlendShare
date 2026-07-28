@@ -30,11 +30,9 @@ namespace Triturbo.BlendShare.NDMF
             }
 
             AnimatorServicesContext animatorServices;
-            ObjectPathRemapper pathRemapper;
             try
             {
                 animatorServices = context.Extension<AnimatorServicesContext>();
-                pathRemapper = animatorServices.ObjectPathRemapper;
             }
             catch (System.Exception ex)
             {
@@ -75,35 +73,25 @@ namespace Triturbo.BlendShare.NDMF
 
             var availableBoneProxies = context.AvatarRootObject
                 .GetComponentsInChildren<BlendShareBoneProxy>(true);
-            if (!BlendShareBoneMergePass.TryPrepare(
-                    context,
-                    validMeshAppliers,
-                    availableBoneProxies,
-                    context.AvatarRootTransform,
-                    animatorServices,
-                    out var usedBoneBindings,
-                    out string proxyDiagnostic,
-                    out var conflictingProxy))
+            var resolutions = BlendShareMesh.RefreshBoneProxyCaches(
+                validMeshAppliers,
+                context.AvatarRootTransform,
+                availableBoneProxies);
+            var failedResolution = resolutions.Values.FirstOrDefault(resolution => !resolution.Success);
+            if (failedResolution != null)
             {
-                ReportFailure("BlendShare bone proxy setup is invalid.", proxyDiagnostic, conflictingProxy);
+                ReportFailure(
+                    "BlendShare bone proxy setup is invalid.",
+                    string.Join("\n", failedResolution.Diagnostics),
+                    context.AvatarRootObject);
                 return;
             }
 
-            var usedBoneComponents = usedBoneBindings.Select(binding => binding.Component).Distinct().ToArray();
-            foreach (var binding in usedBoneBindings.Distinct())
-            {
-                pathRemapper?.RecordObjectTree(binding.FinalTransform);
-            }
-            foreach (var binding in usedBoneBindings.Distinct())
-            {
-                if (binding.Component.IsRootBinding(binding.Binding) && !binding.Component.UseHierarchyParent)
-                {
-                    PlaceProxyInBuildHierarchy(binding, context.AvatarRootTransform, pathRemapper);
-                }
-            }
-            var boneTransformOverrides = BlendShareBoneMergePass.BuildBoneTransformOverrides(
-                usedBoneBindings,
-                context.AvatarRootTransform);
+            var usedBoneComponents = resolutions.Values
+                .SelectMany(resolution => resolution.SelectedProxies)
+                .Distinct()
+                .ToArray();
+            var mergeResolver = new BlendShareBoneBindingMergeResolver(context, animatorServices);
 
             if (validMeshAppliers.Count > 0)
             {
@@ -118,7 +106,8 @@ namespace Triturbo.BlendShare.NDMF
                     context.AvatarRootObject,
                     generationComponents,
                     out string generationDiagnostic,
-                    true);
+                    true,
+                    mergeResolver);
                 if (artifact == null)
                 {
                     ReportFailure(
@@ -138,7 +127,7 @@ namespace Triturbo.BlendShare.NDMF
                         UseUndo = false,
                         RecordDestructiveMarkers = false,
                         MarkObjectsDirty = false,
-                        BoneTransformOverrides = boneTransformOverrides,
+                        BoneTransformOverrides = mergeResolver.BoneTransformOverrides,
                         SaveGeneratedMesh = mesh => context.AssetSaver.SaveAsset(mesh)
                     });
                 if (!result.Success)
@@ -170,8 +159,6 @@ namespace Triturbo.BlendShare.NDMF
                 BlendShareBlendShapeWeightService.RetargetRendererBlendShapeCurves(validMeshAppliers, animatorServices);
             }
 
-            BlendShareBoneMergePass.Commit(context);
-
             foreach (var component in context.AvatarRootObject.GetComponentsInChildren<BlendShareMesh>(true))
             {
                 if (component != null &&
@@ -183,6 +170,15 @@ namespace Triturbo.BlendShare.NDMF
                 {
                     Object.DestroyImmediate(component);
                 }
+            }
+
+            if (!mergeResolver.Cleanup(out string cleanupDiagnostic))
+            {
+                ReportFailure(
+                    "BlendShare bone cleanup failed.",
+                    cleanupDiagnostic,
+                    context.AvatarRootObject);
+                return;
             }
 
             foreach (var component in context.AvatarRootObject.GetComponentsInChildren<BlendShareBoneProxy>(true))
@@ -321,36 +317,6 @@ namespace Triturbo.BlendShare.NDMF
                     references.Add(obj);
                 }
             }
-        }
-
-        private static void PlaceProxyInBuildHierarchy(
-            BlendShareBoneMergePass.ResolvedBinding binding,
-            Transform fallbackRoot,
-            ObjectPathRemapper pathRemapper)
-        {
-            var proxy = binding.Component;
-            var finalTransform = binding.FinalTransform;
-            if (proxy == null || finalTransform == null)
-            {
-                return;
-            }
-
-            pathRemapper?.GetVirtualPathForObject(finalTransform.gameObject);
-
-            var parent = binding.EffectiveParent != null
-                ? binding.EffectiveParent
-                : finalTransform.parent;
-            if (parent == null)
-            {
-                parent = fallbackRoot;
-            }
-            else if (fallbackRoot != null && parent != fallbackRoot && !parent.IsChildOf(fallbackRoot))
-            {
-                parent = fallbackRoot;
-            }
-
-            finalTransform.SetParent(parent, true);
-            pathRemapper?.ClearCache();
         }
 
     }

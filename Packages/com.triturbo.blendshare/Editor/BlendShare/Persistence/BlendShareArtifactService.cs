@@ -150,7 +150,9 @@ namespace Triturbo.BlendShare.Persistence
             GameObject targetRoot,
             IEnumerable<BlendShareComponent> components,
             out string diagnostic,
-            bool proxiesPrepared = false)
+            bool proxiesPrepared = false,
+            IUnityGenerationPreparation preparation = null,
+            UnityBonePathCollisionPolicy bonePathCollisionPolicy = UnityBonePathCollisionPolicy.Reject)
         {
             diagnostic = null;
             if (targetRoot == null)
@@ -169,7 +171,11 @@ namespace Triturbo.BlendShare.Persistence
 
             var pipeline = new UnityMeshGenerationPipeline();
             var artifact = proxiesPrepared
-                ? pipeline.CreateArtifactFromPreparedComponents(targetRoot, componentArray)
+                ? pipeline.CreateArtifactFromPreparedComponents(
+                    targetRoot,
+                    componentArray,
+                    preparation: preparation,
+                    bonePathCollisionPolicy: bonePathCollisionPolicy)
                 : pipeline.CreateArtifactFromComponents(targetRoot, componentArray);
             diagnostic = pipeline.LastDiagnostic;
             return artifact;

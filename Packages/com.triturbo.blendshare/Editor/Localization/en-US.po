@@ -1410,6 +1410,12 @@ msgstr "Restore Failed"
 msgid "ndmf.mesh.target_renderer"
 msgstr "Target Renderer"
 
+msgid "ndmf.mesh.skin_weights_over_four_limit"
+msgstr "Some vertices have more than 4 bones. BlendShare will remove weights beyond the strongest 4."
+
+msgid "ndmf.mesh.skin_weights_over_255"
+msgstr "Some vertices have more than 255 bones. BlendShare will remove weights beyond the strongest 255."
+
 msgid "ndmf.mesh.missing_renderer"
 msgstr "<missing renderer>"
 

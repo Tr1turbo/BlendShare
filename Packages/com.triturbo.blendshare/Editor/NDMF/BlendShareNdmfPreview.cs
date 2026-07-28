@@ -200,39 +200,36 @@ namespace Triturbo.BlendShare.NDMF
                                         context.ActiveAndEnabled(proxy) &&
                                         (proxy.transform == sourceRoot || proxy.transform.IsChildOf(sourceRoot)))
                         .ToArray();
-                if (!BlendShareBoneMergePass.TryPreparePreview(
-                        sharedProxyAppliers,
-                        availableBoneProxies,
-                        avatarRoot != null ? avatarRoot.transform : sourceRoot,
-                        out var boneProxies,
-                        out var proxyBoneOverrides,
-                        out var temporaryProxyObjects,
-                        out string proxyDiagnostic,
-                        out var conflictingProxy))
+                var resolutions = BlendShareMesh.RefreshBoneProxyCaches(
+                    sharedProxyAppliers,
+                    avatarRoot != null ? avatarRoot.transform : sourceRoot,
+                    availableBoneProxies);
+                var failedResolution = resolutions.Values.FirstOrDefault(resolution => !resolution.Success);
+                if (failedResolution != null)
                 {
-                    Debug.LogWarning($"[BlendShare Preview] {proxyDiagnostic}", conflictingProxy);
+                    Debug.LogWarning(
+                        $"[BlendShare Preview] {string.Join("\n", failedResolution.Diagnostics)}",
+                        originalRenderer);
                     return;
                 }
 
-                BlendShareArtifact artifact;
-                string generationDiagnostic;
-                try
-                {
-                    var generationComponents = enabledAppliers.Cast<BlendShareComponent>()
-                        .Concat(boneProxies)
-                        .Distinct()
-                        .ToArray();
-                    ObserveProxyInputs(enabledAppliers, availableBoneProxies, context);
-                    artifact = BlendShareArtifactService.CreateInMemoryArtifact(
-                        sourceRoot != null ? sourceRoot.gameObject : originalRenderer.transform.root.gameObject,
-                        generationComponents,
-                        out generationDiagnostic,
-                        true);
-                }
-                finally
-                {
-                    BlendShareBoneMergePass.ReleaseTemporaryPreviewObjects(temporaryProxyObjects);
-                }
+                var boneProxies = resolutions.Values
+                    .SelectMany(resolution => resolution.SelectedProxies)
+                    .Distinct()
+                    .ToArray();
+                var capture = new UnityBoneTransformCapture();
+                var generationComponents = enabledAppliers.Cast<BlendShareComponent>()
+                    .Concat(boneProxies)
+                    .Distinct()
+                    .ToArray();
+                ObserveProxyInputs(enabledAppliers, availableBoneProxies, context);
+                var artifact = BlendShareArtifactService.CreateInMemoryArtifact(
+                    sourceRoot != null ? sourceRoot.gameObject : originalRenderer.transform.root.gameObject,
+                    generationComponents,
+                    out string generationDiagnostic,
+                    true,
+                    capture,
+                    UnityBonePathCollisionPolicy.VirtualizeForPreview);
                 if (artifact == null)
                 {
                     Debug.LogWarning(
@@ -255,7 +252,7 @@ namespace Triturbo.BlendShare.NDMF
                         RecordDestructiveMarkers = false,
                         MarkObjectsDirty = false,
                         BonePathRoot = sourceRoot,
-                        BoneTransformOverrides = proxyBoneOverrides
+                        BoneTransformOverrides = capture.TransformsByPath
                     });
 
                 if (!result.Success)

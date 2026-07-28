@@ -23,6 +23,10 @@ namespace Triturbo.BlendShare.Core
         private readonly Dictionary<string, Matrix4x4> bindPosesByMeshAndBone = new();
         private readonly Dictionary<string, BlendShareObject> bindPoseSourcesByMeshAndBone = new();
         private readonly Dictionary<string, Transform> transformsByPath = new();
+        private readonly List<UnityBoneBindingUse> boneBindingUses = new();
+        private readonly Dictionary<string, Transform> boneTransformsByArtifactPath = new();
+        private readonly Dictionary<Transform, string> artifactPathByBoneTransform = new();
+        private readonly Dictionary<BlendShareBoneProxyBinding, string> artifactPathByBinding = new();
         private readonly HashSet<string> completedSteps = new();
         private UnityArmatureObject armature;
 
@@ -34,6 +38,11 @@ namespace Triturbo.BlendShare.Core
         public IReadOnlyList<Object> GeneratedObjects => generatedObjects;
         public IReadOnlyDictionary<string, UnityMeshSkinBindingOutput> SkinBindingsByMeshKey => skinBindingsByMeshKey;
         public UnityArmatureObject Armature => armature;
+        internal IReadOnlyList<UnityBoneBindingUse> BoneBindingUses => boneBindingUses;
+        internal IReadOnlyDictionary<string, Transform> BoneTransformsByArtifactPath =>
+            boneTransformsByArtifactPath;
+        internal IUnityGenerationPreparation Preparation { get; }
+        internal UnityBonePathCollisionPolicy BonePathCollisionPolicy { get; }
 
         /// <summary>
         /// Creates a generation session for a target mesh container and a set of BlendShare assets.
@@ -47,6 +56,25 @@ namespace Triturbo.BlendShare.Core
             UnityMeshTargetLookup targetMeshes,
             IEnumerable<BlendShareComponent> components = null,
             IBlendShareProgress progress = null)
+            : this(
+                targetMeshContainer,
+                patches,
+                targetMeshes,
+                components,
+                progress,
+                null,
+                UnityBonePathCollisionPolicy.Reject)
+        {
+        }
+
+        internal UnityMeshGenerationSession(
+            Object targetMeshContainer,
+            IEnumerable<BlendShareObject> patches,
+            UnityMeshTargetLookup targetMeshes,
+            IEnumerable<BlendShareComponent> components,
+            IBlendShareProgress progress,
+            IUnityGenerationPreparation preparation = null,
+            UnityBonePathCollisionPolicy bonePathCollisionPolicy = UnityBonePathCollisionPolicy.Reject)
         {
             TargetMeshContainer = targetMeshContainer;
             Patches = BlendSharePatchIdUtility.DeduplicateByPatchId(patches).ToArray();
@@ -56,6 +84,170 @@ namespace Triturbo.BlendShare.Core
                 .Where(component => component != null)
                 .Distinct()
                 .ToArray();
+            Preparation = preparation;
+            BonePathCollisionPolicy = bonePathCollisionPolicy;
+        }
+
+        internal void AddBoneBindingUse(UnityBoneBindingUse use)
+        {
+            if (use != null)
+            {
+                use.Sequence = boneBindingUses.Count;
+                boneBindingUses.Add(use);
+            }
+        }
+
+        internal void ClearBoneBindingUses()
+        {
+            boneBindingUses.Clear();
+            boneTransformsByArtifactPath.Clear();
+            artifactPathByBoneTransform.Clear();
+        }
+
+        internal void ResolveBoneBindingUses()
+        {
+            boneTransformsByArtifactPath.Clear();
+            artifactPathByBoneTransform.Clear();
+            var reservedPaths = CollectExistingRendererBonePaths();
+            foreach (var pair in reservedPaths)
+            {
+                boneTransformsByArtifactPath[pair.Key] = pair.Value;
+            }
+            var representatives = boneBindingUses
+                .Where(use => use?.Transform != null)
+                .GroupBy(use => use.Transform)
+                .Select(group => group.OrderBy(use => use.Sequence).Last())
+                .OrderBy(use => use.Sequence)
+                .ToArray();
+            var usedPaths = new HashSet<string>(reservedPaths.Keys, System.StringComparer.Ordinal);
+            foreach (var use in representatives)
+            {
+                string artifactPath = ResolveBoneBindingArtifactPath(
+                    use.Binding,
+                    use.Transform,
+                    use.FinalPath);
+                bool pathCollision = usedPaths.Contains(artifactPath) &&
+                                     (!boneTransformsByArtifactPath.TryGetValue(artifactPath, out var existing) ||
+                                      existing != use.Transform);
+                if (pathCollision && BonePathCollisionPolicy == UnityBonePathCollisionPolicy.Reject)
+                {
+                    Fail(
+                        $"Distinct bone transforms resolve to the same final path '{artifactPath}'. " +
+                        "Bind the source paths to one transform or use the NDMF build resolver.");
+                    continue;
+                }
+
+                if (pathCollision && BonePathCollisionPolicy == UnityBonePathCollisionPolicy.VirtualizeForPreview)
+                {
+                    string parent = MeshNodePath.ParentPath(artifactPath);
+                    string leaf = MeshNodePath.LeafName(artifactPath);
+                    for (int counter = 1; counter < int.MaxValue; counter++)
+                    {
+                        string candidateLeaf = $"{leaf}_BlendSharePreview_{counter}";
+                        string candidate = parent == MeshNodePath.Root
+                            ? candidateLeaf
+                            : $"{parent}/{candidateLeaf}";
+                        candidate = MeshNodePath.Normalize(candidate);
+                        if (usedPaths.Add(candidate))
+                        {
+                            artifactPath = candidate;
+                            break;
+                        }
+                    }
+                }
+                else
+                {
+                    usedPaths.Add(artifactPath);
+                }
+
+                artifactPathByBoneTransform[use.Transform] = artifactPath;
+                boneTransformsByArtifactPath[artifactPath] = use.Transform;
+            }
+        }
+
+        private Dictionary<string, Transform> CollectExistingRendererBonePaths()
+        {
+            var result = new Dictionary<string, Transform>(System.StringComparer.Ordinal);
+            var root = TargetMeshes?.RootTransform;
+            if (root == null)
+            {
+                return result;
+            }
+
+            foreach (string meshKey in boneBindingUses
+                         .Where(use => use != null)
+                         .Select(use => use.MeshKey)
+                         .Distinct(System.StringComparer.Ordinal))
+            {
+                if (!TargetMeshes.TryGetRenderer(meshKey, out var renderer) || renderer == null)
+                {
+                    continue;
+                }
+
+                foreach (var bone in renderer.bones ?? System.Array.Empty<Transform>())
+                {
+                    if (bone == null)
+                    {
+                        continue;
+                    }
+
+                    string path = MeshNodePath.Normalize(MeshNodePath.GetRelativePath(bone, root));
+                    result[path] = bone;
+                }
+            }
+
+            return result;
+        }
+
+        internal string ResolveBoneArtifactPath(Transform transform, string fallbackPath)
+        {
+            if (transform != null)
+            {
+                if (artifactPathByBoneTransform.TryGetValue(transform, out string artifactPath))
+                {
+                    return artifactPath;
+                }
+            }
+
+            return MeshNodePath.Normalize(fallbackPath);
+        }
+
+        internal void SetBoneBindingArtifactPath(
+            BlendShareBoneProxyBinding binding,
+            string artifactPath)
+        {
+            if (binding != null && !string.IsNullOrWhiteSpace(artifactPath))
+            {
+                artifactPathByBinding[binding] = MeshNodePath.Normalize(artifactPath);
+            }
+        }
+
+        internal string ResolveBoneBindingArtifactPath(
+            BlendShareBoneProxyBinding binding,
+            Transform transform,
+            string fallbackPath)
+        {
+            return binding != null && artifactPathByBinding.TryGetValue(binding, out string artifactPath)
+                ? artifactPath
+                : ResolveBoneArtifactPath(transform, fallbackPath);
+        }
+
+        internal UnityBoneBindingUse ResolveBoneBindingUse(Transform transform)
+        {
+            return transform == null
+                ? null
+                : boneBindingUses
+                    .Where(use => use?.Transform == transform)
+                    .OrderBy(use => use.Sequence)
+                    .LastOrDefault();
+        }
+
+        internal void RegisterBoneArtifactTransform(string artifactPath, Transform transform)
+        {
+            if (transform != null && !string.IsNullOrWhiteSpace(artifactPath))
+            {
+                boneTransformsByArtifactPath[MeshNodePath.Normalize(artifactPath)] = transform;
+            }
         }
 
         /// <summary>
@@ -179,7 +371,9 @@ namespace Triturbo.BlendShare.Core
                     pendingByPath.TryGetValue(path, out existing);
                 }
 
-                if (existing != null && !AreCompatibleBoneDefinitions(existing, bone))
+                if (existing != null &&
+                    !boneTransformsByArtifactPath.ContainsKey(path) &&
+                    !AreCompatibleBoneDefinitions(existing, bone))
                 {
                     BlendShareObject existingPatch = patch;
                     if (hasRegisteredDefinition)
@@ -216,7 +410,12 @@ namespace Triturbo.BlendShare.Core
                 }
 
                 string path = MeshNodePath.Normalize(bone.m_Path);
-                if (!armatureBonesByPath.ContainsKey(path))
+                if (boneTransformsByArtifactPath.ContainsKey(path))
+                {
+                    armatureBonesByPath[path] = bone;
+                    armatureBoneSourcesByPath[path] = patch;
+                }
+                else if (!armatureBonesByPath.ContainsKey(path))
                 {
                     armatureBonesByPath.Add(path, bone);
                     armatureBoneSourcesByPath[path] = patch;
@@ -251,10 +450,12 @@ namespace Triturbo.BlendShare.Core
             string bonePath,
             Matrix4x4 bindPose,
             BlendShareObject patch,
+            bool replaceExisting,
             out string error)
         {
             string key = $"{MeshNodePath.Normalize(meshKey)}::{MeshNodePath.Normalize(bonePath)}";
-            if (bindPosesByMeshAndBone.TryGetValue(key, out var existing) &&
+            if (!replaceExisting &&
+                bindPosesByMeshAndBone.TryGetValue(key, out var existing) &&
                 !AreEquivalentMatrices(existing, bindPose))
             {
                 bindPoseSourcesByMeshAndBone.TryGetValue(key, out var existingPatch);
@@ -264,9 +465,9 @@ namespace Triturbo.BlendShare.Core
                 return false;
             }
 
-            if (!bindPosesByMeshAndBone.ContainsKey(key))
+            if (replaceExisting || !bindPosesByMeshAndBone.ContainsKey(key))
             {
-                bindPosesByMeshAndBone.Add(key, bindPose);
+                bindPosesByMeshAndBone[key] = bindPose;
                 bindPoseSourcesByMeshAndBone[key] = patch;
             }
 
@@ -422,6 +623,103 @@ namespace Triturbo.BlendShare.Core
 
             return $"{type.FullName ?? type.Name}::{name}";
         }
+    }
+
+    internal enum UnityBonePathCollisionPolicy
+    {
+        Reject,
+        VirtualizeForPreview
+    }
+
+    internal readonly struct UnityGenerationPreparationResult
+    {
+        private UnityGenerationPreparationResult(
+            bool succeeded,
+            bool requiresRecollection,
+            string diagnostic)
+        {
+            Succeeded = succeeded;
+            RequiresRecollection = requiresRecollection;
+            Diagnostic = diagnostic;
+        }
+
+        internal bool Succeeded { get; }
+        internal bool RequiresRecollection { get; }
+        internal string Diagnostic { get; }
+
+        internal static UnityGenerationPreparationResult Success(bool requiresRecollection)
+        {
+            return new UnityGenerationPreparationResult(true, requiresRecollection, null);
+        }
+
+        internal static UnityGenerationPreparationResult Failed(string diagnostic)
+        {
+            return new UnityGenerationPreparationResult(false, false, diagnostic);
+        }
+    }
+
+    internal interface IUnityGenerationPreparation
+    {
+        UnityGenerationPreparationResult Prepare(UnityMeshGenerationSession session);
+        void Complete(UnityMeshGenerationSession session);
+    }
+
+    internal sealed class UnityBoneTransformCapture : IUnityGenerationPreparation
+    {
+        private readonly Dictionary<string, Transform> transformsByPath = new();
+
+        public IReadOnlyDictionary<string, Transform> TransformsByPath => transformsByPath;
+
+        public UnityGenerationPreparationResult Prepare(UnityMeshGenerationSession session)
+        {
+            return UnityGenerationPreparationResult.Success(false);
+        }
+
+        public void Complete(UnityMeshGenerationSession session)
+        {
+            transformsByPath.Clear();
+            foreach (var pair in session?.BoneTransformsByArtifactPath ??
+                                 new Dictionary<string, Transform>())
+            {
+                transformsByPath[pair.Key] = pair.Value;
+            }
+        }
+    }
+
+    internal sealed class UnityBoneBindingUse
+    {
+        public UnityBoneBindingUse(
+            string meshKey,
+            int order,
+            FbxArmatureObject armature,
+            string sourceBonePath,
+            BlendShareBoneProxy proxy,
+            BlendShareBoneProxyBinding binding,
+            Transform transform,
+            string finalPath,
+            Matrix4x4 bindPose)
+        {
+            MeshKey = MeshNodePath.Normalize(meshKey);
+            Order = order;
+            Armature = armature;
+            SourceBonePath = MeshNodePath.Normalize(sourceBonePath);
+            Proxy = proxy;
+            Binding = binding;
+            Transform = transform;
+            FinalPath = MeshNodePath.Normalize(finalPath);
+            BindPose = bindPose;
+        }
+
+        public string MeshKey { get; }
+        public int Order { get; }
+        internal int Sequence { get; set; }
+        public FbxArmatureObject Armature { get; }
+        public string SourceBonePath { get; }
+        public BlendShareBoneProxy Proxy { get; }
+        public BlendShareBoneProxyBinding Binding { get; }
+        public Transform Transform { get; }
+        public string FinalPath { get; }
+        public Matrix4x4 BindPose { get; }
     }
 
     /// <summary>

@@ -76,14 +76,18 @@ namespace Triturbo.BlendShare.Core
             GameObject targetRoot,
             IEnumerable<BlendShareComponent> components,
             IEnumerable<BlendShareObject> appliedPatches = null,
-            IBlendShareProgress progress = null)
+            IBlendShareProgress progress = null,
+            IUnityGenerationPreparation preparation = null,
+            UnityBonePathCollisionPolicy bonePathCollisionPolicy = UnityBonePathCollisionPolicy.Reject)
         {
             return CreateArtifactFromComponents(
                 targetRoot,
                 components,
                 appliedPatches,
                 progress,
-                true);
+                true,
+                preparation,
+                bonePathCollisionPolicy);
         }
 
         private BlendShareArtifact CreateArtifactFromComponents(
@@ -91,7 +95,9 @@ namespace Triturbo.BlendShare.Core
             IEnumerable<BlendShareComponent> components,
             IEnumerable<BlendShareObject> appliedPatches,
             IBlendShareProgress progress,
-            bool proxiesPrepared)
+            bool proxiesPrepared,
+            IUnityGenerationPreparation preparation = null,
+            UnityBonePathCollisionPolicy bonePathCollisionPolicy = UnityBonePathCollisionPolicy.Reject)
         {
             LastDiagnostic = null;
             progress = BlendShareProgressUtility.Resolve(progress);
@@ -127,7 +133,9 @@ namespace Triturbo.BlendShare.Core
                 appliedPatches,
                 progress,
                 targetLookup,
-                proxiesPrepared);
+                proxiesPrepared,
+                preparation,
+                bonePathCollisionPolicy);
         }
 
         private BlendShareArtifact CreateBatchedArtifact(
@@ -162,9 +170,18 @@ namespace Triturbo.BlendShare.Core
             IEnumerable<BlendShareObject> appliedPatches,
             IBlendShareProgress progress,
             UnityMeshTargetLookup targetLookup,
-            bool proxiesPrepared)
+            bool proxiesPrepared,
+            IUnityGenerationPreparation preparation,
+            UnityBonePathCollisionPolicy bonePathCollisionPolicy)
         {
-            var session = new UnityMeshGenerationSession(targetRoot, patches, targetLookup, componentList, progress);
+            var session = new UnityMeshGenerationSession(
+                targetRoot,
+                patches,
+                targetLookup,
+                componentList,
+                progress,
+                preparation,
+                bonePathCollisionPolicy);
             var meshComponents = BlendSharePatchIdUtility.DeduplicateMeshComponents(componentList
                     .OfType<BlendShareMesh>()
                     .Where(IsUsableMeshComponent)
@@ -178,6 +195,10 @@ namespace Triturbo.BlendShare.Core
                 : targetRoot.GetComponentsInChildren<BlendShareBoneProxy>(true);
             BlendShareMesh.RefreshBoneProxyCaches(meshComponents, targetRoot.transform, preparedProxies);
             var definitions = BuildComponentBatchDefinitions(meshComponents, targetRoot.transform);
+            if (!PrepareGeneration(session, definitions, targetRoot.transform))
+            {
+                return null;
+            }
             return GenerateBatchedArtifact(
                 targetRoot,
                 targetRoot.transform,
@@ -185,6 +206,76 @@ namespace Triturbo.BlendShare.Core
                 session,
                 definitions,
                 progress);
+        }
+
+        private bool PrepareGeneration(
+            UnityMeshGenerationSession session,
+            IReadOnlyList<UnityBatchDefinition> definitions,
+            Transform targetRoot)
+        {
+            session.ClearBoneBindingUses();
+            if (!CollectPreparationFacts(session, definitions, targetRoot))
+            {
+                return false;
+            }
+
+            var preparationResult = session.Preparation?.Prepare(session) ??
+                                    UnityGenerationPreparationResult.Success(false);
+            if (!preparationResult.Succeeded)
+            {
+                LastDiagnostic = preparationResult.Diagnostic;
+                return false;
+            }
+
+            if (preparationResult.RequiresRecollection)
+            {
+                BlendShareMesh.RefreshBoneProxyCaches(
+                    session.Components.OfType<BlendShareMesh>(),
+                    targetRoot,
+                    session.Components.OfType<BlendShareBoneProxy>());
+                session.ClearBoneBindingUses();
+                if (!CollectPreparationFacts(session, definitions, targetRoot))
+                {
+                    return false;
+                }
+            }
+
+            session.ResolveBoneBindingUses();
+            session.Preparation?.Complete(session);
+            return true;
+        }
+
+        private bool CollectPreparationFacts(
+            UnityMeshGenerationSession session,
+            IReadOnlyList<UnityBatchDefinition> definitions,
+            Transform targetRoot)
+        {
+            foreach (var definition in definitions ?? Array.Empty<UnityBatchDefinition>())
+            {
+                var context = new UnityMeshFeatureContext(
+                    session,
+                    definition.MeshKey,
+                    definition.OriginalMesh,
+                    definition.OriginalMesh,
+                    definition.Renderer,
+                    targetRoot,
+                    definition.Handles);
+                foreach (var generator in FeatureGenerators)
+                {
+                    if (generator is not IUnityMeshFeaturePreparation preparation)
+                    {
+                        continue;
+                    }
+
+                    var result = preparation.PrepareUnityGeneration(context);
+                    if (result.Failed)
+                    {
+                        LastDiagnostic = result.Message;
+                        return false;
+                    }
+                }
+            }
+            return true;
         }
 
         private BlendShareArtifact GenerateBatchedArtifact(

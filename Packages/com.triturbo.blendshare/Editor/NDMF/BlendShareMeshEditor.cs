@@ -83,6 +83,13 @@ namespace Triturbo.BlendShare.NDMF
 
         private void OnEditorChanged(BlendShareEditorChange change)
         {
+            var applier = target as BlendShareMesh;
+            if (applier != null && change.ChangedObjects.Any(changedObject =>
+                    changedObject == applier || changedObject == applier.TargetRenderer))
+            {
+                BlendShareSkinWeightInfluenceDiagnostics.Clear(applier);
+            }
+
             boneProxyCacheDirty = true;
             Repaint();
         }
@@ -118,6 +125,7 @@ namespace Triturbo.BlendShare.NDMF
                     new GUIContent(Localization.S("patch.mapping.display_name")));
             }
 
+            DrawSkinWeightInfluenceInfo(applier);
             DrawBones(applier);
 
             bool changedBlendShapeWeight = DrawBlendShapeWeights(
@@ -158,6 +166,7 @@ namespace Triturbo.BlendShare.NDMF
 
             if (serializedObject.ApplyModifiedProperties())
             {
+                BlendShareSkinWeightInfluenceDiagnostics.Clear(applier);
                 // Mesh-data and renderer edits can change the required cache entry.
                 boneProxyCacheDirty = true;
                 BlendShareEditorChangeEvents.NotifyChanged(
@@ -175,6 +184,39 @@ namespace Triturbo.BlendShare.NDMF
 
                 CreateMissingBoneProxies(applier, ResolveProxyTargetRoot(applier));
             }
+        }
+
+        private static void DrawSkinWeightInfluenceInfo(BlendShareMesh applier)
+        {
+            if (applier.MeshData?.GetFeature<SkinWeightFeatureObject>() == null ||
+                !BlendShareSkinWeightInfluenceDiagnostics.TryGet(applier, out var summary))
+            {
+                return;
+            }
+
+            if (BlendShareSkinWeightSettings.LimitSkinWeightsToFour)
+            {
+                if (summary.VerticesOverFour <= 0)
+                {
+                    return;
+                }
+
+                EditorGUILayout.Space();
+                EditorGUILayout.HelpBox(
+                    Localization.S("ndmf.mesh.skin_weights_over_four_limit"),
+                    MessageType.Info);
+                return;
+            }
+
+            if (summary.VerticesOverByteLimit <= 0)
+            {
+                return;
+            }
+
+            EditorGUILayout.Space();
+            EditorGUILayout.HelpBox(
+                Localization.S("ndmf.mesh.skin_weights_over_255"),
+                MessageType.Warning);
         }
 
         private void DrawBones(BlendShareMesh applier)
