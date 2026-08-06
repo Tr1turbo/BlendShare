@@ -1074,14 +1074,8 @@ msgstr "將 BlendShare 補丁套用為新 FBX"
 msgid "patch.create_fbx.failed"
 msgstr "建立 FBX 失敗。"
 
-msgid "patch.mapping.badge"
-msgstr "映射：{0}"
-
 msgid "patch.mapping.bake_axis_conversion"
 msgstr "烘焙軸轉換"
-
-msgid "patch.mapping.count"
-msgstr "映射"
 
 msgid "patch.mapping.display_name"
 msgstr "Unity 映射"
@@ -1142,9 +1136,6 @@ msgstr "頂點雜湊"
 
 msgid "patch.mesh_data.control_points"
 msgstr "FBX 頂點"
-
-msgid "patch.mesh_data.data"
-msgstr "資料"
 
 msgid "patch.mesh_data.data_id"
 msgstr "資料 ID"
@@ -1326,38 +1317,23 @@ msgstr "變換"
 msgid "features.skin-weights.armature.status.transform.tooltip"
 msgstr "將已儲存的局部變換套用到此現有骨骼。"
 
-msgid "features.skin-weights.bone"
-msgstr "骨骼"
+msgid "features.skin-weights.affected_bones"
+msgstr "受影響骨骼"
 
-msgid "features.skin-weights.clusters"
-msgstr "叢集"
+msgid "features.skin-weights.affected_vertices"
+msgstr "受影響的 FBX 頂點"
 
-msgid "features.skin-weights.fbx_cluster_matrices"
-msgstr "FBX 叢集矩陣"
-
-msgid "features.skin-weights.matrix_data_missing"
-msgstr "缺少 {0} 資料。"
+msgid "features.skin-weights.affected_vertices_value"
+msgstr "{0} / {1}"
 
 msgid "features.skin-weights.missing_data"
 msgstr "缺少蒙皮權重資料。"
-
-msgid "features.skin-weights.no_clusters"
-msgstr "此資料沒有儲存叢集。"
 
 msgid "features.skin-weights.root_bone"
 msgstr "根骨骼"
 
 msgid "features.skin-weights.shared_armature"
 msgstr "共享骨架"
-
-msgid "features.skin-weights.transform_link_matrix"
-msgstr "變換連結矩陣"
-
-msgid "features.skin-weights.transform_matrix"
-msgstr "變換矩陣"
-
-msgid "features.skin-weights.weighted_control_points"
-msgstr "帶權重點"
 
 msgid "common.patches"
 msgstr "補丁"

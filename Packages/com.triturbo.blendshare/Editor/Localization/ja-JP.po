@@ -1074,14 +1074,8 @@ msgstr "BlendShare パッチを新しい FBX として適用"
 msgid "patch.create_fbx.failed"
 msgstr "FBX の作成に失敗しました。"
 
-msgid "patch.mapping.badge"
-msgstr "マッピング: {0}"
-
 msgid "patch.mapping.bake_axis_conversion"
 msgstr "軸変換をベイク"
-
-msgid "patch.mapping.count"
-msgstr "マッピング"
 
 msgid "patch.mapping.display_name"
 msgstr "Unity マッピング"
@@ -1142,9 +1136,6 @@ msgstr "頂点ハッシュ"
 
 msgid "patch.mesh_data.control_points"
 msgstr "FBX 頂点"
-
-msgid "patch.mesh_data.data"
-msgstr "データ"
 
 msgid "patch.mesh_data.data_id"
 msgstr "データ ID"
@@ -1326,38 +1317,23 @@ msgstr "トランスフォーム"
 msgid "features.skin-weights.armature.status.transform.tooltip"
 msgstr "既存のボーンに保存済みのローカルトランスフォームを適用します。"
 
-msgid "features.skin-weights.bone"
-msgstr "ボーン"
+msgid "features.skin-weights.affected_bones"
+msgstr "影響するボーン"
 
-msgid "features.skin-weights.clusters"
-msgstr "クラスター"
+msgid "features.skin-weights.affected_vertices"
+msgstr "影響する FBX 頂点"
 
-msgid "features.skin-weights.fbx_cluster_matrices"
-msgstr "FBX クラスターマトリックス"
-
-msgid "features.skin-weights.matrix_data_missing"
-msgstr "{0} データがありません。"
+msgid "features.skin-weights.affected_vertices_value"
+msgstr "{0} / {1}"
 
 msgid "features.skin-weights.missing_data"
 msgstr "スキンウェイトデータがありません。"
-
-msgid "features.skin-weights.no_clusters"
-msgstr "このデータにはクラスターが保存されていません。"
 
 msgid "features.skin-weights.root_bone"
 msgstr "ルートボーン"
 
 msgid "features.skin-weights.shared_armature"
 msgstr "共有アーマチュア"
-
-msgid "features.skin-weights.transform_link_matrix"
-msgstr "トランスフォームリンクマトリックス"
-
-msgid "features.skin-weights.transform_matrix"
-msgstr "トランスフォームマトリックス"
-
-msgid "features.skin-weights.weighted_control_points"
-msgstr "ウェイト付き点"
 
 msgid "common.patches"
 msgstr "パッチ"

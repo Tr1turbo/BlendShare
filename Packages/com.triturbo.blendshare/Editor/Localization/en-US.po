@@ -529,7 +529,7 @@ msgid "features.blend-shapes.toggle"
 msgstr "BlendShapes"
 
 msgid "features.skin-weights.bindposes"
-msgstr "Bindposes"
+msgstr "Bind Poses"
 
 msgid "features.skin-weights.bone_transform"
 msgstr "Bone Transform"
@@ -1074,14 +1074,8 @@ msgstr "Apply BlendShare Patch as New FBX"
 msgid "patch.create_fbx.failed"
 msgstr "Failed to create FBX."
 
-msgid "patch.mapping.badge"
-msgstr "Mapping: {0}"
-
 msgid "patch.mapping.bake_axis_conversion"
 msgstr "Bake Axis Conversion"
-
-msgid "patch.mapping.count"
-msgstr "Mappings"
 
 msgid "patch.mapping.display_name"
 msgstr "Unity Mapping"
@@ -1142,9 +1136,6 @@ msgstr "Vertex Hash"
 
 msgid "patch.mesh_data.control_points"
 msgstr "FBX Vertices"
-
-msgid "patch.mesh_data.data"
-msgstr "Data"
 
 msgid "patch.mesh_data.data_id"
 msgstr "Data ID"
@@ -1326,38 +1317,23 @@ msgstr "Transform"
 msgid "features.skin-weights.armature.status.transform.tooltip"
 msgstr "Applies the stored local transform to this existing bone."
 
-msgid "features.skin-weights.bone"
-msgstr "Bone"
+msgid "features.skin-weights.affected_bones"
+msgstr "Affected Bones"
 
-msgid "features.skin-weights.clusters"
-msgstr "Clusters"
+msgid "features.skin-weights.affected_vertices"
+msgstr "Affected FBX Vertices"
 
-msgid "features.skin-weights.fbx_cluster_matrices"
-msgstr "FBX Cluster Matrices"
-
-msgid "features.skin-weights.matrix_data_missing"
-msgstr "{0} data is missing."
+msgid "features.skin-weights.affected_vertices_value"
+msgstr "{0} / {1}"
 
 msgid "features.skin-weights.missing_data"
 msgstr "Skin weight data is missing."
-
-msgid "features.skin-weights.no_clusters"
-msgstr "No clusters are stored for this feature."
 
 msgid "features.skin-weights.root_bone"
 msgstr "Root Bone"
 
 msgid "features.skin-weights.shared_armature"
 msgstr "Shared Armature"
-
-msgid "features.skin-weights.transform_link_matrix"
-msgstr "Transform Link Matrix"
-
-msgid "features.skin-weights.transform_matrix"
-msgstr "Transform Matrix"
-
-msgid "features.skin-weights.weighted_control_points"
-msgstr "Weighted Points"
 
 msgid "common.patches"
 msgstr "Patches"

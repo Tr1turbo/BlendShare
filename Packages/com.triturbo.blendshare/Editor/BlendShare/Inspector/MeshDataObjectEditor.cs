@@ -227,8 +227,6 @@ namespace Triturbo.BlendShare.Inspector
                 section.Add(BlendShareInspectorUi.LabeledRow(Localization.S("patch.mesh_data.parent_patch"), parentRow));
             }
 
-            section.Add(BlendShareInspectorUi.BadgeRow(BlendShareInspectorUi.Badge(Localization.SF("patch.mapping.badge", mapping.Label), mapping.Kind)));
-
             if (compatibility.State != MeshFbxCompatibilityState.Verified)
             {
                 BlendShareInspectorUi.AddHelpBox(section, compatibility.Message, HelpBoxMessageType.Info);
@@ -328,8 +326,6 @@ namespace Triturbo.BlendShare.Inspector
             var foldout = new Foldout { text = Localization.S("common.advanced") };
             foldout.Add(CreateTopologyFingerprintDrawer(mesh));
             foldout.Add(CreateMappingSections(mesh, context));
-            foldout.Add(BlendShareInspectorUi.Row(Localization.S("patch.mesh_data.data"), CountValid(mesh.Features).ToString()));
-            foldout.Add(BlendShareInspectorUi.Row(Localization.S("patch.mapping.count"), CountValid(mesh.m_Mappings).ToString()));
             return foldout;
         }
 
@@ -434,10 +430,6 @@ namespace Triturbo.BlendShare.Inspector
             return section;
         }
 
-        private static int CountValid<T>(System.Collections.Generic.IEnumerable<T> items) where T : UnityEngine.Object
-        {
-            return (items ?? Array.Empty<T>()).Count(item => item != null);
-        }
     }
 
     public sealed class MeshDataObjectEmbeddedEditor : IBlendShareEmbeddedEditor

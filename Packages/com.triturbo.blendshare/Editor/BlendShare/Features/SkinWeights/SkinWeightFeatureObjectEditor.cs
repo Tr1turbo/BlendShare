@@ -6,7 +6,6 @@ using Triturbo.BlendShare.Features.SkinWeights;
 using Triturbo.BlendShare.Inspector;
 using UnityEditor;
 using UnityEditor.UIElements;
-using UnityEngine;
 using UnityEngine.UIElements;
 
 namespace Triturbo.BlendShare.Features.SkinWeights.Editor
@@ -19,7 +18,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
 
         public override VisualElement CreateElement(MeshFeatureEditorContext context)
         {
-            return SkinWeightFeatureEditorElement.Create(context.Feature as SkinWeightFeatureObject);
+            return SkinWeightFeatureEditorElement.Create(context);
         }
     }
 
@@ -33,7 +32,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
 
         public VisualElement CreateElement(MeshFeatureEditorContext context)
         {
-            return SkinWeightFeatureEditorElement.Create(context.Feature as SkinWeightFeatureObject);
+            return SkinWeightFeatureEditorElement.Create(context);
         }
 
         public VisualElement CreateCompactElement(MeshFeatureEditorContext context)
@@ -65,21 +64,36 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
 
     internal static class SkinWeightFeatureEditorElement
     {
-        public static VisualElement Create(SkinWeightFeatureObject feature)
+        public static VisualElement Create(MeshFeatureEditorContext context)
         {
             var root = new VisualElement();
+            var feature = context?.Feature as SkinWeightFeatureObject;
             if (feature == null)
             {
                 root.Add(new HelpBox(Localization.S("features.skin-weights.missing_data"), HelpBoxMessageType.Warning));
                 return root;
             }
 
-            root.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.clusters"), feature.ClusterCount.ToString()));
-            root.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.weighted_control_points"), feature.WeightedControlPointCount.ToString()));
-            root.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.root_bone"), feature.RootBonePath));
+            var ownerMesh = context.OwnerMesh ?? BlendShareInspectorUtility.FindOwnerMesh(feature, context.OwnerPatch);
+            int fbxVertexCount = ownerMesh?.FbxControlPointCount ?? -1;
+            string affectedVertices = fbxVertexCount >= 0
+                ? Localization.SF("features.skin-weights.affected_vertices_value", feature.WeightedControlPointCount, fbxVertexCount)
+                : feature.WeightedControlPointCount.ToString();
+            int affectedBoneCount = feature.Clusters
+                .Where(cluster => cluster != null)
+                .Select(cluster => cluster.BonePath)
+                .Concat((feature.Armature?.Bones ?? Array.Empty<FbxArmatureBoneData>())
+                    .Where(bone => bone != null)
+                    .Select(bone => bone.Path))
+                .Where(path => path != MeshNodePath.Root)
+                .Distinct(StringComparer.Ordinal)
+                .Count();
+
+            root.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.affected_vertices"), affectedVertices));
+            root.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.affected_bones"), affectedBoneCount.ToString()));
             root.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.bindposes"), feature.Clusters.Count(cluster => cluster != null && cluster.m_HasFbxClusterMatrices).ToString()));
+            root.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.root_bone"), feature.RootBonePath));
             root.Add(CreateArmatureObjectRow(feature.Armature));
-            root.Add(CreateClusterFoldout(feature, new SerializedObject(feature)));
             return root;
         }
 
@@ -95,80 +109,5 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
             return BlendShareInspectorUi.LabeledRow(Localization.S("features.skin-weights.shared_armature"), field);
         }
 
-        private static VisualElement CreateClusterFoldout(SkinWeightFeatureObject feature, SerializedObject serializedFeature)
-        {
-            var clusters = feature.Clusters;
-            var clustersProperty = serializedFeature.FindProperty(nameof(SkinWeightFeatureObject.m_Clusters));
-            var foldout = new Foldout
-            {
-                text = Localization.S("features.skin-weights.clusters"),
-                value = false
-            };
-            foldout.style.paddingLeft = 10;
-
-            if (clusters.Count == 0)
-            {
-                foldout.Add(new HelpBox(Localization.S("features.skin-weights.no_clusters"), HelpBoxMessageType.Info));
-                return foldout;
-            }
-
-            for (int i = 0; i < clusters.Count; i++)
-            {
-                var cluster = clusters[i];
-                if (cluster == null)
-                {
-                    continue;
-                }
-
-                var item = SkinWeightInspectorLayout.CreatePlainItem();
-                item.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.bone"), cluster.BonePath));
-                item.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.weights"), cluster.WeightCount.ToString()));
-                item.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.fbx_cluster_matrices"), cluster.m_HasFbxClusterMatrices ? Localization.S("common.yes") : Localization.S("common.no")));
-                if (cluster.m_HasFbxClusterMatrices)
-                {
-                    var clusterProperty = clustersProperty != null && i < clustersProperty.arraySize
-                        ? clustersProperty.GetArrayElementAtIndex(i)
-                        : null;
-                    item.Add(CreateMatrixPropertyField(serializedFeature, clusterProperty, nameof(SkinWeightClusterData.m_FbxTransformMatrix), Localization.S("features.skin-weights.transform_matrix")));
-                    item.Add(CreateMatrixPropertyField(serializedFeature, clusterProperty, nameof(SkinWeightClusterData.m_FbxTransformLinkMatrix), Localization.S("features.skin-weights.transform_link_matrix")));
-                }
-                foldout.Add(item);
-            }
-
-            return foldout;
-        }
-
-        private static VisualElement CreateMatrixPropertyField(
-            SerializedObject serializedFeature,
-            SerializedProperty clusterProperty,
-            string propertyName,
-            string label)
-        {
-            var matrixProperty = clusterProperty?.FindPropertyRelative(propertyName);
-            if (matrixProperty == null)
-            {
-                return new HelpBox(Localization.SF("features.skin-weights.matrix_data_missing", label), HelpBoxMessageType.Warning);
-            }
-
-            var field = new PropertyField(matrixProperty, label);
-            field.Bind(serializedFeature);
-            return field;
-        }
-
     }
-
-    internal static class SkinWeightInspectorLayout
-    {
-        public static VisualElement CreatePlainItem()
-        {
-            var item = new VisualElement();
-            item.style.borderTopWidth = 1;
-            item.style.borderTopColor = new Color(0.35f, 0.35f, 0.35f, 0.55f);
-            item.style.marginTop = 5;
-            item.style.paddingTop = 5;
-            item.style.paddingBottom = 3;
-            return item;
-        }
-    }
-
 }
