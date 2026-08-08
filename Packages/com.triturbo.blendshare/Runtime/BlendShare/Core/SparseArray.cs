@@ -75,6 +75,14 @@ namespace Triturbo.BlendShare.Core
                 return;
             }
 
+            // Missing sparse entries already read as default(T), so storing that value is redundant.
+            // Equality is exact: this is storage compaction, not a numeric tolerance policy.
+            if (EqualityComparer<T>.Default.Equals(value, default))
+            {
+                Remove(key);
+                return;
+            }
+
             m_Keys ??= new List<int>();
             m_Values ??= new List<T>();
             EnsureLookup();

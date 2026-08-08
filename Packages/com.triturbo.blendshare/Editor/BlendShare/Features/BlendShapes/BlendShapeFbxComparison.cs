@@ -45,7 +45,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
 
     internal sealed class BlendShapeFbxComparison
     {
-        private const double WeightEpsilon = 0.000001d;
+        private const double FrameWeightComparisonTolerance = 0.000001d;
 
         private readonly Dictionary<string, BlendShapeMeshComparison> meshesByPath;
 
@@ -216,7 +216,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             int controlPointCount,
             double deltaTolerance)
         {
-            if (Math.Abs(source.Weight - origin.Weight) > WeightEpsilon)
+            if (Math.Abs(source.Weight - origin.Weight) > FrameWeightComparisonTolerance)
             {
                 return false;
             }

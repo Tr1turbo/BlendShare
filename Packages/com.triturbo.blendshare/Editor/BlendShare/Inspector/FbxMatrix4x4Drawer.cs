@@ -1,7 +1,6 @@
 using Triturbo.BlendShare.Fbx;
 using UnityEditor;
 using UnityEditor.UIElements;
-using UnityEngine;
 using UnityEngine.UIElements;
 
 namespace Triturbo.BlendShare.Inspector
@@ -57,7 +56,7 @@ namespace Triturbo.BlendShare.Inspector
         {
             var field = new FloatField
             {
-                value = valueProperty != null ? NormalizeFloat((float)valueProperty.doubleValue) : 0f
+                value = valueProperty != null ? (float)valueProperty.doubleValue : 0f
             };
             field.labelElement.style.display = DisplayStyle.None;
             field.style.flexGrow = 1;
@@ -76,11 +75,6 @@ namespace Triturbo.BlendShare.Inspector
             }
 
             return field;
-        }
-
-        private static float NormalizeFloat(float value)
-        {
-            return Mathf.Abs(value) < 0.0000005f ? 0f : value;
         }
     }
 }

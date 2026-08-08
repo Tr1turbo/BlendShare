@@ -35,13 +35,16 @@ namespace Triturbo.BlendShare.Features.BlendShapes
     [System.Serializable]
     public class FbxBlendShapeFrame
     {
-        public float m_FrameWeight = 100f;
+        public double m_FrameWeight = 100d;
         public SparseArray<Vector3d> m_DeltaPositions = new();
         public SparseArray<Vector3d> m_DeltaNormals = new();
 
+        public double FrameWeight => m_FrameWeight;
+
         public FbxBlendShapeFrame() { }
 
-        public FbxBlendShapeFrame(float frameWeight)
+        /// <summary>Creates a frame with a double-precision FBX deform percentage.</summary>
+        public FbxBlendShapeFrame(double frameWeight)
         {
             m_FrameWeight = frameWeight;
         }
@@ -78,12 +81,6 @@ namespace Triturbo.BlendShare.Features.BlendShapes
         {
             if (deltas == null)
             {
-                return;
-            }
-
-            if (value.IsZero())
-            {
-                deltas.Remove(index);
                 return;
             }
 

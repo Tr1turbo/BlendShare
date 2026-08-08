@@ -282,7 +282,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
 
             var field = new FloatField
             {
-                value = NormalizeFloat(value)
+                value = value
             };
             field.labelElement.style.display = DisplayStyle.None;
             field.style.flexGrow = 1;
@@ -335,11 +335,6 @@ namespace Triturbo.BlendShare.Features.SkinWeights.Editor
             return segments.Count <= 3
                 ? string.Join(" / ", segments)
                 : $"{segments[0]} / {segments[1]} / … / {segments[segments.Count - 1]}";
-        }
-
-        private static float NormalizeFloat(float value)
-        {
-            return Mathf.Abs(value) < 0.0000005f ? 0f : value;
         }
 
         private sealed class BoneTreeNode

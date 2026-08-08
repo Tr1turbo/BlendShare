@@ -845,12 +845,12 @@ namespace Triturbo.BlendShare.NDMF
             using var outputCounts = new NativeList<byte>(Allocator.Temp);
             bool limitToFour = BlendShareSkinWeightSettings.LimitSkinWeightsToFour;
             int influenceLimit = limitToFour ? 4 : byte.MaxValue;
-            var selected = new List<(int index, float weight)>(influenceLimit);
+            var selected = new List<(int index, double weight)>(influenceLimit);
             int sourceIndex = 0;
             int maximumInfluences = 0;
             for (int vertex = 0; vertex < mesh.vertexCount; vertex++)
             {
-                var aggregate = new Dictionary<int, float>();
+                var aggregate = new Dictionary<int, double>();
                 int count = vertex < sourceCounts.Length ? sourceCounts[vertex] : 0;
                 for (int influence = 0; influence < count; influence++)
                 {
@@ -862,7 +862,7 @@ namespace Triturbo.BlendShare.NDMF
                     }
 
                     int targetIndex = oldToNew[weight.boneIndex];
-                    aggregate.TryGetValue(targetIndex, out float existing);
+                    aggregate.TryGetValue(targetIndex, out double existing);
                     aggregate[targetIndex] = existing + weight.weight;
                 }
 
@@ -878,7 +878,7 @@ namespace Triturbo.BlendShare.NDMF
                     outputWeights.Add(new BoneWeight1
                     {
                         boneIndex = weight.index,
-                        weight = weight.weight
+                        weight = (float)weight.weight
                     });
                 }
                 outputCounts.Add((byte)selected.Count);

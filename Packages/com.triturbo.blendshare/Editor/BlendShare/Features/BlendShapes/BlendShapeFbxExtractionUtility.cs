@@ -44,7 +44,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             for (int shapeIndex = 0; shapeIndex < shapeCount; shapeIndex++)
             {
                 var sourceFrame = source.BlendShapes[shapeIndex];
-                frames[shapeIndex] = new FbxBlendShapeFrame((float)(sourceFrame?.Weight ?? 100.0));
+                frames[shapeIndex] = new FbxBlendShapeFrame(sourceFrame?.Weight ?? 100.0);
                 var sourceDeltas = BuildDenseUfbxDeltas(sourceFrame, controlPointCount, out var sourceNormalDeltas);
                 var deltas = new Vector3d[controlPointCount];
                 var normalDeltas = new Vector3d[controlPointCount];
@@ -63,15 +63,8 @@ namespace Triturbo.BlendShare.Features.BlendShapes
 
                 for (int index = 0; index < deltas.Length; index++)
                 {
-                    if (!deltas[index].IsZero())
-                    {
-                        frames[shapeIndex].SetDeltaPositionAt(index, deltas[index]);
-                    }
-
-                    if (!normalDeltas[index].IsZero())
-                    {
-                        frames[shapeIndex].SetDeltaNormalAt(index, normalDeltas[index]);
-                    }
+                    frames[shapeIndex].SetDeltaPositionAt(index, deltas[index]);
+                    frames[shapeIndex].SetDeltaNormalAt(index, normalDeltas[index]);
                 }
             }
 

@@ -9,53 +9,55 @@ namespace Triturbo.BlendShare.Features.SkinWeights
     [System.Serializable]
     public sealed class SkinWeightClusterData
     {
-        private const float WeightEpsilon = 0.00001f;
-
         public string m_BonePath;
-        public SparseArray<float> m_DeltaWeights = new();
+        public SparseArray<double> m_DeltaWeights = new();
 
         public FbxMatrix4x4 m_FbxTransformMatrix = FbxMatrix4x4.Identity;
         public FbxMatrix4x4 m_FbxTransformLinkMatrix = FbxMatrix4x4.Identity;
         public bool m_HasFbxClusterMatrices;
 
         public string BonePath => MeshNodePath.Normalize(m_BonePath);
-        public int WeightCount => m_DeltaWeights?.Count ?? 0;
+        public int WeightCount => GetWeights().Count();
 
         public SkinWeightClusterData() { }
 
-        public SkinWeightClusterData(string bonePath, IEnumerable<int> indices, IEnumerable<float> deltaWeights)
+        /// <summary>Creates a cluster from double-precision patch deltas.</summary>
+        public SkinWeightClusterData(string bonePath, IEnumerable<int> indices, IEnumerable<double> deltaWeights)
         {
             m_BonePath = MeshNodePath.Normalize(bonePath);
             SetWeights(indices, deltaWeights);
         }
 
-        public IEnumerable<KeyValuePair<int, float>> GetWeights()
+        /// <summary>Enumerates stored patch deltas as double-precision values.</summary>
+        public IEnumerable<KeyValuePair<int, double>> GetWeights()
         {
-            return m_DeltaWeights?.Entries() ?? System.Linq.Enumerable.Empty<KeyValuePair<int, float>>();
+            return m_DeltaWeights?.Entries() ?? Enumerable.Empty<KeyValuePair<int, double>>();
         }
 
-        public float GetWeight(int index)
+        /// <summary>Gets one double-precision patch delta, or zero when it is absent.</summary>
+        public double GetWeight(int index)
         {
-            return m_DeltaWeights?[index] ?? 0f;
+            return m_DeltaWeights?[index] ?? 0d;
         }
 
-        public void SetWeight(int index, float deltaWeight)
+        /// <summary>Stores one double-precision patch delta.</summary>
+        public void SetWeight(int index, double deltaWeight)
         {
-            m_DeltaWeights ??= new SparseArray<float>();
-            if (index < 0 || Mathf.Abs(deltaWeight) <= WeightEpsilon)
+            if (index < 0)
             {
-                m_DeltaWeights.Remove(index);
                 return;
             }
 
+            m_DeltaWeights ??= new SparseArray<double>();
             m_DeltaWeights[index] = deltaWeight;
         }
 
-        public void SetWeights(IEnumerable<int> indices, IEnumerable<float> deltaWeights)
+        /// <summary>Replaces all stored deltas with double-precision values.</summary>
+        public void SetWeights(IEnumerable<int> indices, IEnumerable<double> deltaWeights)
         {
-            m_DeltaWeights = new SparseArray<float>();
+            m_DeltaWeights = new SparseArray<double>();
             var indexArray = indices?.ToArray() ?? System.Array.Empty<int>();
-            var weightArray = deltaWeights?.ToArray() ?? System.Array.Empty<float>();
+            var weightArray = deltaWeights?.ToArray() ?? System.Array.Empty<double>();
             int count = System.Math.Min(indexArray.Length, weightArray.Length);
             for (int i = 0; i < count; i++)
             {
@@ -63,7 +65,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             }
         }
 
-        public SkinWeightClusterData WithWeights(IEnumerable<int> indices, IEnumerable<float> deltaWeights)
+        /// <summary>Replaces all stored deltas and returns this cluster.</summary>
+        public SkinWeightClusterData WithWeights(IEnumerable<int> indices, IEnumerable<double> deltaWeights)
         {
             SetWeights(indices, deltaWeights);
             return this;
@@ -79,8 +82,6 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
     public sealed class SkinWeightFeatureObject : MeshFeatureObject
     {
-        private const float WeightEpsilon = 0.00001f;
-
         public const string Id = "skin-weights";
 
         public FbxArmatureObject m_Armature;
@@ -203,41 +204,40 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return null;
             }
 
-            var weightsByIndex = new Dictionary<int, float>();
+            var weightsByIndex = new Dictionary<int, double>();
             foreach (var pair in cluster.GetWeights())
             {
                 int index = pair.Key;
-                float delta = pair.Value;
-                if (index < 0 || Mathf.Abs(delta) <= WeightEpsilon)
+                double delta = pair.Value;
+                if (index < 0)
                 {
                     continue;
                 }
 
-                weightsByIndex.TryGetValue(index, out float existing);
+                weightsByIndex.TryGetValue(index, out double existing);
                 weightsByIndex[index] = existing + delta;
             }
 
             var entries = weightsByIndex
-                .Where(pair => Mathf.Abs(pair.Value) > WeightEpsilon)
                 .OrderBy(pair => pair.Key)
                 .ToArray();
-
-            if (entries.Length == 0 && !cluster.m_HasFbxClusterMatrices)
-            {
-                return null;
-            }
 
             cluster.m_BonePath = path;
             cluster.SetWeights(
                 entries.Select(pair => pair.Key),
                 entries.Select(pair => pair.Value));
+            if (cluster.WeightCount == 0 && !cluster.m_HasFbxClusterMatrices)
+            {
+                return null;
+            }
+
             return cluster;
         }
 
         private static SkinWeightClusterData MergeClusters(IGrouping<string, SkinWeightClusterData> group)
         {
             var result = new SkinWeightClusterData { m_BonePath = group.Key };
-            var weightsByIndex = new Dictionary<int, float>();
+            var weightsByIndex = new Dictionary<int, double>();
             foreach (var cluster in group)
             {
                 if (cluster.m_HasFbxClusterMatrices)
@@ -249,13 +249,12 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
                 foreach (var pair in cluster.GetWeights())
                 {
-                    weightsByIndex.TryGetValue(pair.Key, out float existing);
+                    weightsByIndex.TryGetValue(pair.Key, out double existing);
                     weightsByIndex[pair.Key] = existing + pair.Value;
                 }
             }
 
             var entries = weightsByIndex
-                .Where(pair => Mathf.Abs(pair.Value) > WeightEpsilon)
                 .OrderBy(pair => pair.Key)
                 .ToArray();
             result.SetWeights(

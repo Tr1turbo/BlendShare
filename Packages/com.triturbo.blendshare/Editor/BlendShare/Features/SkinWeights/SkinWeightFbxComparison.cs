@@ -24,7 +24,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         public string BonePath;
         public SkinWeightComparisonStatus Status;
         public int AffectedControlPointCount;
-        public float MaxDelta;
+        public double MaxDelta;
     }
 
     internal sealed class SkinWeightBindposeComparison
@@ -53,8 +53,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
     internal sealed class SkinWeightFbxComparison
     {
-        private const float WeightEpsilon = 0.00001f;
-        private const double MatrixEpsilon = 0.0001d;
+        private const double WeightComparisonTolerance = 0.00001d;
+        private const double MatrixComparisonTolerance = 0.0001d;
 
         private readonly Dictionary<string, SkinWeightBoneComparison> bonesByPath;
 
@@ -187,25 +187,25 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             string bonePath,
             bool hasSourceCluster,
             bool hasOriginCluster,
-            IReadOnlyDictionary<string, Dictionary<int, float>> sourceWeights,
-            IReadOnlyDictionary<string, Dictionary<int, float>> originWeights,
+            IReadOnlyDictionary<string, Dictionary<int, double>> sourceWeights,
+            IReadOnlyDictionary<string, Dictionary<int, double>> originWeights,
             int controlPointCount)
         {
             sourceWeights.TryGetValue(bonePath, out var sourceByControlPoint);
             originWeights.TryGetValue(bonePath, out var originByControlPoint);
             int affected = 0;
-            float maxDelta = 0f;
+            double maxDelta = 0d;
                 foreach (int controlPoint in (sourceByControlPoint?.Keys ?? Enumerable.Empty<int>())
                          .Concat(originByControlPoint?.Keys ?? Enumerable.Empty<int>())
                          .Where(index => index >= 0 && index < controlPointCount)
                          .Distinct())
             {
-                float source = 0f;
-                float origin = 0f;
+                double source = 0d;
+                double origin = 0d;
                 sourceByControlPoint?.TryGetValue(controlPoint, out source);
                 originByControlPoint?.TryGetValue(controlPoint, out origin);
-                float delta = source - origin;
-                if (Math.Abs(delta) <= WeightEpsilon)
+                double delta = source - origin;
+                if (!IsWeightDeltaChanged(delta))
                 {
                     continue;
                 }
@@ -222,6 +222,11 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 AffectedControlPointCount = affected,
                 MaxDelta = maxDelta
             };
+        }
+
+        internal static bool IsWeightDeltaChanged(double delta)
+        {
+            return Math.Abs(delta) > WeightComparisonTolerance;
         }
 
         private static SkinWeightBindposeComparison CompareBindpose(
@@ -323,7 +328,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             bool hasOrigin = originNode != null;
             bool changed = hasSource &&
                            hasOrigin &&
-                           !ApproximatelyNodeTransform(sourceNode, originNode, MatrixEpsilon);
+                           !ApproximatelyNodeTransform(sourceNode, originNode, MatrixComparisonTolerance);
             return new SkinWeightBoneTransformComparison
             {
                 BonePath = MeshNodePath.Normalize(bonePath),
@@ -360,11 +365,11 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     item => MeshNodePath.Normalize(item.cluster.BoneNode.Path));
         }
 
-        internal static Dictionary<string, Dictionary<int, float>> BuildWeightsByPath(
+        internal static Dictionary<string, Dictionary<int, double>> BuildWeightsByPath(
             UfbxSkinDeformer skin,
             IReadOnlyDictionary<int, string> bonePathByIndex)
         {
-            var result = new Dictionary<string, Dictionary<int, float>>(StringComparer.Ordinal);
+            var result = new Dictionary<string, Dictionary<int, double>>(StringComparer.Ordinal);
             if (skin == null || bonePathByIndex == null)
             {
                 return result;
@@ -384,19 +389,19 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 for (int i = 0; i < count; i++)
                 {
                     int controlPointIndex = indices[i];
-                    float weight = (float)weights[i];
-                    if (controlPointIndex < 0 || weight <= 0f)
+                    double weight = weights[i];
+                    if (controlPointIndex < 0 || weight <= 0d)
                     {
                         continue;
                     }
 
                     if (!result.TryGetValue(bonePath, out var weightsByControlPoint))
                     {
-                        weightsByControlPoint = new Dictionary<int, float>();
+                        weightsByControlPoint = new Dictionary<int, double>();
                         result[bonePath] = weightsByControlPoint;
                     }
 
-                    weightsByControlPoint.TryGetValue(controlPointIndex, out float existing);
+                    weightsByControlPoint.TryGetValue(controlPointIndex, out double existing);
                     weightsByControlPoint[controlPointIndex] = existing + weight;
                 }
             }
@@ -463,7 +468,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             {
                 for (int column = 0; column < 4; column++)
                 {
-                    if (Math.Abs(a[row, column] - b[row, column]) > MatrixEpsilon)
+                    if (Math.Abs(a[row, column] - b[row, column]) > MatrixComparisonTolerance)
                     {
                         return false;
                     }
@@ -475,9 +480,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
         private static bool Approximately(Vector3 a, Vector3 b)
         {
-            return Math.Abs(a.x - b.x) <= MatrixEpsilon &&
-                   Math.Abs(a.y - b.y) <= MatrixEpsilon &&
-                   Math.Abs(a.z - b.z) <= MatrixEpsilon;
+            return Math.Abs(a.x - b.x) <= MatrixComparisonTolerance &&
+                   Math.Abs(a.y - b.y) <= MatrixComparisonTolerance &&
+                   Math.Abs(a.z - b.z) <= MatrixComparisonTolerance;
         }
 
         private static SkinWeightBoneComparisonBuilder GetBuilder(

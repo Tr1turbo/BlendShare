@@ -203,7 +203,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
 
                 mesh.AddBlendShapeFrame(
                     candidate.Shape.m_Name,
-                    frame.m_FrameWeight,
+                    (float)frame.FrameWeight,
                     deltaVertices,
                     emitNormals ? deltaNormals : null,
                     null);
@@ -490,7 +490,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                     newShape.SetControlPointAt(controlPoint, pointIndex);
                 }
 
-                fbxBlendShapeChannel.AddTargetShape(newShape, frame.m_FrameWeight);
+                fbxBlendShapeChannel.AddTargetShape(newShape, frame.FrameWeight);
             }
 
             return fbxBlendShapeChannel;

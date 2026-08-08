@@ -301,7 +301,7 @@ namespace Triturbo.BlendShare.Core
 
         internal static FbxBlendShapeFrame CreateFbxBlendShapeFrame(UfbxBlendShape shape)
         {
-            var frame = new FbxBlendShapeFrame((float)(shape?.Weight ?? 100.0));
+            var frame = new FbxBlendShapeFrame(shape?.Weight ?? 100.0);
             if (shape == null || shape.OffsetCount <= 0)
             {
                 return frame;

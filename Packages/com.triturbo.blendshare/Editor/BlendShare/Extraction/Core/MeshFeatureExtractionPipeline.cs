@@ -61,7 +61,7 @@ namespace Triturbo.BlendShare.Core
 
                     foreach (var extractor in BlendShareFeatureModules.All.Select(module => module?.Extractor))
                     {
-                        if (!ShouldRunExtractor(session.Options, extractor))
+                        if (!ShouldRunExtractor(session.Options, extractor, request))
                         {
                             continue;
                         }
@@ -103,7 +103,27 @@ namespace Triturbo.BlendShare.Core
             }
         }
 
-        private static bool ShouldRunExtractor(
+        internal static bool ShouldRunExtractor(
+            MeshFeatureExtractionOptionsSet options,
+            IMeshFeatureExtractor extractor,
+            MeshFeatureExtractionMeshRequest request)
+        {
+            return options != null &&
+                   extractor != null &&
+                   options.TryGet(extractor.OptionsType, out var featureOptions) &&
+                   featureOptions != null &&
+                   featureOptions.ShouldExtractMesh(request);
+        }
+
+        private static bool RequiresRawFbxSdk(MeshFeatureExtractionOptionsSet options)
+        {
+            return BlendShareFeatureModules.All.Any(module =>
+                module != null &&
+                module.RequiresRawFbxSdk &&
+                ShouldEnableExtractor(options, module.Extractor));
+        }
+
+        private static bool ShouldEnableExtractor(
             MeshFeatureExtractionOptionsSet options,
             IMeshFeatureExtractor extractor)
         {
@@ -112,14 +132,6 @@ namespace Triturbo.BlendShare.Core
                    options.TryGet(extractor.OptionsType, out var featureOptions) &&
                    featureOptions != null &&
                    featureOptions.Enabled;
-        }
-
-        private static bool RequiresRawFbxSdk(MeshFeatureExtractionOptionsSet options)
-        {
-            return BlendShareFeatureModules.All.Any(module =>
-                module != null &&
-                module.RequiresRawFbxSdk &&
-                ShouldRunExtractor(options, module.Extractor));
         }
 
         private static MeshDataObject CreateMeshData(MeshFeatureExtractionContext context)

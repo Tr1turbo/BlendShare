@@ -259,8 +259,6 @@ namespace Triturbo.BlendShare.Features.SkinWeights
     public sealed class SkinWeightFeatureExtractor
         : MeshFeatureExtractor<SkinWeightFeatureObject, SkinWeightExtractionOptions>
     {
-        private const float WeightEpsilon = 0.00001f;
-
         public static readonly SkinWeightFeatureExtractor Instance = new();
 
         public override string FeatureId => SkinWeightFeatureObject.Id;
@@ -271,6 +269,10 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             out SkinWeightFeatureObject feature)
         {
             feature = null;
+            if (!options.ShouldExtractMesh(new MeshFeatureExtractionMeshRequest(context.Path)))
+            {
+                return MeshFeatureExtractionResult.Skipped("No skin weight work was selected for this mesh.");
+            }
 
             var sourceMesh = context.GetSourceFbxMesh();
             var sourceSkin = SkinWeightExtractionUtility.GetPrimarySourceSkinDeformer(context);
@@ -305,12 +307,6 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
             var clusters = BuildClusters(deltaWeights, bindPoses);
 
-            if (clusters.Count == 0 &&
-                armature == null)
-            {
-                return MeshFeatureExtractionResult.Skipped("No selected skin weight work was found for this mesh.");
-            }
-
             feature = ScriptableObject.CreateInstance<SkinWeightFeatureObject>();
             feature.SetSkinning(
                 armature,
@@ -319,13 +315,13 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return MeshFeatureExtractionResult.Success();
         }
 
-        private static Dictionary<int, Dictionary<string, float>> BuildSelectedDeltaWeights(
-            IReadOnlyDictionary<string, Dictionary<int, float>> sourceWeights,
-            IReadOnlyDictionary<string, Dictionary<int, float>> originWeights,
+        private static Dictionary<int, Dictionary<string, double>> BuildSelectedDeltaWeights(
+            IReadOnlyDictionary<string, Dictionary<int, double>> sourceWeights,
+            IReadOnlyDictionary<string, Dictionary<int, double>> originWeights,
             IEnumerable<string> selectedBonePaths,
             int controlPointCount)
         {
-            var result = new Dictionary<int, Dictionary<string, float>>();
+            var result = new Dictionary<int, Dictionary<string, double>>();
             foreach (string bonePath in (selectedBonePaths ?? Array.Empty<string>())
                          .Select(MeshNodePath.Normalize)
                          .Distinct(StringComparer.Ordinal))
@@ -337,23 +333,18 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                              .Where(index => index >= 0 && index < controlPointCount)
                              .Distinct())
                 {
-                    float source = sourceByControlPoint != null &&
-                                   sourceByControlPoint.TryGetValue(controlPointIndex, out float sourceWeight)
+                    double source = sourceByControlPoint != null &&
+                                   sourceByControlPoint.TryGetValue(controlPointIndex, out double sourceWeight)
                         ? sourceWeight
-                        : 0f;
-                    float origin = originByControlPoint != null &&
-                                   originByControlPoint.TryGetValue(controlPointIndex, out float originWeight)
+                        : 0d;
+                    double origin = originByControlPoint != null &&
+                                   originByControlPoint.TryGetValue(controlPointIndex, out double originWeight)
                         ? originWeight
-                        : 0f;
-                    float delta = source - origin;
-                    if (Mathf.Abs(delta) <= WeightEpsilon)
-                    {
-                        continue;
-                    }
-
+                        : 0d;
+                    double delta = source - origin;
                     if (!result.TryGetValue(controlPointIndex, out var deltasByPath))
                     {
-                        deltasByPath = new Dictionary<string, float>();
+                        deltasByPath = new Dictionary<string, double>();
                         result[controlPointIndex] = deltasByPath;
                     }
 
@@ -385,37 +376,35 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static List<SkinWeightClusterData> BuildClusters(
-            IReadOnlyDictionary<int, Dictionary<string, float>> deltaWeights,
+            IReadOnlyDictionary<int, Dictionary<string, double>> deltaWeights,
             IEnumerable<SkinWeightClusterData> bindPoses)
         {
-            var weightsByPath = new Dictionary<string, Dictionary<int, float>>(StringComparer.Ordinal);
-            foreach (var controlPointPair in deltaWeights ?? new Dictionary<int, Dictionary<string, float>>())
+            var weightsByPath = new Dictionary<string, Dictionary<int, double>>(StringComparer.Ordinal);
+            foreach (var controlPointPair in deltaWeights ?? new Dictionary<int, Dictionary<string, double>>())
             {
-                foreach (var weightPair in controlPointPair.Value ?? new Dictionary<string, float>())
+                foreach (var weightPair in controlPointPair.Value ?? new Dictionary<string, double>())
                 {
                     string path = MeshNodePath.Normalize(weightPair.Key);
-                    if (path == MeshNodePath.Root || Mathf.Abs(weightPair.Value) <= WeightEpsilon)
+                    if (path == MeshNodePath.Root)
                     {
                         continue;
                     }
 
                     if (!weightsByPath.TryGetValue(path, out var weightsByIndex))
                     {
-                        weightsByIndex = new Dictionary<int, float>();
+                        weightsByIndex = new Dictionary<int, double>();
                         weightsByPath[path] = weightsByIndex;
                     }
 
-                    weightsByIndex.TryGetValue(controlPointPair.Key, out float existing);
+                    weightsByIndex.TryGetValue(controlPointPair.Key, out double existing);
                     weightsByIndex[controlPointPair.Key] = existing + weightPair.Value;
                 }
             }
 
-            var clustersByPath = weightsByPath.ToDictionary(
-                pair => pair.Key,
-                pair =>
+            var clustersByPath = weightsByPath
+                .Select(pair =>
                 {
                     var entries = pair.Value
-                        .Where(weight => Mathf.Abs(weight.Value) > WeightEpsilon)
                         .OrderBy(weight => weight.Key)
                         .ToArray();
                     return new SkinWeightClusterData
@@ -424,8 +413,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     }.WithWeights(
                         entries.Select(weight => weight.Key),
                         entries.Select(weight => weight.Value));
-                },
-                StringComparer.Ordinal);
+                })
+                .Where(cluster => cluster.WeightCount > 0)
+                .ToDictionary(cluster => cluster.BonePath, StringComparer.Ordinal);
 
             foreach (var bindPose in bindPoses ?? Array.Empty<SkinWeightClusterData>())
             {

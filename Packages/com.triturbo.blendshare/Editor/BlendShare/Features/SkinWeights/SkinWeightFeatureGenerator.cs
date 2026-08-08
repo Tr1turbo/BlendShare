@@ -21,8 +21,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 {
     public sealed class SkinWeightFeatureGenerator : MeshFeatureGenerator<SkinWeightFeatureObject>
     {
-        private const float WeightEpsilon = 0.00001f;
-        private static readonly Comparison<(int index, float weight)> InfluenceComparison =
+        private static readonly Comparison<(int index, double weight)> InfluenceComparison =
             CompareInfluences;
 
         public static readonly SkinWeightFeatureGenerator Instance = new();
@@ -426,7 +425,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
             foreach (var state in session.GetStates<FbxSkinRebuildState>())
             {
-                state.PruneFinalWeights();
+                state.RemoveNonPositiveFinalWeights();
                 if (state.FinalContext == null ||
                     !RebuildFbxSkin(state.FinalContext, state.FinalFeature, state, out error))
                 {
@@ -473,10 +472,10 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return true;
         }
 
-        private static Dictionary<int, Dictionary<string, float>> BuildDeltaWeights(
+        private static Dictionary<int, Dictionary<string, double>> BuildDeltaWeights(
             SkinWeightFeatureObject feature)
         {
-            var result = new Dictionary<int, Dictionary<string, float>>();
+            var result = new Dictionary<int, Dictionary<string, double>>();
             if (feature == null)
             {
                 return result;
@@ -492,13 +491,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 string path = cluster.BonePath;
                 foreach (var pair in cluster.GetWeights())
                 {
-                    float delta = pair.Value;
-                    if (Mathf.Abs(delta) <= WeightEpsilon)
-                    {
-                        continue;
-                    }
-
-                    AddWeight(result, pair.Key, path, delta);
+                    AddWeight(result, pair.Key, path, pair.Value);
                 }
             }
 
@@ -506,10 +499,10 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static void AddWeight(
-            Dictionary<int, Dictionary<string, float>> weightsByControlPoint,
+            Dictionary<int, Dictionary<string, double>> weightsByControlPoint,
             int controlPointIndex,
             string path,
-            float weight)
+            double weight)
         {
             if (controlPointIndex < 0)
             {
@@ -519,20 +512,12 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             path = MeshNodePath.Normalize(path);
             if (!weightsByControlPoint.TryGetValue(controlPointIndex, out var weightsByPath))
             {
-                weightsByPath = new Dictionary<string, float>();
+                weightsByPath = new Dictionary<string, double>();
                 weightsByControlPoint[controlPointIndex] = weightsByPath;
             }
 
-            weightsByPath.TryGetValue(path, out float existing);
-            float updated = existing + weight;
-            if (Mathf.Abs(updated) <= WeightEpsilon)
-            {
-                weightsByPath.Remove(path);
-            }
-            else
-            {
-                weightsByPath[path] = updated;
-            }
+            weightsByPath.TryGetValue(path, out double existing);
+            weightsByPath[path] = existing + weight;
         }
 
         private static bool ApplyArmatureNodesToFbx(
@@ -752,7 +737,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
         private static void ApplyDeltaWeights(
             FbxSkinRebuildState state,
-            IReadOnlyDictionary<int, Dictionary<string, float>> deltaWeights)
+            IReadOnlyDictionary<int, Dictionary<string, double>> deltaWeights)
         {
             foreach (var controlPointPair in deltaWeights)
             {
@@ -762,7 +747,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 }
 
                 var weights = state.GetMutableWeights(controlPointPair.Key);
-                foreach (var deltaPair in controlPointPair.Value ?? new Dictionary<string, float>())
+                foreach (var deltaPair in controlPointPair.Value ?? new Dictionary<string, double>())
                 {
                     string path = MeshNodePath.Normalize(deltaPair.Key);
                     weights.TryGetValue(path, out double existing);
@@ -771,14 +756,14 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             }
         }
 
-        private static Dictionary<int, Dictionary<string, float>> InvertDeltaWeights(
-            IReadOnlyDictionary<int, Dictionary<string, float>> deltaWeights)
+        private static Dictionary<int, Dictionary<string, double>> InvertDeltaWeights(
+            IReadOnlyDictionary<int, Dictionary<string, double>> deltaWeights)
         {
-            var result = new Dictionary<int, Dictionary<string, float>>();
-            foreach (var controlPointPair in deltaWeights ?? new Dictionary<int, Dictionary<string, float>>())
+            var result = new Dictionary<int, Dictionary<string, double>>();
+            foreach (var controlPointPair in deltaWeights ?? new Dictionary<int, Dictionary<string, double>>())
             {
-                var inverted = new Dictionary<string, float>();
-                foreach (var deltaPair in controlPointPair.Value ?? new Dictionary<string, float>())
+                var inverted = new Dictionary<string, double>();
+                foreach (var deltaPair in controlPointPair.Value ?? new Dictionary<string, double>())
                 {
                     inverted[deltaPair.Key] = -deltaPair.Value;
                 }
@@ -789,7 +774,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return result;
         }
 
-        private static void PruneControlPointWeights(Dictionary<string, double> weights)
+        private static void RemoveNonPositiveWeights(Dictionary<string, double> weights)
         {
             if (weights == null)
             {
@@ -798,7 +783,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
             foreach (string path in weights.Keys.ToArray())
             {
-                if (weights[path] <= WeightEpsilon)
+                if (weights[path] <= 0d)
                 {
                     weights.Remove(path);
                 }
@@ -847,7 +832,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
                 foreach (var pair in data.WeightsByControlPoint.OrderBy(pair => pair.Key))
                 {
-                    if (pair.Value <= WeightEpsilon)
+                    if (pair.Value <= 0d)
                     {
                         continue;
                     }
@@ -1146,7 +1131,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 {
                     foreach (var pair in cluster.WeightsByControlPoint)
                     {
-                        if (pair.Key < 0 || pair.Key >= controlPointCount || pair.Value <= WeightEpsilon)
+                        if (pair.Key < 0 || pair.Key >= controlPointCount || pair.Value <= 0d)
                         {
                             continue;
                         }
@@ -1223,11 +1208,11 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 }
             }
 
-            public void PruneFinalWeights()
+            public void RemoveNonPositiveFinalWeights()
             {
                 foreach (var weights in weightsByControlPoint)
                 {
-                    PruneControlPointWeights(weights);
+                    RemoveNonPositiveWeights(weights);
                 }
             }
 
@@ -1243,7 +1228,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 for (int i = 0; i < weightsByControlPoint.Count; i++)
                 {
                     if (weightsByControlPoint[i].TryGetValue(path, out double weight) &&
-                        weight > WeightEpsilon)
+                        weight > 0d)
                     {
                         result[i] = weight;
                     }
@@ -1291,7 +1276,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 {
                     int controlPointIndex = indices[i];
                     double weight = weights[i];
-                    if (controlPointIndex >= 0 && weight > WeightEpsilon)
+                    if (controlPointIndex >= 0 && weight > 0d)
                     {
                         weightsByControlPoint.TryGetValue(controlPointIndex, out double existing);
                         weightsByControlPoint[controlPointIndex] = existing + weight;
@@ -1343,7 +1328,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 WeightsByControlPoint.Clear();
                 foreach (var pair in weights ?? new Dictionary<int, double>())
                 {
-                    if (pair.Key >= 0 && pair.Value > WeightEpsilon)
+                    if (pair.Key >= 0 && pair.Value > 0d)
                     {
                         WeightsByControlPoint[pair.Key] = pair.Value;
                     }
@@ -1915,7 +1900,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             bool limitToFour = BlendShareSkinWeightSettings.LimitSkinWeightsToFour;
             int influenceLimit = limitToFour ? 4 : byte.MaxValue;
             int maximumInputInfluences = 0;
-            var selectedWeights = new List<(int index, float weight)>(influenceLimit);
+            var selectedWeights = new List<(int index, double weight)>(influenceLimit);
             var deltaIndex = BuildDeltaIndex(feature, boneTable);
             int targetWeightIndex = 0;
             for (int unityIndex = 0; unityIndex < mesh.vertexCount; unityIndex++)
@@ -1926,7 +1911,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     return false;
                 }
 
-                var aggregate = new Dictionary<int, float>();
+                var aggregate = new Dictionary<int, double>();
                 int targetCount = unityIndex < targetCounts.Length ? targetCounts[unityIndex] : 0;
                 for (int i = 0; i < targetCount; i++)
                 {
@@ -1943,7 +1928,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 maximumInputInfluences = Math.Max(maximumInputInfluences, positiveInfluenceCount);
                 foreach (var weight in selectedWeights)
                 {
-                    outputWeights.Add(new BoneWeight1 { boneIndex = weight.index, weight = weight.weight });
+                    outputWeights.Add(new BoneWeight1 { boneIndex = weight.index, weight = (float)weight.weight });
                 }
 
                 outputCounts.Add((byte)selectedWeights.Count);
@@ -1994,8 +1979,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 foreach (var pair in cluster.GetWeights())
                 {
                     int controlPointIndex = pair.Key;
-                    float delta = pair.Value;
-                    if (controlPointIndex < 0 || Mathf.Abs(delta) <= WeightEpsilon)
+                    double delta = pair.Value;
+                    if (controlPointIndex < 0)
                     {
                         continue;
                     }
@@ -2014,42 +1999,42 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         internal static void ApplyIndexedDeltas(
-            Dictionary<int, float> aggregate,
+            Dictionary<int, double> aggregate,
             FbxIndexGroup group,
             IReadOnlyDictionary<int, List<IndexedWeightDelta>> deltaIndex)
         {
             foreach (var pair in CalculateIndexedDeltas(group, deltaIndex))
             {
-                aggregate.TryGetValue(pair.Key, out float existing);
-                float updated = existing + pair.Value;
-                if (Mathf.Abs(updated) <= WeightEpsilon)
+                aggregate.TryGetValue(pair.Key, out double existing);
+                double updated = existing + pair.Value;
+                if (updated <= 0d)
                 {
                     aggregate.Remove(pair.Key);
                 }
                 else
                 {
-                    aggregate[pair.Key] = Mathf.Max(0f, updated);
+                    aggregate[pair.Key] = updated;
                 }
             }
         }
 
         internal static void AccumulateRawDeltas(
-            Dictionary<int, float> aggregate,
-            IReadOnlyDictionary<int, float> deltas)
+            Dictionary<int, double> aggregate,
+            IReadOnlyDictionary<int, double> deltas)
         {
-            foreach (var pair in deltas ?? new Dictionary<int, float>())
+            foreach (var pair in deltas ?? new Dictionary<int, double>())
             {
-                aggregate.TryGetValue(pair.Key, out float existing);
+                aggregate.TryGetValue(pair.Key, out double existing);
                 aggregate[pair.Key] = existing + pair.Value;
             }
         }
 
-        private static Dictionary<int, float> CalculateIndexedDeltas(
+        private static Dictionary<int, double> CalculateIndexedDeltas(
             FbxIndexGroup group,
             IReadOnlyDictionary<int, List<IndexedWeightDelta>> deltaIndex)
         {
             int contributingControlPoints = 0;
-            var deltaByBoneSlot = new Dictionary<int, float>();
+            var deltaByBoneSlot = new Dictionary<int, double>();
             foreach (int controlPointIndex in group.m_Indices ?? Array.Empty<int>())
             {
                 if (controlPointIndex < 0 || deltaIndex == null ||
@@ -2062,18 +2047,13 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 bool contributed = false;
                 foreach (var delta in deltas)
                 {
-                    if (Mathf.Abs(delta.Weight) <= WeightEpsilon)
-                    {
-                        continue;
-                    }
-
                     contributed = true;
                     if (delta.BoneIndex < 0)
                     {
                         continue;
                     }
 
-                    deltaByBoneSlot.TryGetValue(delta.BoneIndex, out float existing);
+                    deltaByBoneSlot.TryGetValue(delta.BoneIndex, out double existing);
                     deltaByBoneSlot[delta.BoneIndex] = existing + delta.Weight;
                 }
 
@@ -2097,9 +2077,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         internal readonly struct IndexedWeightDelta
         {
             public readonly int BoneIndex;
-            public readonly float Weight;
+            public readonly double Weight;
 
-            public IndexedWeightDelta(int boneIndex, float weight)
+            public IndexedWeightDelta(int boneIndex, double weight)
             {
                 BoneIndex = boneIndex;
                 Weight = weight;
@@ -2108,9 +2088,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
         internal delegate bool TryGetBoneIndex(string bonePath, out int boneIndex);
 
-        private static Dictionary<int, float> FromBoneWeight(BoneWeight boneWeight)
+        private static Dictionary<int, double> FromBoneWeight(BoneWeight boneWeight)
         {
-            var result = new Dictionary<int, float>();
+            var result = new Dictionary<int, double>();
             AddInfluence(result, boneWeight.boneIndex0, boneWeight.weight0);
             AddInfluence(result, boneWeight.boneIndex1, boneWeight.weight1);
             AddInfluence(result, boneWeight.boneIndex2, boneWeight.weight2);
@@ -2118,21 +2098,21 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return result;
         }
 
-        private static void AddInfluence(Dictionary<int, float> weights, int boneIndex, float weight)
+        private static void AddInfluence(Dictionary<int, double> weights, int boneIndex, double weight)
         {
-            if (boneIndex < 0 || weight <= WeightEpsilon)
+            if (boneIndex < 0 || weight <= 0d)
             {
                 return;
             }
 
-            weights.TryGetValue(boneIndex, out float existing);
+            weights.TryGetValue(boneIndex, out double existing);
             weights[boneIndex] = existing + weight;
         }
 
         internal static int KeepTopWeights(
             int maximumInfluences,
-            IReadOnlyDictionary<int, float> aggregate,
-            List<(int index, float weight)> output)
+            IReadOnlyDictionary<int, double> aggregate,
+            List<(int index, double weight)> output)
         {
             if (output == null)
             {
@@ -2144,8 +2124,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             {
                 foreach (var pair in aggregate)
                 {
-                    if (pair.Key >= 0 && pair.Value > 0f &&
-                        !float.IsNaN(pair.Value) && !float.IsInfinity(pair.Value))
+                    if (pair.Key >= 0 && pair.Value > 0d &&
+                        !double.IsNaN(pair.Value) && !double.IsInfinity(pair.Value))
                     {
                         output.Add((pair.Key, pair.Value));
                     }
@@ -2167,13 +2147,13 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 return positiveInfluenceCount;
             }
 
-            float total = 0f;
+            double total = 0d;
             for (int index = 0; index < output.Count; index++)
             {
                 total += output[index].weight;
             }
 
-            if (!(total > 0f) || float.IsInfinity(total))
+            if (!(total > 0d) || double.IsInfinity(total))
             {
                 int strongestBoneIndex = output[0].index;
                 output.Clear();
@@ -2215,8 +2195,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static int CompareInfluences(
-            (int index, float weight) first,
-            (int index, float weight) second)
+            (int index, double weight) first,
+            (int index, double weight) second)
         {
             int weightOrder = second.weight.CompareTo(first.weight);
             return weightOrder != 0 ? weightOrder : first.index.CompareTo(second.index);
@@ -2225,8 +2205,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         private sealed class UnitySkinWeightState
         {
             private readonly string meshKey;
-            private readonly List<Dictionary<int, float>> weightsByVertex;
-            private Dictionary<int, Dictionary<int, float>> pendingDeltas;
+            private readonly List<Dictionary<int, double>> weightsByVertex;
+            private Dictionary<int, Dictionary<int, double>> pendingDeltas;
             private Mesh pendingMesh;
             private BoneTable pendingBoneTable;
             private string pendingRootBonePath;
@@ -2261,7 +2241,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 }
 
                 var deltaIndex = BuildDeltaIndex(feature, targetBoneTable);
-                var staged = new Dictionary<int, Dictionary<int, float>>();
+                var staged = new Dictionary<int, Dictionary<int, double>>();
                 for (int unityIndex = 0; unityIndex < targetMesh.vertexCount; unityIndex++)
                 {
                     if (!mapping.TryGetFbxGroup(unityIndex, out var group))
@@ -2365,7 +2345,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 using var outputCounts = new NativeList<byte>(Allocator.Temp);
                 bool limitToFour = BlendShareSkinWeightSettings.LimitSkinWeightsToFour;
                 int influenceLimit = limitToFour ? 4 : byte.MaxValue;
-                var selectedWeights = new List<(int index, float weight)>(influenceLimit);
+                var selectedWeights = new List<(int index, double weight)>(influenceLimit);
                 int verticesOverFour = 0;
                 int verticesOverByteLimit = 0;
                 int maximumInputInfluences = 0;
@@ -2394,7 +2374,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                             return false;
                         }
 
-                        outputWeights.Add(new BoneWeight1 { boneIndex = weight.index, weight = weight.weight });
+                        outputWeights.Add(new BoneWeight1 { boneIndex = weight.index, weight = (float)weight.weight });
                     }
 
                     outputCounts.Add((byte)selectedWeights.Count);
@@ -2461,12 +2441,12 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     targetMesh);
             }
 
-            private static List<Dictionary<int, float>> ReadWeights(
+            private static List<Dictionary<int, double>> ReadWeights(
                 Mesh sourceMesh,
                 BoneTable sourceBoneTable)
             {
                 var result = Enumerable.Range(0, sourceMesh != null ? sourceMesh.vertexCount : 0)
-                    .Select(_ => new Dictionary<int, float>())
+                    .Select(_ => new Dictionary<int, double>())
                     .ToList();
                 if (sourceMesh == null)
                 {
