@@ -1697,3 +1697,48 @@ msgstr "已被覆盖"
 
 msgid "ndmf.bone_proxy.status_shadowed_tooltip"
 msgstr "此骨架骨骼路径已选择其他代理组件。预览和构建将使用下方显示的生效变换。"
+
+msgid "features.skin-weights.armature"
+msgstr "骨架"
+
+msgid "features.skin-weights.mode"
+msgstr "选择模式"
+
+msgid "features.skin-weights.mode.simple"
+msgstr "简单"
+
+msgid "features.skin-weights.mode.advanced"
+msgstr "高级"
+
+msgid "features.skin-weights.mode.expand.title"
+msgstr "扩展蒙皮权重选择"
+
+msgid "features.skin-weights.mode.expand.message"
+msgstr "简单模式会将所有已选骨骼应用到所有已选网格。切换后将额外启用 {0} 个网格与骨骼组合。是否继续？"
+
+msgid "features.skin-weights.mode.expand.confirm"
+msgstr "扩展选择"
+
+msgid "features.skin-weights.search_meshes.tooltip"
+msgstr "按路径筛选网格。"
+
+msgid "features.skin-weights.search_bones.tooltip"
+msgstr "按名称或路径筛选骨骼。"
+
+msgid "features.skin-weights.show_all_bones"
+msgstr "显示所有骨骼"
+
+msgid "features.skin-weights.summary.changed_bones"
+msgstr "{0}/{1} 个骨骼有差异"
+
+msgid "features.skin-weights.summary.changed_meshes"
+msgstr "{0}/{1} 个网格有差异"
+
+msgid "features.skin-weights.transforms"
+msgstr "骨骼变换"
+
+msgid "features.skin-weights.transform_forced.tooltip"
+msgstr "此变换由已选择的权重或绑定姿势所必需。"
+
+msgid "features.skin-weights.group_toggle.tooltip"
+msgstr "启用或禁用此分区中的所有项目。"

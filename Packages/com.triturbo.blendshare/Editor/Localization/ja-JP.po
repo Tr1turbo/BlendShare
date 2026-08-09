@@ -1697,3 +1697,48 @@ msgstr "上書き済み"
 
 msgid "ndmf.bone_proxy.status_shadowed_tooltip"
 msgstr "このアーマチュアボーンパスには別のプロキシコンポーネントが選択されています。プレビューとビルドでは下に表示された有効なトランスフォームを使用します。"
+
+msgid "features.skin-weights.armature"
+msgstr "アーマチュア"
+
+msgid "features.skin-weights.mode"
+msgstr "選択モード"
+
+msgid "features.skin-weights.mode.simple"
+msgstr "シンプル"
+
+msgid "features.skin-weights.mode.advanced"
+msgstr "詳細"
+
+msgid "features.skin-weights.mode.expand.title"
+msgstr "スキンウェイト選択を展開"
+
+msgid "features.skin-weights.mode.expand.message"
+msgstr "シンプルモードでは、選択したすべてのメッシュに選択したすべてのボーンを適用します。切り替えると、メッシュとボーンの組み合わせが {0} 件追加で有効になります。続行しますか？"
+
+msgid "features.skin-weights.mode.expand.confirm"
+msgstr "選択を展開"
+
+msgid "features.skin-weights.search_meshes.tooltip"
+msgstr "パスでメッシュを絞り込みます。"
+
+msgid "features.skin-weights.search_bones.tooltip"
+msgstr "名前またはパスでボーンを絞り込みます。"
+
+msgid "features.skin-weights.show_all_bones"
+msgstr "すべてのボーンを表示"
+
+msgid "features.skin-weights.summary.changed_bones"
+msgstr "{0}/{1} ボーンに差分"
+
+msgid "features.skin-weights.summary.changed_meshes"
+msgstr "{0}/{1} メッシュに差分"
+
+msgid "features.skin-weights.transforms"
+msgstr "ボーントランスフォーム"
+
+msgid "features.skin-weights.transform_forced.tooltip"
+msgstr "選択されたウェイトまたはバインドポーズで必要なため、このトランスフォームは解除できません。"
+
+msgid "features.skin-weights.group_toggle.tooltip"
+msgstr "このセクションのすべての項目を有効または無効にします。"

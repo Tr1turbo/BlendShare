@@ -9,18 +9,71 @@ using UnityEngine;
 
 namespace Triturbo.BlendShare.Features.SkinWeights
 {
+    internal enum SkinWeightSelectionMode
+    {
+        Simple,
+        Advanced
+    }
+
+    internal sealed class SkinWeightResolvedSelection
+    {
+        private readonly IReadOnlyDictionary<string, IReadOnlyCollection<string>> weightBonesByMesh;
+        private readonly IReadOnlyDictionary<string, IReadOnlyCollection<string>> bindposeBonesByMesh;
+
+        internal IReadOnlyCollection<string> TransformBonePaths { get; }
+        internal IReadOnlyCollection<string> NewBonePaths { get; }
+
+        internal SkinWeightResolvedSelection(
+            IReadOnlyDictionary<string, IReadOnlyCollection<string>> weightBonesByMesh,
+            IReadOnlyDictionary<string, IReadOnlyCollection<string>> bindposeBonesByMesh,
+            IReadOnlyCollection<string> transformBonePaths,
+            IReadOnlyCollection<string> newBonePaths)
+        {
+            this.weightBonesByMesh = weightBonesByMesh ??
+                                     new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.Ordinal);
+            this.bindposeBonesByMesh = bindposeBonesByMesh ??
+                                       new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.Ordinal);
+            TransformBonePaths = transformBonePaths ?? Array.Empty<string>();
+            NewBonePaths = newBonePaths ?? Array.Empty<string>();
+        }
+
+        internal IReadOnlyCollection<string> GetWeightBonePaths(string meshPath)
+        {
+            return weightBonesByMesh.TryGetValue(
+                MeshFeatureExtractionSession.BuildMeshKey(meshPath),
+                out var paths)
+                ? paths
+                : Array.Empty<string>();
+        }
+
+        internal IReadOnlyCollection<string> GetBindposeBonePaths(string meshPath)
+        {
+            return bindposeBonesByMesh.TryGetValue(
+                MeshFeatureExtractionSession.BuildMeshKey(meshPath),
+                out var paths)
+                ? paths
+                : Array.Empty<string>();
+        }
+    }
+
     public sealed class SkinWeightExtractionOptions : MeshFeatureExtractionOptions
     {
         private readonly Dictionary<string, HashSet<string>> selectedWeightBonePathsByMesh = new();
         private readonly Dictionary<string, HashSet<string>> selectedBindposeBonePathsByMesh = new();
         private readonly HashSet<string> selectedTransformBonePaths = new(StringComparer.Ordinal);
+        private readonly HashSet<string> forcedTransformBonePaths = new(StringComparer.Ordinal);
         private readonly HashSet<string> selectedNewBonePaths = new(StringComparer.Ordinal);
-        private bool defaultsInitialized;
+        private readonly HashSet<string> selectedSimpleMeshKeys = new(StringComparer.Ordinal);
+        private readonly HashSet<string> selectedSimpleBonePaths = new(StringComparer.Ordinal);
+        private readonly HashSet<string> disabledMeshKeys = new(StringComparer.Ordinal);
+        private string armatureOnlyHostMeshKey;
         private bool sharedArmatureInitialized;
         private MeshFeatureExtractionSession sharedArmatureSession;
         private FbxArmatureObject sharedArmature;
 
         public override string FeatureId => SkinWeightFeatureObject.Id;
+        internal SkinWeightSelectionMode SelectionMode { get; set; } = SkinWeightSelectionMode.Simple;
+        internal bool DefaultsInitialized { get; set; }
 
         public SkinWeightExtractionOptions()
         {
@@ -36,11 +89,34 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
         public override bool ShouldExtractMesh(MeshFeatureExtractionMeshRequest mesh)
         {
-            // Armature selections are shared metadata; only mesh-scoped data makes a mesh part of the patch.
-            return Enabled &&
-                   mesh != null &&
-                   (GetSelectedWeightBonePaths(mesh.Path).Count > 0 ||
-                    GetSelectedBindposeBonePaths(mesh.Path).Count > 0);
+            if (!Enabled || mesh == null)
+            {
+                return false;
+            }
+
+            string meshKey = MeshFeatureExtractionSession.BuildMeshKey(mesh.Path);
+            return (IsMeshEnabled(mesh.Path) &&
+                    (GetSelectedWeightBonePaths(mesh.Path).Count > 0 ||
+                     GetSelectedBindposeBonePaths(mesh.Path).Count > 0)) ||
+                   meshKey == armatureOnlyHostMeshKey;
+        }
+
+        internal bool IsMeshEnabled(string meshPath)
+        {
+            return !disabledMeshKeys.Contains(MeshFeatureExtractionSession.BuildMeshKey(meshPath));
+        }
+
+        internal void SetMeshEnabled(string meshPath, bool enabled)
+        {
+            SetSelection(
+                disabledMeshKeys,
+                MeshFeatureExtractionSession.BuildMeshKey(meshPath),
+                !enabled);
+        }
+
+        internal void ClearMeshEnabledOverrides()
+        {
+            disabledMeshKeys.Clear();
         }
 
         internal FbxArmatureObject GetOrCreateSharedArmature(
@@ -96,7 +172,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
         public bool IsBoneTransformSelected(string bonePath)
         {
-            return selectedTransformBonePaths.Contains(NormalizeBonePath(bonePath));
+            string normalized = NormalizeBonePath(bonePath);
+            return selectedTransformBonePaths.Contains(normalized) ||
+                   forcedTransformBonePaths.Contains(normalized);
         }
 
         public void SetBoneTransformSelected(string bonePath, bool selected)
@@ -114,7 +192,10 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
         public IReadOnlyCollection<string> GetSelectedBoneTransformPaths()
         {
-            return selectedTransformBonePaths.ToArray();
+            return selectedTransformBonePaths
+                .Concat(forcedTransformBonePaths)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
         }
 
         public bool IsNewBoneSelected(string bonePath)
@@ -140,51 +221,114 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return selectedNewBonePaths.ToArray();
         }
 
-        internal void EnsureDefaultSelection(SkinWeightFbxComparison comparison)
+        internal bool IsSimpleMeshSelected(string meshPath)
         {
-            if (defaultsInitialized || comparison == null)
-            {
-                return;
-            }
+            return selectedSimpleMeshKeys.Contains(MeshFeatureExtractionSession.BuildMeshKey(meshPath));
+        }
 
-            defaultsInitialized = true;
-            foreach (var bone in comparison.Bones ?? Array.Empty<SkinWeightBoneComparison>())
-            {
-                bool selectedWeightForBone = false;
-                foreach (var cluster in bone.WeightClusters ?? Array.Empty<SkinWeightMeshClusterComparison>())
-                {
-                    if (cluster.Status != SkinWeightComparisonStatus.New &&
-                        cluster.Status != SkinWeightComparisonStatus.Changed)
-                    {
-                        continue;
-                    }
+        internal void SetSimpleMeshSelected(string meshPath, bool selected)
+        {
+            SetSelection(selectedSimpleMeshKeys, MeshFeatureExtractionSession.BuildMeshKey(meshPath), selected);
+        }
 
-                    SetWeightClusterSelected(cluster.MeshPath, bone.BonePath, true);
-                    selectedWeightForBone = true;
-                }
+        internal IReadOnlyCollection<string> GetSelectedSimpleMeshKeys()
+        {
+            return selectedSimpleMeshKeys.ToArray();
+        }
 
-                foreach (var bindPose in bone.Bindposes ?? Array.Empty<SkinWeightBindposeComparison>())
-                {
-                    if ((bindPose.Status == SkinWeightComparisonStatus.New ||
-                         bindPose.Status == SkinWeightComparisonStatus.Changed) &&
-                        IsWeightClusterSelected(bindPose.MeshPath, bone.BonePath))
-                    {
-                        SetBindposeSelected(bindPose.MeshPath, bone.BonePath, true);
-                    }
-                }
+        internal bool IsSimpleBoneSelected(string bonePath)
+        {
+            return selectedSimpleBonePaths.Contains(NormalizeBonePath(bonePath));
+        }
 
-                if (selectedWeightForBone && bone.RequiresCreateBone)
-                {
-                    SetNewBoneSelected(bone.BonePath, true);
-                    SetBoneTransformSelected(bone.BonePath, true);
-                }
-                else if (bone.Transform?.Status == SkinWeightComparisonStatus.Changed)
-                {
-                    SetBoneTransformSelected(bone.BonePath, true);
-                }
-            }
+        internal void SetSimpleBoneSelected(string bonePath, bool selected)
+        {
+            SetSelection(selectedSimpleBonePaths, NormalizeBonePath(bonePath), selected);
+        }
 
-            EnsureRequiredParentSelections(comparison);
+        internal IReadOnlyCollection<string> GetSelectedSimpleBonePaths()
+        {
+            return selectedSimpleBonePaths.ToArray();
+        }
+
+        internal void ClearSimpleAxes()
+        {
+            selectedSimpleMeshKeys.Clear();
+            selectedSimpleBonePaths.Clear();
+        }
+
+        internal void ClearMeshSelections()
+        {
+            selectedWeightBonePathsByMesh.Clear();
+            selectedBindposeBonePathsByMesh.Clear();
+        }
+
+        internal void ClearArmatureSelections()
+        {
+            selectedTransformBonePaths.Clear();
+            forcedTransformBonePaths.Clear();
+            selectedNewBonePaths.Clear();
+            armatureOnlyHostMeshKey = null;
+        }
+
+        internal bool IsBoneTransformForced(string bonePath)
+        {
+            return forcedTransformBonePaths.Contains(NormalizeBonePath(bonePath));
+        }
+
+        internal void SetBoneTransformForced(string bonePath, bool selected)
+        {
+            SetSelection(forcedTransformBonePaths, NormalizeBonePath(bonePath), selected);
+        }
+
+        internal IReadOnlyCollection<string> GetExplicitBoneTransformPaths()
+        {
+            return selectedTransformBonePaths.ToArray();
+        }
+
+        internal void ClearExplicitBoneTransformSelections()
+        {
+            selectedTransformBonePaths.Clear();
+        }
+
+        internal void ClearAutomaticArmatureSelections()
+        {
+            forcedTransformBonePaths.Clear();
+            selectedNewBonePaths.Clear();
+            armatureOnlyHostMeshKey = null;
+        }
+
+        internal bool HasMeshScopedSelections()
+        {
+            return selectedWeightBonePathsByMesh.Keys
+                       .Concat(selectedBindposeBonePathsByMesh.Keys)
+                       .Distinct(StringComparer.Ordinal)
+                       .Any(meshKey => !disabledMeshKeys.Contains(meshKey));
+        }
+
+        internal void SetArmatureOnlyHostMesh(string meshPath)
+        {
+            armatureOnlyHostMeshKey = string.IsNullOrWhiteSpace(meshPath)
+                ? null
+                : MeshFeatureExtractionSession.BuildMeshKey(meshPath);
+        }
+
+        internal SkinWeightResolvedSelection ResolveSelection()
+        {
+            return new SkinWeightResolvedSelection(
+                CopyEnabledSelections(selectedWeightBonePathsByMesh, disabledMeshKeys),
+                CopyEnabledSelections(selectedBindposeBonePathsByMesh, disabledMeshKeys),
+                GetSelectedBoneTransformPaths().OrderBy(path => path, StringComparer.Ordinal).ToArray(),
+                selectedNewBonePaths.OrderBy(path => path, StringComparer.Ordinal).ToArray());
+        }
+
+        internal IEnumerable<(string MeshKey, string BonePath)> GetSelectedMeshBonePairs()
+        {
+            return selectedWeightBonePathsByMesh
+                .SelectMany(pair => pair.Value.Select(path => (pair.Key, path)))
+                .Concat(selectedBindposeBonePathsByMesh
+                    .SelectMany(pair => pair.Value.Select(path => (pair.Key, path))))
+                .Distinct();
         }
 
         internal void EnsureRequiredParentSelections(SkinWeightFbxComparison comparison)
@@ -203,11 +347,37 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                         parentBone.RequiresCreateBone)
                     {
                         selectedNewBonePaths.Add(parent);
-                        selectedTransformBonePaths.Add(parent);
+                        forcedTransformBonePaths.Add(parent);
                     }
 
                     parent = MeshNodePath.ParentPath(parent);
                 }
+            }
+        }
+
+        private static IReadOnlyDictionary<string, IReadOnlyCollection<string>> CopyEnabledSelections(
+            IReadOnlyDictionary<string, HashSet<string>> selections,
+            HashSet<string> disabledMeshKeys)
+        {
+            return selections
+                .Where(pair => !disabledMeshKeys.Contains(pair.Key))
+                .ToDictionary(
+                    pair => pair.Key,
+                    pair => (IReadOnlyCollection<string>)pair.Value
+                        .OrderBy(path => path, StringComparer.Ordinal)
+                        .ToArray(),
+                    StringComparer.Ordinal);
+        }
+
+        private static void SetSelection(HashSet<string> selections, string key, bool selected)
+        {
+            if (selected)
+            {
+                selections.Add(key);
+            }
+            else
+            {
+                selections.Remove(key);
             }
         }
 
@@ -253,7 +423,693 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         {
             return MeshNodePath.Normalize(bonePath);
         }
+    }
 
+    internal sealed class SkinWeightSelectionController
+    {
+        private readonly SkinWeightExtractionOptions options;
+        private readonly SkinWeightFbxComparison comparison;
+
+        internal SkinWeightSelectionMode Mode => options.SelectionMode;
+
+        internal SkinWeightSelectionController(
+            SkinWeightExtractionOptions options,
+            SkinWeightFbxComparison comparison)
+        {
+            this.options = options ?? throw new ArgumentNullException(nameof(options));
+            this.comparison = comparison ?? SkinWeightFbxComparison.Empty;
+        }
+
+        internal void EnsureDefaultSelection()
+        {
+            if (options.DefaultsInitialized)
+            {
+                return;
+            }
+
+            options.DefaultsInitialized = true;
+            RestoreAutomaticSelection();
+        }
+
+        internal void SwitchToAdvanced()
+        {
+            options.SelectionMode = SkinWeightSelectionMode.Advanced;
+            foreach (var mesh in comparison.Meshes)
+            {
+                options.SetMeshEnabled(mesh.MeshPath, HasSelectedMeshData(mesh));
+            }
+            RebuildArmatureDependencies();
+        }
+
+        internal int GetSimpleExpansionCount()
+        {
+            var selectedPairs = options.GetSelectedMeshBonePairs().ToArray();
+            var meshKeys = new HashSet<string>(
+                selectedPairs
+                    .Select(pair => pair.MeshKey)
+                    .Where(meshKey => comparison.Meshes.Any(mesh =>
+                        MeshFeatureExtractionSession.BuildMeshKey(mesh.MeshPath) == meshKey &&
+                        options.IsMeshEnabled(mesh.MeshPath))),
+                StringComparer.Ordinal);
+            var bonePaths = new HashSet<string>(
+                selectedPairs.Select(pair => pair.BonePath)
+                    .Concat(options.GetExplicitBoneTransformPaths()),
+                StringComparer.Ordinal);
+            int additional = 0;
+            foreach (var mesh in comparison.Meshes)
+            {
+                string meshKey = MeshFeatureExtractionSession.BuildMeshKey(mesh.MeshPath);
+                if (!meshKeys.Contains(meshKey))
+                {
+                    continue;
+                }
+
+                foreach (var pair in mesh.Bones.Where(pair => bonePaths.Contains(pair.BonePath)))
+                {
+                    if (!options.IsWeightClusterSelected(pair.MeshPath, pair.BonePath) &&
+                        !options.IsBindposeSelected(pair.MeshPath, pair.BonePath))
+                    {
+                        additional++;
+                    }
+                }
+            }
+
+            return additional;
+        }
+
+        internal void SwitchToSimple()
+        {
+            var selectedPairs = options.GetSelectedMeshBonePairs().ToArray();
+            options.ClearSimpleAxes();
+            foreach (string meshKey in selectedPairs.Select(pair => pair.MeshKey).Distinct(StringComparer.Ordinal))
+            {
+                var mesh = comparison.Meshes.FirstOrDefault(candidate =>
+                    MeshFeatureExtractionSession.BuildMeshKey(candidate.MeshPath) == meshKey);
+                if (mesh != null && options.IsMeshEnabled(mesh.MeshPath))
+                {
+                    options.SetSimpleMeshSelected(mesh.MeshPath, true);
+                }
+            }
+
+            foreach (string bonePath in selectedPairs.Select(pair => pair.BonePath)
+                         .Concat(options.GetExplicitBoneTransformPaths())
+                         .Distinct(StringComparer.Ordinal))
+            {
+                options.SetSimpleBoneSelected(bonePath, true);
+            }
+
+            options.SelectionMode = SkinWeightSelectionMode.Simple;
+            ApplySimpleCartesianSelection();
+        }
+
+        internal bool IsSimpleMeshSelected(string meshPath)
+        {
+            return options.IsSimpleMeshSelected(meshPath) && options.IsMeshEnabled(meshPath);
+        }
+
+        internal void SetSimpleMeshSelected(string meshPath, bool selected)
+        {
+            options.SetSimpleMeshSelected(meshPath, selected);
+            ApplySimpleCartesianSelection();
+        }
+
+        internal bool IsSimpleBoneSelected(string bonePath)
+        {
+            return options.IsSimpleBoneSelected(bonePath);
+        }
+
+        internal bool IsWeightSelected(SkinWeightMeshBoneComparison pair)
+        {
+            return pair != null && options.IsWeightClusterSelected(pair.MeshPath, pair.BonePath);
+        }
+
+        internal bool IsBindposeSelected(SkinWeightMeshBoneComparison pair)
+        {
+            return pair != null && options.IsBindposeSelected(pair.MeshPath, pair.BonePath);
+        }
+
+        internal bool IsAdvancedMeshEnabled(SkinWeightMeshComparison mesh)
+        {
+            return mesh != null && options.IsMeshEnabled(mesh.MeshPath);
+        }
+
+        internal bool IsTransformSelected(string bonePath)
+        {
+            return options.IsBoneTransformSelected(bonePath);
+        }
+
+        internal bool IsTransformForced(string bonePath)
+        {
+            return options.IsBoneTransformForced(bonePath);
+        }
+
+        internal void SetAdvancedTransformSelected(string bonePath, bool selected)
+        {
+            if (IsTransformForced(bonePath))
+            {
+                return;
+            }
+
+            options.SetBoneTransformSelected(bonePath, selected);
+            RebuildArmatureDependencies();
+        }
+
+        internal void SetAdvancedTransformsEnabled(bool selected)
+        {
+            options.ClearExplicitBoneTransformSelections();
+            if (selected)
+            {
+                foreach (var bone in comparison.Bones.Where(bone => bone.SourceBoneExists))
+                {
+                    options.SetBoneTransformSelected(bone.BonePath, true);
+                }
+            }
+
+            RebuildArmatureDependencies();
+        }
+
+        internal void RestoreAdvancedTransforms()
+        {
+            options.ClearExplicitBoneTransformSelections();
+            foreach (var bone in comparison.Bones.Where(bone =>
+                         bone.SourceBoneExists &&
+                         bone.Transform?.Status == SkinWeightComparisonStatus.Changed))
+            {
+                options.SetBoneTransformSelected(bone.BonePath, true);
+            }
+
+            RebuildArmatureDependencies();
+        }
+
+        internal void DisableChangedAdvancedTransforms()
+        {
+            foreach (var bone in comparison.Bones.Where(bone =>
+                         bone.Transform?.Status == SkinWeightComparisonStatus.Changed))
+            {
+                options.SetBoneTransformSelected(bone.BonePath, false);
+            }
+
+            RebuildArmatureDependencies();
+        }
+
+        internal void SetSimpleBoneSelected(string bonePath, bool selected)
+        {
+            options.SetSimpleBoneSelected(bonePath, selected);
+            ApplySimpleCartesianSelection();
+        }
+
+        internal void SetAdvancedWeightSelected(SkinWeightMeshBoneComparison pair, bool selected)
+        {
+            if (pair?.Weight == null)
+            {
+                return;
+            }
+
+            options.SetWeightClusterSelected(pair.MeshPath, pair.BonePath, selected);
+            RebuildArmatureDependencies();
+        }
+
+        internal void SetAdvancedBindposeSelected(SkinWeightMeshBoneComparison pair, bool selected)
+        {
+            if (pair?.Bindpose == null || !pair.Bindpose.SourceExists)
+            {
+                return;
+            }
+
+            options.SetBindposeSelected(pair.MeshPath, pair.BonePath, selected);
+            RebuildArmatureDependencies();
+        }
+
+        internal void SetAdvancedMeshEnabled(SkinWeightMeshComparison mesh, bool selected)
+        {
+            if (mesh == null)
+            {
+                return;
+            }
+
+            options.SetMeshEnabled(mesh.MeshPath, selected);
+            RebuildArmatureDependencies();
+        }
+
+        internal void SetAdvancedMeshDataEnabled(SkinWeightMeshComparison mesh, bool selected)
+        {
+            if (mesh == null)
+            {
+                return;
+            }
+
+            foreach (var pair in mesh.Bones)
+            {
+                options.SetWeightClusterSelected(
+                    pair.MeshPath,
+                    pair.BonePath,
+                    selected && pair.Weight != null);
+                options.SetBindposeSelected(
+                    pair.MeshPath,
+                    pair.BonePath,
+                    selected && pair.Bindpose?.SourceExists == true);
+            }
+
+            RebuildArmatureDependencies();
+        }
+
+        internal void SetAdvancedMeshesEnabled(bool selected)
+        {
+            foreach (var mesh in comparison.Meshes)
+            {
+                options.SetMeshEnabled(mesh.MeshPath, selected);
+            }
+
+            RebuildArmatureDependencies();
+        }
+
+        internal void SetAdvancedWeightsEnabled(bool selected)
+        {
+            foreach (var pair in comparison.Meshes.SelectMany(mesh => mesh.Bones))
+            {
+                options.SetWeightClusterSelected(
+                    pair.MeshPath,
+                    pair.BonePath,
+                    selected && pair.Weight != null);
+            }
+
+            RebuildArmatureDependencies();
+        }
+
+        internal void SetAdvancedBindposesEnabled(bool selected)
+        {
+            foreach (var pair in comparison.Meshes.SelectMany(mesh => mesh.Bones))
+            {
+                options.SetBindposeSelected(
+                    pair.MeshPath,
+                    pair.BonePath,
+                    selected && pair.Bindpose?.SourceExists == true);
+            }
+
+            RebuildArmatureDependencies();
+        }
+
+        internal void SetAdvancedMeshWeightsEnabled(SkinWeightMeshComparison mesh, bool selected)
+        {
+            if (mesh == null)
+            {
+                return;
+            }
+
+            foreach (var pair in mesh.Bones)
+            {
+                options.SetWeightClusterSelected(
+                    pair.MeshPath,
+                    pair.BonePath,
+                    selected && pair.Weight != null);
+            }
+
+            RebuildArmatureDependencies();
+        }
+
+        internal void SetAdvancedMeshBindposesEnabled(SkinWeightMeshComparison mesh, bool selected)
+        {
+            if (mesh == null)
+            {
+                return;
+            }
+
+            foreach (var pair in mesh.Bones)
+            {
+                options.SetBindposeSelected(
+                    pair.MeshPath,
+                    pair.BonePath,
+                    selected && pair.Bindpose?.SourceExists == true);
+            }
+
+            RebuildArmatureDependencies();
+        }
+
+        internal void RestoreAdvancedMeshes()
+        {
+            foreach (var pair in comparison.Meshes.SelectMany(mesh => mesh.Bones))
+            {
+                options.SetWeightClusterSelected(
+                    pair.MeshPath,
+                    pair.BonePath,
+                    ShouldAutomaticallySelectWeight(pair));
+                options.SetBindposeSelected(
+                    pair.MeshPath,
+                    pair.BonePath,
+                    ShouldAutomaticallySelectBindpose(pair));
+            }
+            foreach (var mesh in comparison.Meshes)
+            {
+                options.SetMeshEnabled(mesh.MeshPath, HasSelectedMeshData(mesh));
+            }
+
+            RebuildArmatureDependencies();
+        }
+
+        internal void DisableChangedAdvancedMeshes()
+        {
+            foreach (var pair in comparison.Meshes.SelectMany(mesh => mesh.Bones))
+            {
+                if (pair.Weight?.Status == SkinWeightComparisonStatus.Changed)
+                {
+                    options.SetWeightClusterSelected(pair.MeshPath, pair.BonePath, false);
+                }
+
+                if (pair.Bindpose?.Status == SkinWeightComparisonStatus.Changed)
+                {
+                    options.SetBindposeSelected(pair.MeshPath, pair.BonePath, false);
+                }
+            }
+
+            RebuildArmatureDependencies();
+        }
+
+        internal void RestoreAdvancedMesh(SkinWeightMeshComparison mesh)
+        {
+            if (mesh == null)
+            {
+                return;
+            }
+
+            foreach (var pair in mesh.Bones)
+            {
+                bool selectWeight = ShouldAutomaticallySelectWeight(pair);
+                bool selectBindpose = ShouldAutomaticallySelectBindpose(pair);
+                options.SetWeightClusterSelected(pair.MeshPath, pair.BonePath, selectWeight);
+                options.SetBindposeSelected(pair.MeshPath, pair.BonePath, selectBindpose);
+            }
+
+            options.SetMeshEnabled(mesh.MeshPath, HasSelectedMeshData(mesh));
+            RebuildArmatureDependencies();
+        }
+
+        internal void DisableChangedAdvancedMesh(SkinWeightMeshComparison mesh)
+        {
+            if (mesh == null)
+            {
+                return;
+            }
+
+            foreach (var pair in mesh.Bones)
+            {
+                if (pair.Weight?.Status == SkinWeightComparisonStatus.Changed)
+                {
+                    SetAdvancedWeightSelected(pair, false);
+                }
+
+                if (pair.Bindpose?.Status == SkinWeightComparisonStatus.Changed)
+                {
+                    SetAdvancedBindposeSelected(pair, false);
+                }
+            }
+            RebuildArmatureDependencies();
+        }
+
+        internal void SelectAll()
+        {
+            ClearAll();
+            if (Mode == SkinWeightSelectionMode.Simple)
+            {
+                foreach (var mesh in comparison.Meshes)
+                {
+                    options.SetSimpleMeshSelected(mesh.MeshPath, true);
+                }
+
+                foreach (var bone in comparison.RelevantBones)
+                {
+                    options.SetSimpleBoneSelected(bone.BonePath, true);
+                }
+
+                ApplySimpleCartesianSelection();
+                return;
+            }
+
+            foreach (var pair in comparison.Meshes.SelectMany(mesh => mesh.Bones))
+            {
+                options.SetWeightClusterSelected(pair.MeshPath, pair.BonePath, pair.Weight != null);
+                options.SetBindposeSelected(
+                    pair.MeshPath,
+                    pair.BonePath,
+                    pair.Bindpose?.SourceExists == true);
+            }
+            foreach (var bone in comparison.Bones.Where(bone => bone.SourceBoneExists))
+            {
+                options.SetBoneTransformSelected(bone.BonePath, true);
+            }
+            RebuildArmatureDependencies();
+        }
+
+        internal void ClearAll()
+        {
+            options.ClearSimpleAxes();
+            options.ClearMeshSelections();
+            options.ClearArmatureSelections();
+            options.ClearMeshEnabledOverrides();
+        }
+
+        internal void RestoreAutomaticSelection()
+        {
+            ClearAll();
+            var automaticPairs = comparison.Meshes
+                .SelectMany(mesh => mesh.Bones)
+                .Where(ShouldAutomaticallySelectPair)
+                .ToArray();
+            var automaticMeshKeys = new HashSet<string>(
+                automaticPairs.Select(pair => MeshFeatureExtractionSession.BuildMeshKey(pair.MeshPath)),
+                StringComparer.Ordinal);
+            var automaticBonePaths = new HashSet<string>(
+                automaticPairs.Select(pair => pair.BonePath),
+                StringComparer.Ordinal);
+
+            foreach (var mesh in comparison.Meshes.Where(mesh =>
+                         automaticMeshKeys.Contains(MeshFeatureExtractionSession.BuildMeshKey(mesh.MeshPath))))
+            {
+                options.SetSimpleMeshSelected(mesh.MeshPath, true);
+            }
+
+            foreach (string bonePath in automaticBonePaths)
+            {
+                options.SetSimpleBoneSelected(bonePath, true);
+            }
+
+            foreach (var pair in automaticPairs)
+            {
+                options.SetWeightClusterSelected(
+                    pair.MeshPath,
+                    pair.BonePath,
+                    ShouldAutomaticallySelectWeight(pair));
+                options.SetBindposeSelected(
+                    pair.MeshPath,
+                    pair.BonePath,
+                    ShouldAutomaticallySelectBindpose(pair));
+            }
+
+            foreach (var bone in comparison.Bones.Where(bone =>
+                         bone.SourceBoneExists &&
+                         bone.Transform?.Status == SkinWeightComparisonStatus.Changed))
+            {
+                options.SetSimpleBoneSelected(bone.BonePath, true);
+                options.SetBoneTransformSelected(bone.BonePath, true);
+            }
+
+            if (Mode == SkinWeightSelectionMode.Advanced)
+            {
+                foreach (var mesh in comparison.Meshes)
+                {
+                    options.SetMeshEnabled(mesh.MeshPath, HasSelectedMeshData(mesh));
+                }
+            }
+
+            RebuildArmatureDependencies();
+        }
+
+        internal void DisableChanged()
+        {
+            if (Mode == SkinWeightSelectionMode.Simple)
+            {
+                foreach (var bone in comparison.RelevantBones.Where(bone => bone.Meshes.Any(pair =>
+                             pair.Weight?.Status == SkinWeightComparisonStatus.Changed ||
+                             pair.Bindpose?.Status == SkinWeightComparisonStatus.Changed)))
+                {
+                    options.SetSimpleBoneSelected(bone.BonePath, false);
+                }
+
+                ApplySimpleCartesianSelection();
+            }
+            else
+            {
+                foreach (var pair in comparison.Meshes.SelectMany(mesh => mesh.Bones))
+                {
+                    if (pair.Weight?.Status == SkinWeightComparisonStatus.Changed)
+                    {
+                        options.SetWeightClusterSelected(pair.MeshPath, pair.BonePath, false);
+                    }
+
+                    if (pair.Bindpose?.Status == SkinWeightComparisonStatus.Changed)
+                    {
+                        options.SetBindposeSelected(pair.MeshPath, pair.BonePath, false);
+                    }
+                }
+
+                foreach (var bone in comparison.Bones.Where(bone =>
+                             bone.Transform?.Status == SkinWeightComparisonStatus.Changed))
+                {
+                    options.SetBoneTransformSelected(bone.BonePath, false);
+                }
+            }
+
+            RebuildArmatureDependencies();
+        }
+
+        internal bool IsRequiredParent(string bonePath)
+        {
+            string normalized = MeshNodePath.Normalize(bonePath);
+            foreach (string selected in options.GetSelectedNewBonePaths())
+            {
+                if (selected == normalized)
+                {
+                    continue;
+                }
+
+                string parent = MeshNodePath.ParentPath(selected);
+                while (parent != MeshNodePath.Root)
+                {
+                    if (parent == normalized &&
+                        comparison.TryGetBone(parent, out var parentBone) &&
+                        parentBone.RequiresCreateBone)
+                    {
+                        return true;
+                    }
+
+                    parent = MeshNodePath.ParentPath(parent);
+                }
+            }
+
+            return false;
+        }
+
+        private void ApplySimpleCartesianSelection()
+        {
+            options.ClearMeshSelections();
+            options.ClearExplicitBoneTransformSelections();
+            options.ClearAutomaticArmatureSelections();
+            options.ClearMeshEnabledOverrides();
+            var selectedMeshKeys = new HashSet<string>(
+                options.GetSelectedSimpleMeshKeys(),
+                StringComparer.Ordinal);
+            var selectedBones = new HashSet<string>(
+                options.GetSelectedSimpleBonePaths(),
+                StringComparer.Ordinal);
+            foreach (string bonePath in selectedBones)
+            {
+                if (comparison.TryGetBone(bonePath, out var bone) && bone.SourceBoneExists)
+                {
+                    options.SetBoneTransformSelected(bonePath, true);
+                }
+            }
+
+            foreach (var mesh in comparison.Meshes)
+            {
+                if (!selectedMeshKeys.Contains(MeshFeatureExtractionSession.BuildMeshKey(mesh.MeshPath)))
+                {
+                    continue;
+                }
+
+                foreach (var pair in mesh.Bones.Where(pair => selectedBones.Contains(pair.BonePath)))
+                {
+                    if (pair.Weight != null)
+                    {
+                        options.SetWeightClusterSelected(pair.MeshPath, pair.BonePath, true);
+                    }
+
+                    if (ShouldAutomaticallySelectBindpose(pair))
+                    {
+                        options.SetBindposeSelected(pair.MeshPath, pair.BonePath, true);
+                    }
+
+                }
+            }
+
+            RebuildArmatureDependencies();
+        }
+
+        private void AddAutomaticArmatureDependencies(string bonePath, bool forceTransform)
+        {
+            if (!comparison.TryGetBone(bonePath, out var bone))
+            {
+                return;
+            }
+
+            if (forceTransform && bone.SourceBoneExists)
+            {
+                options.SetBoneTransformForced(bone.BonePath, true);
+            }
+
+            if (bone.RequiresCreateBone)
+            {
+                options.SetNewBoneSelected(bone.BonePath, true);
+                options.EnsureRequiredParentSelections(comparison);
+            }
+        }
+
+        private void RebuildArmatureDependencies()
+        {
+            options.ClearAutomaticArmatureSelections();
+            foreach (string bonePath in options.GetExplicitBoneTransformPaths())
+            {
+                AddAutomaticArmatureDependencies(bonePath, false);
+            }
+
+            foreach (var pair in comparison.Meshes.SelectMany(mesh => mesh.Bones))
+            {
+                if (!options.IsMeshEnabled(pair.MeshPath))
+                {
+                    continue;
+                }
+
+                if (options.IsWeightClusterSelected(pair.MeshPath, pair.BonePath) ||
+                    options.IsBindposeSelected(pair.MeshPath, pair.BonePath))
+                {
+                    AddAutomaticArmatureDependencies(pair.BonePath, true);
+                }
+            }
+
+            if (!options.HasMeshScopedSelections() &&
+                options.GetSelectedBoneTransformPaths().Count > 0 &&
+                (comparison.Meshes.FirstOrDefault(mesh => options.IsMeshEnabled(mesh.MeshPath)) ??
+                 comparison.Meshes.FirstOrDefault()) is { } hostMesh)
+            {
+                options.SetArmatureOnlyHostMesh(hostMesh.MeshPath);
+            }
+        }
+
+        private static bool IsNewOrChanged(SkinWeightComparisonStatus? status)
+        {
+            return status == SkinWeightComparisonStatus.New ||
+                   status == SkinWeightComparisonStatus.Changed;
+        }
+
+        private static bool ShouldAutomaticallySelectWeight(SkinWeightMeshBoneComparison pair)
+        {
+            return pair?.Weight != null && IsNewOrChanged(pair.Weight.Status);
+        }
+
+        private static bool ShouldAutomaticallySelectBindpose(SkinWeightMeshBoneComparison pair)
+        {
+            return pair?.Bindpose?.SourceExists == true && IsNewOrChanged(pair.Bindpose.Status);
+        }
+
+        private static bool ShouldAutomaticallySelectPair(SkinWeightMeshBoneComparison pair)
+        {
+            return ShouldAutomaticallySelectWeight(pair) || ShouldAutomaticallySelectBindpose(pair);
+        }
+
+        private bool HasSelectedMeshData(SkinWeightMeshComparison mesh)
+        {
+            return mesh != null && mesh.Bones.Any(pair =>
+                options.IsWeightClusterSelected(pair.MeshPath, pair.BonePath) ||
+                options.IsBindposeSelected(pair.MeshPath, pair.BonePath));
+        }
     }
 
     public sealed class SkinWeightFeatureExtractor
@@ -287,7 +1143,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             var sourceWeights = SkinWeightFbxComparison.BuildWeightsByPath(sourceSkin, sourceBonesByIndex);
             var originWeights = SkinWeightFbxComparison.BuildWeightsByPath(originSkin, originBonesByIndex);
             int controlPointCount = context.GetOriginFbxMesh()?.ControlPointCount ?? 0;
-            var selectedWeightBonePaths = options.GetSelectedWeightBonePaths(context.Path);
+            var selection = options.ResolveSelection();
+            var selectedWeightBonePaths = selection.GetWeightBonePaths(context.Path);
             var deltaWeights = BuildSelectedDeltaWeights(
                 sourceWeights,
                 originWeights,
@@ -296,14 +1153,14 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
             var bindPoses = ExtractSelectedBindPoses(
                 sourceSkin,
-                options.GetSelectedBindposeBonePaths(context.Path),
+                selection.GetBindposeBonePaths(context.Path),
                 sourceBonesByIndex);
             var armature = options.GetOrCreateSharedArmature(
                 context.Session,
                 () => BuildSelectedArmature(
                     context.Session,
-                    options.GetSelectedBoneTransformPaths(),
-                    options.GetSelectedNewBonePaths()));
+                    selection.TransformBonePaths,
+                    selection.NewBonePaths));
 
             var clusters = BuildClusters(deltaWeights, bindPoses);
 

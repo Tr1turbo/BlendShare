@@ -17,6 +17,10 @@ namespace Triturbo.BlendShare.Features.BlendShapes
     {
         private readonly Dictionary<string, bool> meshFoldouts = new();
         private const float ComparisonPillSlotWidth = 100f;
+        private const float BlendShapeTableHorizontalPadding = 4f;
+        private const float BlendShapeUseColumnWidth = 60f;
+        private const float BlendShapeUseColumnRightPadding = 6f;
+        private const float BlendShapeToggleVisualWidth = 14f;
         private Vector2 scrollPosition;
         private float blendShapeScrollHeight = 240f;
         private readonly List<System.Action> baseModeRefreshers = new();
@@ -136,7 +140,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                 return root;
             }
 
-            var stickyHeader = StickyHeaderElement.CreateCommandBar();
+            var stickyHeader = new StickyHeaderElement();
             root.Add(stickyHeader);
 
             var scrollView = new ScrollView(ScrollViewMode.Vertical);
@@ -150,40 +154,55 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                 BlendShapeFeatureObject.Id,
                 out BlendShapeFbxComparison comparison);
 
-            System.Action requestStickyRefresh = null;
-            var sections = new List<StickyHeaderSection>();
+            System.Action refreshContent = null;
+            var meshSections = new List<BlendShapeMeshSection>();
             foreach (var request in requests)
             {
-                var section = CreateMeshSection(
+                var meshSection = CreateMeshSection(
                     options,
                     request,
                     sourceMeshes,
                     originMeshes,
                     comparison,
-                    () => requestStickyRefresh?.Invoke());
-                if (section == null)
+                    () => refreshContent?.Invoke());
+                if (meshSection == null)
                 {
                     continue;
                 }
 
-                sections.Add(section);
-                scrollView.Add(section.Root);
+                meshSections.Add(meshSection);
+                scrollView.Add(meshSection.Section.Root);
             }
 
-            if (sections.Count == 0)
+            if (meshSections.Count == 0)
             {
                 stickyHeader.style.display = DisplayStyle.None;
                 scrollView.Add(new HelpBox(Localization.S("patch_creator.no_meshes"), HelpBoxMessageType.Info));
                 return root;
             }
 
-            var overview = StickyHeaderOverview.Create(sections, () => Localization.S("common.meshes"));
-            stickyHeader.Bind(scrollView, sections, overview);
-            requestStickyRefresh = stickyHeader.Refresh;
+            var sections = meshSections.Select(item => item.Section).ToArray();
+            var overview = new StickyHeaderSection(
+                null,
+                null,
+                context => CreateBlendShapeStickyHeader(context, meshSections, null));
+            System.Action refreshRows = () =>
+            {
+                foreach (var meshSection in meshSections)
+                {
+                    meshSection.Refresh();
+                }
+            };
+            refreshContent = () =>
+            {
+                refreshRows();
+                stickyHeader.RequestRefresh();
+            };
+            stickyHeader.Bind(scrollView, sections, overview, refreshRows);
             return root;
         }
 
-        private StickyHeaderSection CreateMeshSection(
+        private BlendShapeMeshSection CreateMeshSection(
             BlendShapeExtractionOptions options,
             MeshFeatureExtractionMeshRequest request,
             UnityMeshExtractionSource sourceMeshes,
@@ -224,7 +243,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             UpdateTitle();
             foldout.style.marginBottom = 6f;
 
-            var meshEnabled = new Toggle(Localization.S("features.skin-weights.mesh"))
+            var meshEnabled = new Toggle(Localization.S("common.enabled"))
             {
                 value = options.IsMeshEnabled(request.Path)
             };
@@ -361,9 +380,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                 {
                     value = selected.Contains(shapeName)
                 };
-                shapeToggle.style.marginLeft = 14f;
-                shapeToggle.style.width = 22f;
-                shapeToggle.style.flexShrink = 0f;
+                ApplyBlendShapeUseToggleStyle(shapeToggle);
                 shapeToggle.userData = shapeName;
                 shapeToggle.RegisterValueChangedCallback(evt =>
                 {
@@ -391,24 +408,158 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                 }
 
                 row.Add(statusSlot);
-                row.Add(shapeToggle);
+                var useSlot = CreateBlendShapeFixedColumn(
+                    BlendShapeUseColumnWidth,
+                    "blendshape-table-use-cell",
+                    BlendShapeUseColumnRightPadding);
+                useSlot.Add(shapeToggle);
+                row.Add(useSlot);
                 table.Add(row);
             }
 
             meshControls.Add(table);
 
-            return new StickyHeaderSection(
+            void SetMeshEnabled(bool value)
+            {
+                options.SetMeshEnabled(request.Path, value);
+                meshEnabled.SetValueWithoutNotify(value);
+                meshControls.SetEnabled(value);
+                onSelectionChanged?.Invoke();
+            }
+
+            void RefreshSection()
+            {
+                UpdateTitle();
+                meshEnabled.SetValueWithoutNotify(options.IsMeshEnabled(request.Path));
+                meshControls.SetEnabled(options.IsMeshEnabled(request.Path));
+                SetShapeToggleValues(foldout, selected);
+            }
+
+            var result = new BlendShapeMeshSection
+            {
+                Title = () => foldout.text,
+                IsEnabled = () => options.IsMeshEnabled(request.Path),
+                SetEnabled = SetMeshEnabled,
+                EnableAll = EnableAll,
+                DisableAll = DisableAll,
+                Restore = RestoreDefaults,
+                DisableChanged = DisableChanged,
+                Refresh = RefreshSection,
+                SelectedCount = () => selected.Count,
+                TotalCount = () => blendShapeNames.Count
+            };
+            result.Section = new StickyHeaderSection(
                 foldout,
                 foldout,
-                () => foldout.text,
-                () => selected.Count,
-                blendShapeNames.Count,
-                () => options.IsMeshEnabled(request.Path),
-                value => meshEnabled.value = value,
-                EnableAll,
-                DisableAll,
-                RestoreDefaults,
-                DisableChanged);
+                context => CreateBlendShapeStickyHeader(context, new[] { result }, result));
+            return result;
+        }
+
+        private static VisualElement CreateBlendShapeStickyHeader(
+            StickyHeaderContext context,
+            IReadOnlyList<BlendShapeMeshSection> meshSections,
+            BlendShapeMeshSection activeMesh)
+        {
+            IReadOnlyList<BlendShapeMeshSection> targets = activeMesh == null
+                ? meshSections
+                : new[] { activeMesh };
+            int enabledCount = targets.Count(item => item.IsEnabled());
+            string title = activeMesh?.Title() ??
+                           $"{Localization.S("common.meshes")} ({enabledCount}/{targets.Count})";
+
+            var bar = new StickyHeaderBar
+            {
+                name = activeMesh == null
+                    ? "blendshape-sticky:meshes"
+                    : "blendshape-sticky:mesh"
+            };
+            bar.SetRightContentPadding(BlendShapeTableHorizontalPadding);
+            bar.Leading.Add(StickyHeaderControls.CreatePrimaryToggle(
+                StickyHeaderToggleState.FromCounts(enabledCount, targets.Count),
+                value => context.ApplyChange(() =>
+                {
+                    foreach (var target in targets)
+                    {
+                        target.SetEnabled(value);
+                    }
+                }),
+                "blendshape-sticky-toggle:mesh"));
+            bar.Title.Add(StickyHeaderControls.CreateTitleButton(title, context.ScrollToSection));
+            bar.Actions.Add(StickyHeaderControls.CreateActionButton(
+                Localization.S("common.enable_all"),
+                () => context.ApplyChange(() =>
+                {
+                    foreach (var target in targets)
+                    {
+                        target.EnableAll();
+                    }
+                })));
+            bar.Actions.Add(StickyHeaderControls.CreateActionButton(
+                Localization.S("common.disable_all"),
+                () => context.ApplyChange(() =>
+                {
+                    foreach (var target in targets)
+                    {
+                        target.DisableAll();
+                    }
+                })));
+            bar.Actions.Add(StickyHeaderControls.CreateActionButton(
+                Localization.S("common.auto"),
+                () => context.ApplyChange(() =>
+                {
+                    foreach (var target in targets)
+                    {
+                        target.Restore();
+                    }
+                })));
+            bar.Actions.Add(StickyHeaderControls.CreateActionButton(
+                Localization.S("common.disable_diff"),
+                () => context.ApplyChange(() =>
+                {
+                    foreach (var target in targets)
+                    {
+                        target.DisableChanged();
+                    }
+                })));
+            int selectedCount = 0;
+            int totalCount = 0;
+            bool allSectionsEnabled = targets.Count > 0;
+            foreach (var target in targets)
+            {
+                selectedCount += target.SelectedCount();
+                totalCount += target.TotalCount();
+                allSectionsEnabled &= target.IsEnabled();
+            }
+
+            bar.Trailing.Add(CreateBlendShapeFixedColumn(
+                ComparisonPillSlotWidth,
+                "blendshape-sticky-status-spacer"));
+            var stickyUseCell = StickyHeaderControls.CreateToggleCell(
+                Localization.S("common.use"),
+                StickyHeaderToggleState.FromCounts(selectedCount, totalCount, allSectionsEnabled),
+                value => context.ApplyChange(() =>
+                {
+                    foreach (var target in targets)
+                    {
+                        if (value)
+                        {
+                            target.EnableAll();
+                        }
+                        else
+                        {
+                            target.DisableAll();
+                        }
+                    }
+                }),
+                "blendshape-sticky-toggle:use",
+                BlendShapeUseColumnWidth,
+                BlendShapeToggleVisualWidth);
+            stickyUseCell.name = "blendshape-sticky-use-cell";
+            stickyUseCell.style.paddingRight = BlendShapeUseColumnRightPadding;
+            ApplyBlendShapeUseToggleStyle(
+                stickyUseCell.Q<Toggle>("blendshape-sticky-toggle:use"));
+            bar.Trailing.Add(stickyUseCell);
+            return bar;
         }
 
         private static Toggle CreateOptionToggle(
@@ -446,6 +597,21 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                 : "patch_creator.alignment.basis_rebase_original");
         }
 
+        private sealed class BlendShapeMeshSection
+        {
+            public StickyHeaderSection Section { get; set; }
+            public System.Func<string> Title { get; set; }
+            public System.Func<bool> IsEnabled { get; set; }
+            public System.Action<bool> SetEnabled { get; set; }
+            public System.Action EnableAll { get; set; }
+            public System.Action DisableAll { get; set; }
+            public System.Action Restore { get; set; }
+            public System.Action DisableChanged { get; set; }
+            public System.Action Refresh { get; set; }
+            public System.Func<int> SelectedCount { get; set; }
+            public System.Func<int> TotalCount { get; set; }
+        }
+
         private static Label CreateHeaderLabel(string text)
         {
             var label = new Label(text);
@@ -481,21 +647,28 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             ApplyBlendShapeNameColumnStyle(nameLabel);
 
             var statusLabel = new Label(Localization.S("common.status"));
-            statusLabel.style.width = ComparisonPillSlotWidth;
-            statusLabel.style.flexShrink = 0f;
             BlendShareInspectorUi.StyleStrong(statusLabel);
+            statusLabel.style.width = Length.Percent(100f);
             statusLabel.style.unityTextAlign = TextAnchor.MiddleRight;
 
             var toggleLabel = new Label(Localization.S("common.use"));
-            toggleLabel.style.width = 22f;
-            toggleLabel.style.marginLeft = 14f;
-            toggleLabel.style.flexShrink = 0f;
             BlendShareInspectorUi.StyleStrong(toggleLabel);
-            toggleLabel.style.unityTextAlign = TextAnchor.MiddleCenter;
+            toggleLabel.style.width = Length.Percent(100f);
+            toggleLabel.style.unityTextAlign = TextAnchor.MiddleRight;
+
+            var statusHeader = CreateBlendShapeFixedColumn(
+                ComparisonPillSlotWidth,
+                "blendshape-table-status-header");
+            statusHeader.Add(statusLabel);
+            var useHeader = CreateBlendShapeFixedColumn(
+                BlendShapeUseColumnWidth,
+                "blendshape-table-use-header",
+                BlendShapeUseColumnRightPadding);
+            useHeader.Add(toggleLabel);
 
             row.Add(nameLabel);
-            row.Add(statusLabel);
-            row.Add(toggleLabel);
+            row.Add(statusHeader);
+            row.Add(useHeader);
             return row;
         }
 
@@ -505,8 +678,8 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             row.style.flexDirection = FlexDirection.Row;
             row.style.alignItems = Align.Center;
             row.style.minHeight = 24f;
-            row.style.paddingLeft = 4f;
-            row.style.paddingRight = 4f;
+            row.style.paddingLeft = BlendShapeTableHorizontalPadding;
+            row.style.paddingRight = BlendShapeTableHorizontalPadding;
 
             if (rowIndex >= 0)
             {
@@ -520,9 +693,8 @@ namespace Triturbo.BlendShare.Features.BlendShapes
 
         private static void ApplyBlendShapeNameColumnStyle(Label label)
         {
-            label.style.flexGrow = 0.8f;
+            label.style.flexGrow = 1f;
             label.style.flexShrink = 1f;
-            label.style.maxWidth = 680f;
             label.style.minWidth = 100f;
             label.style.overflow = Overflow.Hidden;
             label.style.unityTextOverflowPosition = TextOverflowPosition.End;
@@ -530,12 +702,42 @@ namespace Triturbo.BlendShare.Features.BlendShapes
 
         private static VisualElement CreateComparisonPillSlot()
         {
-            var statusSlot = new VisualElement();
-            statusSlot.style.width = ComparisonPillSlotWidth;
-            statusSlot.style.flexShrink = 0f;
-            statusSlot.style.flexDirection = FlexDirection.RowReverse;
-            statusSlot.style.alignItems = Align.Center;
+            var statusSlot = CreateBlendShapeFixedColumn(
+                ComparisonPillSlotWidth,
+                "blendshape-table-status-cell");
             return statusSlot;
+        }
+
+        private static VisualElement CreateBlendShapeFixedColumn(
+            float width,
+            string name,
+            float rightPadding = 0f)
+        {
+            var column = new VisualElement { name = name };
+            column.style.width = width;
+            column.style.paddingRight = rightPadding;
+            column.style.flexShrink = 0f;
+            column.style.flexDirection = FlexDirection.Row;
+            column.style.alignItems = Align.Center;
+            column.style.justifyContent = Justify.FlexEnd;
+            return column;
+        }
+
+        private static void ApplyBlendShapeUseToggleStyle(Toggle toggle)
+        {
+            if (toggle == null)
+            {
+                return;
+            }
+
+            // UI Toolkit's default Toggle reserves horizontal margins and
+            // left-aligns its 14px checkmark inside a wider control. Remove
+            // that extra space so the visible checkmark follows the shared
+            // Use-column right padding exactly.
+            toggle.style.width = BlendShapeToggleVisualWidth;
+            toggle.style.flexShrink = 0f;
+            toggle.style.marginLeft = 0f;
+            toggle.style.marginRight = 0f;
         }
 
         private static Label CreateComparisonPill(BlendShapeComparisonStatus status)

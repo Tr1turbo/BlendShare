@@ -5,6 +5,7 @@ using Triturbo.BlendShapeShare;
 using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Inspector;
 using UnityEditor;
+using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -16,7 +17,16 @@ namespace Triturbo.BlendShare.Features.SkinWeights
           IUIToolkitMeshFeatureOptionsProvider
     {
         private const float StatusSlotWidth = 94f;
-        private readonly Dictionary<string, bool> boneFoldouts = new();
+        private const float SimpleRowHeight = 22f;
+        private const float SimpleListPanelMinHeight = 124f;
+        private const float AdvancedFeatureColumnWidth = 170f;
+        private const float AdvancedTableHorizontalPadding = 4f;
+        private readonly Dictionary<string, bool> meshFoldouts = new(StringComparer.Ordinal);
+        private bool showAllBones;
+        private string meshSearch = string.Empty;
+        private string boneSearch = string.Empty;
+        private string advancedBoneSearch = string.Empty;
+        private Vector2 advancedScrollOffset;
 
         public override string FeatureId => SkinWeightFeatureObject.Id;
         public override string TabLabel => Localization.FeatureName(FeatureId, "Skin Weights");
@@ -55,43 +65,24 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             };
             root.Add(enabledToggle);
 
-            var listRoot = CreateSkinWeightListElement(options, context);
-            listRoot.SetEnabled(options.Enabled);
-            root.Add(listRoot);
+            var content = new VisualElement();
+            content.style.flexGrow = 1f;
+            content.style.minHeight = 0f;
+            content.style.flexDirection = FlexDirection.Column;
+            content.SetEnabled(options.Enabled);
+            root.Add(content);
 
             enabledToggle.RegisterValueChangedCallback(evt =>
             {
                 options.Enabled = evt.newValue;
-                listRoot.SetEnabled(options.Enabled);
+                content.SetEnabled(evt.newValue);
             });
-            return root;
-        }
-
-        protected override void DrawOptionsGUI(
-            SkinWeightExtractionOptions options,
-            MeshFeatureOptionsEditorContext context)
-        {
-            if (options == null)
-            {
-                return;
-            }
-
-            options.Enabled = EditorGUILayout.ToggleLeft(Localization.S("features.skin-weights.toggle"), options.Enabled);
-        }
-
-        private VisualElement CreateSkinWeightListElement(
-            SkinWeightExtractionOptions options,
-            MeshFeatureOptionsEditorContext context)
-        {
-            var root = new VisualElement { name = "skin-weight-list-root" };
-            root.style.flexGrow = 1f;
-            root.style.minHeight = 0f;
-            root.style.flexDirection = FlexDirection.Column;
-            root.Add(CreateHeaderLabel(Localization.S("features.skin-weights.bones")));
 
             if (context?.SourceFbxGo == null || context.OriginFbxGo == null)
             {
-                root.Add(new HelpBox(Localization.S("patch_creator.assign_fbx_hint"), HelpBoxMessageType.Info));
+                content.Add(new HelpBox(
+                    Localization.S("patch_creator.assign_fbx_hint"),
+                    HelpBoxMessageType.Info));
                 return root;
             }
 
@@ -99,487 +90,1042 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 comparison == null ||
                 comparison.Bones.Count == 0)
             {
-                root.Add(new HelpBox(Localization.S("features.skin-weights.no_differences"), HelpBoxMessageType.Info));
+                content.Add(new HelpBox(
+                    Localization.S("features.skin-weights.no_differences"),
+                    HelpBoxMessageType.Info));
                 return root;
             }
 
-            options.EnsureDefaultSelection(comparison);
-            options.EnsureRequiredParentSelections(comparison);
-            AddDiagnostics(root, comparison);
+            var controller = new SkinWeightSelectionController(options, comparison);
+            controller.EnsureDefaultSelection();
+            AddDiagnostics(content, comparison);
 
-            var stickyHeader = StickyHeaderElement.CreateCommandBar(
-                Localization.S("common.select_all"),
-                Localization.S("common.clear_all"),
-                Localization.S("common.auto"),
-                Localization.S("common.disable_diff"));
-            root.Add(stickyHeader);
-
-            var scrollView = new ScrollView(ScrollViewMode.Vertical);
-            scrollView.style.flexGrow = 1f;
-            scrollView.style.minHeight = 0f;
-            root.Add(scrollView);
-
-            Action requestStickyRefresh = null;
-            var sections = new List<StickyHeaderSection>();
-            foreach (var bone in comparison.Bones)
+            var modeChoices = new List<string>
             {
-                var section = CreateBoneSection(
-                    options,
-                    comparison,
-                    bone,
-                    () => requestStickyRefresh?.Invoke());
-                sections.Add(section);
-                scrollView.Add(section.Root);
+                Localization.S("features.skin-weights.mode.simple"),
+                Localization.S("features.skin-weights.mode.advanced")
+            };
+            var modeField = new PopupField<string>(
+                Localization.S("features.skin-weights.mode"),
+                modeChoices,
+                options.SelectionMode == SkinWeightSelectionMode.Simple ? 0 : 1);
+            content.Add(modeField);
+
+            var modeContent = new VisualElement();
+            modeContent.style.flexGrow = 1f;
+            modeContent.style.minHeight = 0f;
+            modeContent.style.flexDirection = FlexDirection.Column;
+            content.Add(modeContent);
+
+            void RebuildModeContent()
+            {
+                modeContent.Clear();
+                modeContent.Add(options.SelectionMode == SkinWeightSelectionMode.Simple
+                    ? CreateSimpleMode(controller, comparison)
+                    : CreateAdvancedMode(controller, comparison));
             }
 
-            var overview = StickyHeaderOverview.Create(sections, () => Localization.S("features.skin-weights.bones"));
-            stickyHeader.Bind(scrollView, sections, overview);
-            requestStickyRefresh = stickyHeader.RequestRefresh;
+            modeField.RegisterValueChangedCallback(evt =>
+            {
+                int requestedIndex = modeChoices.IndexOf(evt.newValue);
+                if (requestedIndex == 1)
+                {
+                    controller.SwitchToAdvanced();
+                    RebuildModeContent();
+                    return;
+                }
+
+                int expansionCount = controller.GetSimpleExpansionCount();
+                if (expansionCount > 0 && !EditorUtility.DisplayDialog(
+                        Localization.S("features.skin-weights.mode.expand.title"),
+                        Localization.SF("features.skin-weights.mode.expand.message", expansionCount),
+                        Localization.S("features.skin-weights.mode.expand.confirm"),
+                        Localization.S("common.cancel")))
+                {
+                    modeField.SetValueWithoutNotify(modeChoices[1]);
+                    return;
+                }
+
+                controller.SwitchToSimple();
+                RebuildModeContent();
+            });
+
+            RebuildModeContent();
             return root;
         }
 
-        private StickyHeaderSection CreateBoneSection(
+        protected override void DrawOptionsGUI(
             SkinWeightExtractionOptions options,
-            SkinWeightFbxComparison comparison,
-            SkinWeightBoneComparison bone,
-            Action onSelectionChanged)
+            MeshFeatureOptionsEditorContext context)
         {
-            string key = MeshNodePath.Normalize(bone.BonePath);
-            if (!boneFoldouts.ContainsKey(key))
+            if (options != null)
             {
-                boneFoldouts[key] = GetCombinedStatus(bone) != SkinWeightComparisonStatus.Same;
+                options.Enabled = EditorGUILayout.ToggleLeft(
+                    Localization.S("features.skin-weights.toggle"),
+                    options.Enabled);
+            }
+        }
+
+        private VisualElement CreateSimpleMode(
+            SkinWeightSelectionController controller,
+            SkinWeightFbxComparison comparison)
+        {
+            var root = CreateModeRoot();
+            Action refresh = null;
+            root.Add(CreateCommandBar(controller, () => refresh?.Invoke()));
+
+            var split = new TwoPaneSplitView(0, 300f, TwoPaneSplitViewOrientation.Vertical);
+            split.style.flexGrow = 1f;
+            split.style.minHeight = 0f;
+            split.style.overflow = Overflow.Hidden;
+            var meshList = CreateSimpleMeshList(controller, comparison, () => refresh?.Invoke());
+            var boneList = CreateSimpleBoneList(controller, comparison, () => refresh?.Invoke());
+            refresh = () =>
+            {
+                meshList.Refresh();
+                boneList.Refresh();
+            };
+            split.Add(meshList.Root);
+            split.Add(boneList.Root);
+            root.Add(split);
+            return root;
+        }
+
+        private RefreshableElement CreateSimpleMeshList(
+            SkinWeightSelectionController controller,
+            SkinWeightFbxComparison comparison,
+            Action refresh)
+        {
+            var panel = CreateListPanel(Localization.S("common.meshes"));
+            var search = new ToolbarSearchField { value = meshSearch };
+            search.style.flexGrow = 0f;
+            search.style.flexShrink = 0f;
+            search.style.width = Length.Percent(100f);
+            search.tooltip = Localization.S("features.skin-weights.search_meshes.tooltip");
+            panel.Add(search);
+
+            var list = new ListView
+            {
+                fixedItemHeight = SimpleRowHeight,
+                virtualizationMethod = CollectionVirtualizationMethod.FixedHeight,
+                selectionType = SelectionType.None,
+                makeItem = CreateSimpleListItem
+            };
+            list.style.flexGrow = 1f;
+            list.style.minHeight = 80f;
+            panel.Add(list);
+
+            void RefreshItems()
+            {
+                var visible = comparison.Meshes
+                    .Where(mesh => MatchesSearch(mesh.MeshPath, meshSearch))
+                    .ToArray();
+                list.itemsSource = visible;
+                list.bindItem = (element, index) =>
+                {
+                    element.Clear();
+                    var mesh = visible[index];
+                    var row = CreateSelectionRow(
+                        mesh.MeshPath,
+                        FormatMeshSummary(mesh),
+                        controller.IsSimpleMeshSelected(mesh.MeshPath),
+                        value =>
+                        {
+                            controller.SetSimpleMeshSelected(mesh.MeshPath, value);
+                            refresh?.Invoke();
+                        });
+                    element.Add(row);
+                };
+                list.Rebuild();
+            }
+
+            void RefreshSelection()
+            {
+                list.RefreshItems();
+            }
+
+            search.RegisterValueChangedCallback(evt =>
+            {
+                meshSearch = evt.newValue ?? string.Empty;
+                RefreshItems();
+            });
+            RefreshItems();
+            return new RefreshableElement(panel, RefreshSelection);
+        }
+
+        private RefreshableElement CreateSimpleBoneList(
+            SkinWeightSelectionController controller,
+            SkinWeightFbxComparison comparison,
+            Action refresh)
+        {
+            var showAll = new Toggle(Localization.S("features.skin-weights.show_all_bones"))
+            {
+                value = showAllBones
+            };
+            var panel = CreateListPanel(Localization.S("features.skin-weights.bones"), showAll);
+            var search = new ToolbarSearchField { value = boneSearch };
+            search.style.flexGrow = 0f;
+            search.style.flexShrink = 0f;
+            search.style.width = Length.Percent(100f);
+            search.tooltip = Localization.S("features.skin-weights.search_bones.tooltip");
+            panel.Add(search);
+
+            var list = new ListView
+            {
+                fixedItemHeight = SimpleRowHeight,
+                virtualizationMethod = CollectionVirtualizationMethod.FixedHeight,
+                selectionType = SelectionType.None,
+                makeItem = CreateSimpleListItem
+            };
+            list.style.flexGrow = 1f;
+            list.style.minHeight = 80f;
+            panel.Add(list);
+
+            void RefreshItems()
+            {
+                var source = showAllBones ? comparison.Bones : comparison.RelevantBones;
+                var visible = source
+                    .Where(bone => MatchesSearch(bone.BonePath, boneSearch))
+                    .ToArray();
+                list.itemsSource = visible;
+                list.bindItem = (element, index) =>
+                {
+                    element.Clear();
+                    var bone = visible[index];
+                    bool requiredParent = controller.IsRequiredParent(bone.BonePath);
+                    var row = CreateSelectionRow(
+                        GetBoneName(bone.BonePath),
+                        FormatBoneSummary(bone),
+                        controller.IsSimpleBoneSelected(bone.BonePath) || requiredParent,
+                        value =>
+                        {
+                            controller.SetSimpleBoneSelected(bone.BonePath, value);
+                            refresh?.Invoke();
+                        },
+                        !requiredParent,
+                        bone.BonePath,
+                        bone.RequiresCreateBone
+                            ? Localization.S("features.skin-weights.status.new_bone")
+                            : null);
+                    element.Add(row);
+                };
+                list.Rebuild();
+            }
+
+            void RefreshSelection()
+            {
+                list.RefreshItems();
+            }
+
+            search.RegisterValueChangedCallback(evt =>
+            {
+                boneSearch = evt.newValue ?? string.Empty;
+                RefreshItems();
+            });
+            showAll.RegisterValueChangedCallback(evt =>
+            {
+                showAllBones = evt.newValue;
+                RefreshItems();
+            });
+            RefreshItems();
+            return new RefreshableElement(panel, RefreshSelection);
+        }
+
+        private VisualElement CreateAdvancedMode(
+            SkinWeightSelectionController controller,
+            SkinWeightFbxComparison comparison)
+        {
+            var root = CreateModeRoot();
+            Action refresh = null;
+            var stickyHeader = new StickyHeaderElement();
+            root.Add(stickyHeader);
+
+            var scroll = new ScrollView(ScrollViewMode.Vertical);
+            scroll.style.flexGrow = 1f;
+            scroll.style.minHeight = 0f;
+            scroll.verticalScroller.valueChanged += value => advancedScrollOffset.y = value;
+            root.Add(scroll);
+
+            var sectionRefreshers = new List<Action>();
+            var sections = new List<StickyHeaderSection>();
+            foreach (var mesh in comparison.Meshes)
+            {
+                var section = CreateAdvancedMeshSection(
+                    controller,
+                    comparison,
+                    mesh,
+                    sectionRefreshers,
+                    () => refresh?.Invoke());
+                sections.Add(section);
+                scroll.Add(section.Root);
+            }
+
+            var transformSection = CreateAdvancedTransformSection(
+                controller,
+                comparison,
+                sectionRefreshers,
+                () => refresh?.Invoke());
+            sections.Add(transformSection);
+            scroll.Add(transformSection.Root);
+
+            var meshOverview = new StickyHeaderSection(
+                null,
+                null,
+                context => CreateAdvancedMeshStickyHeader(
+                    context,
+                    controller,
+                    comparison,
+                    null,
+                    Localization.S("common.meshes")));
+            Action refreshContent = () =>
+            {
+                foreach (var update in sectionRefreshers)
+                {
+                    update();
+                }
+            };
+            refresh = () =>
+            {
+                refreshContent();
+                stickyHeader.RequestRefresh();
+            };
+            stickyHeader.Bind(scroll, sections, meshOverview, refreshContent);
+            scroll.schedule.Execute(() => scroll.scrollOffset = advancedScrollOffset);
+            return root;
+        }
+
+        private StickyHeaderSection CreateAdvancedMeshSection(
+            SkinWeightSelectionController controller,
+            SkinWeightFbxComparison comparison,
+            SkinWeightMeshComparison mesh,
+            List<Action> sectionRefreshers,
+            Action refresh)
+        {
+            string key = MeshFeatureExtractionSession.BuildMeshKey(mesh.MeshPath);
+            if (!meshFoldouts.ContainsKey(key))
+            {
+                meshFoldouts[key] = mesh.Bones.Any(pair => IsPairSelected(controller, pair));
             }
 
             var foldout = new Foldout
             {
-                value = boneFoldouts[key]
+                value = meshFoldouts[key]
             };
             foldout.style.marginBottom = 6f;
-
-            var weightToggles = new List<(Toggle Toggle, SkinWeightMeshClusterComparison Cluster)>();
-            var bindposeToggles = new List<(Toggle Toggle, SkinWeightBindposeComparison Bindpose)>();
-            Toggle transformToggle = null;
-            Toggle createBoneToggle = null;
-            bool contentBuilt = false;
-
-            int SelectedCount()
+            bool built = false;
+            var toggleRefreshers = new List<Action>();
+            var meshControls = new VisualElement
             {
-                int selected = (bone.WeightClusters ?? Array.Empty<SkinWeightMeshClusterComparison>())
-                    .Count(cluster => options.IsWeightClusterSelected(cluster.MeshPath, bone.BonePath));
-                selected += (bone.Bindposes ?? Array.Empty<SkinWeightBindposeComparison>())
-                    .Count(bindPose => options.IsBindposeSelected(bindPose.MeshPath, bone.BonePath));
-                if (bone.Transform != null && options.IsBoneTransformSelected(bone.BonePath))
-                {
-                    selected++;
-                }
+                name = $"skin-weight-mesh-controls:{key}"
+            };
+            var meshEnabled = new Toggle(Localization.S("common.enabled"))
+            {
+                name = $"skin-weight-mesh-enabled:{key}",
+                value = controller.IsAdvancedMeshEnabled(mesh)
+            };
+            meshEnabled.RegisterValueChangedCallback(evt =>
+            {
+                controller.SetAdvancedMeshEnabled(mesh, evt.newValue);
+                refresh?.Invoke();
+            });
+            foldout.Add(meshEnabled);
+            foldout.Add(meshControls);
 
-                if (bone.RequiresCreateBone && options.IsNewBoneSelected(bone.BonePath))
-                {
-                    selected++;
-                }
-
-                return selected;
-            }
-
-            int totalCount = (bone.WeightClusters?.Count ?? 0) +
-                             (bone.Bindposes?.Count ?? 0) +
-                             (bone.Transform != null ? 1 : 0) +
-                             (bone.RequiresCreateBone ? 1 : 0);
+            int SelectedCount() => CountSelectedPairs(controller, mesh);
 
             void UpdateTitle()
             {
-                foldout.text = $"{GetBoneName(bone.BonePath)} ({GetCombinedStatusText(bone)}, {SelectedCount()}/{totalCount})";
+                foldout.text = $"{mesh.MeshPath} ({SelectedCount()}/{mesh.Bones.Count})";
             }
 
-            void RefreshToggles()
+            void RefreshSection()
             {
-                foreach (var item in weightToggles)
-                {
-                    item.Toggle.SetValueWithoutNotify(
-                        options.IsWeightClusterSelected(item.Cluster.MeshPath, bone.BonePath));
-                }
-
-                foreach (var item in bindposeToggles)
-                {
-                    item.Toggle.SetValueWithoutNotify(
-                        options.IsBindposeSelected(item.Bindpose.MeshPath, bone.BonePath));
-                }
-
-                if (transformToggle != null)
-                {
-                    bool requiredTransform = bone.RequiresCreateBone &&
-                                             options.IsNewBoneSelected(bone.BonePath);
-                    transformToggle.SetEnabled(!requiredTransform);
-                    transformToggle.SetValueWithoutNotify(options.IsBoneTransformSelected(bone.BonePath));
-                }
-
-                if (createBoneToggle != null)
-                {
-                    bool requiredParent = IsRequiredParent(options, comparison, bone.BonePath);
-                    createBoneToggle.label = requiredParent
-                        ? Localization.S("features.skin-weights.create_bone_required_parent")
-                        : Localization.S("features.skin-weights.create_bone");
-                    createBoneToggle.SetEnabled(!requiredParent);
-                    createBoneToggle.SetValueWithoutNotify(options.IsNewBoneSelected(bone.BonePath));
-                }
-
                 UpdateTitle();
-                onSelectionChanged?.Invoke();
+                meshEnabled.SetValueWithoutNotify(controller.IsAdvancedMeshEnabled(mesh));
+                meshControls.SetEnabled(controller.IsAdvancedMeshEnabled(mesh));
+                foreach (var update in toggleRefreshers)
+                {
+                    update();
+                }
             }
+            sectionRefreshers.Add(RefreshSection);
 
-            void EnableAll()
+            void BuildContent()
             {
-                foreach (var cluster in bone.WeightClusters ?? Array.Empty<SkinWeightMeshClusterComparison>())
-                {
-                    options.SetWeightClusterSelected(cluster.MeshPath, bone.BonePath, true);
-                }
-
-                foreach (var bindPose in bone.Bindposes ?? Array.Empty<SkinWeightBindposeComparison>())
-                {
-                    options.SetBindposeSelected(bindPose.MeshPath, bone.BonePath, true);
-                }
-
-                if (bone.Transform != null)
-                {
-                    options.SetBoneTransformSelected(bone.BonePath, true);
-                }
-
-                if (bone.RequiresCreateBone)
-                {
-                    options.SetNewBoneSelected(bone.BonePath, true);
-                    options.SetBoneTransformSelected(bone.BonePath, true);
-                    options.EnsureRequiredParentSelections(comparison);
-                }
-
-                RefreshToggles();
-            }
-
-            void DisableAll()
-            {
-                foreach (var cluster in bone.WeightClusters ?? Array.Empty<SkinWeightMeshClusterComparison>())
-                {
-                    options.SetWeightClusterSelected(cluster.MeshPath, bone.BonePath, false);
-                }
-
-                foreach (var bindPose in bone.Bindposes ?? Array.Empty<SkinWeightBindposeComparison>())
-                {
-                    options.SetBindposeSelected(bindPose.MeshPath, bone.BonePath, false);
-                }
-
-                options.SetNewBoneSelected(bone.BonePath, false);
-                options.SetBoneTransformSelected(bone.BonePath, false);
-                options.EnsureRequiredParentSelections(comparison);
-                RefreshToggles();
-            }
-
-            void Restore()
-            {
-                foreach (var cluster in bone.WeightClusters ?? Array.Empty<SkinWeightMeshClusterComparison>())
-                {
-                    bool selected = cluster.Status == SkinWeightComparisonStatus.New ||
-                                    cluster.Status == SkinWeightComparisonStatus.Changed;
-                    options.SetWeightClusterSelected(cluster.MeshPath, bone.BonePath, selected);
-                }
-
-                foreach (var bindPose in bone.Bindposes ?? Array.Empty<SkinWeightBindposeComparison>())
-                {
-                    bool selected = (bindPose.Status == SkinWeightComparisonStatus.New ||
-                                     bindPose.Status == SkinWeightComparisonStatus.Changed) &&
-                                    options.IsWeightClusterSelected(bindPose.MeshPath, bone.BonePath);
-                    options.SetBindposeSelected(bindPose.MeshPath, bone.BonePath, selected);
-                }
-
-                bool anyWeightSelected = (bone.WeightClusters ?? Array.Empty<SkinWeightMeshClusterComparison>())
-                    .Any(cluster => options.IsWeightClusterSelected(cluster.MeshPath, bone.BonePath));
-                options.SetNewBoneSelected(bone.BonePath, bone.RequiresCreateBone && anyWeightSelected);
-                bool selectTransform = bone.Transform?.Status == SkinWeightComparisonStatus.Changed ||
-                                       (bone.RequiresCreateBone && anyWeightSelected);
-                options.SetBoneTransformSelected(bone.BonePath, selectTransform);
-                options.EnsureRequiredParentSelections(comparison);
-                RefreshToggles();
-            }
-
-            void DisableChanged()
-            {
-                foreach (var cluster in bone.WeightClusters ?? Array.Empty<SkinWeightMeshClusterComparison>())
-                {
-                    if (cluster.Status == SkinWeightComparisonStatus.Changed)
-                    {
-                        options.SetWeightClusterSelected(cluster.MeshPath, bone.BonePath, false);
-                    }
-                }
-
-                foreach (var bindPose in bone.Bindposes ?? Array.Empty<SkinWeightBindposeComparison>())
-                {
-                    if (bindPose.Status == SkinWeightComparisonStatus.Changed)
-                    {
-                        options.SetBindposeSelected(bindPose.MeshPath, bone.BonePath, false);
-                    }
-                }
-
-                if (bone.Transform?.Status == SkinWeightComparisonStatus.Changed)
-                {
-                    options.SetBoneTransformSelected(bone.BonePath, false);
-                }
-
-                options.EnsureRequiredParentSelections(comparison);
-                RefreshToggles();
-            }
-
-            void EnsureContentBuilt()
-            {
-                if (contentBuilt)
+                if (built)
                 {
                     return;
                 }
 
-                contentBuilt = true;
-                var pathLabel = new Label($"{Localization.S("common.path")}: {bone.BonePath}");
-                BlendShareInspectorUi.StyleStrong(pathLabel);
-                pathLabel.style.marginBottom = 4f;
-                foldout.Add(pathLabel);
-
-                if (bone.RequiresCreateBone)
-                {
-                    bool requiredParent = IsRequiredParent(options, comparison, bone.BonePath);
-                    createBoneToggle = new Toggle(requiredParent
-                        ? Localization.S("features.skin-weights.create_bone_required_parent")
-                        : Localization.S("features.skin-weights.create_bone"))
+                built = true;
+                meshControls.Add(CreateMeshSectionButtonRow(
+                    () =>
                     {
-                        value = options.IsNewBoneSelected(bone.BonePath)
-                    };
-                    createBoneToggle.SetEnabled(!requiredParent);
-                    createBoneToggle.RegisterValueChangedCallback(evt =>
+                        controller.SetAdvancedMeshDataEnabled(mesh, true);
+                        refresh?.Invoke();
+                    },
+                    () =>
                     {
-                        options.SetNewBoneSelected(bone.BonePath, evt.newValue);
-                        if (evt.newValue)
-                        {
-                            options.SetBoneTransformSelected(bone.BonePath, true);
-                        }
-                        else if (bone.RequiresCreateBone)
-                        {
-                            options.SetBoneTransformSelected(bone.BonePath, false);
-                        }
-
-                        options.EnsureRequiredParentSelections(comparison);
-                        RefreshToggles();
-                    });
-                    foldout.Add(createBoneToggle);
-                }
-
-                AddTransformTable(foldout, options, bone, toggle => transformToggle = toggle, () =>
-                {
-                    if (bone.RequiresCreateBone && options.IsBoneTransformSelected(bone.BonePath))
+                        controller.SetAdvancedMeshDataEnabled(mesh, false);
+                        refresh?.Invoke();
+                    },
+                    () =>
                     {
-                        options.SetNewBoneSelected(bone.BonePath, true);
-                        options.EnsureRequiredParentSelections(comparison);
-                    }
-
-                    RefreshToggles();
-                });
-
-                AddWeightTable(foldout, options, bone, weightToggles, () =>
-                {
-                    if (bone.RequiresCreateBone)
+                        controller.RestoreAdvancedMesh(mesh);
+                        refresh?.Invoke();
+                    },
+                    () =>
                     {
-                        bool anyWeightSelected = (bone.WeightClusters ?? Array.Empty<SkinWeightMeshClusterComparison>())
-                            .Any(cluster => options.IsWeightClusterSelected(cluster.MeshPath, bone.BonePath));
-                        if (anyWeightSelected)
-                        {
-                            options.SetNewBoneSelected(bone.BonePath, true);
-                            options.SetBoneTransformSelected(bone.BonePath, true);
-                            options.EnsureRequiredParentSelections(comparison);
-                        }
-                    }
-
-                    RefreshToggles();
-                });
-                AddBindposeTable(foldout, options, bone, bindposeToggles, RefreshToggles);
-                RefreshToggles();
+                        controller.DisableChangedAdvancedMesh(mesh);
+                        refresh?.Invoke();
+                    }));
+                meshControls.Add(CreateAdvancedPairTable(
+                    controller,
+                    comparison,
+                    mesh,
+                    toggleRefreshers,
+                    refresh));
             }
 
-            UpdateTitle();
             foldout.RegisterValueChangedCallback(evt =>
             {
-                boneFoldouts[key] = evt.newValue;
+                meshFoldouts[key] = evt.newValue;
                 if (evt.newValue)
                 {
-                    EnsureContentBuilt();
-                }
-                else
-                {
-                    onSelectionChanged?.Invoke();
+                    BuildContent();
                 }
             });
-
             if (foldout.value)
             {
-                EnsureContentBuilt();
+                BuildContent();
             }
 
+            RefreshSection();
             return new StickyHeaderSection(
                 foldout,
                 foldout,
-                () => foldout.text,
-                SelectedCount,
-                totalCount,
-                () => SelectedCount() > 0,
-                value =>
+                context => CreateAdvancedMeshStickyHeader(
+                    context,
+                    controller,
+                    comparison,
+                    mesh,
+                    foldout.text));
+        }
+
+        private static VisualElement CreateAdvancedMeshStickyHeader(
+            StickyHeaderContext context,
+            SkinWeightSelectionController controller,
+            SkinWeightFbxComparison comparison,
+            SkinWeightMeshComparison mesh,
+            string title)
+        {
+            var pairs = mesh?.Bones ?? comparison.Meshes.SelectMany(item => item.Bones).ToArray();
+            int enabledMeshCount = mesh == null
+                ? comparison.Meshes.Count(controller.IsAdvancedMeshEnabled)
+                : controller.IsAdvancedMeshEnabled(mesh) ? 1 : 0;
+            int meshCount = mesh == null ? comparison.Meshes.Count : 1;
+            var bar = new StickyHeaderBar();
+            bar.SetRightContentPadding(AdvancedTableHorizontalPadding);
+            bar.name = mesh == null
+                ? "skin-weight-sticky:meshes"
+                : "skin-weight-sticky:mesh";
+            bar.Leading.Add(StickyHeaderControls.CreatePrimaryToggle(
+                StickyHeaderToggleState.FromCounts(enabledMeshCount, meshCount),
+                value => context.ApplyChange(() =>
                 {
-                    if (value)
+                    if (mesh == null)
                     {
-                        EnableAll();
+                        controller.SetAdvancedMeshesEnabled(value);
                     }
                     else
                     {
-                        DisableAll();
+                        controller.SetAdvancedMeshEnabled(mesh, value);
+                    }
+                }),
+                "skin-weight-sticky-toggle:section"));
+            var titleButton = StickyHeaderControls.CreateTitleButton(
+                mesh == null
+                    ? $"{title} ({enabledMeshCount}/{meshCount})"
+                    : title,
+                context.ScrollToSection);
+            titleButton.name = "skin-weight-sticky-title";
+            bar.Title.Add(titleButton);
+            AddSkinWeightStickyActions(
+                bar,
+                context,
+                () =>
+                {
+                    if (mesh == null)
+                    {
+                        controller.RestoreAdvancedMeshes();
+                    }
+                    else
+                    {
+                        controller.RestoreAdvancedMesh(mesh);
                     }
                 },
-                EnableAll,
-                DisableAll,
-                Restore,
-                DisableChanged);
+                () =>
+                {
+                    if (mesh == null)
+                    {
+                        controller.DisableChangedAdvancedMeshes();
+                    }
+                    else
+                    {
+                        controller.DisableChangedAdvancedMesh(mesh);
+                    }
+                });
+            bar.Trailing.Add(StickyHeaderControls.CreateToggleCell(
+                Localization.S("features.skin-weights.weights"),
+                StickyHeaderToggleState.FromCounts(
+                    pairs.Count(pair => pair.Weight != null && controller.IsWeightSelected(pair)),
+                    pairs.Count(pair => pair.Weight != null),
+                    mesh == null || controller.IsAdvancedMeshEnabled(mesh)),
+                value => context.ApplyChange(() =>
+                {
+                    if (mesh == null)
+                    {
+                        controller.SetAdvancedWeightsEnabled(value);
+                    }
+                    else
+                    {
+                        controller.SetAdvancedMeshWeightsEnabled(mesh, value);
+                    }
+                }),
+                "skin-weight-sticky-toggle:weights",
+                AdvancedFeatureColumnWidth));
+            bar.Trailing.Add(StickyHeaderControls.CreateToggleCell(
+                Localization.S("features.skin-weights.bindposes"),
+                StickyHeaderToggleState.FromCounts(
+                    pairs.Count(pair => pair.Bindpose?.SourceExists == true && controller.IsBindposeSelected(pair)),
+                    pairs.Count(pair => pair.Bindpose?.SourceExists == true),
+                    mesh == null || controller.IsAdvancedMeshEnabled(mesh)),
+                value => context.ApplyChange(() =>
+                {
+                    if (mesh == null)
+                    {
+                        controller.SetAdvancedBindposesEnabled(value);
+                    }
+                    else
+                    {
+                        controller.SetAdvancedMeshBindposesEnabled(mesh, value);
+                    }
+                }),
+                "skin-weight-sticky-toggle:bindposes",
+                AdvancedFeatureColumnWidth));
+            return bar;
         }
 
-        private static void AddTransformTable(
-            VisualElement root,
-            SkinWeightExtractionOptions options,
-            SkinWeightBoneComparison bone,
-            Action<Toggle> registerToggle,
-            Action onChanged)
+        private static VisualElement CreateArmatureStickyHeader(
+            StickyHeaderContext context,
+            SkinWeightSelectionController controller,
+            SkinWeightFbxComparison comparison)
         {
-            if (bone.Transform == null)
+            var bones = comparison.Bones.Where(bone => bone.SourceBoneExists).ToArray();
+            var bar = new StickyHeaderBar
             {
-                return;
+                name = "skin-weight-sticky:armature"
+            };
+            bar.SetRightContentPadding(AdvancedTableHorizontalPadding);
+            var titleButton = StickyHeaderControls.CreateTitleButton(
+                $"{Localization.S("features.skin-weights.armature")} " +
+                $"({bones.Count(bone => controller.IsTransformSelected(bone.BonePath))}/{bones.Length})",
+                context.ScrollToSection);
+            titleButton.name = "skin-weight-sticky-title";
+            bar.Title.Add(titleButton);
+            AddSkinWeightStickyActions(
+                bar,
+                context,
+                controller.RestoreAdvancedTransforms,
+                controller.DisableChangedAdvancedTransforms);
+
+            var statusSpacer = new VisualElement();
+            statusSpacer.style.width = AdvancedFeatureColumnWidth;
+            statusSpacer.style.flexShrink = 0f;
+            bar.Trailing.Add(statusSpacer);
+            bar.Trailing.Add(StickyHeaderControls.CreateToggleCell(
+                Localization.S("features.skin-weights.bone_transform"),
+                StickyHeaderToggleState.FromCounts(
+                    bones.Count(bone => controller.IsTransformSelected(bone.BonePath)),
+                    bones.Length),
+                value => context.ApplyChange(() => controller.SetAdvancedTransformsEnabled(value)),
+                "skin-weight-sticky-toggle:transforms",
+                AdvancedFeatureColumnWidth));
+            return bar;
+        }
+
+        private static void AddSkinWeightStickyActions(
+            StickyHeaderBar bar,
+            StickyHeaderContext context,
+            Action restore,
+            Action disableChanged)
+        {
+            var auto = StickyHeaderControls.CreateActionButton(
+                Localization.S("common.auto"),
+                () => context.ApplyChange(restore));
+            auto.style.marginRight = 0f;
+            bar.Actions.Add(auto);
+            var disable = StickyHeaderControls.CreateActionButton(
+                Localization.S("common.disable_diff"),
+                () => context.ApplyChange(disableChanged));
+            disable.style.marginRight = 4f;
+            bar.Actions.Add(disable);
+        }
+
+        private VisualElement CreateAdvancedPairTable(
+            SkinWeightSelectionController controller,
+            SkinWeightFbxComparison comparison,
+            SkinWeightMeshComparison mesh,
+            List<Action> toggleRefreshers,
+            Action refresh)
+        {
+            var table = CreateTable();
+            table.Add(CreateAdvancedHeader());
+            for (int i = 0; i < mesh.Bones.Count; i++)
+            {
+                var pair = mesh.Bones[i];
+                var row = CreateTableRow(i);
+                row.Add(CreateAdvancedBoneCell(comparison, pair));
+                row.Add(CreateFeatureToggle(
+                    pair.Weight?.Status,
+                    pair.Weight != null,
+                    controller,
+                    pair,
+                    true,
+                    toggleRefreshers,
+                    refresh));
+                row.Add(CreateFeatureToggle(
+                    pair.Bindpose?.Status,
+                    pair.Bindpose?.SourceExists == true,
+                    controller,
+                    pair,
+                    false,
+                    toggleRefreshers,
+                    refresh));
+                table.Add(row);
             }
 
-            root.Add(CreateSectionLabel(Localization.S("features.skin-weights.bone_transform")));
+            return table;
+        }
+
+        private StickyHeaderSection CreateAdvancedTransformSection(
+            SkinWeightSelectionController controller,
+            SkinWeightFbxComparison comparison,
+            List<Action> sectionRefreshers,
+            Action refresh)
+        {
+            var bones = comparison.Bones
+                .Where(bone => bone.SourceBoneExists)
+                .OrderBy(bone => bone.BonePath, StringComparer.Ordinal)
+                .ToArray();
+            var root = new VisualElement();
+            root.style.marginTop = 8f;
+            root.style.marginBottom = 6f;
+
+            int SelectedCount() => bones.Count(bone => controller.IsTransformSelected(bone.BonePath));
+            var header = CreateAdvancedGroupHeader(
+                "armature",
+                Localization.S("features.skin-weights.armature"),
+                SelectedCount,
+                bones.Length,
+                value =>
+                {
+                    controller.SetAdvancedTransformsEnabled(value);
+                    refresh?.Invoke();
+                },
+                Localization.S("features.skin-weights.bone_transform"));
+            root.Add(header.Root);
+
+            var search = new ToolbarSearchField { value = advancedBoneSearch };
+            search.style.flexGrow = 0f;
+            search.style.flexShrink = 0f;
+            search.style.width = Length.Percent(100f);
+            search.tooltip = Localization.S("features.skin-weights.search_bones.tooltip");
+            root.Add(search);
+
             var table = CreateTable();
-            table.Add(CreateTableHeader(Localization.S("features.skin-weights.pose"), Localization.S("common.status"), Localization.S("common.use")));
+            root.Add(table);
+            var toggleRefreshers = new List<Action>();
+
+            void RebuildRows()
+            {
+                table.Clear();
+                table.Add(CreateArmatureHeader());
+                toggleRefreshers.Clear();
+                var visible = bones
+                    .Where(bone => MatchesSearch(bone.BonePath, advancedBoneSearch))
+                    .ToArray();
+                for (int index = 0; index < visible.Length; index++)
+                {
+                    var bone = visible[index];
+                    var row = CreateTableRow(index);
+                    var name = CreateNameLabel(GetBoneName(bone.BonePath));
+                    name.tooltip = bone.BonePath;
+                    row.Add(name);
+                    row.Add(CreateArmatureStatusCell(bone));
+                    row.Add(CreateAdvancedTransformToggle(
+                        controller,
+                        bone,
+                        toggleRefreshers,
+                        refresh));
+                    table.Add(row);
+                }
+            }
+
+            search.RegisterValueChangedCallback(evt =>
+            {
+                advancedBoneSearch = evt.newValue ?? string.Empty;
+                RebuildRows();
+            });
+            void RefreshSection()
+            {
+                header.Refresh();
+                foreach (var update in toggleRefreshers)
+                {
+                    update();
+                }
+            }
+            sectionRefreshers.Add(RefreshSection);
+            RebuildRows();
+            header.Refresh();
+
+            return new StickyHeaderSection(
+                root,
+                header.Root,
+                context => CreateArmatureStickyHeader(context, controller, comparison));
+        }
+
+        private static RefreshableElement CreateAdvancedGroupHeader(
+            string groupName,
+            string title,
+            Func<int> selectedCount,
+            int totalCount,
+            Action<bool> changed,
+            string toggleLabel = null)
+        {
+            var header = new StickyHeaderBar
+            {
+                name = $"skin-weight-group-header:{groupName}"
+            };
+            header.style.marginBottom = 4f;
+
+            var label = new Label();
+            BlendShareInspectorUi.StyleStrong(label);
+            label.style.flexGrow = 1f;
+            header.Title.Add(label);
+
+            if (!string.IsNullOrEmpty(toggleLabel))
+            {
+                var actionLabel = new Label(toggleLabel);
+                actionLabel.style.marginRight = 6f;
+                header.Trailing.Add(actionLabel);
+            }
 
             var toggle = new Toggle
             {
-                value = options.IsBoneTransformSelected(bone.BonePath)
+                name = $"skin-weight-group-toggle:{groupName}"
             };
+            toggle.style.width = 22f;
+            toggle.style.marginLeft = 6f;
+            toggle.style.marginRight = 0f;
+            toggle.tooltip = Localization.S("features.skin-weights.group_toggle.tooltip");
+            header.Trailing.Add(toggle);
+
+            void Refresh()
+            {
+                int selected = selectedCount?.Invoke() ?? 0;
+                label.text = $"{title} ({selected}/{totalCount})";
+                toggle.showMixedValue = selected > 0 && selected < totalCount;
+                toggle.SetValueWithoutNotify(totalCount > 0 && selected == totalCount);
+            }
+
+            toggle.RegisterValueChangedCallback(evt => changed?.Invoke(evt.newValue));
+            Refresh();
+            return new RefreshableElement(header, Refresh);
+        }
+
+        private static VisualElement CreateCommandBar(
+            SkinWeightSelectionController controller,
+            Action refresh)
+        {
+            var bar = new StickyHeaderBar();
+            bar.Actions.Add(CreateCommandButton(Localization.S("common.select_all"), () =>
+            {
+                controller.SelectAll();
+                refresh?.Invoke();
+            }));
+            bar.Actions.Add(CreateCommandButton(Localization.S("common.clear_all"), () =>
+            {
+                controller.ClearAll();
+                refresh?.Invoke();
+            }));
+            bar.Actions.Add(CreateCommandButton(Localization.S("common.auto"), () =>
+            {
+                controller.RestoreAutomaticSelection();
+                refresh?.Invoke();
+            }));
+            bar.Actions.Add(CreateCommandButton(Localization.S("common.disable_diff"), () =>
+            {
+                controller.DisableChanged();
+                refresh?.Invoke();
+            }));
+            return bar;
+        }
+
+        private static VisualElement CreateMeshSectionButtonRow(
+            Action enableAll,
+            Action disableAll,
+            Action restore,
+            Action disableChanged)
+        {
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.marginTop = 4f;
+            row.style.marginBottom = 4f;
+            row.Add(CreateCommandButton(Localization.S("common.enable_all"), enableAll));
+            row.Add(CreateCommandButton(Localization.S("common.disable_all"), disableAll));
+            row.Add(CreateCommandButton(Localization.S("common.auto"), restore));
+            row.Add(CreateCommandButton(Localization.S("common.disable_diff"), disableChanged));
+            return row;
+        }
+
+        private static Button CreateCommandButton(string text, Action clicked)
+        {
+            var button = new Button(clicked) { text = text };
+            button.style.marginRight = 4f;
+            return button;
+        }
+
+        private static VisualElement CreateSelectionRow(
+            string title,
+            string summary,
+            bool selected,
+            Action<bool> changed,
+            bool enabled = true,
+            string tooltip = null,
+            string badge = null)
+        {
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.alignItems = Align.Center;
+            row.style.height = SimpleRowHeight;
+            row.style.minHeight = SimpleRowHeight;
+            row.style.maxHeight = SimpleRowHeight;
+            row.style.flexGrow = 1f;
+            row.style.paddingLeft = AdvancedTableHorizontalPadding;
+            row.style.paddingRight = AdvancedTableHorizontalPadding;
+
+            var toggle = new Toggle { value = selected };
+            toggle.style.width = 22f;
+            toggle.style.alignSelf = Align.Center;
+            toggle.style.marginTop = 0f;
+            toggle.style.marginBottom = 0f;
+            toggle.SetEnabled(enabled);
+            toggle.RegisterValueChangedCallback(evt => changed?.Invoke(evt.newValue));
+            row.Add(toggle);
+
+            var label = new Label(title);
+            label.style.flexGrow = 1f;
+            label.style.overflow = Overflow.Hidden;
+            label.style.unityTextOverflowPosition = TextOverflowPosition.End;
+            label.style.alignSelf = Align.Center;
+            label.tooltip = tooltip ?? title;
+            row.Add(label);
+
+            if (!string.IsNullOrEmpty(badge))
+            {
+                row.Add(CreateTextPill(badge));
+            }
+
+            var status = new Label(summary);
+            status.style.flexShrink = 0f;
+            status.style.alignSelf = Align.Center;
+            status.style.unityTextAlign = TextAnchor.MiddleRight;
+            row.Add(status);
+            return row;
+        }
+
+        private static VisualElement CreateSimpleListItem()
+        {
+            var item = new VisualElement();
+            item.style.height = SimpleRowHeight;
+            item.style.minHeight = SimpleRowHeight;
+            item.style.maxHeight = SimpleRowHeight;
+            item.style.flexDirection = FlexDirection.Row;
+            item.style.alignItems = Align.Center;
+            item.style.justifyContent = Justify.Center;
+            item.style.paddingTop = 0f;
+            item.style.paddingBottom = 0f;
+            item.style.marginTop = 0f;
+            item.style.marginBottom = 0f;
+            return item;
+        }
+
+        private static VisualElement CreateFeatureToggle(
+            SkinWeightComparisonStatus? status,
+            bool available,
+            SkinWeightSelectionController controller,
+            SkinWeightMeshBoneComparison pair,
+            bool weight,
+            List<Action> toggleRefreshers,
+            Action refresh)
+        {
+            var cell = CreateFeatureCell(status);
+            var toggle = new Toggle
+            {
+                value = weight
+                    ? controller.IsWeightSelected(pair)
+                    : controller.IsBindposeSelected(pair)
+            };
+            toggle.SetEnabled(available);
+            toggleRefreshers.Add(() =>
+                toggle.SetValueWithoutNotify(weight
+                    ? controller.IsWeightSelected(pair)
+                    : controller.IsBindposeSelected(pair)));
             toggle.RegisterValueChangedCallback(evt =>
             {
-                options.SetBoneTransformSelected(bone.BonePath, evt.newValue);
-                onChanged?.Invoke();
-            });
-            registerToggle?.Invoke(toggle);
-
-            var row = CreateTableRow(0);
-            row.Add(CreateNameLabel(Localization.S("features.skin-weights.local_trs")));
-            row.Add(CreateStatusSlot(bone.Transform.Status));
-            row.Add(CreateToggleSlot(toggle));
-            table.Add(row);
-            root.Add(table);
-        }
-
-        private static void AddWeightTable(
-            VisualElement root,
-            SkinWeightExtractionOptions options,
-            SkinWeightBoneComparison bone,
-            List<(Toggle Toggle, SkinWeightMeshClusterComparison Cluster)> toggles,
-            Action onChanged)
-        {
-            if (bone.WeightClusters == null || bone.WeightClusters.Count == 0)
-            {
-                return;
-            }
-
-            root.Add(CreateSectionLabel(Localization.S("features.skin-weights.weights")));
-            var table = CreateTable();
-            table.Add(CreateTableHeader(Localization.S("features.skin-weights.mesh"), Localization.S("common.status"), Localization.S("common.use")));
-            for (int i = 0; i < bone.WeightClusters.Count; i++)
-            {
-                var cluster = bone.WeightClusters[i];
-                var toggle = new Toggle
+                if (weight)
                 {
-                    value = options.IsWeightClusterSelected(cluster.MeshPath, bone.BonePath)
-                };
-                toggle.RegisterValueChangedCallback(evt =>
-                {
-                    options.SetWeightClusterSelected(cluster.MeshPath, bone.BonePath, evt.newValue);
-                    onChanged?.Invoke();
-                });
-                toggles.Add((toggle, cluster));
-
-                var row = CreateTableRow(i);
-                row.Add(CreateNameLabel($"{cluster.MeshPath}  ({cluster.AffectedControlPointCount} FBX vertices, max {cluster.MaxDelta:0.#####})"));
-                row.Add(CreateStatusSlot(cluster.Status));
-                row.Add(CreateToggleSlot(toggle));
-                table.Add(row);
-            }
-
-            root.Add(table);
-        }
-
-        private static void AddBindposeTable(
-            VisualElement root,
-            SkinWeightExtractionOptions options,
-            SkinWeightBoneComparison bone,
-            List<(Toggle Toggle, SkinWeightBindposeComparison Bindpose)> toggles,
-            Action onChanged)
-        {
-            if (bone.Bindposes == null || bone.Bindposes.Count == 0)
-            {
-                return;
-            }
-
-            root.Add(CreateSectionLabel(Localization.S("features.skin-weights.bindposes")));
-            var table = CreateTable();
-            table.Add(CreateTableHeader(Localization.S("features.skin-weights.mesh"), Localization.S("common.status"), Localization.S("common.use")));
-            for (int i = 0; i < bone.Bindposes.Count; i++)
-            {
-                var bindPose = bone.Bindposes[i];
-                var toggle = new Toggle
-                {
-                    value = options.IsBindposeSelected(bindPose.MeshPath, bone.BonePath)
-                };
-                toggle.RegisterValueChangedCallback(evt =>
-                {
-                    options.SetBindposeSelected(bindPose.MeshPath, bone.BonePath, evt.newValue);
-                    onChanged?.Invoke();
-                });
-                toggles.Add((toggle, bindPose));
-
-                var row = CreateTableRow(i);
-                row.Add(CreateNameLabel(bindPose.MeshPath));
-                row.Add(CreateStatusSlot(bindPose.Status));
-                row.Add(CreateToggleSlot(toggle));
-                table.Add(row);
-            }
-
-            root.Add(table);
-        }
-
-        private static void AddDiagnostics(VisualElement root, SkinWeightFbxComparison comparison)
-        {
-            foreach (string diagnostic in comparison.Diagnostics ?? Array.Empty<string>())
-            {
-                if (!string.IsNullOrWhiteSpace(diagnostic))
-                {
-                    root.Add(new HelpBox(diagnostic, HelpBoxMessageType.Warning));
+                    controller.SetAdvancedWeightSelected(pair, evt.newValue);
                 }
+                else
+                {
+                    controller.SetAdvancedBindposeSelected(pair, evt.newValue);
+                }
+
+                refresh?.Invoke();
+            });
+            cell.Add(toggle);
+            return cell;
+        }
+
+        private static VisualElement CreateAdvancedHeader()
+        {
+            var row = CreateTableRow(-1);
+            row.Add(CreateHeaderCell(Localization.S("features.skin-weights.bones"), true));
+            row.Add(CreateHeaderCell(Localization.S("features.skin-weights.weights"), false));
+            row.Add(CreateHeaderCell(Localization.S("features.skin-weights.bindposes"), false));
+            return row;
+        }
+
+        private static VisualElement CreateArmatureHeader()
+        {
+            var row = CreateTableRow(-1);
+            row.Add(CreateHeaderCell(Localization.S("features.skin-weights.bones"), true));
+            row.Add(CreateHeaderCell(Localization.S("common.status"), false));
+            row.Add(CreateHeaderCell(Localization.S("features.skin-weights.transforms"), false));
+            return row;
+        }
+
+        private static VisualElement CreateArmatureStatusCell(SkinWeightBoneComparison bone)
+        {
+            var cell = CreateFeatureCell(null);
+            if (bone.RequiresCreateBone)
+            {
+                cell.Add(CreateTextPill(Localization.S("features.skin-weights.status.new_bone")));
             }
+            else if (bone.Transform != null)
+            {
+                cell.Add(CreateStatusPill(bone.Transform.Status));
+            }
+
+            return cell;
         }
 
-        private static Label CreateHeaderLabel(string text)
+        private static VisualElement CreateAdvancedTransformToggle(
+            SkinWeightSelectionController controller,
+            SkinWeightBoneComparison bone,
+            List<Action> toggleRefreshers,
+            Action refresh)
+        {
+            var cell = CreateFeatureCell(null);
+            var toggle = new Toggle
+            {
+                name = $"skin-weight-transform-toggle:{bone.BonePath}"
+            };
+            void RefreshToggle()
+            {
+                bool forced = controller.IsTransformForced(bone.BonePath);
+                toggle.SetValueWithoutNotify(controller.IsTransformSelected(bone.BonePath));
+                toggle.SetEnabled(!forced);
+                toggle.tooltip = forced
+                    ? Localization.S("features.skin-weights.transform_forced.tooltip")
+                    : string.Empty;
+            }
+
+            toggle.RegisterValueChangedCallback(evt =>
+            {
+                controller.SetAdvancedTransformSelected(bone.BonePath, evt.newValue);
+                refresh?.Invoke();
+            });
+            toggleRefreshers.Add(RefreshToggle);
+            RefreshToggle();
+            cell.Add(toggle);
+            return cell;
+        }
+
+        private static Label CreateHeaderCell(string text, bool grow)
         {
             var label = new Label(text);
             BlendShareInspectorUi.StyleStrong(label);
-            label.style.marginBottom = 4f;
+            if (grow)
+            {
+                label.style.flexGrow = 1f;
+                label.style.minWidth = 140f;
+            }
+            else
+            {
+                label.style.width = AdvancedFeatureColumnWidth;
+                label.style.unityTextAlign = TextAnchor.MiddleRight;
+            }
+
             return label;
         }
 
-        private static Label CreateSectionLabel(string text)
+        private static VisualElement CreateFeatureCell(SkinWeightComparisonStatus? status)
         {
-            var label = new Label(text);
+            var cell = new VisualElement();
+            cell.style.width = AdvancedFeatureColumnWidth;
+            cell.style.flexShrink = 0f;
+            cell.style.flexDirection = FlexDirection.Row;
+            cell.style.alignItems = Align.Center;
+            cell.style.justifyContent = Justify.FlexEnd;
+            if (status.HasValue && status != SkinWeightComparisonStatus.Same)
+            {
+                cell.Add(CreateStatusPill(status.Value));
+            }
+
+            return cell;
+        }
+
+        private static VisualElement CreateModeRoot()
+        {
+            var root = new VisualElement();
+            root.style.flexGrow = 1f;
+            root.style.minHeight = 0f;
+            root.style.flexDirection = FlexDirection.Column;
+            return root;
+        }
+
+        private static VisualElement CreateListPanel(string title, VisualElement titleAction = null)
+        {
+            var panel = CreateModeRoot();
+            panel.style.minHeight = SimpleListPanelMinHeight;
+            panel.style.overflow = Overflow.Hidden;
+            var header = new VisualElement();
+            header.style.flexDirection = FlexDirection.Row;
+            header.style.alignItems = Align.Center;
+            var label = new Label(title);
             BlendShareInspectorUi.StyleStrong(label);
-            label.style.marginTop = 5f;
-            label.style.marginBottom = 2f;
-            return label;
+            label.style.flexGrow = 1f;
+            header.Add(label);
+            if (titleAction != null)
+            {
+                header.Add(titleAction);
+            }
+
+            panel.Add(header);
+            return panel;
         }
 
         private static VisualElement CreateTable()
@@ -599,36 +1145,6 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return table;
         }
 
-        private static VisualElement CreateTableHeader(
-            string name,
-            string status,
-            string use)
-        {
-            var row = CreateTableRow(-1);
-            row.style.backgroundColor = new Color(0.23f, 0.23f, 0.23f);
-
-            var nameLabel = CreateNameLabel(name);
-            BlendShareInspectorUi.StyleStrong(nameLabel);
-
-            var statusLabel = new Label(status);
-            statusLabel.style.width = StatusSlotWidth;
-            statusLabel.style.flexShrink = 0f;
-            BlendShareInspectorUi.StyleStrong(statusLabel);
-            statusLabel.style.unityTextAlign = TextAnchor.MiddleRight;
-
-            var toggleLabel = new Label(use);
-            toggleLabel.style.width = 22f;
-            toggleLabel.style.marginLeft = 14f;
-            toggleLabel.style.flexShrink = 0f;
-            BlendShareInspectorUi.StyleStrong(toggleLabel);
-            toggleLabel.style.unityTextAlign = TextAnchor.MiddleCenter;
-
-            row.Add(nameLabel);
-            row.Add(statusLabel);
-            row.Add(toggleLabel);
-            return row;
-        }
-
         private static VisualElement CreateTableRow(int rowIndex)
         {
             var row = new VisualElement();
@@ -637,7 +1153,11 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             row.style.minHeight = 24f;
             row.style.paddingLeft = 4f;
             row.style.paddingRight = 4f;
-            if (rowIndex >= 0)
+            if (rowIndex < 0)
+            {
+                row.style.backgroundColor = new Color(0.23f, 0.23f, 0.23f);
+            }
+            else
             {
                 row.style.backgroundColor = rowIndex % 2 == 1
                     ? new Color(0.22f, 0.22f, 0.22f)
@@ -650,46 +1170,53 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         private static Label CreateNameLabel(string text)
         {
             var label = new Label(text);
-            label.style.flexGrow = 0.8f;
-            label.style.flexShrink = 1f;
-            label.style.maxWidth = 680f;
-            label.style.minWidth = 100f;
+            label.style.flexGrow = 1f;
+            label.style.minWidth = 140f;
             label.style.overflow = Overflow.Hidden;
             label.style.unityTextOverflowPosition = TextOverflowPosition.End;
             return label;
         }
 
-        private static VisualElement CreateStatusSlot(SkinWeightComparisonStatus status)
+        private static VisualElement CreateAdvancedBoneCell(
+            SkinWeightFbxComparison comparison,
+            SkinWeightMeshBoneComparison pair)
         {
-            var slot = new VisualElement();
-            slot.style.width = StatusSlotWidth;
-            slot.style.flexShrink = 0f;
-            slot.style.flexDirection = FlexDirection.RowReverse;
-            slot.style.alignItems = Align.Center;
-            if (status != SkinWeightComparisonStatus.Same)
+            var cell = new VisualElement();
+            cell.style.flexGrow = 1f;
+            cell.style.minWidth = 140f;
+            cell.style.flexDirection = FlexDirection.Row;
+            cell.style.alignItems = Align.Center;
+
+            var name = CreateNameLabel(GetBoneName(pair.BonePath));
+            name.tooltip = pair.BonePath;
+            cell.Add(name);
+            if (comparison.TryGetBone(pair.BonePath, out var bone) && bone.RequiresCreateBone)
             {
-                slot.Add(CreateStatusPill(status));
+                cell.Add(CreateTextPill(Localization.S("features.skin-weights.status.new_bone")));
             }
 
-            return slot;
-        }
-
-        private static VisualElement CreateToggleSlot(Toggle toggle)
-        {
-            toggle.style.marginLeft = 14f;
-            toggle.style.width = 22f;
-            toggle.style.flexShrink = 0f;
-            return toggle;
+            return cell;
         }
 
         private static Label CreateStatusPill(SkinWeightComparisonStatus status)
         {
             var label = new Label(GetStatusText(status));
-            label.style.width = GetStatusPillWidth(status);
+            label.style.width = StatusSlotWidth;
+            label.style.flexShrink = 0f;
+            label.style.alignSelf = Align.Center;
+            label.style.marginRight = 6f;
+            label.style.unityTextAlign = TextAnchor.MiddleRight;
+            return label;
+        }
+
+        private static Label CreateTextPill(string text)
+        {
+            var label = new Label(text);
             label.style.flexShrink = 0f;
             label.style.marginLeft = 6f;
-            label.style.paddingLeft = 5f;
-            label.style.paddingRight = 5f;
+            label.style.marginRight = 8f;
+            label.style.paddingLeft = 6f;
+            label.style.paddingRight = 6f;
             label.style.paddingTop = 1f;
             label.style.paddingBottom = 1f;
             label.style.unityTextAlign = TextAnchor.MiddleCenter;
@@ -701,107 +1228,64 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             label.style.borderTopRightRadius = 6f;
             label.style.borderBottomLeftRadius = 6f;
             label.style.borderBottomRightRadius = 6f;
-            label.style.backgroundColor = status switch
-            {
-                SkinWeightComparisonStatus.New => new Color(0.20f, 0.36f, 0.22f),
-                SkinWeightComparisonStatus.Changed => new Color(0.34f, 0.28f, 0.15f),
-                _ => new Color(0.24f, 0.24f, 0.24f)
-            };
-            var borderColor = status switch
-            {
-                SkinWeightComparisonStatus.New => new Color(0.27f, 0.48f, 0.30f),
-                SkinWeightComparisonStatus.Changed => new Color(0.48f, 0.39f, 0.22f),
-                _ => new Color(0.36f, 0.36f, 0.36f)
-            };
-            label.style.borderBottomColor = borderColor;
-            label.style.borderTopColor = borderColor;
-            label.style.borderLeftColor = borderColor;
-            label.style.borderRightColor = borderColor;
+            label.style.backgroundColor = new Color(0.20f, 0.36f, 0.22f);
+            label.style.borderBottomColor = new Color(0.27f, 0.48f, 0.30f);
+            label.style.borderTopColor = new Color(0.27f, 0.48f, 0.30f);
+            label.style.borderLeftColor = new Color(0.27f, 0.48f, 0.30f);
+            label.style.borderRightColor = new Color(0.27f, 0.48f, 0.30f);
             label.style.color = new Color(0.90f, 0.90f, 0.90f);
             return label;
         }
 
-        private static float GetStatusPillWidth(SkinWeightComparisonStatus status)
+        private static void AddDiagnostics(VisualElement root, SkinWeightFbxComparison comparison)
         {
-            return status switch
+            foreach (string diagnostic in comparison.Diagnostics ?? Array.Empty<string>())
             {
-                SkinWeightComparisonStatus.New => 52f,
-                SkinWeightComparisonStatus.Changed => 52f,
-                _ => 90f
-            };
+                if (!string.IsNullOrWhiteSpace(diagnostic))
+                {
+                    root.Add(new HelpBox(diagnostic, HelpBoxMessageType.Warning));
+                }
+            }
         }
 
-        private static SkinWeightComparisonStatus GetCombinedStatus(SkinWeightBoneComparison bone)
+        private static bool MatchesSearch(string value, string search)
         {
-            if (bone.RequiresCreateBone)
-            {
-                return SkinWeightComparisonStatus.New;
-            }
-
-            if ((bone.WeightClusters ?? Array.Empty<SkinWeightMeshClusterComparison>())
-                    .Any(cluster => cluster.Status == SkinWeightComparisonStatus.Changed ||
-                                    cluster.Status == SkinWeightComparisonStatus.New) ||
-                (bone.Bindposes ?? Array.Empty<SkinWeightBindposeComparison>())
-                    .Any(bindPose => bindPose.Status == SkinWeightComparisonStatus.Changed ||
-                                     bindPose.Status == SkinWeightComparisonStatus.New) ||
-                bone.Transform?.Status == SkinWeightComparisonStatus.Changed)
-            {
-                return SkinWeightComparisonStatus.Changed;
-            }
-
-            return SkinWeightComparisonStatus.Same;
+            return string.IsNullOrWhiteSpace(search) ||
+                   (value ?? string.Empty).IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
-        private static string GetCombinedStatusText(SkinWeightBoneComparison bone)
+        private static string FormatMeshSummary(SkinWeightMeshComparison mesh)
         {
-            if (bone.RequiresCreateBone)
-            {
-                return Localization.S("features.skin-weights.status.new_bone");
-            }
+            int changed = mesh.Bones.Count(pair =>
+                IsNewOrChanged(pair.Weight?.Status) || IsNewOrChanged(pair.Bindpose?.Status));
+            return Localization.SF("features.skin-weights.summary.changed_bones", changed, mesh.Bones.Count);
+        }
 
-            bool changedWeights = (bone.WeightClusters ?? Array.Empty<SkinWeightMeshClusterComparison>())
-                .Any(cluster => cluster.Status == SkinWeightComparisonStatus.Changed ||
-                                cluster.Status == SkinWeightComparisonStatus.New);
-            bool changedBindposes = (bone.Bindposes ?? Array.Empty<SkinWeightBindposeComparison>())
-                .Any(bindPose => bindPose.Status == SkinWeightComparisonStatus.Changed ||
-                                 bindPose.Status == SkinWeightComparisonStatus.New);
-            bool changedTransform = bone.Transform?.Status == SkinWeightComparisonStatus.Changed;
-            if (changedWeights && changedBindposes && changedTransform)
-            {
-                return Localization.S("features.skin-weights.status.changed_weights_bindpose_pose");
-            }
+        private static string FormatBoneSummary(SkinWeightBoneComparison bone)
+        {
+            int changed = bone.Meshes.Count(pair =>
+                IsNewOrChanged(pair.Weight?.Status) || IsNewOrChanged(pair.Bindpose?.Status));
+            return Localization.SF("features.skin-weights.summary.changed_meshes", changed, bone.Meshes.Count);
+        }
 
-            if (changedWeights && changedBindposes)
-            {
-                return Localization.S("features.skin-weights.status.changed_weights_bindpose");
-            }
+        private static bool IsPairSelected(
+            SkinWeightSelectionController controller,
+            SkinWeightMeshBoneComparison pair)
+        {
+            return controller.IsWeightSelected(pair) || controller.IsBindposeSelected(pair);
+        }
 
-            if (changedWeights && changedTransform)
-            {
-                return Localization.S("features.skin-weights.status.changed_weights_pose");
-            }
+        private static int CountSelectedPairs(
+            SkinWeightSelectionController controller,
+            SkinWeightMeshComparison mesh)
+        {
+            return mesh.Bones.Count(pair => IsPairSelected(controller, pair));
+        }
 
-            if (changedBindposes && changedTransform)
-            {
-                return Localization.S("features.skin-weights.status.changed_bindpose_pose");
-            }
-
-            if (changedWeights)
-            {
-                return Localization.S("features.skin-weights.status.changed_weights");
-            }
-
-            if (changedBindposes)
-            {
-                return Localization.S("features.skin-weights.status.changed_bindpose");
-            }
-
-            if (changedTransform)
-            {
-                return Localization.S("features.skin-weights.status.changed_pose");
-            }
-
-            return Localization.S("common.status.same");
+        private static bool IsNewOrChanged(SkinWeightComparisonStatus? status)
+        {
+            return status == SkinWeightComparisonStatus.New ||
+                   status == SkinWeightComparisonStatus.Changed;
         }
 
         private static string GetStatusText(SkinWeightComparisonStatus status)
@@ -817,48 +1301,28 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             };
         }
 
-        private static bool IsRequiredParent(
-            SkinWeightExtractionOptions options,
-            SkinWeightFbxComparison comparison,
-            string bonePath)
-        {
-            string normalized = MeshNodePath.Normalize(bonePath);
-            foreach (string selected in options.GetSelectedNewBonePaths())
-            {
-                if (selected == normalized)
-                {
-                    continue;
-                }
-
-                string parent = MeshNodePath.ParentPath(selected);
-                while (parent != MeshNodePath.Root)
-                {
-                    if (parent == normalized &&
-                        comparison.TryGetBone(parent, out var parentBone) &&
-                        parentBone.RequiresCreateBone)
-                    {
-                        return true;
-                    }
-
-                    parent = MeshNodePath.ParentPath(parent);
-                }
-            }
-
-            return false;
-        }
-
         private static string GetBoneName(string path)
         {
             string normalized = MeshNodePath.Normalize(path);
-            if (normalized == MeshNodePath.Root)
+            return normalized == MeshNodePath.Root ? normalized : MeshNodePath.LeafName(normalized);
+        }
+
+        private sealed class RefreshableElement
+        {
+            private readonly Action refresh;
+
+            public VisualElement Root { get; }
+
+            public RefreshableElement(VisualElement root, Action refresh)
             {
-                return normalized;
+                Root = root;
+                this.refresh = refresh;
             }
 
-            int separator = normalized.LastIndexOf('/');
-            return separator >= 0 && separator < normalized.Length - 1
-                ? normalized.Substring(separator + 1)
-                : normalized;
+            public void Refresh()
+            {
+                refresh?.Invoke();
+            }
         }
     }
 }

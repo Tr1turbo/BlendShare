@@ -245,7 +245,7 @@ namespace Triturbo.BlendShare.Editor
 
             root.Add(CreateAlignmentActionsElement());
 
-            var stickyHeader = new StickyHeaderElement(CreatePreviewStickyHeaderContent);
+            var stickyHeader = new StickyHeaderElement();
             previewMeshStickyHeader = stickyHeader;
             root.Add(stickyHeader);
 
@@ -267,14 +267,23 @@ namespace Triturbo.BlendShare.Editor
                 scrollView.Add(section.Root);
             }
 
-            var overview = StickyHeaderOverview.Create(sections, () => Localization.S("common.meshes"));
-            stickyHeader.Bind(scrollView, sections, overview);
+            var overview = new StickyHeaderSection(
+                null,
+                null,
+                context => CreatePreviewStickyHeaderContent(context, null));
+            stickyHeader.Bind(
+                scrollView,
+                sections,
+                overview,
+                RefreshPreviewMeshSelectionRows);
             scrollView.schedule.Execute(() => scrollView.scrollOffset = restoreScrollOffset);
             return root;
         }
 
         private void CaptureAndReleasePreviewMeshScrollView()
         {
+            previewMeshStickyHeader?.Unbind();
+            previewMeshStickyHeader = null;
             if (previewMeshScrollView == null)
             {
                 return;
@@ -296,44 +305,39 @@ namespace Triturbo.BlendShare.Editor
             RefreshPreviewMeshSelectionState();
         }
 
-        private void SelectPreviewAll()
+        private void RefreshPreviewMeshSelectionState()
         {
-            previewPanel?.ShowAll(true);
-            RefreshPreviewMeshSelectionState();
+            RefreshPreviewMeshSelectionRows();
+            previewMeshStickyHeader?.RequestRefresh();
         }
 
-        private void RefreshPreviewMeshSelectionState()
+        private void RefreshPreviewMeshSelectionRows()
         {
             foreach (var refresh in previewMeshSelectionRefreshers)
             {
                 refresh?.Invoke();
             }
-
-            previewMeshStickyHeader?.RequestRefresh();
         }
 
-        private VisualElement CreatePreviewStickyHeaderContent(StickyHeaderContext context)
+        private VisualElement CreatePreviewStickyHeaderContent(
+            StickyHeaderContext context,
+            string path)
         {
-            var root = new VisualElement();
-            root.style.flexGrow = 1f;
-            root.style.flexDirection = FlexDirection.Row;
-            root.style.alignItems = Align.Center;
-
-            var titleButton = new Button(context.ScrollToSection)
+            var bar = new StickyHeaderBar();
+            string title = path;
+            if (title == null)
             {
-                text = context.Section.Title
-            };
-            titleButton.style.flexGrow = 1f;
-            titleButton.style.unityTextAlign = TextAnchor.MiddleLeft;
-            titleButton.style.backgroundColor = Color.clear;
-            titleButton.style.borderBottomWidth = 0f;
-            titleButton.style.borderTopWidth = 0f;
-            titleButton.style.borderLeftWidth = 0f;
-            titleButton.style.borderRightWidth = 0f;
-            root.Add(titleButton);
+                var paths = previewPanel?.GetMeshPaths() ?? System.Array.Empty<string>();
+                int shownCount = paths.Count(candidate => previewPanel?.IsShownPath(candidate) == true);
+                title = $"{Localization.S("common.meshes")} ({shownCount}/{paths.Length})";
+            }
 
-            bool isShown = !context.IsOverview && context.Section.IsEnabled();
-            var show = new Button(() => context.Section.SetEnabled(true))
+            bar.Title.Add(StickyHeaderControls.CreateTitleButton(
+                title,
+                context.ScrollToSection));
+
+            bool isShown = path != null && previewPanel?.IsShownPath(path) == true;
+            var show = new Button(() => context.ApplyChange(() => previewPanel?.ShowPath(path, true)))
             {
                 text = Localization.S(isShown
                     ? "patch_creator.preview.shown"
@@ -342,10 +346,10 @@ namespace Triturbo.BlendShare.Editor
             show.SetEnabled(!isShown);
             show.style.display = context.IsOverview ? DisplayStyle.None : DisplayStyle.Flex;
             show.style.marginLeft = 4f;
-            root.Add(show);
+            bar.Actions.Add(show);
 
             bool isShowingAll = previewPanel?.IsShowingAll() == true;
-            var showAll = new Button(SelectPreviewAll)
+            var showAll = new Button(() => context.ApplyChange(() => previewPanel?.ShowAll(true)))
             {
                 text = Localization.S(isShowingAll
                     ? "patch_creator.preview.all_shown"
@@ -353,8 +357,8 @@ namespace Triturbo.BlendShare.Editor
             };
             showAll.SetEnabled(!isShowingAll);
             showAll.style.marginLeft = 4f;
-            root.Add(showAll);
-            return root;
+            bar.Actions.Add(showAll);
+            return bar;
         }
 
         private VisualElement CreateAlignmentActionsElement()
@@ -515,21 +519,7 @@ namespace Triturbo.BlendShare.Editor
             return new StickyHeaderSection(
                 sectionRoot,
                 headerRow,
-                () => foldout.text,
-                () => previewPanel.IsShownPath(path) ? 1 : 0,
-                1,
-                () => previewPanel.IsShownPath(path),
-                value =>
-                {
-                    if (value)
-                    {
-                        SelectPreviewPath(path);
-                    }
-                },
-                () => { },
-                () => { },
-                () => { },
-                () => { });
+                context => CreatePreviewStickyHeaderContent(context, path));
         }
 
         private void AddPreviewMeshInfo(VisualElement root, string path)

@@ -20,18 +20,18 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
     internal sealed class SkinWeightMeshClusterComparison
     {
-        public string MeshPath;
-        public string BonePath;
         public SkinWeightComparisonStatus Status;
+        public bool SourceExists;
+        public bool OriginExists;
         public int AffectedControlPointCount;
         public double MaxDelta;
     }
 
     internal sealed class SkinWeightBindposeComparison
     {
-        public string MeshPath;
-        public string BonePath;
         public SkinWeightComparisonStatus Status;
+        public bool SourceExists;
+        public bool OriginExists;
     }
 
     internal sealed class SkinWeightBoneTransformComparison
@@ -47,8 +47,22 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         public bool OriginBoneExists;
         public bool RequiresCreateBone => SourceBoneExists && !OriginBoneExists;
         public SkinWeightBoneTransformComparison Transform;
-        public IReadOnlyList<SkinWeightMeshClusterComparison> WeightClusters = Array.Empty<SkinWeightMeshClusterComparison>();
-        public IReadOnlyList<SkinWeightBindposeComparison> Bindposes = Array.Empty<SkinWeightBindposeComparison>();
+        public IReadOnlyList<SkinWeightMeshBoneComparison> Meshes = Array.Empty<SkinWeightMeshBoneComparison>();
+        public bool HasMeshData => Meshes.Count > 0;
+    }
+
+    internal sealed class SkinWeightMeshBoneComparison
+    {
+        public string MeshPath;
+        public string BonePath;
+        public SkinWeightMeshClusterComparison Weight;
+        public SkinWeightBindposeComparison Bindpose;
+    }
+
+    internal sealed class SkinWeightMeshComparison
+    {
+        public string MeshPath;
+        public IReadOnlyList<SkinWeightMeshBoneComparison> Bones = Array.Empty<SkinWeightMeshBoneComparison>();
     }
 
     internal sealed class SkinWeightFbxComparison
@@ -59,10 +73,13 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         private readonly Dictionary<string, SkinWeightBoneComparison> bonesByPath;
 
         public IReadOnlyList<SkinWeightBoneComparison> Bones { get; }
+        public IReadOnlyList<SkinWeightBoneComparison> RelevantBones { get; }
+        public IReadOnlyList<SkinWeightMeshComparison> Meshes { get; }
         public IReadOnlyList<string> Diagnostics { get; }
 
-        private SkinWeightFbxComparison(
+        internal SkinWeightFbxComparison(
             IEnumerable<SkinWeightBoneComparison> bones,
+            IEnumerable<SkinWeightMeshBoneComparison> pairs,
             IEnumerable<string> diagnostics)
         {
             Bones = (bones ?? Enumerable.Empty<SkinWeightBoneComparison>())
@@ -73,11 +90,45 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 bone => MeshNodePath.Normalize(bone.BonePath),
                 bone => bone,
                 StringComparer.Ordinal);
+            var relevantBonePaths = new HashSet<string>(
+                Bones.Where(bone =>
+                        bone.HasMeshData ||
+                        bone.Transform?.Status == SkinWeightComparisonStatus.Changed)
+                    .Select(bone => bone.BonePath),
+                StringComparer.Ordinal);
+            foreach (string path in relevantBonePaths.ToArray())
+            {
+                string parent = MeshNodePath.ParentPath(path);
+                while (parent != MeshNodePath.Root)
+                {
+                    if (bonesByPath.TryGetValue(parent, out var parentBone) && parentBone.RequiresCreateBone)
+                    {
+                        relevantBonePaths.Add(parent);
+                    }
+
+                    parent = MeshNodePath.ParentPath(parent);
+                }
+            }
+
+            RelevantBones = Bones.Where(bone => relevantBonePaths.Contains(bone.BonePath)).ToArray();
+            Meshes = (pairs ?? Enumerable.Empty<SkinWeightMeshBoneComparison>())
+                .Where(pair => pair != null)
+                .GroupBy(pair => MeshFeatureExtractionSession.BuildMeshKey(pair.MeshPath), StringComparer.Ordinal)
+                .Select(group => new SkinWeightMeshComparison
+                {
+                    MeshPath = group.First().MeshPath,
+                    Bones = group.OrderBy(pair => pair.BonePath, StringComparer.Ordinal).ToArray()
+                })
+                .OrderBy(mesh => mesh.MeshPath, StringComparer.Ordinal)
+                .ToArray();
             Diagnostics = diagnostics?.ToArray() ?? Array.Empty<string>();
         }
 
         public static SkinWeightFbxComparison Empty { get; } =
-            new SkinWeightFbxComparison(Array.Empty<SkinWeightBoneComparison>(), Array.Empty<string>());
+            new SkinWeightFbxComparison(
+                Array.Empty<SkinWeightBoneComparison>(),
+                Array.Empty<SkinWeightMeshBoneComparison>(),
+                Array.Empty<string>());
 
         public bool TryGetBone(string bonePath, out SkinWeightBoneComparison comparison)
         {
@@ -104,6 +155,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 session.GetOriginBoneNodes().Select(node => MeshNodePath.Normalize(node.Path)),
                 StringComparer.Ordinal);
             var builders = new Dictionary<string, SkinWeightBoneComparisonBuilder>(StringComparer.Ordinal);
+            var pairs = new List<SkinWeightMeshBoneComparison>();
             foreach (string bonePath in sourceBonePaths.Concat(originBonePaths))
             {
                 var builder = GetBuilder(builders, bonePath, sourceBonePaths, originBonePaths);
@@ -112,17 +164,23 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
             foreach (var request in requests)
             {
-                CompareMesh(session, options, request.Path, sourceBonePaths, originBonePaths, builders);
+                CompareMesh(
+                    session,
+                    options,
+                    request.Path,
+                    sourceBonePaths,
+                    originBonePaths,
+                    builders,
+                    pairs);
             }
 
             var bones = builders.Values
                 .Select(builder => builder.Build())
-                .Where(bone => bone.WeightClusters.Count > 0 ||
-                               bone.Bindposes.Count > 0 ||
+                .Where(bone => bone.HasMeshData ||
                                bone.Transform != null ||
                                bone.RequiresCreateBone)
                 .ToArray();
-            return new SkinWeightFbxComparison(bones, session.Diagnostics);
+            return new SkinWeightFbxComparison(bones, pairs, session.Diagnostics);
         }
 
         private static void CompareMesh(
@@ -131,7 +189,8 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             string meshPath,
             HashSet<string> sourceBonePaths,
             HashSet<string> originBonePaths,
-            Dictionary<string, SkinWeightBoneComparisonBuilder> builders)
+            Dictionary<string, SkinWeightBoneComparisonBuilder> builders,
+            List<SkinWeightMeshBoneComparison> pairs)
         {
             string normalizedMeshPath = MeshNodePath.Normalize(meshPath);
             var sourceSkin = session.GetSourceSkin(normalizedMeshPath);
@@ -161,29 +220,35 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             {
                 var builder = GetBuilder(builders, bonePath, sourceBonePaths, originBonePaths);
                 var weightComparison = CompareWeights(
-                    normalizedMeshPath,
                     bonePath,
                     sourceClusterPaths.Contains(bonePath),
                     originClusterPaths.Contains(bonePath),
                     sourceWeights,
                     originWeights,
                     controlPointCount);
-                builder.WeightClusters.Add(weightComparison);
-
+                SkinWeightBindposeComparison bindposeComparison = null;
                 if (sourceBindPoses.ContainsKey(bonePath) || originBindPoses.ContainsKey(bonePath))
                 {
-                    builder.Bindposes.Add(CompareBindpose(
-                        normalizedMeshPath,
-                        bonePath,
+                    bindposeComparison = CompareBindpose(
                         weightComparison.Status,
                         sourceBindPoses,
-                        originBindPoses));
+                        originBindPoses,
+                        bonePath);
                 }
+
+                var pair = new SkinWeightMeshBoneComparison
+                {
+                    MeshPath = normalizedMeshPath,
+                    BonePath = bonePath,
+                    Weight = weightComparison,
+                    Bindpose = bindposeComparison
+                };
+                builder.Meshes.Add(pair);
+                pairs.Add(pair);
             }
         }
 
         private static SkinWeightMeshClusterComparison CompareWeights(
-            string meshPath,
             string bonePath,
             bool hasSourceCluster,
             bool hasOriginCluster,
@@ -216,9 +281,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
             return new SkinWeightMeshClusterComparison
             {
-                MeshPath = meshPath,
-                BonePath = bonePath,
                 Status = GetWeightStatus(hasSourceCluster, hasOriginCluster, affected > 0),
+                SourceExists = hasSourceCluster,
+                OriginExists = hasOriginCluster,
                 AffectedControlPointCount = affected,
                 MaxDelta = maxDelta
             };
@@ -230,11 +295,10 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static SkinWeightBindposeComparison CompareBindpose(
-            string meshPath,
-            string bonePath,
             SkinWeightComparisonStatus weightStatus,
             IReadOnlyDictionary<string, SkinWeightClusterData> sourceBindPoses,
-            IReadOnlyDictionary<string, SkinWeightClusterData> originBindPoses)
+            IReadOnlyDictionary<string, SkinWeightClusterData> originBindPoses,
+            string bonePath)
         {
             bool hasSource = sourceBindPoses.TryGetValue(bonePath, out var source);
             bool hasOrigin = originBindPoses.TryGetValue(bonePath, out var origin);
@@ -244,9 +308,9 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                             !Approximately(source.m_FbxTransformLinkMatrix, origin.m_FbxTransformLinkMatrix));
             return new SkinWeightBindposeComparison
             {
-                MeshPath = meshPath,
-                BonePath = bonePath,
-                Status = GetBindposeStatus(hasSource, hasOrigin, changed, weightStatus)
+                Status = GetBindposeStatus(hasSource, hasOrigin, changed, weightStatus),
+                SourceExists = hasSource,
+                OriginExists = hasOrigin
             };
         }
 
@@ -512,8 +576,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             public bool SourceBoneExists;
             public bool OriginBoneExists;
             public SkinWeightBoneTransformComparison Transform;
-            public readonly List<SkinWeightMeshClusterComparison> WeightClusters = new();
-            public readonly List<SkinWeightBindposeComparison> Bindposes = new();
+            public readonly List<SkinWeightMeshBoneComparison> Meshes = new();
 
             public SkinWeightBoneComparison Build()
             {
@@ -523,14 +586,12 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     SourceBoneExists = SourceBoneExists,
                     OriginBoneExists = OriginBoneExists,
                     Transform = Transform,
-                    WeightClusters = WeightClusters
-                        .OrderBy(cluster => cluster.MeshPath, StringComparer.Ordinal)
-                        .ToArray(),
-                    Bindposes = Bindposes
-                        .OrderBy(bindPose => bindPose.MeshPath, StringComparer.Ordinal)
+                    Meshes = Meshes
+                        .OrderBy(pair => pair.MeshPath, StringComparer.Ordinal)
                         .ToArray()
                 };
             }
         }
+
     }
 }

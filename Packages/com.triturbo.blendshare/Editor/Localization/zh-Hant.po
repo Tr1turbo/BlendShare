@@ -1697,3 +1697,48 @@ msgstr "已被覆蓋"
 
 msgid "ndmf.bone_proxy.status_shadowed_tooltip"
 msgstr "此骨架骨骼路徑已選擇其他代理元件。預覽與建置將使用下方顯示的生效變換。"
+
+msgid "features.skin-weights.armature"
+msgstr "骨架"
+
+msgid "features.skin-weights.mode"
+msgstr "選擇模式"
+
+msgid "features.skin-weights.mode.simple"
+msgstr "簡單"
+
+msgid "features.skin-weights.mode.advanced"
+msgstr "進階"
+
+msgid "features.skin-weights.mode.expand.title"
+msgstr "展開蒙皮權重選擇"
+
+msgid "features.skin-weights.mode.expand.message"
+msgstr "簡單模式會將所有已選骨骼套用到所有已選網格。切換後將額外啟用 {0} 個網格與骨骼組合。是否繼續？"
+
+msgid "features.skin-weights.mode.expand.confirm"
+msgstr "展開選擇"
+
+msgid "features.skin-weights.search_meshes.tooltip"
+msgstr "依路徑篩選網格。"
+
+msgid "features.skin-weights.search_bones.tooltip"
+msgstr "依名稱或路徑篩選骨骼。"
+
+msgid "features.skin-weights.show_all_bones"
+msgstr "顯示所有骨骼"
+
+msgid "features.skin-weights.summary.changed_bones"
+msgstr "{0}/{1} 個骨骼有差異"
+
+msgid "features.skin-weights.summary.changed_meshes"
+msgstr "{0}/{1} 個網格有差異"
+
+msgid "features.skin-weights.transforms"
+msgstr "骨骼變換"
+
+msgid "features.skin-weights.transform_forced.tooltip"
+msgstr "此變換為已選取的權重或綁定姿勢所必需。"
+
+msgid "features.skin-weights.group_toggle.tooltip"
+msgstr "啟用或停用此區段中的所有項目。"

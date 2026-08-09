@@ -1697,3 +1697,48 @@ msgstr "Shadowed"
 
 msgid "ndmf.bone_proxy.status_shadowed_tooltip"
 msgstr "Another proxy component is selected for this armature bone path. Preview and build use the effective transform shown below."
+
+msgid "features.skin-weights.armature"
+msgstr "Armature"
+
+msgid "features.skin-weights.mode"
+msgstr "Selection Mode"
+
+msgid "features.skin-weights.mode.simple"
+msgstr "Simple"
+
+msgid "features.skin-weights.mode.advanced"
+msgstr "Advanced"
+
+msgid "features.skin-weights.mode.expand.title"
+msgstr "Expand Skin Weight Selection"
+
+msgid "features.skin-weights.mode.expand.message"
+msgstr "Simple mode uses every selected mesh with every selected bone. Switching will enable {0} additional mesh and bone combinations. Continue?"
+
+msgid "features.skin-weights.mode.expand.confirm"
+msgstr "Expand Selection"
+
+msgid "features.skin-weights.search_meshes.tooltip"
+msgstr "Filter meshes by path."
+
+msgid "features.skin-weights.search_bones.tooltip"
+msgstr "Filter bones by name or path."
+
+msgid "features.skin-weights.show_all_bones"
+msgstr "Show all bones"
+
+msgid "features.skin-weights.summary.changed_bones"
+msgstr "{0}/{1} bones changed"
+
+msgid "features.skin-weights.summary.changed_meshes"
+msgstr "{0}/{1} meshes changed"
+
+msgid "features.skin-weights.transforms"
+msgstr "Bone Transforms"
+
+msgid "features.skin-weights.transform_forced.tooltip"
+msgstr "This transform is required by a selected weight or bind pose."
+
+msgid "features.skin-weights.group_toggle.tooltip"
+msgstr "Enable or disable all entries in this section."
