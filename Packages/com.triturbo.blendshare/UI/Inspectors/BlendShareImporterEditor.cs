@@ -1,4 +1,7 @@
 using System;
+using Triturbo.BlendShapeShare;
+using Triturbo.BlendShapeShare.BlendShapeData;
+using UnityEngine.UIElements;
 using System.Collections.Generic;
 using Triturbo.BlendShare.EditorAssets;
 using Triturbo.BlendShare.EditorAssets.Settings;
@@ -31,34 +34,15 @@ namespace Triturbo.BlendShare.UI.Inspectors
             RebuildTrackedGuids();
         }
 
-        public override void OnInspectorGUI()
+        public override VisualElement CreateInspectorGUI()
         {
-            if (targets != null && targets.Length > 1)
-            {
-                DrawMultiSelectPatchInspector();
-                return;
-            }
-
-            var importer = target as BlendShareImporter;
-            if (importer == null) return;
-
-            var patchAsset = AssetDatabase.LoadAssetAtPath<BlendShareAsset>(importer.assetPath);
-            if (patchAsset == null)
-            {
-                EditorGUILayout.HelpBox("BlendShareAsset could not be loaded for this .blendshare file.", MessageType.Warning);
-                return;
-            }
-
-            if (m_RootEditor == null || m_RootEditor.target != patchAsset)
-            {
-                if (m_RootEditor != null) DestroyImmediate(m_RootEditor);
-                m_RootEditor = CreateEditor(patchAsset);
-            }
-
-            if (m_RootEditor != null)
-            {
-                m_RootEditor.OnInspectorGUI();
-            }
+            if (targets.Length > 1) return new IMGUIContainer(DrawMultiSelectPatchInspector);
+            var importer = (BlendShareImporter)target;
+            var patch = AssetDatabase.LoadAssetAtPath<BlendShareAsset>(importer.assetPath);
+            if (!patch) return new HelpBox(Localization.S("patch.mesh_data.missing"), HelpBoxMessageType.Warning);
+            CreateCachedEditor(patch, typeof(BlendShareAssetEditor), ref m_RootEditor);
+            ((BlendShareAssetEditor)m_RootEditor).SuppressFlushOnDisable = true;
+            return m_RootEditor.CreateInspectorGUI();
         }
 
         private void DrawMultiSelectPatchInspector()
@@ -105,34 +89,25 @@ namespace Triturbo.BlendShare.UI.Inspectors
                     EditorGUI.showMixedValue = mixed;
                     EditorGUI.BeginChangeCheck();
                     var nextTarget = (GameObject)EditorGUILayout.ObjectField(
-                        "Default Target FBX",
+                        Localization.S("common.target_fbx"),
                         mixed ? null : commonTarget,
                         typeof(GameObject),
                         allowSceneObjects: false);
                     EditorGUI.showMixedValue = false;
 
-                    if (EditorGUI.EndChangeCheck())
+                    if (EditorGUI.EndChangeCheck() && (!nextTarget || EditorWidgets.IsFBXGameObject(nextTarget)))
                     {
                         // Increment BEFORE capturing group so Undo never collapses into the preceding unrelated edit.
                         Undo.IncrementCurrentGroup();
                         int group = Undo.GetCurrentGroup();
                         Undo.SetCurrentGroupName("Set BlendShare Default Target FBX");
 
-                        var undoTargets = buffers.ToArray();
-                        Undo.RecordObjects(undoTargets, "Set BlendShare Default Target FBX");
-                        for (int i = 0; i < buffers.Count; i++)
+                        foreach (var buffer in buffers)
                         {
-                            buffers[i].Settings.DefaultTargetFbx = nextTarget;
-                            EditorUtility.SetDirty(buffers[i]);
-                            BlendShareSettingsSession.NotifyBufferMutated(buffers[i]);
+                            var context = new FeatureInspectorContext(null, buffer.AssetGuid, null, buffer, anyReadOnly);
+                            context.RecordEditAndCommit("Set BlendShare Default Target FBX", settings => settings.DefaultTargetFbx = nextTarget);
                         }
                         Undo.CollapseUndoOperations(group);
-
-                        // Defer reimports until after the current IMGUI event completes.
-                        for (int i = 0; i < buffers.Count; i++)
-                        {
-                            FeatureInspectorContext.ScheduleDeferredFlush(buffers[i].AssetGuid);
-                        }
                     }
                 }
 

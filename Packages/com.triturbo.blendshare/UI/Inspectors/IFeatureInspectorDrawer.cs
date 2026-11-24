@@ -4,6 +4,13 @@ using Triturbo.BlendShare.Model.Features;
 using Triturbo.BlendShare.Model.Settings;
 using Triturbo.BlendShare.Runtime.Assets;
 using Triturbo.BlendShare.EditorAssets.Settings;
+using Triturbo.BlendShare.Model.Documents;
+using Triturbo.BlendShare.Model.Serialization;
+using Triturbo.BlendShare.EditorAssets;
+using Triturbo.BlendShare.UI.ValueDrawers;
+using Triturbo.BlendShare.Inspector;
+using Triturbo.BlendShapeShare;
+using UnityEngine.UIElements;
 using UnityEditor;
 using UnityEngine;
 
@@ -20,18 +27,36 @@ namespace Triturbo.BlendShare.UI.Inspectors
         public BlendShareSettingsUndoBuffer Buffer { get; }
         public bool IsReadOnly { get; }
 
+        public IReadOnlyList<ArmatureDocument> Armatures { get; }
+        public MeshDocument MeshHeader { get; }
+        public ILazyPayloadSource PayloadSource { get; }
+
         public FeatureInspectorContext(
             BlendShareAsset patchAsset,
             string assetGuid,
             string meshId,
             BlendShareSettingsUndoBuffer buffer,
-            bool isReadOnly)
+            bool isReadOnly,
+            MeshDocument meshHeader = null,
+            IReadOnlyList<ArmatureDocument> armatures = null,
+            ILazyPayloadSource payloadSource = null)
         {
+            MeshHeader = meshHeader;
+            Armatures = armatures ?? Array.Empty<ArmatureDocument>();
+            PayloadSource = payloadSource ?? BlendShareSourceRepository.Shared.PayloadStore;
             PatchAsset = patchAsset;
             AssetGuid = assetGuid ?? string.Empty;
             MeshId = meshId ?? string.Empty;
             Buffer = buffer;
             IsReadOnly = isReadOnly;
+        }
+
+        internal Foldout Advanced(object record)
+        {
+            var foldout = new Foldout { text = Localization.S("common.advanced"), value = false };
+            foldout.Add(new BlendShareRecordView(record, PayloadSource, startExpanded: false,
+                positionUnitMeters: MeshHeader?.SpaceProvenance?.OriginRawMetersPerUnit ?? 1d));
+            return foldout;
         }
 
         private static readonly HashSet<string> s_PendingFlushes = new HashSet<string>(StringComparer.Ordinal);
@@ -68,7 +93,8 @@ namespace Triturbo.BlendShare.UI.Inspectors
     {
         string FeatureTypeId { get; }
         int DisplayOrder { get; }
-        void DrawInspector(BlendShareFeatureData feature, FeatureInspectorContext context);
+        VisualElement CreateInspectorElement(BlendShareFeatureData feature, FeatureInspectorContext context);
+        VisualElement CreateCompactBadgeElement(BlendShareFeatureData feature, FeatureInspectorContext context);
     }
 
     /// <summary>
@@ -139,25 +165,19 @@ namespace Triturbo.BlendShare.UI.Inspectors
         public string FeatureTypeId => "*";
         public int DisplayOrder => int.MaxValue;
 
-        public void DrawInspector(BlendShareFeatureData feature, FeatureInspectorContext context)
+        public VisualElement CreateInspectorElement(BlendShareFeatureData feature, FeatureInspectorContext context)
         {
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-            string typeId = feature != null ? feature.TypeId : "(null)";
-            int version = feature != null ? feature.SchemaVersion : 0;
-            bool required = feature != null && feature.Required;
-
-            EditorGUILayout.LabelField($"Unsupported Feature: {typeId} (v{version})", EditorStyles.boldLabel);
+            var box = BlendShareInspectorUi.Box();
+            box.Add(new Label($"{feature?.TypeId} (v{feature?.SchemaVersion})"));
             if (feature is UnknownFeatureData unknown)
-            {
-                EditorGUILayout.LabelField("Estimated Payload Bytes", $"{unknown.EstimatedPayloadBytes:N0} B");
-            }
-
-            EditorGUILayout.HelpBox(
-                required
-                    ? "This feature is marked Required and is not supported by this version of BlendShare. Apply/Export operations will be blocked."
-                    : "This feature is Optional and is preserved read-only without blocking supported features.",
-                required ? MessageType.Error : MessageType.Info);
-            EditorGUILayout.EndVertical();
+                box.Add(BlendShareInspectorUi.Row("Payload", $"{unknown.EstimatedPayloadBytes:N0} B"));
+            bool required = feature?.Required == true;
+            box.Add(new HelpBox(required ? "Unsupported required feature. Generation is blocked."
+                : "Unsupported optional feature. Its data is preserved.", required ? HelpBoxMessageType.Error : HelpBoxMessageType.Info));
+            return box;
         }
+
+        public VisualElement CreateCompactBadgeElement(BlendShareFeatureData feature, FeatureInspectorContext context) =>
+            new BlendShareFeatureBadge(feature?.TypeId, CreateInspectorElement(feature, context));
     }
 }

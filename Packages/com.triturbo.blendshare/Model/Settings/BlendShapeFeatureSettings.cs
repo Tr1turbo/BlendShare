@@ -40,6 +40,7 @@ namespace Triturbo.BlendShare.Model.Settings
         [SerializeField] private List<string> m_DisabledShapeIds = new List<string>();
         [SerializeField] private List<string> m_OrderOverrides = new List<string>();
         [SerializeField] private string m_ActiveSelectionSetId = string.Empty;
+        [SerializeField] private bool m_HasWorkingOverride;
         [SerializeField] private List<BlendShapeSelectionSet> m_SelectionSets = new List<BlendShapeSelectionSet>();
 
         public BlendShapeFeatureSettings()
@@ -56,7 +57,62 @@ namespace Triturbo.BlendShare.Model.Settings
             set => m_ActiveSelectionSetId = value ?? string.Empty;
         }
 
+        public bool HasWorkingOverride
+        {
+            get => m_HasWorkingOverride;
+            set => m_HasWorkingOverride = value;
+        }
+
         public List<BlendShapeSelectionSet> SelectionSets => m_SelectionSets ?? (m_SelectionSets = new List<BlendShapeSelectionSet>());
+
+        public BlendShapeSelectionSet FindSelectionSet(string setId)
+        {
+            if (string.IsNullOrEmpty(setId) || m_SelectionSets == null)
+            {
+                return null;
+            }
+
+            for (int i = 0; i < m_SelectionSets.Count; i++)
+            {
+                var set = m_SelectionSets[i];
+                if (set != null && string.Equals(set.SetId, setId, StringComparison.Ordinal))
+                {
+                    return set;
+                }
+            }
+
+            return null;
+        }
+
+        public bool WorkingSelectionMatches(BlendShapeSelectionSet selectionSet, IReadOnlyList<string> availableShapeIdsInPatchOrder)
+        {
+            if (selectionSet == null)
+            {
+                return false;
+            }
+
+            if (!m_HasWorkingOverride && string.Equals(m_ActiveSelectionSetId, selectionSet.SetId, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            var working = ResolveEffectiveShapeIds(availableShapeIdsInPatchOrder);
+            var setEffective = ResolveFromLists(availableShapeIdsInPatchOrder, selectionSet.DisabledShapeIds, selectionSet.OrderOverrides);
+            if (working.Count != setEffective.Count)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < working.Count; i++)
+            {
+                if (!string.Equals(working[i], setEffective[i], StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
 
         /// <summary>
         /// Computes the effective ordered list of enabled ShapeIds against a patch's available shape list.
@@ -65,27 +121,31 @@ namespace Triturbo.BlendShare.Model.Settings
         /// </summary>
         public List<string> ResolveEffectiveShapeIds(IReadOnlyList<string> availableShapeIdsInPatchOrder)
         {
+            List<string> disabledList = m_DisabledShapeIds;
+            List<string> orderList = m_OrderOverrides;
+
+            if (!m_HasWorkingOverride && !string.IsNullOrEmpty(m_ActiveSelectionSetId) && m_SelectionSets != null)
+            {
+                var set = FindSelectionSet(m_ActiveSelectionSetId);
+                if (set != null)
+                {
+                    disabledList = set.DisabledShapeIds;
+                    orderList = set.OrderOverrides;
+                }
+            }
+
+            return ResolveFromLists(availableShapeIdsInPatchOrder, disabledList, orderList);
+        }
+
+        public static List<string> ResolveFromLists(
+            IReadOnlyList<string> availableShapeIdsInPatchOrder,
+            IReadOnlyList<string> disabledList,
+            IReadOnlyList<string> orderList)
+        {
             var result = new List<string>();
             if (availableShapeIdsInPatchOrder == null || availableShapeIdsInPatchOrder.Count == 0)
             {
                 return result;
-            }
-
-            List<string> disabledList = m_DisabledShapeIds;
-            List<string> orderList = m_OrderOverrides;
-
-            if (!string.IsNullOrEmpty(m_ActiveSelectionSetId) && m_SelectionSets != null)
-            {
-                for (int i = 0; i < m_SelectionSets.Count; i++)
-                {
-                    var set = m_SelectionSets[i];
-                    if (set != null && string.Equals(set.SetId, m_ActiveSelectionSetId, StringComparison.Ordinal))
-                    {
-                        disabledList = set.DisabledShapeIds;
-                        orderList = set.OrderOverrides;
-                        break;
-                    }
-                }
             }
 
             var availableSet = new HashSet<string>(StringComparer.Ordinal);

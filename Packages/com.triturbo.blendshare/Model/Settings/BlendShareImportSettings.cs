@@ -12,12 +12,19 @@ namespace Triturbo.BlendShare.Model.Settings
     public sealed class BlendShareImportSettings
     {
         [SerializeField] private GameObject m_DefaultTargetFbx;
+        [SerializeField] private string m_DefaultGeneratedAssetName = string.Empty;
         [SerializeField] private List<BlendShareMeshImportSettings> m_Meshes = new List<BlendShareMeshImportSettings>();
 
         public GameObject DefaultTargetFbx
         {
             get => m_DefaultTargetFbx;
             set => m_DefaultTargetFbx = value;
+        }
+
+        public string DefaultGeneratedAssetName
+        {
+            get => m_DefaultGeneratedAssetName ?? string.Empty;
+            set => m_DefaultGeneratedAssetName = value ?? string.Empty;
         }
 
         public List<BlendShareMeshImportSettings> Meshes => m_Meshes ?? (m_Meshes = new List<BlendShareMeshImportSettings>());
