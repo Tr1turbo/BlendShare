@@ -1,0 +1,19 @@
+{
+    "name": "Triturbo.BlendShare.NDMF.Editor",
+    "rootNamespace": "Triturbo.BlendShare.NDMF",
+    "references": [
+        "Triturbo.BlendShare.Primitives",
+        "Triturbo.BlendShare.Runtime",
+        "Triturbo.BlendShare.Model.Editor",
+        "Triturbo.BlendShare.Container.Editor",
+        "Triturbo.BlendShare.EditorAssets.Editor",
+        "Triturbo.BlendShare.Pipeline.Editor",
+        "nadena.dev.ndmf",
+        "nadena.dev.ndmf.runtime"
+    ],
+    "includePlatforms": ["Editor"],
+    "defineConstraints": ["BLENDSHARE_HAS_NDMF"],
+    "versionDefines": [
+        { "name": "nadena.dev.ndmf", "expression": "1.0.0", "define": "BLENDSHARE_HAS_NDMF" }
+    ]
+}

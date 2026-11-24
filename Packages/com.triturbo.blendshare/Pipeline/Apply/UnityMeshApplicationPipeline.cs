@@ -16,11 +16,13 @@ namespace Triturbo.BlendShare.Pipeline.Apply
         public Transform TargetRootTransform { get; set; }
         public Transform MeshRendererTransform { get; set; }
         public IReadOnlyDictionary<BoneOverrideKey, Transform> BoneTransformOverrides { get; set; }
+        public IReadOnlyDictionary<(string PatchId, string ArmatureId), Transform> ArmatureRootOverrides { get; set; }
         public int MaxBonesPerVertex { get; set; } = 4;
         public bool CreateMissingBones { get; set; }
         public IReadOnlyList<PatchMeshApplicationItem> Items { get; set; } = Array.Empty<PatchMeshApplicationItem>();
         public bool CloneBaseMesh { get; set; } = true;
         public bool PreserveExistingBlendShapes { get; set; } = true;
+        public FeatureUnityApplierRegistry Registry { get; set; }
     }
 
     public sealed class UnityMeshApplyResult
@@ -43,7 +45,8 @@ namespace Triturbo.BlendShare.Pipeline.Apply
             try
             {
                 if (request == null || !request.BaseMesh) throw new ArgumentException("A base mesh is required.");
-                var appliers = FeatureUnityApplierRegistry.Default.GetAllOrdered();
+                var registry = request.Registry ?? FeatureUnityApplierRegistry.Default;
+                var appliers = registry.GetAllOrdered();
                 var groups = appliers.ToDictionary(a => a.FeatureTypeId, a => new List<FeatureApplyInput>(), StringComparer.Ordinal);
                 context.Items = request.Items ?? Array.Empty<PatchMeshApplicationItem>();
                 foreach (var item in context.Items)
@@ -82,7 +85,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                         groups[typeId].Add(new FeatureApplyInput
                         {
                             PatchId = item.PatchId, MeshId = item.MeshId, Feature = feature, MeshHeader = item.MeshHeader,
-                            Armatures = item.Armatures,
+                            Armatures = item.Armatures, CreateMissingBones = item.CreateMissingBones,
                             VertexBinding = item.VertexBinding, EffectiveSettings = item.EffectiveSettings, PayloadSource = item.PayloadSource
                         });
                     }
@@ -95,6 +98,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                 context.TargetRootTransform = request.TargetRootTransform;
                 context.MeshRendererTransform = request.MeshRendererTransform;
                 context.BoneTransformOverrides = request.BoneTransformOverrides;
+                context.ArmatureRootOverrides = request.ArmatureRootOverrides;
                 context.MaxBonesPerVertex = request.MaxBonesPerVertex > 0 ? request.MaxBonesPerVertex : 4;
                 context.CreateMissingBones = request.CreateMissingBones;
                 context.PreserveExistingBlendShapes = request.PreserveExistingBlendShapes;

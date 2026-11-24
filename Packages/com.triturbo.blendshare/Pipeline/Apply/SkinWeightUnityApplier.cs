@@ -60,12 +60,18 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     {
                         var cluster = feature.Clusters[c];
                         var path = FbxNameUtility.NormalizePath(cluster.BonePath);
-                        var root = context.TargetRootTransform;
+                        Transform root = context.TargetRootTransform;
+                        if (context.ArmatureRootOverrides != null &&
+                            context.ArmatureRootOverrides.TryGetValue((input.PatchId ?? string.Empty, feature.ArmatureId ?? string.Empty), out var overrideRoot) &&
+                            overrideRoot != null)
+                        {
+                            root = overrideRoot;
+                        }
                         ArmatureBoneResolver.ResolveBoneTransform(root, context.BoneTransformOverrides, input.PatchId,
                             feature.ArmatureId, path, out var bone, out var targetPath, out var isNew);
                         if (!bone)
                             bone = bones.FirstOrDefault(b => b && AnimationUtility.CalculateTransformPath(b, root) == path);
-                        if (!bone && context.CreateMissingBones)
+                        if (!bone && context.CreateMissingBones && input.CreateMissingBones)
                         {
                             var armature = input.Armatures?.FirstOrDefault(a => a.ArmatureId == feature.ArmatureId);
                             var firstMissing = path;

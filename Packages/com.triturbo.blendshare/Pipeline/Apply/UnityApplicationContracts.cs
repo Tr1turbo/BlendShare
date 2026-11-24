@@ -127,6 +127,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
         public BlendShareImportSettings EffectiveSettings { get; set; }
         public ILazyPayloadSource PayloadSource { get; set; }
         public ResolvedVertexBinding VertexBinding { get; set; }
+        public bool CreateMissingBones { get; set; } = true;
     }
 
     public sealed class FeatureApplyInput : PatchMeshContext
@@ -146,6 +147,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
         public Transform TargetRootTransform { get; internal set; }
         public Transform MeshRendererTransform { get; internal set; }
         public IReadOnlyDictionary<BoneOverrideKey, Transform> BoneTransformOverrides { get; internal set; }
+        public IReadOnlyDictionary<(string PatchId, string ArmatureId), Transform> ArmatureRootOverrides { get; internal set; }
         public int MaxBonesPerVertex { get; internal set; } = 4;
         public bool CreateMissingBones { get; internal set; }
         public IReadOnlyList<PatchMeshApplicationItem> Items { get; internal set; }
