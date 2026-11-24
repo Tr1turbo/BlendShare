@@ -119,15 +119,13 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             var armatureAccumulators = new Dictionary<string, ArmatureAccumulator>(StringComparer.Ordinal);
             var armatureOrder = new List<string>();
             bool hasError = false;
-            double translationBindTolerance = 1e-4d / originUnitMeters;
 
-            // Collect armature bone references and authoritative cluster binds across ALL meshes first,
-            // then finalize ArmatureDocuments deterministically after the mesh loop so mesh order never affects
-            // bone bind selection or local/global consistency.
-            Action<string, string, IReadOnlyList<IFbxNode>, IReadOnlyDictionary<string, FbxMatrix4x4>, FbxAffineSpaceTransform> registerArmature =
-                (armId, rootPath, boneNodes, clusterBindWorldByPath, worldToStored) =>
+            // Collect armature bone registrations across ALL meshes first, then finalize ArmatureDocuments
+            // deterministically in parent-before-child hierarchy order (matching 007f7f0 BuildSelectedArmature).
+            Action<string, IReadOnlyList<ArmatureBoneRegistration>, FbxAffineSpaceTransform> registerArmature =
+                (armId, boneRegistrations, worldToStored) =>
                 {
-                    if (string.IsNullOrWhiteSpace(armId) || boneNodes == null) return;
+                    if (string.IsNullOrWhiteSpace(armId) || boneRegistrations == null || boneRegistrations.Count == 0) return;
                     if (!armatureAccumulators.TryGetValue(armId, out var acc))
                     {
                         acc = new ArmatureAccumulator(armId);
@@ -135,57 +133,31 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                         armatureOrder.Add(armId);
                     }
 
-                    var chain = new List<IFbxNode>();
-                    for (int i = 0; i < boneNodes.Count; i++)
+                    for (int i = 0; i < boneRegistrations.Count; i++)
                     {
-                        chain.Clear();
-                        var curr = boneNodes[i];
-                        while (curr != null && !curr.IsRoot)
+                        var reg = boneRegistrations[i];
+                        var node = reg.SourceNode;
+                        string path = FbxNameUtility.NormalizePath(
+                            !string.IsNullOrEmpty(reg.BonePath) ? reg.BonePath : node?.Path);
+                        if (string.IsNullOrEmpty(path) || node == null) continue;
+
+                        string parentPath = node.Parent != null && !node.Parent.IsRoot
+                            ? FbxNameUtility.NormalizePath(node.Parent.Path)
+                            : GetParentPath(path);
+                        int depth = CountPathDepth(path);
+
+                        if (acc.NodesByPath.TryGetValue(path, out var existing))
                         {
-                            chain.Add(curr);
-                            curr = curr.Parent;
+                            if (reg.CreateIfMissing && !existing.CreateIfMissing)
+                            {
+                                acc.NodesByPath[path] = new ArmatureNodeCandidate(
+                                    path, parentPath, depth, existing.Node, existing.WorldToStored, createIfMissing: true);
+                            }
                         }
-
-                        for (int k = chain.Count - 1; k >= 0; k--)
+                        else
                         {
-                            var node = chain[k];
-                            string path = FbxNameUtility.NormalizePath(node.Path);
-                            if (string.IsNullOrEmpty(path)) continue;
-
-                            string parentPath = node.Parent != null && !node.Parent.IsRoot
-                                ? FbxNameUtility.NormalizePath(node.Parent.Path)
-                                : string.Empty;
-                            int depth = chain.Count - 1 - k;
-
-                            if (!acc.NodesByPath.ContainsKey(path))
-                            {
-                                acc.NodesByPath.Add(path, new ArmatureNodeCandidate(path, parentPath, depth, node, worldToStored));
-                            }
-
-                            if (clusterBindWorldByPath != null &&
-                                clusterBindWorldByPath.TryGetValue(path, out var clusterGlobal))
-                            {
-                                acc.WeightedPaths.Add(path);
-                                if (acc.ClusterBindByPath.TryGetValue(path, out var existingClusterBind))
-                                {
-                                    if (!MatricesApproximatelyEqual(
-                                            existingClusterBind,
-                                            clusterGlobal,
-                                            linearTolerance: 1e-4d,
-                                            translationTolerance: translationBindTolerance))
-                                    {
-                                        diagnostics.Add(new ExtractionDiagnostic(
-                                            ExtractionDiagnosticSeverity.Error,
-                                            "PIPE_EXT_ARMATURE_BIND_MISMATCH",
-                                            $"Conflicting authoritative skin cluster bind poses for bone '{path}' in armature '{armId}'."));
-                                        hasError = true;
-                                    }
-                                }
-                                else
-                                {
-                                    acc.ClusterBindByPath.Add(path, clusterGlobal);
-                                }
-                            }
+                            acc.NodesByPath.Add(path, new ArmatureNodeCandidate(
+                                path, parentPath, depth, node, worldToStored, reg.CreateIfMissing));
                         }
                     }
                 };
@@ -429,7 +401,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                 }
             }
 
-            // Finalize ArmatureDocuments deterministically after all meshes have contributed their cluster binds.
+            // Finalize ArmatureDocuments deterministically in parent-before-child hierarchy order.
             var finalizedArmatures = new List<ArmatureDocument>(armatureOrder.Count);
             armatureOrder.Sort(StringComparer.Ordinal);
             for (int a = 0; a < armatureOrder.Count; a++)
@@ -450,72 +422,38 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                     return cmp != 0 ? cmp : string.CompareOrdinal(x.Path, y.Path);
                 });
 
-                var boneMap = new Dictionary<string, ArmatureBoneRecord>(candidates.Count, StringComparer.Ordinal);
+                var bonePaths = new List<string>(candidates.Count);
                 for (int i = 0; i < candidates.Count; i++)
                 {
                     var cand = candidates[i];
-                    FbxMatrix4x4 globalStored;
-                    if (acc.ClusterBindByPath.TryGetValue(cand.Path, out var clusterGlobal))
-                    {
-                        globalStored = clusterGlobal;
-                    }
-                    else
-                    {
-                        globalStored = cand.WorldToStored.IsIdentity
-                            ? cand.Node.NodeToWorldMatrix
-                            : cand.WorldToStored.InverseOffset * cand.Node.NodeToWorldMatrix * cand.WorldToStored.Offset;
-                    }
-
-                    FbxMatrix4x4 localStored;
-                    if (!string.IsNullOrEmpty(cand.ParentPath) &&
-                        boneMap.TryGetValue(cand.ParentPath, out var parentRecord))
-                    {
-                        if (!parentRecord.GlobalBindMatrix.TryInverse(out var parentInv))
-                        {
-                            diagnostics.Add(new ExtractionDiagnostic(
-                                ExtractionDiagnosticSeverity.Error,
-                                "PIPE_EXT_ARMATURE_SINGULAR_PARENT_BIND",
-                                $"Parent bone '{cand.ParentPath}' in armature '{acc.ArmatureId}' has a singular global bind matrix."));
-                            hasError = true;
-                            continue;
-                        }
-
-                        localStored = globalStored * parentInv;
-                        if (!MatricesApproximatelyEqual(
-                                localStored * parentRecord.GlobalBindMatrix,
-                                globalStored,
-                                linearTolerance: 1e-4d,
-                                translationTolerance: translationBindTolerance))
-                        {
-                            diagnostics.Add(new ExtractionDiagnostic(
-                                ExtractionDiagnosticSeverity.Error,
-                                "PIPE_EXT_ARMATURE_LOCAL_INCONSISTENT",
-                                $"Derived local bind matrix for bone '{cand.Path}' in armature '{acc.ArmatureId}' is not consistent with parent '{cand.ParentPath}'."));
-                            hasError = true;
-                            continue;
-                        }
-                    }
-                    else
-                    {
-                        // Top-level bone in the serialized armature has no serialized parent (scene root is identity),
-                        // so its local bind matrix equals its global bind matrix.
-                        localStored = globalStored;
-                    }
+                    FbxMatrix4x4 localStored = cand.WorldToStored.IsIdentity
+                        ? cand.Node.NodeToParentMatrix
+                        : cand.WorldToStored.InverseOffset * cand.Node.NodeToParentMatrix * cand.WorldToStored.Offset;
+                    FbxMatrix4x4 globalStored = cand.WorldToStored.IsIdentity
+                        ? cand.Node.NodeToWorldMatrix
+                        : cand.WorldToStored.InverseOffset * cand.Node.NodeToWorldMatrix * cand.WorldToStored.Offset;
 
                     var record = new ArmatureBoneRecord
                     {
                         Path = cand.Path,
                         ParentPath = cand.ParentPath,
                         LocalBindMatrix = localStored,
-                        GlobalBindMatrix = globalStored
+                        GlobalBindMatrix = globalStored,
+                        CreateIfMissing = cand.CreateIfMissing,
+                        HasTransformData = true
                     };
-                    boneMap.Add(cand.Path, record);
+
+                    if (cand.WorldToStored.IsIdentity && !cand.Node.RawTransform.LclScaling.IsZero())
+                    {
+                        record.CopyRawTransformFrom(cand.Node.RawTransform);
+                    }
+
                     armDoc.Bones.Add(record);
+                    bonePaths.Add(cand.Path);
                 }
 
-                var weightedList = new List<string>(acc.WeightedPaths);
-                weightedList.Sort(StringComparer.Ordinal);
-                armDoc.RootBonePath = SkinWeightFeatureExtractor.ComputeLowestCommonAncestorPath(weightedList);
+                bonePaths.Sort(StringComparer.Ordinal);
+                armDoc.RootBonePath = SkinWeightFeatureExtractor.ComputeLowestCommonAncestorPath(bonePaths);
                 finalizedArmatures.Add(armDoc);
             }
 
@@ -903,10 +841,6 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             public string ArmatureId { get; }
             public Dictionary<string, ArmatureNodeCandidate> NodesByPath { get; } =
                 new Dictionary<string, ArmatureNodeCandidate>(StringComparer.Ordinal);
-            public Dictionary<string, FbxMatrix4x4> ClusterBindByPath { get; } =
-                new Dictionary<string, FbxMatrix4x4>(StringComparer.Ordinal);
-            public HashSet<string> WeightedPaths { get; } =
-                new HashSet<string>(StringComparer.Ordinal);
 
             public ArmatureAccumulator(string armatureId)
             {
@@ -921,41 +855,41 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             public int Depth { get; }
             public IFbxNode Node { get; }
             public FbxAffineSpaceTransform WorldToStored { get; }
+            public bool CreateIfMissing { get; }
 
             public ArmatureNodeCandidate(
                 string path,
                 string parentPath,
                 int depth,
                 IFbxNode node,
-                FbxAffineSpaceTransform worldToStored)
+                FbxAffineSpaceTransform worldToStored,
+                bool createIfMissing)
             {
                 Path = path;
                 ParentPath = parentPath;
                 Depth = depth;
                 Node = node;
                 WorldToStored = worldToStored;
+                CreateIfMissing = createIfMissing;
             }
         }
 
-        private static bool MatricesApproximatelyEqual(
-            FbxMatrix4x4 a,
-            FbxMatrix4x4 b,
-            double linearTolerance,
-            double translationTolerance)
+        private static string GetParentPath(string normalizedPath)
         {
-            for (int r = 0; r < 4; r++)
+            if (string.IsNullOrEmpty(normalizedPath)) return string.Empty;
+            int slash = normalizedPath.LastIndexOf('/');
+            return slash > 0 ? normalizedPath.Substring(0, slash) : string.Empty;
+        }
+
+        private static int CountPathDepth(string normalizedPath)
+        {
+            int depth = 0;
+            for (int i = 0; i < normalizedPath.Length; i++)
             {
-                for (int c = 0; c < 4; c++)
-                {
-                    double tol = (r == 3 && c < 3) ? translationTolerance : linearTolerance;
-                    if (Math.Abs(a[r, c] - b[r, c]) > tol)
-                    {
-                        return false;
-                    }
-                }
+                if (normalizedPath[i] == '/') depth++;
             }
 
-            return true;
+            return depth;
         }
 
         private static void TryDeleteQuietly(string path)

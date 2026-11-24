@@ -289,6 +289,23 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
     }
 
     /// <summary>
+    /// Describes one source FBX bone node registered into a shared <see cref="ArmatureDocument"/> during extraction.
+    /// </summary>
+    public readonly struct ArmatureBoneRegistration
+    {
+        public string BonePath { get; }
+        public IFbxNode SourceNode { get; }
+        public bool CreateIfMissing { get; }
+
+        public ArmatureBoneRegistration(string bonePath, IFbxNode sourceNode, bool createIfMissing)
+        {
+            BonePath = FbxNameUtility.NormalizePath(bonePath ?? string.Empty);
+            SourceNode = sourceNode;
+            CreateIfMissing = createIfMissing;
+        }
+    }
+
+    /// <summary>
     /// Per-mesh extraction context providing Origin and Source meshes aligned into the patch's stored Origin FBX
     /// local space, keeping scene/world basis conversion (<c>W</c>) explicitly separated from per-mesh local alignment (<c>L</c>).
     /// </summary>
@@ -328,7 +345,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
         public FbxTopologyCompatibilityResult TopologyCompatibility { get; }
         public MeshSpaceProvenance SpaceProvenance { get; }
         public PayloadEncodeOptions EncodeOptions { get; }
-        private readonly Action<string, string, IReadOnlyList<IFbxNode>, IReadOnlyDictionary<string, FbxMatrix4x4>, FbxAffineSpaceTransform> m_ArmatureRegistrar;
+        private readonly Action<string, IReadOnlyList<ArmatureBoneRegistration>, FbxAffineSpaceTransform> m_ArmatureRegistrar;
 
         public MeshExtractionContext(
             string meshId,
@@ -343,7 +360,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             FbxTopologyCompatibilityResult topologyCompatibility,
             MeshSpaceProvenance spaceProvenance,
             PayloadEncodeOptions encodeOptions,
-            Action<string, string, IReadOnlyList<IFbxNode>, IReadOnlyDictionary<string, FbxMatrix4x4>, FbxAffineSpaceTransform> armatureRegistrar = null,
+            Action<string, IReadOnlyList<ArmatureBoneRegistration>, FbxAffineSpaceTransform> armatureRegistrar = null,
             FbxAffineSpaceTransform? sourceWorldToStoredSpace = null,
             FbxAffineSpaceTransform? sourceMeshToStoredSpace = null)
         {
@@ -366,12 +383,10 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
 
         public void RegisterArmatureBones(
             string armatureId,
-            string rootBonePath,
-            IReadOnlyList<IFbxNode> boneNodes,
-            IReadOnlyDictionary<string, FbxMatrix4x4> storedClusterBindWorldByPath,
+            IReadOnlyList<ArmatureBoneRegistration> bones,
             FbxAffineSpaceTransform sourceWorldToStored)
         {
-            m_ArmatureRegistrar?.Invoke(armatureId, rootBonePath, boneNodes, storedClusterBindWorldByPath, sourceWorldToStored);
+            m_ArmatureRegistrar?.Invoke(armatureId, bones, sourceWorldToStored);
         }
     }
 

@@ -68,7 +68,7 @@ namespace Triturbo.BlendShare.Pipeline.Inspection
     /// </summary>
     public sealed class SkinWeightFbxComparison
     {
-        private const double k_WeightComparisonTolerance = 0.00001d;
+        private const double k_WeightComparisonTolerance = 0.0001d;
         private const double k_LinearMatrixTolerance = 0.0001d;
         private const double k_TranslationToleranceMeters = 0.0001d;
 
@@ -399,14 +399,20 @@ namespace Triturbo.BlendShare.Pipeline.Inspection
 
             if (hasSource && hasOrigin)
             {
-                FbxMatrix4x4 sourceLocalInOrigin = worldToOrigin.IsIdentity
-                    ? sourceNode.NodeToParentMatrix
-                    : worldToOrigin.InverseOffset * sourceNode.NodeToParentMatrix * worldToOrigin.Offset;
-                changed = !MatricesApproximatelyEqual(
-                    sourceLocalInOrigin,
-                    originNode.NodeToParentMatrix,
-                    k_LinearMatrixTolerance,
-                    translationTolerance);
+                if (worldToOrigin.IsIdentity)
+                {
+                    changed = !ApproximatelyNodeTransform(sourceNode, originNode, k_LinearMatrixTolerance, translationTolerance);
+                }
+                else
+                {
+                    FbxMatrix4x4 sourceLocalInOrigin =
+                        worldToOrigin.InverseOffset * sourceNode.NodeToParentMatrix * worldToOrigin.Offset;
+                    changed = !MatricesApproximatelyEqual(
+                        sourceLocalInOrigin,
+                        originNode.NodeToParentMatrix,
+                        k_LinearMatrixTolerance,
+                        translationTolerance);
+                }
             }
 
             return new SkinWeightBoneTransformComparison
@@ -414,6 +420,54 @@ namespace Triturbo.BlendShare.Pipeline.Inspection
                 BonePath = FbxNameUtility.NormalizePath(bonePath),
                 Status = GetStatus(hasSource, hasOrigin, changed)
             };
+        }
+
+        private static bool ApproximatelyNodeTransform(
+            IFbxNode first,
+            IFbxNode second,
+            double linearTolerance,
+            double translationTolerance)
+        {
+            if (first == null || second == null)
+            {
+                return false;
+            }
+
+            if (!MatricesApproximatelyEqual(
+                    first.NodeToParentMatrix,
+                    second.NodeToParentMatrix,
+                    linearTolerance,
+                    translationTolerance))
+            {
+                return false;
+            }
+
+            var firstRaw = first.RawTransform;
+            var secondRaw = second.RawTransform;
+            if (!firstRaw.LclScaling.IsZero() && !secondRaw.LclScaling.IsZero())
+            {
+                return firstRaw.RotationOrder == secondRaw.RotationOrder &&
+                       firstRaw.OriginalInheritMode == secondRaw.OriginalInheritMode &&
+                       firstRaw.RotationActive == secondRaw.RotationActive &&
+                       VectorsApproximatelyEqual(firstRaw.LclTranslation, secondRaw.LclTranslation, translationTolerance) &&
+                       VectorsApproximatelyEqual(firstRaw.LclRotation, secondRaw.LclRotation, linearTolerance) &&
+                       VectorsApproximatelyEqual(firstRaw.LclScaling, secondRaw.LclScaling, linearTolerance) &&
+                       VectorsApproximatelyEqual(firstRaw.PreRotation, secondRaw.PreRotation, linearTolerance) &&
+                       VectorsApproximatelyEqual(firstRaw.PostRotation, secondRaw.PostRotation, linearTolerance) &&
+                       VectorsApproximatelyEqual(firstRaw.RotationPivot, secondRaw.RotationPivot, translationTolerance) &&
+                       VectorsApproximatelyEqual(firstRaw.ScalingPivot, secondRaw.ScalingPivot, translationTolerance) &&
+                       VectorsApproximatelyEqual(firstRaw.RotationOffset, secondRaw.RotationOffset, translationTolerance) &&
+                       VectorsApproximatelyEqual(firstRaw.ScalingOffset, secondRaw.ScalingOffset, translationTolerance);
+            }
+
+            return true;
+        }
+
+        private static bool VectorsApproximatelyEqual(Vector3d a, Vector3d b, double tolerance)
+        {
+            return Math.Abs(a.x - b.x) <= tolerance &&
+                   Math.Abs(a.y - b.y) <= tolerance &&
+                   Math.Abs(a.z - b.z) <= tolerance;
         }
 
         private static Dictionary<int, string> BuildBonePathsByIndex(IFbxSkinDeformer skin)
@@ -441,6 +495,7 @@ namespace Triturbo.BlendShare.Pipeline.Inspection
             var result = new Dictionary<string, Dictionary<int, double>>(StringComparer.Ordinal);
             if (skin?.Clusters == null || bonePathByIndex == null) return result;
 
+            var cpSums = new Dictionary<int, double>();
             for (int boneIndex = 0; boneIndex < skin.Clusters.Count; boneIndex++)
             {
                 var cluster = skin.Clusters[boneIndex];
@@ -453,7 +508,7 @@ namespace Triturbo.BlendShare.Pipeline.Inspection
                 {
                     int cp = indices[i];
                     double w = weights[i];
-                    if (cp < 0 || w <= 0d) continue;
+                    if (cp < 0 || w <= 0d || double.IsNaN(w) || double.IsInfinity(w)) continue;
 
                     if (!result.TryGetValue(bonePath, out var map))
                     {
@@ -463,6 +518,25 @@ namespace Triturbo.BlendShare.Pipeline.Inspection
 
                     map.TryGetValue(cp, out double existing);
                     map[cp] = existing + w;
+                    cpSums.TryGetValue(cp, out double total);
+                    cpSums[cp] = total + w;
+                }
+            }
+
+            if (cpSums.Count > 0)
+            {
+                foreach (var map in result.Values)
+                {
+                    var keys = map.Keys.ToArray();
+                    for (int i = 0; i < keys.Length; i++)
+                    {
+                        int cp = keys[i];
+                        if (cpSums.TryGetValue(cp, out double total) && total > 0d)
+                        {
+                            double normalized = map[cp] / total;
+                            map[cp] = normalized > 1d ? 1d : normalized;
+                        }
+                    }
                 }
             }
 

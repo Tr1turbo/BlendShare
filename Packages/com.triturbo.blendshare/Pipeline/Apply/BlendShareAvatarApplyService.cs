@@ -31,6 +31,11 @@ namespace Triturbo.BlendShare.Pipeline.Apply
         public Transform[] IncomingBones { get; set; }
 
         /// <summary>
+        /// Incoming root bone transform (in NDMF Preview: <c>proxy.rootBone</c>; in Build: <c>targetRenderer.rootBone</c>).
+        /// </summary>
+        public Transform IncomingRootBone { get; set; }
+
+        /// <summary>
         /// Avatar root transform used for bone hierarchy resolution.
         /// </summary>
         public Transform TargetRootTransform { get; set; }
@@ -157,12 +162,11 @@ namespace Triturbo.BlendShare.Pipeline.Apply
 
             var items = new List<PatchMeshApplicationItem>(request.Components.Count);
             var boneOverrides = new Dictionary<BoneOverrideKey, Transform>();
-            var armatureRootOverrides = new Dictionary<(string PatchId, string ArmatureId), Transform>();
             var weightOverrides = new Dictionary<string, float>(StringComparer.Ordinal);
             var weightOrder = new List<string>();
             var committedGuids = new HashSet<string>(StringComparer.Ordinal);
             var resolutions = new Dictionary<BlendShareArmatureKey, BlendShareArmatureBoneProxyResolution>();
-            var clusterOwners = new Dictionary<BoneOverrideKey, Queue<BlendShareMesh>>();
+            var patchByScopeKey = new Dictionary<string, BlendShareAsset>(StringComparer.Ordinal);
 
             for (int c = 0; c < request.Components.Count; c++)
             {
@@ -235,6 +239,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                 // Scope PatchId uniquely by BlendShareAsset identity so two distinct BlendShareAssets
                 // that happen to share identical PatchId strings AND identical ArmatureIds never collide!
                 string patchScopeKey = BuildPatchScopeKey(patch, assetGuid);
+                patchByScopeKey[patchScopeKey] = patch;
 
                 var armaturesRes = repo.ReadArmatures(patch);
                 if (!armaturesRes.Success)
@@ -407,16 +412,24 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                             var key = new BoneOverrideKey(patchScopeKey, skin.ArmatureId,
                                 FbxNameUtility.NormalizePath(binding.SourceBonePath));
                             boneOverrides[key] = binding.Transform;
-                            if (parent && proxy.IsRootBinding(binding))
-                                armatureRootOverrides[(patchScopeKey, skin.ArmatureId)] = parent;
                         }
                     }
-                    foreach (var cluster in skin.Clusters)
+                }
+
+                Dictionary<string, Matrix4x4> itemBindPoseOverrides = null;
+                var compBindPoseOverrides = comp.BindPoseOverrides;
+                if (compBindPoseOverrides != null && compBindPoseOverrides.Count > 0)
+                {
+                    itemBindPoseOverrides = new Dictionary<string, Matrix4x4>(StringComparer.Ordinal);
+                    for (int b = 0; b < compBindPoseOverrides.Count; b++)
                     {
-                        var key = new BoneOverrideKey(patchScopeKey, skin.ArmatureId, FbxNameUtility.NormalizePath(cluster.BonePath));
-                        if (!clusterOwners.TryGetValue(key, out var owners))
-                            clusterOwners.Add(key, owners = new Queue<BlendShareMesh>());
-                        owners.Enqueue(comp);
+                        var ov = compBindPoseOverrides[b];
+                        if (ov == null || string.IsNullOrWhiteSpace(ov.SourceBonePath)) continue;
+                        string norm = FbxNameUtility.NormalizePath(ov.SourceBonePath);
+                        if (!string.IsNullOrEmpty(norm))
+                        {
+                            itemBindPoseOverrides[norm] = ov.BindPose;
+                        }
                     }
                 }
 
@@ -448,6 +461,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     PayloadSource = repo.PayloadStore,
                     VertexBinding = bindRes.Binding,
                     CreateMissingBones = request.CreateMissingBones && comp.CreateMissingBones,
+                    BindPoseOverrides = itemBindPoseOverrides,
                     Features = features
                 });
             }
@@ -469,10 +483,10 @@ namespace Triturbo.BlendShare.Pipeline.Apply
             {
                 BaseMesh = request.IncomingMesh,
                 IncomingBones = request.IncomingBones,
+                IncomingRootBone = request.IncomingRootBone,
                 TargetRootTransform = request.TargetRootTransform,
                 MeshRendererTransform = request.RendererTransform,
                 BoneTransformOverrides = boneOverrides,
-                ArmatureRootOverrides = armatureRootOverrides,
                 MaxBonesPerVertex = effectiveMaxBones,
                 CreateMissingBones = request.CreateMissingBones,
                 PreserveExistingBlendShapes = request.PreserveExistingBlendShapes,
@@ -493,26 +507,18 @@ namespace Triturbo.BlendShare.Pipeline.Apply
             var uses = new List<AvatarBoneBindingUse>();
             if (meshApplyRes.Succeeded && meshApplyRes.AppliedBoneBindings.Count > 0)
             {
-                // Skin application emits a record per cluster in component order. A later
-                // cluster can reuse a slot, so its pose must also win when it has no override.
-                var poses = meshApplyRes.OutputMesh.bindposes;
-                var records = meshApplyRes.AppliedBoneBindings.ToArray();
-                for (int i = 0; i < records.Length; i++)
+                var records = meshApplyRes.AppliedBoneBindings;
+                for (int i = 0; i < records.Count; i++)
                 {
                     var record = records[i];
-                    var key = new BoneOverrideKey(record.PatchId, record.ArmatureId, record.SourceBonePath);
-                    if (!clusterOwners.TryGetValue(key, out var owners) || owners.Count == 0) continue;
-                    var owner = owners.Dequeue();
-                    var pose = owner.TryGetBindPoseOverride(record.SourceBonePath, out var authored) ? authored : record.BindPose;
-                    poses[record.BoneIndex] = pose;
-                    records[i] = new AppliedBoneBinding(record.PatchId, record.ArmatureId, record.SourceBonePath,
-                        record.TargetBonePath, record.TargetTransform, pose, record.BoneIndex, record.IsNewBone);
-                    var resolution = resolutions[new BlendShareArmatureKey(owner.ResolvedPatch, record.ArmatureId)];
-                    if (resolution.TryGetBinding(record.SourceBonePath, out var bone))
-                        uses.Add(new AvatarBoneBindingUse(bone, pose, request.RendererTransform));
+                    if (!patchByScopeKey.TryGetValue(record.PatchId, out var ownerPatch)) continue;
+                    var armKey = new BlendShareArmatureKey(ownerPatch, record.ArmatureId);
+                    if (resolutions.TryGetValue(armKey, out var resolution) &&
+                        resolution.TryGetBinding(record.SourceBonePath, out var bone))
+                    {
+                        uses.Add(new AvatarBoneBindingUse(bone, record.BindPose, request.RendererTransform));
+                    }
                 }
-                meshApplyRes.OutputMesh.bindposes = poses;
-                meshApplyRes.AppliedBoneBindings = records;
             }
 
             var resolvedWeights = new List<KeyValuePair<string, float>>(weightOrder.Count);

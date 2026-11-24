@@ -9,13 +9,19 @@ using Triturbo.BlendShare.Primitives;
 namespace Triturbo.BlendShare.Pipeline.Extraction
 {
     /// <summary>
-    /// Extraction options for <see cref="SkinWeightFeatureExtractor"/>.
+    /// Four-track extraction options for <see cref="SkinWeightFeatureExtractor"/>:
+    /// independent per-mesh weight bone paths, independent per-mesh bindpose bone paths,
+    /// shared armature transform bone paths, and new bone creation paths (plus optional armature-only host mesh).
     /// </summary>
     public sealed class SkinWeightExtractionOptions : IFeatureExtractionOptions
     {
         private readonly HashSet<string> m_DisabledMeshes = new HashSet<string>(StringComparer.Ordinal);
-        private readonly Dictionary<string, List<string>> m_SelectedBonesByMesh =
+        private readonly Dictionary<string, List<string>> m_SelectedWeightBonesByMesh =
             new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        private readonly Dictionary<string, List<string>> m_SelectedBindposeBonesByMesh =
+            new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> m_RootBonePathByMesh =
+            new Dictionary<string, string>(StringComparer.Ordinal);
 
         public string FeatureTypeId => SkinWeightFeature.FeatureTypeId;
         public bool Enabled { get; set; } = false;
@@ -24,6 +30,9 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
         public bool IncludeClusterBindMatrices { get; set; } = true;
         public double ZeroWeightThreshold { get; set; } = 1e-6d;
         public List<string> SelectedBonePaths { get; } = new List<string>();
+        public List<string> SelectedTransformBonePaths { get; } = new List<string>();
+        public List<string> SelectedNewBonePaths { get; } = new List<string>();
+        public string ArmatureOnlyHostMeshPath { get; set; } = string.Empty;
 
         public bool IsMeshEnabled(string nodePath) => !m_DisabledMeshes.Contains(NormalizeKey(nodePath));
 
@@ -34,49 +43,177 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             else m_DisabledMeshes.Add(key);
         }
 
-        public bool HasSelectedBonePathsForMesh(string nodePath) =>
-            m_SelectedBonesByMesh.ContainsKey(NormalizeKey(nodePath));
+        public bool HasSelectedWeightBonePathsForMesh(string nodePath) =>
+            m_SelectedWeightBonesByMesh.ContainsKey(NormalizeKey(nodePath));
 
-        public IReadOnlyList<string> GetSelectedBonePaths(string nodePath)
+        public bool HasSelectedBindposeBonePathsForMesh(string nodePath) =>
+            m_SelectedBindposeBonesByMesh.ContainsKey(NormalizeKey(nodePath));
+
+        public bool HasSelectedBonePathsForMesh(string nodePath) =>
+            HasSelectedWeightBonePathsForMesh(nodePath) || HasSelectedBindposeBonePathsForMesh(nodePath);
+
+        public IReadOnlyList<string> GetSelectedWeightBonePaths(string nodePath)
         {
-            return m_SelectedBonesByMesh.TryGetValue(NormalizeKey(nodePath), out var list)
+            return m_SelectedWeightBonesByMesh.TryGetValue(NormalizeKey(nodePath), out var list)
                 ? list
                 : SelectedBonePaths;
         }
 
-        public void SetSelectedBonePaths(string nodePath, IEnumerable<string> bonePaths)
+        public IReadOnlyList<string> GetSelectedBindposeBonePaths(string nodePath)
         {
-            string key = NormalizeKey(nodePath);
-            var cleaned = new List<string>();
-            if (bonePaths != null)
+            if (m_SelectedBindposeBonesByMesh.TryGetValue(NormalizeKey(nodePath), out var list))
             {
-                var seen = new HashSet<string>(StringComparer.Ordinal);
-                foreach (string bp in bonePaths)
-                {
-                    string norm = FbxNameUtility.NormalizePath(bp ?? string.Empty);
-                    if (!string.IsNullOrEmpty(norm) && seen.Add(norm))
-                    {
-                        cleaned.Add(norm);
-                    }
-                }
+                return list;
             }
 
-            m_SelectedBonesByMesh[key] = cleaned;
+            if (HasSelectedWeightBonePathsForMesh(nodePath))
+            {
+                return Array.Empty<string>();
+            }
+
+            return IncludeClusterBindMatrices ? SelectedBonePaths : Array.Empty<string>();
+        }
+
+        public IReadOnlyList<string> GetSelectedBonePaths(string nodePath)
+        {
+            var weights = GetSelectedWeightBonePaths(nodePath);
+            var bindposes = GetSelectedBindposeBonePaths(nodePath);
+            if (bindposes.Count == 0)
+            {
+                return weights;
+            }
+
+            if (weights.Count == 0)
+            {
+                return bindposes;
+            }
+
+            var combined = new List<string>(weights.Count + bindposes.Count);
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < weights.Count; i++)
+            {
+                if (seen.Add(weights[i])) combined.Add(weights[i]);
+            }
+
+            for (int i = 0; i < bindposes.Count; i++)
+            {
+                if (seen.Add(bindposes[i])) combined.Add(bindposes[i]);
+            }
+
+            return combined;
+        }
+
+        public void SetSelectedWeightBonePaths(string nodePath, IEnumerable<string> bonePaths)
+        {
+            m_SelectedWeightBonesByMesh[NormalizeKey(nodePath)] = CleanBonePaths(bonePaths);
+        }
+
+        public void SetSelectedBindposeBonePaths(string nodePath, IEnumerable<string> bonePaths)
+        {
+            m_SelectedBindposeBonesByMesh[NormalizeKey(nodePath)] = CleanBonePaths(bonePaths);
+        }
+
+        /// <summary>
+        /// Convenience setter configuring both weight and (when <see cref="IncludeClusterBindMatrices"/> is true)
+        /// bindpose bone selection for <paramref name="nodePath"/>.
+        /// </summary>
+        public void SetSelectedBonePaths(string nodePath, IEnumerable<string> bonePaths)
+        {
+            var cleaned = CleanBonePaths(bonePaths);
+            string key = NormalizeKey(nodePath);
+            m_SelectedWeightBonesByMesh[key] = cleaned;
+            m_SelectedBindposeBonesByMesh[key] = IncludeClusterBindMatrices
+                ? new List<string>(cleaned)
+                : new List<string>();
+        }
+
+        public void SetSelectedTransformBonePaths(IEnumerable<string> bonePaths)
+        {
+            SelectedTransformBonePaths.Clear();
+            SelectedTransformBonePaths.AddRange(CleanBonePaths(bonePaths));
+        }
+
+        public void SetSelectedNewBonePaths(IEnumerable<string> bonePaths)
+        {
+            SelectedNewBonePaths.Clear();
+            SelectedNewBonePaths.AddRange(CleanBonePaths(bonePaths));
+        }
+
+        public void SetRootBonePath(string nodePath, string rootBonePath)
+        {
+            string key = NormalizeKey(nodePath);
+            string normalizedRoot = NormalizeKey(rootBonePath);
+            if (string.IsNullOrEmpty(normalizedRoot))
+            {
+                m_RootBonePathByMesh.Remove(key);
+            }
+            else
+            {
+                m_RootBonePathByMesh[key] = normalizedRoot;
+            }
+        }
+
+        public bool TryGetRootBonePath(string nodePath, out string rootBonePath)
+        {
+            return m_RootBonePathByMesh.TryGetValue(NormalizeKey(nodePath), out rootBonePath);
+        }
+
+        public bool IsArmatureOnlyHostMesh(string normalizedNodePath)
+        {
+            string host = NormalizeKey(ArmatureOnlyHostMeshPath);
+            return !string.IsNullOrEmpty(host) &&
+                   string.Equals(host, NormalizeKey(normalizedNodePath), StringComparison.Ordinal) &&
+                   (SelectedTransformBonePaths.Count > 0 || SelectedNewBonePaths.Count > 0);
         }
 
         public bool ShouldExtractMesh(string normalizedNodePath)
         {
-            if (!Enabled || !IsMeshEnabled(normalizedNodePath))
+            if (!Enabled)
             {
                 return false;
             }
 
-            if (HasSelectedBonePathsForMesh(normalizedNodePath))
+            if (IsArmatureOnlyHostMesh(normalizedNodePath))
             {
-                return m_SelectedBonesByMesh[NormalizeKey(normalizedNodePath)].Count > 0;
+                return true;
+            }
+
+            if (!IsMeshEnabled(normalizedNodePath))
+            {
+                return false;
+            }
+
+            string key = NormalizeKey(normalizedNodePath);
+            bool hasPerMeshWeights = m_SelectedWeightBonesByMesh.TryGetValue(key, out var weightList);
+            bool hasPerMeshBindposes = m_SelectedBindposeBonesByMesh.TryGetValue(key, out var bindposeList);
+            if (hasPerMeshWeights || hasPerMeshBindposes)
+            {
+                return (hasPerMeshWeights && weightList.Count > 0) ||
+                       (hasPerMeshBindposes && bindposeList.Count > 0);
             }
 
             return ExtractAllClustersWhenSelectionEmpty || SelectedBonePaths.Count > 0;
+        }
+
+        private static List<string> CleanBonePaths(IEnumerable<string> bonePaths)
+        {
+            var cleaned = new List<string>();
+            if (bonePaths == null)
+            {
+                return cleaned;
+            }
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string bp in bonePaths)
+            {
+                string norm = NormalizeKey(bp);
+                if (!string.IsNullOrEmpty(norm) && seen.Add(norm))
+                {
+                    cleaned.Add(norm);
+                }
+            }
+
+            return cleaned;
         }
 
         private static string NormalizeKey(string nodePath) => FbxNameUtility.NormalizePath(nodePath ?? string.Empty);
@@ -84,10 +221,10 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
 
     /// <summary>
     /// Built-in <see cref="IFeatureExtractor"/> for <see cref="SkinWeightFeature"/>.
-    /// Extracts normalized per-cluster sparse control-point weights (<c>DataSemantic.NormalizedWeight</c>)
-    /// and binary64 bind matrices in the mesh's stored Origin FBX local space,
-    /// keeping mesh-local alignment <c>L</c> strictly separated from scene/world basis transform <c>W</c>:
-    /// <c>TransformMatrix = L^-1 * M_meshBind * W</c>, <c>TransformLinkMatrix = W^-1 * M_boneBind * W</c>.
+    /// Extracts signed per-cluster sparse control-point weight deltas (<c>sourceWeight - originWeight</c>,
+    /// <c>DataSemantic.SignedWeightDelta</c>), independent binary64 bind matrices in stored Origin FBX space
+    /// (<c>TransformMatrix = L^-1 * M_meshBind * W</c>, <c>TransformLinkMatrix = W^-1 * M_boneBind * W</c>),
+    /// and shared <see cref="ArmatureDocument"/> bone registrations with explicit <c>CreateIfMissing</c> flags.
     /// </summary>
     public sealed class SkinWeightFeatureExtractor : IFeatureExtractor
     {
@@ -133,31 +270,18 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                 return FeatureExtractionResult.Skipped("SW_EXT_EMPTY_MESH", "Origin mesh has zero control points.", context.MeshId, FeatureTypeId);
             }
 
-            IFbxSkinDeformer primarySkin = FindPrimarySkinDeformer(sourceMesh);
-            if (primarySkin == null)
+            bool isArmatureOnlyHost = swOptions.IsArmatureOnlyHostMesh(context.NodePath);
+            IFbxSkinDeformer sourceSkin = FindPrimarySkinDeformer(sourceMesh);
+            IFbxSkinDeformer originSkin = FindPrimarySkinDeformer(originMesh);
+            if (sourceSkin == null && originSkin == null && !isArmatureOnlyHost)
             {
                 return FeatureExtractionResult.Skipped(
                     "SW_EXT_NO_SKIN",
-                    "Source FBX mesh contains no skin deformers with bone weights.",
+                    "Source and origin FBX meshes contain no skin deformers with bone weights.",
                     context.MeshId,
                     FeatureTypeId);
             }
 
-            bool filterBySelection = swOptions.HasSelectedBonePathsForMesh(context.NodePath) ||
-                                     !swOptions.ExtractAllClustersWhenSelectionEmpty ||
-                                     swOptions.SelectedBonePaths.Count > 0;
-            HashSet<string> selectedBones = null;
-            if (filterBySelection)
-            {
-                selectedBones = new HashSet<string>(swOptions.GetSelectedBonePaths(context.NodePath), StringComparer.Ordinal);
-                if (selectedBones.Count == 0)
-                {
-                    return FeatureExtractionResult.Skipped("SW_EXT_NO_SELECTION", "No skin weight bones selected.", context.MeshId, FeatureTypeId);
-                }
-            }
-
-            // Use scene/world basis transform W (Source world -> Stored world), strictly separated from per-mesh
-            // alignment L (already left-multiplied into cluster.MeshBindWorld by SourceMeshNormalizer as L^-1 * M_meshBind).
             FbxAffineSpaceTransform worldToStored = context.SourceWorldToStoredSpace;
             if (!worldToStored.IsValid)
             {
@@ -182,141 +306,116 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             }
 
             var diagnostics = new List<ExtractionDiagnostic>();
-            var clusterEntries = new List<SkinWeightClusterEntry>();
-            var rawBuffers = new List<IndexedBuffer<double>>();
-            var seenBonePaths = new HashSet<string>(StringComparer.Ordinal);
-            var referencedBoneNodes = new List<IFbxNode>();
-            var clusterBindWorldByPath = new Dictionary<string, FbxMatrix4x4>(StringComparer.Ordinal);
+            var sourceClusterByPath = new Dictionary<string, IFbxSkinCluster>(StringComparer.Ordinal);
+            var sourceBoneNodeByPath = new Dictionary<string, IFbxNode>(StringComparer.Ordinal);
 
-            int[] idxScratch = Array.Empty<int>();
-            double[] wScratch = Array.Empty<double>();
-            double threshold = swOptions.ZeroWeightThreshold >= 0d ? swOptions.ZeroWeightThreshold : 0d;
-
-            // Pass 1: accumulate per-control-point total weight denominator across ALL clusters in the source skin
-            // BEFORE applying bone selection filter, so selecting a subset of bones preserves each bone's true weight
-            // instead of inflating a 0.3 weight to 1.0!
-            var fullSkinSums = new double[domainCount];
-            var allClusterMaps = new SortedDictionary<int, double>[primarySkin.Clusters.Count];
-            int totalNonEmptyClusters = 0;
-
-            for (int c = 0; c < primarySkin.Clusters.Count; c++)
+            if (!TryReadNormalizedSkinWeights(
+                    sourceSkin,
+                    domainCount,
+                    context.MeshId,
+                    FeatureTypeId,
+                    diagnostics,
+                    sourceClusterByPath,
+                    sourceBoneNodeByPath,
+                    out var sourceWeightsByPath,
+                    out var readError))
             {
-                var cluster = primarySkin.Clusters[c];
-                if (cluster == null) continue;
-
-                int weightCount = cluster.WeightCount;
-                if (weightCount < 0)
-                {
-                    return FeatureExtractionResult.Failed(
-                        "SW_EXT_INVALID_CLUSTER",
-                        $"Skin cluster {c} reported negative weight count ({weightCount}).",
-                        context.MeshId,
-                        FeatureTypeId,
-                        diagnostics);
-                }
-
-                var weightByCp = new SortedDictionary<int, double>();
-                if (weightCount > 0)
-                {
-                    totalNonEmptyClusters++;
-                    if (idxScratch.Length < weightCount)
-                    {
-                        idxScratch = new int[weightCount];
-                        wScratch = new double[weightCount];
-                    }
-
-                    if (!cluster.TryCopyControlPointIndices(idxScratch.AsSpan(0, weightCount), out int idxWritten) ||
-                        !cluster.TryCopyWeights(wScratch.AsSpan(0, weightCount), out int wWritten) ||
-                        idxWritten != weightCount || wWritten != weightCount)
-                    {
-                        return FeatureExtractionResult.Failed(
-                            "SW_EXT_CLUSTER_COPY_FAILED",
-                            $"Failed to copy skin weights for cluster {c} ('{cluster.BonePath}').",
-                            context.MeshId,
-                            FeatureTypeId,
-                            diagnostics);
-                    }
-
-                    for (int i = 0; i < weightCount; i++)
-                    {
-                        int cp = idxScratch[i];
-                        if ((uint)cp >= (uint)domainCount)
-                        {
-                            continue;
-                        }
-
-                        double w = wScratch[i];
-                        if (double.IsNaN(w) || double.IsInfinity(w) || w < 0d)
-                        {
-                            return FeatureExtractionResult.Failed(
-                                "SW_EXT_INVALID_WEIGHT",
-                                $"Skin cluster '{cluster.BonePath}' control point {cp} has invalid weight {w}.",
-                                context.MeshId,
-                                FeatureTypeId,
-                                diagnostics);
-                        }
-
-                        if (w <= 0d)
-                        {
-                            continue;
-                        }
-
-                        weightByCp.TryGetValue(cp, out double existing);
-                        weightByCp[cp] = existing + w;
-                        fullSkinSums[cp] += w;
-                    }
-                }
-
-                allClusterMaps[c] = weightByCp;
+                return readError;
             }
 
-            // Pass 2: emit selected clusters normalized against fullSkinSums.
-            int skippedBySelection = 0;
-            for (int c = 0; c < primarySkin.Clusters.Count; c++)
+            if (!TryReadNormalizedSkinWeights(
+                    originSkin,
+                    domainCount,
+                    context.MeshId,
+                    FeatureTypeId,
+                    diagnostics,
+                    null,
+                    null,
+                    out var originWeightsByPath,
+                    out readError))
             {
-                var cluster = primarySkin.Clusters[c];
-                if (cluster == null) continue;
+                return readError;
+            }
 
-                string bonePath = FbxNameUtility.NormalizePath(cluster.BoneNode != null ? cluster.BoneNode.Path : cluster.BonePath);
-                if (string.IsNullOrEmpty(bonePath))
+            var selectedWeightBones = ResolveSelectedWeightBonePaths(
+                swOptions,
+                context.NodePath,
+                sourceWeightsByPath,
+                originWeightsByPath);
+            var selectedBindposeBones = ResolveSelectedBindposeBonePaths(
+                swOptions,
+                context.NodePath,
+                sourceClusterByPath);
+
+            double threshold = swOptions.ZeroWeightThreshold >= 0d ? swOptions.ZeroWeightThreshold : 0d;
+            var clustersByPath = new SortedDictionary<string, SkinWeightClusterEntry>(StringComparer.Ordinal);
+
+            // 1. Compute signed weight deltas (sourceWeight - originWeight) for selected weight bones.
+            foreach (string bonePath in selectedWeightBones)
+            {
+                sourceWeightsByPath.TryGetValue(bonePath, out var sourceByCp);
+                originWeightsByPath.TryGetValue(bonePath, out var originByCp);
+
+                var controlPoints = new SortedSet<int>();
+                if (sourceByCp != null)
                 {
-                    diagnostics.Add(new ExtractionDiagnostic(
-                        ExtractionDiagnosticSeverity.Warning,
-                        "SW_EXT_UNNAMED_CLUSTER",
-                        $"Skipped skin cluster {c} with empty bone path.",
-                        context.MeshId,
-                        FeatureTypeId));
+                    foreach (int cp in sourceByCp.Keys) controlPoints.Add(cp);
+                }
+
+                if (originByCp != null)
+                {
+                    foreach (int cp in originByCp.Keys) controlPoints.Add(cp);
+                }
+
+                var cpIndices = new List<int>(controlPoints.Count);
+                var cpDeltas = new List<double>(controlPoints.Count);
+                foreach (int cp in controlPoints)
+                {
+                    double src = 0d;
+                    double org = 0d;
+                    sourceByCp?.TryGetValue(cp, out src);
+                    originByCp?.TryGetValue(cp, out org);
+                    double delta = src - org;
+                    if (delta > 1d) delta = 1d;
+                    if (delta < -1d) delta = -1d;
+                    if (Math.Abs(delta) <= threshold)
+                    {
+                        continue;
+                    }
+
+                    cpIndices.Add(cp);
+                    cpDeltas.Add(delta);
+                }
+
+                if (cpIndices.Count == 0)
+                {
                     continue;
                 }
 
-                if (selectedBones != null && !selectedBones.Contains(bonePath))
+                clustersByPath[bonePath] = new SkinWeightClusterEntry
                 {
-                    skippedBySelection++;
-                    continue;
-                }
+                    BonePath = bonePath,
+                    HasClusterMatrices = false,
+                    TransformMatrix = FbxMatrix4x4.Identity,
+                    TransformLinkMatrix = FbxMatrix4x4.Identity,
+                    Payload = LazyPayload<SkinWeightClusterPayload>.FromValue(new SkinWeightClusterPayload
+                    {
+                        DeltaWeights = new IndexedBuffer<double>(
+                            IndexDomain.ControlPoint,
+                            domainCount,
+                            cpIndices.ToArray(),
+                            cpDeltas.ToArray(),
+                            takeOwnership: true)
+                    })
+                };
+            }
 
-                if (!seenBonePaths.Add(bonePath))
+            // 2. Attach cluster bind matrices independently for selected bindpose bones.
+            foreach (string bonePath in selectedBindposeBones)
+            {
+                if (!sourceClusterByPath.TryGetValue(bonePath, out var cluster) || cluster == null)
                 {
-                    diagnostics.Add(new ExtractionDiagnostic(
-                        ExtractionDiagnosticSeverity.Warning,
-                        "SW_EXT_DUP_BONE_CLUSTER",
-                        $"Skipped duplicate skin cluster for bone '{bonePath}'.",
-                        context.MeshId,
-                        FeatureTypeId));
                     continue;
-                }
-
-                var weightByCp = allClusterMaps[c];
-                var cpIndices = new List<int>(weightByCp.Count);
-                var cpWeights = new List<double>(weightByCp.Count);
-                foreach (var kv in weightByCp)
-                {
-                    double denom = fullSkinSums[kv.Key];
-                    double normalized = denom > 0d ? kv.Value / denom : 0d;
-                    if (normalized > 1d) normalized = 1d;
-                    if (normalized <= threshold) continue;
-                    cpIndices.Add(kv.Key);
-                    cpWeights.Add(normalized);
                 }
 
                 // cluster.MeshBindWorld already holds L^-1 * M_meshBind_src from SourceMeshNormalizer.
@@ -328,66 +427,490 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                     ? cluster.BindToWorld
                     : worldToStored.InverseOffset * cluster.BindToWorld * worldToStored.Offset;
 
-                if (cluster.BoneNode != null)
+                if (!clustersByPath.TryGetValue(bonePath, out var entry))
                 {
-                    referencedBoneNodes.Add(cluster.BoneNode);
+                    entry = new SkinWeightClusterEntry
+                    {
+                        BonePath = bonePath,
+                        Payload = LazyPayload<SkinWeightClusterPayload>.Empty
+                    };
+                    clustersByPath[bonePath] = entry;
                 }
 
-                clusterBindWorldByPath[bonePath] = storedBoneBindWorld;
-
-                rawBuffers.Add(new IndexedBuffer<double>(
-                    IndexDomain.ControlPoint,
-                    domainCount,
-                    cpIndices.ToArray(),
-                    cpWeights.ToArray(),
-                    takeOwnership: true));
-
-                clusterEntries.Add(new SkinWeightClusterEntry
-                {
-                    BonePath = bonePath,
-                    HasClusterMatrices = swOptions.IncludeClusterBindMatrices,
-                    TransformMatrix = swOptions.IncludeClusterBindMatrices ? storedMeshBindWorld : FbxMatrix4x4.Identity,
-                    TransformLinkMatrix = swOptions.IncludeClusterBindMatrices ? storedBoneBindWorld : FbxMatrix4x4.Identity
-                });
+                entry.HasClusterMatrices = true;
+                entry.TransformMatrix = storedMeshBindWorld;
+                entry.TransformLinkMatrix = storedBoneBindWorld;
             }
 
-            if (clusterEntries.Count == 0)
+            var clusterEntries = new List<SkinWeightClusterEntry>(clustersByPath.Values);
+            if (clusterEntries.Count == 0 && !isArmatureOnlyHost)
             {
                 return FeatureExtractionResult.Skipped(
                     "SW_EXT_NO_CLUSTERS",
-                    "No matching skin weight clusters were extracted.",
+                    "No matching skin weight deltas or bindpose clusters were extracted.",
                     context.MeshId,
                     FeatureTypeId);
             }
 
-            // Only renormalize across emitted clusters when ALL clusters of the source skin are emitted;
-            // partial bone selection preserves true fractional weights normalized against fullSkinSums.
-            IndexedBuffer<double>[] finalBuffers = skippedBySelection == 0
-                ? SkinWeightNormalization.RenormalizePerVertex(rawBuffers, domainCount, ZeroWeightSumPolicy.KeepUnweighted, threshold)
-                : rawBuffers.ToArray();
-
-            for (int c = 0; c < clusterEntries.Count; c++)
+            // 3. Build shared armature bone registrations (matching 007f7f0 BuildSelectedArmature).
+            var armatureRegistrations = BuildArmatureRegistrations(
+                context,
+                swOptions,
+                clusterEntries,
+                sourceBoneNodeByPath,
+                out string armatureError);
+            if (!string.IsNullOrEmpty(armatureError))
             {
-                clusterEntries[c].Payload = LazyPayload<SkinWeightClusterPayload>.FromValue(new SkinWeightClusterPayload
-                {
-                    DeltaWeights = finalBuffers[c]
-                });
+                return FeatureExtractionResult.Failed(
+                    "SW_EXT_MISSING_SOURCE_BONE",
+                    armatureError,
+                    context.MeshId,
+                    FeatureTypeId,
+                    diagnostics);
             }
 
             string armatureId = string.IsNullOrWhiteSpace(swOptions.ArmatureId) ? "armature-0" : swOptions.ArmatureId.Trim();
-            string rootBonePath = ResolveCommonRootBonePath(referencedBoneNodes, clusterEntries);
-            context.RegisterArmatureBones(armatureId, rootBonePath, referencedBoneNodes, clusterBindWorldByPath, worldToStored);
+            if (armatureRegistrations.Count > 0)
+            {
+                context.RegisterArmatureBones(armatureId, armatureRegistrations, worldToStored);
+            }
+
+            string rootBonePath = swOptions.TryGetRootBonePath(context.NodePath, out var explicitRoot)
+                ? explicitRoot
+                : string.Empty;
 
             var feature = new SkinWeightFeature
             {
                 FeatureId = DefaultFeatureId,
                 Required = true,
-                ArmatureId = armatureId,
+                ArmatureId = armatureRegistrations.Count > 0 ? armatureId : string.Empty,
                 RootBonePath = rootBonePath,
                 Clusters = clusterEntries
             };
 
             return FeatureExtractionResult.Success(feature, diagnostics);
+        }
+
+        private static bool TryReadNormalizedSkinWeights(
+            IFbxSkinDeformer skin,
+            int domainCount,
+            string meshId,
+            string featureTypeId,
+            List<ExtractionDiagnostic> diagnostics,
+            Dictionary<string, IFbxSkinCluster> clustersByPath,
+            Dictionary<string, IFbxNode> boneNodesByPath,
+            out Dictionary<string, Dictionary<int, double>> normalizedWeightsByPath,
+            out FeatureExtractionResult failure)
+        {
+            normalizedWeightsByPath = new Dictionary<string, Dictionary<int, double>>(StringComparer.Ordinal);
+            failure = null;
+            if (skin?.Clusters == null || skin.Clusters.Count == 0)
+            {
+                return true;
+            }
+
+            int[] idxScratch = Array.Empty<int>();
+            double[] wScratch = Array.Empty<double>();
+            var fullSkinSums = new double[domainCount];
+
+            for (int c = 0; c < skin.Clusters.Count; c++)
+            {
+                var cluster = skin.Clusters[c];
+                if (cluster == null) continue;
+
+                string bonePath = FbxNameUtility.NormalizePath(
+                    cluster.BoneNode != null ? cluster.BoneNode.Path : cluster.BonePath);
+                if (string.IsNullOrEmpty(bonePath))
+                {
+                    if (clustersByPath != null)
+                    {
+                        diagnostics.Add(new ExtractionDiagnostic(
+                            ExtractionDiagnosticSeverity.Warning,
+                            "SW_EXT_UNNAMED_CLUSTER",
+                            $"Skipped skin cluster {c} with empty bone path.",
+                            meshId,
+                            featureTypeId));
+                    }
+
+                    continue;
+                }
+
+                if (clustersByPath != null && !clustersByPath.ContainsKey(bonePath))
+                {
+                    clustersByPath[bonePath] = cluster;
+                }
+
+                if (boneNodesByPath != null && cluster.BoneNode != null && !boneNodesByPath.ContainsKey(bonePath))
+                {
+                    boneNodesByPath[bonePath] = cluster.BoneNode;
+                }
+
+                int weightCount = cluster.WeightCount;
+                if (weightCount < 0)
+                {
+                    failure = FeatureExtractionResult.Failed(
+                        "SW_EXT_INVALID_CLUSTER",
+                        $"Skin cluster {c} reported negative weight count ({weightCount}).",
+                        meshId,
+                        featureTypeId,
+                        diagnostics);
+                    return false;
+                }
+
+                if (weightCount == 0)
+                {
+                    continue;
+                }
+
+                if (idxScratch.Length < weightCount)
+                {
+                    idxScratch = new int[weightCount];
+                    wScratch = new double[weightCount];
+                }
+
+                if (!cluster.TryCopyControlPointIndices(idxScratch.AsSpan(0, weightCount), out int idxWritten) ||
+                    !cluster.TryCopyWeights(wScratch.AsSpan(0, weightCount), out int wWritten) ||
+                    idxWritten != weightCount || wWritten != weightCount)
+                {
+                    failure = FeatureExtractionResult.Failed(
+                        "SW_EXT_CLUSTER_COPY_FAILED",
+                        $"Failed to copy skin weights for cluster {c} ('{bonePath}').",
+                        meshId,
+                        featureTypeId,
+                        diagnostics);
+                    return false;
+                }
+
+                if (!normalizedWeightsByPath.TryGetValue(bonePath, out var map))
+                {
+                    map = new Dictionary<int, double>();
+                    normalizedWeightsByPath[bonePath] = map;
+                }
+
+                for (int i = 0; i < weightCount; i++)
+                {
+                    int cp = idxScratch[i];
+                    if ((uint)cp >= (uint)domainCount)
+                    {
+                        continue;
+                    }
+
+                    double w = wScratch[i];
+                    if (double.IsNaN(w) || double.IsInfinity(w) || w < 0d)
+                    {
+                        failure = FeatureExtractionResult.Failed(
+                            "SW_EXT_INVALID_WEIGHT",
+                            $"Skin cluster '{bonePath}' control point {cp} has invalid weight {w}.",
+                            meshId,
+                            featureTypeId,
+                            diagnostics);
+                        return false;
+                    }
+
+                    if (w <= 0d)
+                    {
+                        continue;
+                    }
+
+                    map.TryGetValue(cp, out double existing);
+                    map[cp] = existing + w;
+                    fullSkinSums[cp] += w;
+                }
+            }
+
+            foreach (var map in normalizedWeightsByPath.Values)
+            {
+                var cps = new List<int>(map.Keys);
+                for (int i = 0; i < cps.Count; i++)
+                {
+                    int cp = cps[i];
+                    double sum = fullSkinSums[cp];
+                    if (sum > 0d)
+                    {
+                        double normalized = map[cp] / sum;
+                        map[cp] = normalized > 1d ? 1d : normalized;
+                    }
+                    else
+                    {
+                        map.Remove(cp);
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        private static SortedSet<string> ResolveSelectedWeightBonePaths(
+            SkinWeightExtractionOptions swOptions,
+            string nodePath,
+            Dictionary<string, Dictionary<int, double>> sourceWeightsByPath,
+            Dictionary<string, Dictionary<int, double>> originWeightsByPath)
+        {
+            var result = new SortedSet<string>(StringComparer.Ordinal);
+            if (!swOptions.IsMeshEnabled(nodePath))
+            {
+                return result;
+            }
+
+            if (swOptions.HasSelectedWeightBonePathsForMesh(nodePath))
+            {
+                var selected = swOptions.GetSelectedWeightBonePaths(nodePath);
+                for (int i = 0; i < selected.Count; i++) result.Add(selected[i]);
+                return result;
+            }
+
+            if (swOptions.HasSelectedBindposeBonePathsForMesh(nodePath))
+            {
+                return result;
+            }
+
+            if (swOptions.SelectedBonePaths.Count > 0)
+            {
+                for (int i = 0; i < swOptions.SelectedBonePaths.Count; i++)
+                {
+                    string norm = FbxNameUtility.NormalizePath(swOptions.SelectedBonePaths[i]);
+                    if (!string.IsNullOrEmpty(norm)) result.Add(norm);
+                }
+
+                return result;
+            }
+
+            if (swOptions.ExtractAllClustersWhenSelectionEmpty)
+            {
+                foreach (string path in sourceWeightsByPath.Keys) result.Add(path);
+                foreach (string path in originWeightsByPath.Keys) result.Add(path);
+            }
+
+            return result;
+        }
+
+        private static SortedSet<string> ResolveSelectedBindposeBonePaths(
+            SkinWeightExtractionOptions swOptions,
+            string nodePath,
+            Dictionary<string, IFbxSkinCluster> sourceClusterByPath)
+        {
+            var result = new SortedSet<string>(StringComparer.Ordinal);
+            if (!swOptions.IsMeshEnabled(nodePath))
+            {
+                return result;
+            }
+
+            if (swOptions.HasSelectedBindposeBonePathsForMesh(nodePath))
+            {
+                var selected = swOptions.GetSelectedBindposeBonePaths(nodePath);
+                for (int i = 0; i < selected.Count; i++) result.Add(selected[i]);
+                return result;
+            }
+
+            if (!swOptions.IncludeClusterBindMatrices || swOptions.HasSelectedWeightBonePathsForMesh(nodePath))
+            {
+                return result;
+            }
+
+            if (swOptions.SelectedBonePaths.Count > 0)
+            {
+                for (int i = 0; i < swOptions.SelectedBonePaths.Count; i++)
+                {
+                    string norm = FbxNameUtility.NormalizePath(swOptions.SelectedBonePaths[i]);
+                    if (!string.IsNullOrEmpty(norm)) result.Add(norm);
+                }
+
+                return result;
+            }
+
+            if (swOptions.ExtractAllClustersWhenSelectionEmpty)
+            {
+                foreach (string path in sourceClusterByPath.Keys) result.Add(path);
+            }
+
+            return result;
+        }
+
+        private static List<ArmatureBoneRegistration> BuildArmatureRegistrations(
+            MeshExtractionContext context,
+            SkinWeightExtractionOptions swOptions,
+            IReadOnlyList<SkinWeightClusterEntry> extractedClusters,
+            IReadOnlyDictionary<string, IFbxNode> sourceBoneNodeByPath,
+            out string error)
+        {
+            error = null;
+            var createPaths = new HashSet<string>(StringComparer.Ordinal);
+            var transformPaths = new HashSet<string>(StringComparer.Ordinal);
+
+            bool hasExplicitArmatureSelection =
+                swOptions.SelectedTransformBonePaths.Count > 0 ||
+                swOptions.SelectedNewBonePaths.Count > 0;
+
+            if (hasExplicitArmatureSelection)
+            {
+                for (int i = 0; i < swOptions.SelectedNewBonePaths.Count; i++)
+                {
+                    string norm = FbxNameUtility.NormalizePath(swOptions.SelectedNewBonePaths[i]);
+                    if (!string.IsNullOrEmpty(norm))
+                    {
+                        createPaths.Add(norm);
+                        transformPaths.Add(norm);
+                    }
+                }
+
+                for (int i = 0; i < swOptions.SelectedTransformBonePaths.Count; i++)
+                {
+                    string norm = FbxNameUtility.NormalizePath(swOptions.SelectedTransformBonePaths[i]);
+                    if (!string.IsNullOrEmpty(norm))
+                    {
+                        transformPaths.Add(norm);
+                    }
+                }
+            }
+            else
+            {
+                // Programmatic caller fallback: register all referenced cluster bones, marking bones absent
+                // in OriginScene as CreateIfMissing = true (matching 007f7f0 automatic dependencies).
+                for (int i = 0; i < extractedClusters.Count; i++)
+                {
+                    string norm = FbxNameUtility.NormalizePath(extractedClusters[i].BonePath);
+                    if (string.IsNullOrEmpty(norm)) continue;
+
+                    var sourceNode = ResolveSourceBoneNode(context.SourceScene, sourceBoneNodeByPath, norm);
+                    if (sourceNode == null) continue;
+
+                    transformPaths.Add(norm);
+                    if (context.OriginScene?.FindNodeByPath(norm) == null)
+                    {
+                        createPaths.Add(norm);
+                    }
+                }
+            }
+
+            if (transformPaths.Count == 0 && createPaths.Count == 0)
+            {
+                return new List<ArmatureBoneRegistration>();
+            }
+
+            var registrationsByPath = new Dictionary<string, ArmatureBoneRegistration>(StringComparer.Ordinal);
+            var orderedPaths = new List<string>(transformPaths);
+            orderedPaths.Sort(StringComparer.Ordinal);
+
+            for (int i = 0; i < orderedPaths.Count; i++)
+            {
+                string path = orderedPaths[i];
+                if (!AddArmatureBoneRecursive(
+                        context,
+                        sourceBoneNodeByPath,
+                        registrationsByPath,
+                        path,
+                        createPaths.Contains(path),
+                        out error))
+                {
+                    return null;
+                }
+            }
+
+            return new List<ArmatureBoneRegistration>(registrationsByPath.Values);
+        }
+
+        private static bool AddArmatureBoneRecursive(
+            MeshExtractionContext context,
+            IReadOnlyDictionary<string, IFbxNode> sourceBoneNodeByPath,
+            Dictionary<string, ArmatureBoneRegistration> registrationsByPath,
+            string bonePath,
+            bool createIfMissing,
+            out string error)
+        {
+            error = null;
+            string normalized = FbxNameUtility.NormalizePath(bonePath);
+            if (string.IsNullOrEmpty(normalized))
+            {
+                return true;
+            }
+
+            if (registrationsByPath.TryGetValue(normalized, out var existing))
+            {
+                if (createIfMissing && !existing.CreateIfMissing)
+                {
+                    registrationsByPath[normalized] = new ArmatureBoneRegistration(normalized, existing.SourceNode, true);
+                }
+
+                return true;
+            }
+
+            var sourceNode = ResolveSourceBoneNode(context.SourceScene, sourceBoneNodeByPath, normalized);
+            if (sourceNode == null)
+            {
+                error = $"Bone '{normalized}' was not found in the source FBX.";
+                return false;
+            }
+
+            if (createIfMissing)
+            {
+                string parentPath = sourceNode.Parent != null && !sourceNode.Parent.IsRoot
+                    ? FbxNameUtility.NormalizePath(sourceNode.Parent.Path)
+                    : GetParentPath(normalized);
+                if (!string.IsNullOrEmpty(parentPath) && context.OriginScene?.FindNodeByPath(parentPath) == null)
+                {
+                    var parentSourceNode = sourceNode.Parent != null && !sourceNode.Parent.IsRoot
+                        ? sourceNode.Parent
+                        : ResolveSourceBoneNode(context.SourceScene, sourceBoneNodeByPath, parentPath);
+                    if (parentSourceNode != null &&
+                        !AddArmatureBoneRecursive(
+                            context,
+                            sourceBoneNodeByPath,
+                            registrationsByPath,
+                            parentPath,
+                            createIfMissing: true,
+                            out error))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            registrationsByPath[normalized] = new ArmatureBoneRegistration(normalized, sourceNode, createIfMissing);
+            return true;
+        }
+
+        private static IFbxNode ResolveSourceBoneNode(
+            IFbxScene sourceScene,
+            IReadOnlyDictionary<string, IFbxNode> sourceBoneNodeByPath,
+            string normalizedPath)
+        {
+            var found = sourceScene?.FindNodeByPath(normalizedPath);
+            if (found != null)
+            {
+                return found;
+            }
+
+            if (sourceBoneNodeByPath != null)
+            {
+                if (sourceBoneNodeByPath.TryGetValue(normalizedPath, out var direct) && direct != null)
+                {
+                    return direct;
+                }
+
+                // Walk parent chains of known cluster bone nodes (handles mock IFbxScene implementations without FindNodeByPath).
+                foreach (var node in sourceBoneNodeByPath.Values)
+                {
+                    var curr = node?.Parent;
+                    while (curr != null && !curr.IsRoot)
+                    {
+                        if (string.Equals(FbxNameUtility.NormalizePath(curr.Path), normalizedPath, StringComparison.Ordinal))
+                        {
+                            return curr;
+                        }
+
+                        curr = curr.Parent;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private static string GetParentPath(string normalizedPath)
+        {
+            if (string.IsNullOrEmpty(normalizedPath)) return string.Empty;
+            int slash = normalizedPath.LastIndexOf('/');
+            return slash > 0 ? normalizedPath.Substring(0, slash) : string.Empty;
         }
 
         private static IFbxSkinDeformer FindPrimarySkinDeformer(IFbxMeshGeometry mesh)
@@ -406,35 +929,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                 }
             }
 
-            return null;
-        }
-
-        private static string ResolveCommonRootBonePath(
-            IReadOnlyList<IFbxNode> boneNodes,
-            IReadOnlyList<SkinWeightClusterEntry> clusters)
-        {
-            var paths = new List<string>();
-            if (clusters != null)
-            {
-                for (int i = 0; i < clusters.Count; i++)
-                {
-                    if (!string.IsNullOrEmpty(clusters[i].BonePath))
-                    {
-                        paths.Add(FbxNameUtility.NormalizePath(clusters[i].BonePath));
-                    }
-                }
-            }
-
-            if (paths.Count == 0 && boneNodes != null)
-            {
-                for (int i = 0; i < boneNodes.Count; i++)
-                {
-                    string p = FbxNameUtility.NormalizePath(boneNodes[i]?.Path);
-                    if (!string.IsNullOrEmpty(p)) paths.Add(p);
-                }
-            }
-
-            return ComputeLowestCommonAncestorPath(paths);
+            return mesh.SkinDeformers.Count > 0 ? mesh.SkinDeformers[0] : null;
         }
 
         internal static string ComputeLowestCommonAncestorPath(IReadOnlyList<string> normalizedPaths)

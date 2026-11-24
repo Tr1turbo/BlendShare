@@ -174,6 +174,15 @@ namespace Triturbo.BlendShare.UI.Inspectors
                 title.style.flexGrow = 1;
             }
 
+            if (toggle != null)
+            {
+                var modeBadge = BlendShareInspectorUi.Badge(
+                    bone.CreateIfMissing ? "New" : "Existing",
+                    bone.CreateIfMissing ? StatusKind.Success : StatusKind.Neutral);
+                modeBadge.style.marginLeft = 6;
+                toggle.Add(modeBadge);
+            }
+
             foldout.RegisterValueChangedCallback(evt =>
             {
                 if (evt.target != foldout) return;
@@ -191,21 +200,42 @@ namespace Triturbo.BlendShare.UI.Inspectors
             details.style.marginBottom = 4;
             details.style.paddingLeft = 4;
 
+            details.Add(BlendShareInspectorUi.Row("Create If Missing", bone.CreateIfMissing ? "Yes" : "No"));
+
             var transformTitle = new Label(Localization.S("features.skin-weights.armature.status.transform"));
             BlendShareInspectorUi.StyleStrong(transformTitle);
             transformTitle.style.marginBottom = 2;
             details.Add(transformTitle);
-            var local = bone.LocalBindMatrix.ToUnityColumnMatrix();
-            if (ArmatureBindTransformMath.TryDecomposeUnityLocalTransform(local, out var position, out var rotation, out var scale, out var error))
+
+            if (bone.HasRawTransformProperties)
             {
-                details.Add(CreateTransformRow(Localization.S("features.skin-weights.armature.position"), position));
-                details.Add(CreateTransformRow(Localization.S("features.skin-weights.armature.rotation"), rotation.eulerAngles));
-                details.Add(CreateTransformRow(Localization.S("features.skin-weights.armature.scale"), scale));
+                details.Add(CreateTransformRow(
+                    Localization.S("features.skin-weights.armature.position"),
+                    new Vector3((float)bone.LclTranslation.x, (float)bone.LclTranslation.y, (float)bone.LclTranslation.z)));
+                details.Add(CreateTransformRow(
+                    Localization.S("features.skin-weights.armature.rotation"),
+                    new Vector3((float)bone.LclRotation.x, (float)bone.LclRotation.y, (float)bone.LclRotation.z)));
+                details.Add(CreateTransformRow(
+                    Localization.S("features.skin-weights.armature.scale"),
+                    new Vector3((float)bone.LclScaling.x, (float)bone.LclScaling.y, (float)bone.LclScaling.z)));
+                details.Add(BlendShareInspectorUi.Row("Rotation Order", bone.RotationOrder.ToString()));
+                details.Add(BlendShareInspectorUi.Row("Inherit Mode", bone.InheritMode.ToString()));
             }
             else
             {
-                details.Add(new HelpBox(error, HelpBoxMessageType.Info));
+                var local = bone.LocalBindMatrix.ToUnityColumnMatrix();
+                if (ArmatureBindTransformMath.TryDecomposeUnityLocalTransform(local, out var position, out var rotation, out var scale, out var error))
+                {
+                    details.Add(CreateTransformRow(Localization.S("features.skin-weights.armature.position"), position));
+                    details.Add(CreateTransformRow(Localization.S("features.skin-weights.armature.rotation"), rotation.eulerAngles));
+                    details.Add(CreateTransformRow(Localization.S("features.skin-weights.armature.scale"), scale));
+                }
+                else
+                {
+                    details.Add(new HelpBox(error, HelpBoxMessageType.Info));
+                }
             }
+
             details.Add(new BlendShareRecordView(bone.LocalBindMatrix, title: "Local Bind Matrix", startExpanded: false, positionUnitMeters: m_UnitMeters));
             details.Add(new BlendShareRecordView(bone.GlobalBindMatrix, title: "Global Bind Matrix", startExpanded: false, positionUnitMeters: m_UnitMeters));
             return details;

@@ -93,7 +93,13 @@ namespace Triturbo.BlendShare.Pipeline.Apply
             while (path.Length > 0 && !(parent = targetRoot.Find(path)))
             {
                 var record = armature?.Bones?.Find(b => FbxNameUtility.NormalizePath(b.Path) == path);
-                if (record == null) return false;
+                if (record == null || !record.CreateIfMissing)
+                {
+                    diagnostic = record == null
+                        ? $"Missing armature record for bone '{path}'."
+                        : $"Bone '{path}' is marked CreateIfMissing = false and does not exist in target hierarchy.";
+                    return false;
+                }
                 diagnostic = "Invalid local bind matrix for " + path;
                 if (!ArmatureBindTransformMath.ConvertCanonicalMatrixToUnity(record.LocalBindMatrix, canonicalToUnityMeshLocal, out var local) ||
                     !ArmatureBindTransformMath.TryDecomposeUnityLocalTransform(local, out var position, out var rotation, out var scale, out diagnostic))

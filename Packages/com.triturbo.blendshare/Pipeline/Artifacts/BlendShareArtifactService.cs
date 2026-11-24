@@ -127,8 +127,10 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
                     {
                         BaseMesh = scratchEntry.Mesh,
                         IncomingBones = scratchEntry.Renderer != null ? scratchEntry.Renderer.bones : Array.Empty<Transform>(),
+                        IncomingRootBone = scratchEntry.Renderer != null ? scratchEntry.Renderer.rootBone : null,
                         TargetRootTransform = scratchRoot.transform,
                         MeshRendererTransform = scratchEntry.Transform,
+                        MaxBonesPerVertex = BlendShareSkinWeightSettings.EffectiveMaxBonesPerVertex,
                         CreateMissingBones = true,
                         PreserveExistingBlendShapes = true,
                         Items = items
@@ -256,6 +258,51 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
         private static bool ApplyArtifactToHierarchy(BlendShareGeneratedArtifact artifact, Transform root, bool recordUndo)
         {
             bool anyApplied = false;
+            var armatureBonesByPath = new Dictionary<string, GeneratedArmatureBoneRecord>(StringComparer.Ordinal);
+            var createdArmatureBones = new List<Transform>();
+            var createdArmatureSet = new HashSet<Transform>();
+
+            if (artifact.ArmatureBones != null && artifact.ArmatureBones.Count > 0)
+            {
+                var orderedBones = artifact.ArmatureBones
+                    .Where(b => b != null && !string.IsNullOrWhiteSpace(b.Path))
+                    .OrderBy(b => CountPathDepth(FbxNameUtility.NormalizePath(b.Path)))
+                    .ThenBy(b => FbxNameUtility.NormalizePath(b.Path), StringComparer.Ordinal)
+                    .ToArray();
+
+                for (int i = 0; i < orderedBones.Length; i++)
+                {
+                    var boneRecord = orderedBones[i];
+                    string normPath = FbxNameUtility.NormalizePath(boneRecord.Path);
+                    if (string.IsNullOrEmpty(normPath)) continue;
+                    armatureBonesByPath[normPath] = boneRecord;
+
+                    var existing = root.Find(normPath);
+                    if (existing != null)
+                    {
+                        if (recordUndo) Undo.RecordObject(existing, "Apply BlendShare Armature Bone Transform");
+                        boneRecord.ApplyLocalTransform(existing);
+                        EditorUtility.SetDirty(existing);
+                        anyApplied = true;
+                        continue;
+                    }
+
+                    if (!boneRecord.CreateIfMissing)
+                    {
+                        continue;
+                    }
+
+                    var created = CreateMissingBonePath(root, normPath, recordUndo, createdArmatureBones, createdArmatureSet);
+                    if (created != null)
+                    {
+                        if (recordUndo) Undo.RecordObject(created, "Apply BlendShare Armature Bone Transform");
+                        boneRecord.ApplyLocalTransform(created);
+                        EditorUtility.SetDirty(created);
+                        anyApplied = true;
+                    }
+                }
+            }
+
             var entries = artifact.Meshes;
             for (int i = 0; i < entries.Count; i++)
             {
@@ -296,25 +343,55 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
                         {
                             string bonePath = entry.BonePaths[b];
                             if (string.IsNullOrEmpty(bonePath)) continue;
-                            var found = FindTransformByPath(root, bonePath);
+                            string normBonePath = FbxNameUtility.NormalizePath(bonePath);
+                            var found = FindTransformByPath(root, normBonePath);
                             if (found == null)
                             {
-                                found = CreateMissingBonePath(root, bonePath, recordUndo, createdBones, createdSet);
+                                bool canCreate = !armatureBonesByPath.TryGetValue(normBonePath, out var armBone) || armBone.CreateIfMissing;
+                                if (canCreate)
+                                {
+                                    found = CreateMissingBonePath(root, normBonePath, recordUndo, createdBones, createdSet);
+                                    if (found != null && armBone != null)
+                                    {
+                                        armBone.ApplyLocalTransform(found);
+                                    }
+                                }
                             }
 
                             resolvedBones[b] = found;
                         }
 
-                        if (createdBones.Count > 0)
+                        var fallbackCreated = createdBones
+                            .Where(t => t != null && !armatureBonesByPath.ContainsKey(GetRelativeTransformPath(t, root)))
+                            .ToList();
+                        if (fallbackCreated.Count > 0)
                         {
-                            ApplyBindPosesToCreatedBones(root, smr.transform, createdBones, bindPosesByPath);
+                            ApplyBindPosesToCreatedBones(root, smr.transform, fallbackCreated, bindPosesByPath);
                         }
 
                         smr.bones = resolvedBones;
-                        if (createdBones.Count > 0)
+                        if (!string.IsNullOrEmpty(entry.RootBonePath))
+                        {
+                            var rootBone = FindTransformByPath(root, entry.RootBonePath);
+                            if (rootBone != null)
+                            {
+                                smr.rootBone = rootBone;
+                            }
+                        }
+
+                        var allGenerated = new List<Transform>(createdBones);
+                        for (int k = 0; k < createdArmatureBones.Count; k++)
+                        {
+                            if (createdArmatureBones[k] != null && resolvedBones.Contains(createdArmatureBones[k]) && !allGenerated.Contains(createdArmatureBones[k]))
+                            {
+                                allGenerated.Add(createdArmatureBones[k]);
+                            }
+                        }
+
+                        if (allGenerated.Count > 0)
                         {
                             if (recordUndo) Undo.RecordObject(marker, "Record Generated Bones");
-                            marker.AddGeneratedBones(createdBones.ToArray());
+                            marker.AddGeneratedBones(allGenerated.ToArray());
                         }
                     }
 

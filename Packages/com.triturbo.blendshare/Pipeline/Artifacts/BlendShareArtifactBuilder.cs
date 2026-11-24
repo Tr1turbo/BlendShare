@@ -23,6 +23,7 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
             IReadOnlyList<string> appliedPatchIds, IReadOnlyList<ArtifactMeshBuildInput> meshResults)
         {
             if (meshResults == null) throw new ArgumentNullException(nameof(meshResults));
+            var armatureBonesByPath = new Dictionary<string, GeneratedArmatureBoneRecord>(StringComparer.Ordinal);
             var entries = meshResults.Select(input =>
             {
                 if (input == null) throw new ArgumentException("Null ArtifactMeshBuildInput.");
@@ -31,10 +32,29 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
                 var paths = (result.OutputBones ?? Array.Empty<Transform>()).Select(b => b ? AnimationUtility.CalculateTransformPath(b, input.TargetRootTransform) : "").ToArray();
                 var bindings = (result.AppliedBoneBindings ?? Array.Empty<AppliedBoneBinding>()).Select(b => new GeneratedBoneBindingRecord(b.PatchId,
                     b.ArmatureId, b.SourceBonePath, b.TargetBonePath, b.BindPose, b.BoneIndex, b.IsNewBone)).ToArray();
-                return new GeneratedMeshEntry(input.MeshId, input.NodePath, result.OutputMesh, paths, bindings);
+                if (result.AppliedArmatureBones != null)
+                {
+                    foreach (var bone in result.AppliedArmatureBones)
+                    {
+                        if (bone == null || string.IsNullOrEmpty(bone.Path)) continue;
+                        if (!armatureBonesByPath.TryGetValue(bone.Path, out var existing) ||
+                            (bone.CreateIfMissing && !existing.CreateIfMissing))
+                        {
+                            armatureBonesByPath[bone.Path] = bone;
+                        }
+                    }
+                }
+
+                return new GeneratedMeshEntry(input.MeshId, input.NodePath, result.OutputMesh, paths, bindings, result.OutputRootBonePath ?? string.Empty);
             }).ToArray();
+
+            var orderedArmatureBones = armatureBonesByPath.Values
+                .OrderBy(b => b.Path.Count(c => c == '/'))
+                .ThenBy(b => b.Path, StringComparer.Ordinal)
+                .ToArray();
+
             var artifact = ScriptableObject.CreateInstance<BlendShareGeneratedArtifact>();
-            artifact.Initialize(targetSource, (appliedPatchIds ?? Array.Empty<string>()).ToArray(), entries);
+            artifact.Initialize(targetSource, (appliedPatchIds ?? Array.Empty<string>()).ToArray(), entries, orderedArmatureBones);
             return artifact;
         }
 
@@ -58,9 +78,13 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
                     mesh.hideFlags = HideFlags.None;
                     AssetDatabase.AddObjectToAsset(mesh, artifact);
                     entries.Add(new GeneratedMeshEntry(entry.MeshId, entry.NodePath, mesh,
-                        entry.BonePaths.ToArray(), entry.BoneBindings.ToArray()));
+                        entry.BonePaths.ToArray(), entry.BoneBindings.ToArray(), entry.RootBonePath));
                 }
-                artifact.Initialize(inMemoryArtifact.TargetSource, inMemoryArtifact.AppliedPatchIds.ToArray(), entries.ToArray());
+                var armatureBones = (inMemoryArtifact.ArmatureBones ?? Array.Empty<GeneratedArmatureBoneRecord>())
+                    .Where(b => b != null)
+                    .Select(b => new GeneratedArmatureBoneRecord(b.Path, b.LocalPosition, b.LocalRotation, b.LocalScale, b.CreateIfMissing))
+                    .ToArray();
+                artifact.Initialize(inMemoryArtifact.TargetSource, inMemoryArtifact.AppliedPatchIds.ToArray(), entries.ToArray(), armatureBones);
                 EditorUtility.SetDirty(artifact);
                 AssetDatabase.SaveAssets();
                 return artifact;

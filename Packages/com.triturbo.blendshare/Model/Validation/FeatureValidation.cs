@@ -332,9 +332,9 @@ namespace Triturbo.BlendShare.Model.Validation
                             var vals = weights.Values;
                             for (int w = 0; w < vals.Length; w++)
                             {
-                                if (double.IsNaN(vals[w]) || double.IsInfinity(vals[w]) || vals[w] < 0d || vals[w] > 1d)
+                                if (double.IsNaN(vals[w]) || double.IsInfinity(vals[w]) || vals[w] < -1d || vals[w] > 1d)
                                 {
-                                    result.AddError("SW_VAL_WEIGHT_RANGE", $"Cluster '{cluster.BonePath}' weight[{w}] ({vals[w]}) must be finite and within [0, 1].");
+                                    result.AddError("SW_VAL_WEIGHT_RANGE", $"Cluster '{cluster.BonePath}' weight delta[{w}] ({vals[w]}) must be finite and within [-1, 1].");
                                     break;
                                 }
                             }

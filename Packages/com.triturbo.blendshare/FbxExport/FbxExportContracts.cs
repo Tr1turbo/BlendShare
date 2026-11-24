@@ -533,6 +533,62 @@ namespace Triturbo.BlendShare.FbxExport
             return true;
         }
 
+        /// <summary>
+        /// Writes exact lossless authored FBX node transform properties (Euler, rotation order, inherit mode,
+        /// pre/post rotations, rotation/scaling pivots and offsets) verbatim onto an FBX SDK node.
+        /// </summary>
+        public static void ApplyRawTransformPropertiesToNode(FbxNode node, ArmatureBoneRecord bone)
+        {
+            if (node == null)
+            {
+                throw new ArgumentNullException(nameof(node));
+            }
+
+            if (bone == null || !bone.HasRawTransformProperties)
+            {
+                throw new InvalidOperationException("ArmatureBoneRecord does not contain raw FBX transform properties.");
+            }
+
+            node.LclTranslation.Set(new FbxDouble3(bone.LclTranslation.x, bone.LclTranslation.y, bone.LclTranslation.z));
+            node.LclRotation.Set(new FbxDouble3(bone.LclRotation.x, bone.LclRotation.y, bone.LclRotation.z));
+            node.LclScaling.Set(new FbxDouble3(bone.LclScaling.x, bone.LclScaling.y, bone.LclScaling.z));
+            node.SetRotationOrder(FbxNode.EPivotSet.eSourcePivot, ToSdkRotationOrder(bone.RotationOrder));
+            node.SetTransformationInheritType(ToSdkInheritType(bone.InheritMode));
+            node.SetRotationActive(bone.RotationActive);
+            node.SetPreRotation(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(bone.PreRotation));
+            node.SetPostRotation(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(bone.PostRotation));
+            node.SetRotationPivot(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(bone.RotationPivot));
+            node.SetScalingPivot(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(bone.ScalingPivot));
+            node.SetRotationOffset(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(bone.RotationOffset));
+            node.SetScalingOffset(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(bone.ScalingOffset));
+        }
+
+        private static FbxVector4 ToFbxVector4(Vector3d value) => new FbxVector4(value.x, value.y, value.z);
+
+        private static FbxEuler.EOrder ToSdkRotationOrder(FbxRotationOrder order)
+        {
+            return order switch
+            {
+                FbxRotationOrder.XZY => FbxEuler.EOrder.eOrderXZY,
+                FbxRotationOrder.YZX => FbxEuler.EOrder.eOrderYZX,
+                FbxRotationOrder.YXZ => FbxEuler.EOrder.eOrderYXZ,
+                FbxRotationOrder.ZXY => FbxEuler.EOrder.eOrderZXY,
+                FbxRotationOrder.ZYX => FbxEuler.EOrder.eOrderZYX,
+                FbxRotationOrder.SphericXYZ => FbxEuler.EOrder.eOrderSphericXYZ,
+                _ => FbxEuler.EOrder.eOrderXYZ
+            };
+        }
+
+        private static Autodesk.Fbx.FbxTransform.EInheritType ToSdkInheritType(FbxTransformInheritMode mode)
+        {
+            return mode switch
+            {
+                FbxTransformInheritMode.RrSs => Autodesk.Fbx.FbxTransform.EInheritType.eInheritRrSs,
+                FbxTransformInheritMode.Rrs => Autodesk.Fbx.FbxTransform.EInheritType.eInheritRrs,
+                _ => Autodesk.Fbx.FbxTransform.EInheritType.eInheritRSrs
+            };
+        }
+
         private static bool IsFinite(FbxVector4 v)
         {
             return !double.IsNaN(v.X) && !double.IsInfinity(v.X) &&

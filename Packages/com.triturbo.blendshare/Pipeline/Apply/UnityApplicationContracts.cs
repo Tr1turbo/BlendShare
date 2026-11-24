@@ -7,6 +7,7 @@ using Triturbo.BlendShare.Model.Documents;
 using Triturbo.BlendShare.Model.Features;
 using Triturbo.BlendShare.Model.Serialization;
 using Triturbo.BlendShare.Model.Settings;
+using Triturbo.BlendShare.Runtime.Assets;
 using UnityEngine;
 
 namespace Triturbo.BlendShare.Pipeline.Apply
@@ -128,6 +129,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
         public ILazyPayloadSource PayloadSource { get; set; }
         public ResolvedVertexBinding VertexBinding { get; set; }
         public bool CreateMissingBones { get; set; } = true;
+        public IReadOnlyDictionary<string, Matrix4x4> BindPoseOverrides { get; set; }
     }
 
     public sealed class FeatureApplyInput : PatchMeshContext
@@ -144,15 +146,18 @@ namespace Triturbo.BlendShare.Pipeline.Apply
     {
         public Mesh WorkingMesh { get; internal set; }
         public Transform[] WorkingBones { get; set; }
+        public Transform IncomingRootBone { get; internal set; }
+        public Transform OutputRootBone { get; set; }
+        public string OutputRootBonePath { get; set; } = string.Empty;
         public Transform TargetRootTransform { get; internal set; }
         public Transform MeshRendererTransform { get; internal set; }
         public IReadOnlyDictionary<BoneOverrideKey, Transform> BoneTransformOverrides { get; internal set; }
-        public IReadOnlyDictionary<(string PatchId, string ArmatureId), Transform> ArmatureRootOverrides { get; internal set; }
         public int MaxBonesPerVertex { get; internal set; } = 4;
         public bool CreateMissingBones { get; internal set; }
         public IReadOnlyList<PatchMeshApplicationItem> Items { get; internal set; }
         public bool PreserveExistingBlendShapes { get; internal set; } = true;
         public List<AppliedBoneBinding> AppliedBoneBindings { get; } = new List<AppliedBoneBinding>();
+        public List<GeneratedArmatureBoneRecord> AppliedArmatureBones { get; } = new List<GeneratedArmatureBoneRecord>();
         public BlendShareSkinWeightInfluenceSummary SkinWeightInfluenceSummary { get; set; }
         public List<ApplyDiagnostic> Diagnostics { get; } = new List<ApplyDiagnostic>();
     }

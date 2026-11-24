@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using Triturbo.BlendShare.Fbx;
+using Triturbo.BlendShare.Model.Documents;
 using Triturbo.BlendShare.Model.Serialization;
 using Triturbo.BlendShare.Primitives;
 
@@ -20,6 +22,138 @@ namespace Triturbo.BlendShare.Model.Features
             SchemaVersion = 1;
             Required = true;
         }
+
+        public List<string> GetWeightedBonePaths()
+        {
+            var result = new List<string>();
+            if (Clusters == null)
+            {
+                return result;
+            }
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < Clusters.Count; i++)
+            {
+                var cluster = Clusters[i];
+                if (cluster == null || cluster.Payload == null || !cluster.Payload.HasPayload)
+                {
+                    continue;
+                }
+
+                string normalized = ArmatureDocument.NormalizeBonePath(cluster.BonePath);
+                if (!string.IsNullOrEmpty(normalized) && seen.Add(normalized))
+                {
+                    result.Add(normalized);
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Returns all bone paths referenced by weighted or bindpose clusters in armature parent-before-child order,
+        /// followed by any cluster bone paths not listed in the armature document.
+        /// </summary>
+        public List<string> GetNeededBonePathsInArmatureOrder(ArmatureDocument armature)
+        {
+            var needed = new HashSet<string>(StringComparer.Ordinal);
+            if (Clusters != null)
+            {
+                for (int i = 0; i < Clusters.Count; i++)
+                {
+                    var cluster = Clusters[i];
+                    if (cluster == null)
+                    {
+                        continue;
+                    }
+
+                    bool hasWeights = cluster.Payload != null && cluster.Payload.HasPayload;
+                    if (!hasWeights && !cluster.HasClusterMatrices)
+                    {
+                        continue;
+                    }
+
+                    string normalized = ArmatureDocument.NormalizeBonePath(cluster.BonePath);
+                    if (!string.IsNullOrEmpty(normalized))
+                    {
+                        needed.Add(normalized);
+                    }
+                }
+            }
+
+            var ordered = new List<string>(needed.Count);
+            if (armature != null)
+            {
+                var armaturePaths = armature.GetBonePathsInHierarchyOrder();
+                for (int i = 0; i < armaturePaths.Count; i++)
+                {
+                    if (needed.Remove(armaturePaths[i]))
+                    {
+                        ordered.Add(armaturePaths[i]);
+                    }
+                }
+            }
+
+            if (Clusters != null && needed.Count > 0)
+            {
+                for (int i = 0; i < Clusters.Count; i++)
+                {
+                    var cluster = Clusters[i];
+                    if (cluster == null)
+                    {
+                        continue;
+                    }
+
+                    string normalized = ArmatureDocument.NormalizeBonePath(cluster.BonePath);
+                    if (!string.IsNullOrEmpty(normalized) && needed.Remove(normalized))
+                    {
+                        ordered.Add(normalized);
+                    }
+                }
+            }
+
+            return ordered;
+        }
+
+        public bool TryGetCluster(string bonePath, out SkinWeightClusterEntry cluster)
+        {
+            cluster = null;
+            string normalized = ArmatureDocument.NormalizeBonePath(bonePath);
+            if (string.IsNullOrEmpty(normalized) || Clusters == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < Clusters.Count; i++)
+            {
+                var candidate = Clusters[i];
+                if (candidate != null &&
+                    string.Equals(ArmatureDocument.NormalizeBonePath(candidate.BonePath), normalized, StringComparison.Ordinal))
+                {
+                    cluster = candidate;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public bool TryGetBindPoseFbxClusterMatrices(
+            string bonePath,
+            out FbxMatrix4x4 transformMatrix,
+            out FbxMatrix4x4 transformLinkMatrix)
+        {
+            if (TryGetCluster(bonePath, out var cluster) && cluster.HasClusterMatrices)
+            {
+                transformMatrix = cluster.TransformMatrix;
+                transformLinkMatrix = cluster.TransformLinkMatrix;
+                return true;
+            }
+
+            transformMatrix = FbxMatrix4x4.Identity;
+            transformLinkMatrix = FbxMatrix4x4.Identity;
+            return false;
+        }
     }
 
     [BlendShareRecord(SchemaVersion = 1)]
@@ -35,7 +169,7 @@ namespace Triturbo.BlendShare.Model.Features
     [BlendShareRecord(SchemaVersion = 1)]
     public sealed class SkinWeightClusterPayload
     {
-        [BlendShareField(1, Semantic = DataSemantic.NormalizedWeight)]
+        [BlendShareField(1, Semantic = DataSemantic.SignedWeightDelta)]
         public IndexedBuffer<double> DeltaWeights;
     }
 

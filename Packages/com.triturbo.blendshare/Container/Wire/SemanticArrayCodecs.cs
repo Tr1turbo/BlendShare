@@ -29,7 +29,8 @@ namespace Triturbo.BlendShare.Container.Wire
         {
             Float64 = 0,
             Float32 = 1,
-            Unorm16 = 2
+            Unorm16 = 2,
+            Snorm16 = 3
         }
 
         private enum StorageLayoutFlags : byte
@@ -907,6 +908,11 @@ namespace Triturbo.BlendShare.Container.Wire
                     throw new InvalidDataException($"NormalizedWeight value at index {i} ({v}) is outside [0, 1].");
                 }
 
+                if (semantic == DataSemantic.SignedWeightDelta && (v < -1d || v > 1d))
+                {
+                    throw new InvalidDataException($"SignedWeightDelta value at index {i} ({v}) is outside [-1, 1].");
+                }
+
                 if (allFloat32Finite && float.IsInfinity((float)v))
                 {
                     allFloat32Finite = false;
@@ -922,6 +928,11 @@ namespace Triturbo.BlendShare.Container.Wire
                      (options.Quantization == QuantizationMode.BalancedQuant16 || options.Quantization == QuantizationMode.CompactQuant12))
             {
                 encoding = ScalarEncodingKind.Unorm16;
+            }
+            else if (semantic == DataSemantic.SignedWeightDelta &&
+                     (options.Quantization == QuantizationMode.BalancedQuant16 || options.Quantization == QuantizationMode.CompactQuant12))
+            {
+                encoding = ScalarEncodingKind.Snorm16;
             }
             else
             {
@@ -947,13 +958,23 @@ namespace Triturbo.BlendShare.Container.Wire
                         writer.WriteFixedUInt16((ushort)q);
                     }
                     break;
+                case ScalarEncodingKind.Snorm16:
+                    for (int i = 0; i < values.Length; i++)
+                    {
+                        double v = Math.Abs(values[i]) < options.WeightZeroThreshold ? 0d : values[i];
+                        int q = (int)Math.Round(v * 32767d, MidpointRounding.AwayFromZero);
+                        if (q < -32767) q = -32767;
+                        if (q > 32767) q = 32767;
+                        writer.WriteFixedInt16((short)q);
+                    }
+                    break;
             }
         }
 
         private static double[] ReadDoubleValues(ref WireReader reader, int count, ref DecodeBudget budget)
         {
             byte raw = reader.ReadByte();
-            if (raw > (byte)ScalarEncodingKind.Unorm16)
+            if (raw > (byte)ScalarEncodingKind.Snorm16)
             {
                 throw new InvalidDataException($"Unsupported scalar encoding {raw}.");
             }
@@ -988,6 +1009,18 @@ namespace Triturbo.BlendShare.Container.Wire
                     for (int i = 0; i < count; i++)
                     {
                         result[i] = reader.ReadFixedUInt16() / 65535d;
+                    }
+                    break;
+                case ScalarEncodingKind.Snorm16:
+                    for (int i = 0; i < count; i++)
+                    {
+                        short q = reader.ReadFixedInt16();
+                        if (q < -32767)
+                        {
+                            throw new InvalidDataException($"SignedWeightDelta snorm16 value {q} out of symmetric range [-32767, 32767].");
+                        }
+
+                        result[i] = q / 32767d;
                     }
                     break;
             }

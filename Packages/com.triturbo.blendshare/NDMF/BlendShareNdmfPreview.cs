@@ -135,7 +135,8 @@ namespace Triturbo.BlendShare.NDMF
             var incomingBones = proxySmr.bones;
             var result = BlendShareAvatarApplyService.ApplyToRenderer(new AvatarRendererApplyRequest
             {
-                IncomingMesh = proxySmr.sharedMesh, IncomingBones = incomingBones, RendererTransform = proxySmr.transform,
+                IncomingMesh = proxySmr.sharedMesh, IncomingBones = incomingBones, IncomingRootBone = proxySmr.rootBone,
+                RendererTransform = proxySmr.transform,
                 TargetRootTransform = root.transform, Components = components, BoneProxies = proxies,
                 CreateMissingBones = false, FlushDirtySettings = false
             });
@@ -157,6 +158,7 @@ namespace Triturbo.BlendShare.NDMF
         {
             private readonly Mesh m_OwnedMesh;
             private readonly Transform[] m_OutputBones;
+            private readonly Transform m_OutputRootBone;
             private readonly (int Index, BlendShareProxyBlendShapeWeight Control)[] m_Weights;
             private readonly (int Input, int Output)[] m_Inherited;
             private readonly float[] m_FrameWeights;
@@ -167,6 +169,8 @@ namespace Triturbo.BlendShare.NDMF
                 m_OwnedMesh = result.MeshResult.OutputMesh;
                 var bones = result.MeshResult.OutputBones;
                 if (bones != null && !bones.SequenceEqual(incomingBones)) m_OutputBones = bones;
+                if (result.MeshResult.OutputRootBone != null && result.MeshResult.OutputRootBone != proxy.rootBone)
+                    m_OutputRootBone = result.MeshResult.OutputRootBone;
                 m_Weights = components.SelectMany(c => c.BlendShapeWeights)
                     .Where(w => w != null && !string.IsNullOrWhiteSpace(w.ShapeName))
                     .Select(w => (Index: m_OwnedMesh.GetBlendShapeIndex(w.ShapeName), Control: w))
@@ -194,6 +198,7 @@ namespace Triturbo.BlendShare.NDMF
                 }
                 smr.sharedMesh = m_OwnedMesh;
                 if (m_OutputBones != null) smr.bones = m_OutputBones;
+                if (m_OutputRootBone != null) smr.rootBone = m_OutputRootBone;
                 foreach (var (index, control) in m_Weights) smr.SetBlendShapeWeight(index, control.Weight);
                 for (int i = 0; i < m_Inherited.Length; i++) smr.SetBlendShapeWeight(m_Inherited[i].Output, m_FrameWeights[i]);
             }

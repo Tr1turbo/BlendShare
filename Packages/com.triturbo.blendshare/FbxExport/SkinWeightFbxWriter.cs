@@ -12,9 +12,11 @@ namespace Triturbo.BlendShare.FbxExport
 {
     /// <summary>
     /// Autodesk FBX SDK writer and ufbx round-trip verifier for <see cref="SkinWeightFeature"/>.
-    /// Converts stored cluster bind matrices and armature bone transforms into Target FBX raw space,
-    /// preserves untouched base weights for partial-bone selections, creates missing skeleton nodes
-    /// deterministically, and verifies raw weights, cluster bind matrices, and created bone transforms.
+    /// Accumulates signed weight deltas across patches, preserves untouched base weights,
+    /// creates missing skeleton nodes when <see cref="ArmatureBoneRecord.CreateIfMissing"/> is true,
+    /// writes lossless raw FBX transform properties (when in identical space) or conjugated local bind matrices
+    /// to both created and existing armature bones, and verifies raw weights, cluster bind matrices,
+    /// and armature bone transforms via ufbx round-trip.
     /// </summary>
     public sealed class SkinWeightFbxWriter : IFeatureFbxWriter
     {
@@ -67,6 +69,7 @@ namespace Triturbo.BlendShare.FbxExport
 
             int cpCount = context.ReaderMesh.ControlPointCount;
             var boneRegistry = GetOrCreateArmatureBoneRegistry(context.SessionState);
+            var relativeBindPoseByBone = new Dictionary<string, (string PatchId, FbxMatrix4x4 RelativeBind)>(StringComparer.Ordinal);
             bool hasErrors = false;
 
             for (int i = 0; i < inputs.Count; i++)
@@ -90,9 +93,12 @@ namespace Triturbo.BlendShare.FbxExport
                 if (armature != null)
                 {
                     if (!RegisterAndValidateArmatureBones(
+                            context.RootNode,
                             armature,
                             input.PatchItem.PatchId,
-                            input.ArmatureSpace, context.ReaderScene.Metadata.UnitMeters, context.NumericVerificationToleranceMeters,
+                            input.ArmatureSpace,
+                            context.ReaderScene.Metadata.UnitMeters,
+                            context.NumericVerificationToleranceMeters,
                             boneRegistry,
                             diagnostics))
                     {
@@ -147,7 +153,7 @@ namespace Triturbo.BlendShare.FbxExport
                         var rawMeshMat = input.MeshSpace.BindMatrixToRaw(cluster.TransformMatrix);
                         var rawLinkMat = input.MeshSpace.BindMatrixToRaw(cluster.TransformLinkMatrix);
                         if (!FbxAffineSpaceTransform.TryCreate(rawMeshMat, out _) ||
-                            !FbxAffineSpaceTransform.TryCreate(rawLinkMat, out _))
+                            !FbxAffineSpaceTransform.TryCreate(rawLinkMat, out var rawLinkXform))
                         {
                             diagnostics.Add(new FbxExportDiagnostic(
                                 FbxExportDiagnosticSeverity.Error,
@@ -157,6 +163,30 @@ namespace Triturbo.BlendShare.FbxExport
                                 meshId: input.MeshHeader.MeshId,
                                 featureTypeId: FeatureTypeId));
                             hasErrors = true;
+                        }
+                        else
+                        {
+                            var relativeBind = rawMeshMat * rawLinkXform.InverseOffset;
+                            if (relativeBindPoseByBone.TryGetValue(bonePath, out var existingBind) &&
+                                !MatricesMatch(
+                                    existingBind.RelativeBind,
+                                    relativeBind,
+                                    context.ReaderScene.Metadata.UnitMeters,
+                                    context.NumericVerificationToleranceMeters))
+                            {
+                                diagnostics.Add(new FbxExportDiagnostic(
+                                    FbxExportDiagnosticSeverity.Error,
+                                    "FBX_EXPORT_SKIN_BINDPOSE_CONFLICT",
+                                    $"Conflicting cluster bindpose for bone '{bonePath}' between patch '{existingBind.PatchId}' and patch '{input.PatchItem.PatchId}'.",
+                                    patchId: input.PatchItem.PatchId,
+                                    meshId: input.MeshHeader.MeshId,
+                                    featureTypeId: FeatureTypeId));
+                                hasErrors = true;
+                            }
+                            else
+                            {
+                                relativeBindPoseByBone[bonePath] = (input.PatchItem.PatchId, relativeBind);
+                            }
                         }
                     }
 
@@ -179,13 +209,13 @@ namespace Triturbo.BlendShare.FbxExport
 
                         for (int k = 0; k < buf.Count; k++)
                         {
-                            double w = buf.Values[k];
-                            if (double.IsNaN(w) || double.IsInfinity(w) || w < 0d)
+                            double delta = buf.Values[k];
+                            if (double.IsNaN(delta) || double.IsInfinity(delta) || delta < -1d || delta > 1d)
                             {
                                 diagnostics.Add(new FbxExportDiagnostic(
                                     FbxExportDiagnosticSeverity.Error,
                                     "FBX_EXPORT_SKIN_INVALID_WEIGHT",
-                                    $"Skin cluster '{bonePath}' contains invalid weight {w} at control point {buf.Indices[k]}.",
+                                    $"Skin cluster '{bonePath}' contains invalid weight delta {delta} at control point {buf.Indices[k]}.",
                                     patchId: input.PatchItem.PatchId,
                                     meshId: input.MeshHeader.MeshId,
                                     featureTypeId: FeatureTypeId));
@@ -231,6 +261,25 @@ namespace Triturbo.BlendShare.FbxExport
                 return FbxFeatureWriteResult.Skipped();
             }
 
+            // 1. Apply all ArmatureDocument bone nodes in parent-before-child hierarchy order
+            // (creating missing nodes when CreateIfMissing is true, and updating transforms on both new and existing nodes).
+            if (!ApplyArmatureNodesToFbx(context.Manager, context.RootNode, state.ArmatureBonesByPath, out string armatureError))
+            {
+                diagnostics.Add(new FbxExportDiagnostic(
+                    FbxExportDiagnosticSeverity.Error,
+                    "FBX_EXPORT_SKIN_ARMATURE_APPLY_FAILED",
+                    armatureError,
+                    meshId: context.TargetNodePath,
+                    featureTypeId: FeatureTypeId));
+                return FbxFeatureWriteResult.Failed(diagnostics.ToArray());
+            }
+
+            if (!state.HasSkinChanges)
+            {
+                return FbxFeatureWriteResult.Succeeded(modifiedMesh: true, diagnostics.ToArray());
+            }
+
+            // 2. Resolve all skin cluster bone nodes (creating missing ones if permitted by ArmatureDocument).
             var boneNodesByPath = new Dictionary<string, FbxNode>(StringComparer.Ordinal);
             foreach (string bonePath in state.OrderedBonePaths)
             {
@@ -240,7 +289,7 @@ namespace Triturbo.BlendShare.FbxExport
                     if (!TryResolveOrCreateBoneNode(
                             context.Manager,
                             context.RootNode,
-                            state.BoneArmatureLookup,
+                            state.ArmatureBonesByPath,
                             bonePath,
                             new HashSet<string>(StringComparer.Ordinal),
                             out boneNode,
@@ -259,6 +308,7 @@ namespace Triturbo.BlendShare.FbxExport
                 boneNodesByPath[bonePath] = boneNode;
             }
 
+            // 3. Rebuild skin deformer on TargetMesh.
             var targetMesh = context.TargetMesh;
             for (int i = targetMesh.GetDeformerCount(FbxDeformer.EDeformerType.eSkin) - 1; i >= 0; i--)
             {
@@ -345,6 +395,52 @@ namespace Triturbo.BlendShare.FbxExport
                 return FbxFeatureWriteResult.Skipped();
             }
 
+            // 1. Verify all applied armature bone nodes exist and match expected local bind matrices.
+            var verifiedNodeMap = BuildNodeMap(context.VerifiedScene);
+            var originalNodeMap = BuildNodeMap(context.OriginalReaderScene);
+            foreach (var kv in expected.ArmatureBonesByPath)
+            {
+                string bonePath = kv.Key;
+                var armEntry = kv.Value;
+                bool existedInOriginal = originalNodeMap.ContainsKey(bonePath);
+                if (!existedInOriginal && !armEntry.Record.CreateIfMissing)
+                {
+                    continue;
+                }
+
+                if (!verifiedNodeMap.TryGetValue(bonePath, out var verifiedBoneNode))
+                {
+                    diagnostics.Add(new FbxExportDiagnostic(
+                        FbxExportDiagnosticSeverity.Error,
+                        "FBX_EXPORT_VERIFY_BONE_NODE_MISSING",
+                        $"Verified FBX scene is missing armature bone node '{bonePath}'.",
+                        meshId: context.TargetNodePath,
+                        featureTypeId: FeatureTypeId));
+                    return FbxFeatureWriteResult.Failed(diagnostics.ToArray());
+                }
+
+                if (context.VerifyNumerics &&
+                    !MatricesMatch(
+                        verifiedBoneNode.NodeToParentMatrix,
+                        armEntry.RawLocalMatrix,
+                        context.OriginalReaderScene.Metadata.UnitMeters,
+                        context.NumericVerificationToleranceMeters))
+                {
+                    diagnostics.Add(new FbxExportDiagnostic(
+                        FbxExportDiagnosticSeverity.Error,
+                        "FBX_EXPORT_VERIFY_BONE_TRANSFORM_MISMATCH",
+                        $"Armature bone '{bonePath}' local bind transform does not match expected matrix.",
+                        meshId: context.TargetNodePath,
+                        featureTypeId: FeatureTypeId));
+                    return FbxFeatureWriteResult.Failed(diagnostics.ToArray());
+                }
+            }
+
+            if (!expected.HasSkinChanges)
+            {
+                return FbxFeatureWriteResult.Succeeded(modifiedMesh: false, diagnostics.ToArray());
+            }
+
             var verifiedSkin = FindPrimarySkin(context.VerifiedMesh);
             if (verifiedSkin == null)
             {
@@ -357,8 +453,7 @@ namespace Triturbo.BlendShare.FbxExport
                 return FbxFeatureWriteResult.Failed(diagnostics.ToArray());
             }
 
-            // Structural check (always runs even when VerifyNumerics == false):
-            // 1) Every expected weighted bone has a cluster in verifiedSkin.
+            // 2. Verify every expected weighted bone has a cluster and node in verifiedSkin.
             var verifiedClustersByBone = new Dictionary<string, IFbxSkinCluster>(StringComparer.Ordinal);
             for (int c = 0; c < verifiedSkin.Clusters.Count; c++)
             {
@@ -383,12 +478,9 @@ namespace Triturbo.BlendShare.FbxExport
                 }
             }
 
-            // 2) Verify newly created bones exist in VerifiedScene.
-            var verifiedNodeMap = BuildNodeMap(context.VerifiedScene);
-            var originalNodeMap = BuildNodeMap(context.OriginalReaderScene);
             foreach (string bonePath in expected.OrderedBonePaths)
             {
-                if (!verifiedNodeMap.TryGetValue(bonePath, out var verifiedBoneNode))
+                if (!verifiedNodeMap.ContainsKey(bonePath))
                 {
                     diagnostics.Add(new FbxExportDiagnostic(
                         FbxExportDiagnosticSeverity.Error,
@@ -398,24 +490,6 @@ namespace Triturbo.BlendShare.FbxExport
                         featureTypeId: FeatureTypeId));
                     return FbxFeatureWriteResult.Failed(diagnostics.ToArray());
                 }
-
-                // If the bone was newly created (absent in original scene), verify its local transform matches ArmatureDocument.
-                if (context.VerifyNumerics &&
-                    !originalNodeMap.ContainsKey(bonePath) &&
-                    expected.BoneArmatureLookup.TryGetValue(bonePath, out var boneRecord))
-                {
-                    var expectedLocalRaw = boneRecord.LocalBindMatrix;
-                    if (!MatricesMatch(verifiedBoneNode.NodeToParentMatrix, expectedLocalRaw, context.OriginalReaderScene.Metadata.UnitMeters, context.NumericVerificationToleranceMeters))
-                    {
-                        diagnostics.Add(new FbxExportDiagnostic(
-                            FbxExportDiagnosticSeverity.Error,
-                            "FBX_EXPORT_VERIFY_BONE_TRANSFORM_MISMATCH",
-                            $"Newly created bone '{bonePath}' local bind transform does not match expected matrix.",
-                            meshId: context.TargetNodePath,
-                            featureTypeId: FeatureTypeId));
-                        return FbxFeatureWriteResult.Failed(diagnostics.ToArray());
-                    }
-                }
             }
 
             if (!context.VerifyNumerics)
@@ -423,8 +497,7 @@ namespace Triturbo.BlendShare.FbxExport
                 return FbxFeatureWriteResult.Succeeded(modifiedMesh: false, diagnostics.ToArray());
             }
 
-            // Numeric verification:
-            // 1) Read RAW (un-renormalized) weights so scaled/corrupt raw weights are caught immediately.
+            // 3. Verify raw weights.
             int cpCount = context.VerifiedMesh.ControlPointCount;
             if (!TryReadRawSkinWeightsByCp(verifiedSkin, cpCount, out var actualRawByCp, out string readErr))
             {
@@ -502,7 +575,7 @@ namespace Triturbo.BlendShare.FbxExport
                 return FbxFeatureWriteResult.Failed(diagnostics.ToArray());
             }
 
-            // 2) Verify cluster bind matrices (MeshBindWorld & BindToWorld) for every cluster with explicit matrices.
+            // 4. Verify cluster bind matrices (MeshBindWorld & BindToWorld) for every cluster with explicit matrices.
             foreach (var kv in expected.RawClusterMatricesByBone)
             {
                 if (!verifiedClustersByBone.TryGetValue(kv.Key, out var verifiedCluster))
@@ -592,30 +665,38 @@ namespace Triturbo.BlendShare.FbxExport
                 }
             }
 
-            // Apply each patch's SkinWeightFeature in order.
+            // Accumulate signed delta weights across all patches BEFORE pruning non-positive entries or renormalizing.
             for (int i = 0; i < inputs.Count; i++)
             {
                 var input = inputs[i];
                 var feature = input.Feature as SkinWeightFeature;
-                if (feature == null || feature.Clusters == null || feature.Clusters.Count == 0)
+                if (feature == null)
                 {
                     continue;
                 }
 
                 var armature = FindArmature(input.Armatures, feature.ArmatureId);
-                if (armature != null)
+                if (armature != null && armature.Bones != null && armature.Bones.Count > 0)
                 {
                     state.RegisterArmature(armature, input.ArmatureSpace);
+                    anyFeatureApplied = true;
                 }
 
-                var featureBoneSet = new HashSet<string>(StringComparer.Ordinal);
-                var incomingByCp = new Dictionary<string, double>[cpCount];
+                if (feature.Clusters == null || feature.Clusters.Count == 0)
+                {
+                    continue;
+                }
+
+                state.HasSkinChanges = true;
+                anyFeatureApplied = true;
 
                 for (int c = 0; c < feature.Clusters.Count; c++)
                 {
                     var cl = feature.Clusters[c];
+                    if (cl == null) continue;
                     string bonePath = FbxNameUtility.NormalizePath(cl.BonePath);
-                    featureBoneSet.Add(bonePath);
+                    if (string.IsNullOrEmpty(bonePath)) continue;
+
                     state.AddBonePath(bonePath, isOriginal: false);
 
                     if (cl.HasClusterMatrices)
@@ -641,88 +722,26 @@ namespace Triturbo.BlendShare.FbxExport
                     for (int k = 0; k < buf.Count; k++)
                     {
                         int cp = buf.Indices[k];
-                        double w = buf.Values[k];
-                        if ((uint)cp >= (uint)cpCount || double.IsNaN(w) || double.IsInfinity(w) || w < 0d)
+                        double delta = buf.Values[k];
+                        if ((uint)cp >= (uint)cpCount || double.IsNaN(delta) || double.IsInfinity(delta) || delta == 0d)
                         {
                             continue;
                         }
 
-                        var map = incomingByCp[cp];
+                        var map = state.WeightsByCp[cp];
                         if (map == null)
                         {
                             map = new Dictionary<string, double>(StringComparer.Ordinal);
-                            incomingByCp[cp] = map;
+                            state.WeightsByCp[cp] = map;
                         }
 
-                        map.TryGetValue(bonePath, out double prev);
-                        map[bonePath] = prev + w;
+                        map.TryGetValue(bonePath, out double existing);
+                        map[bonePath] = existing + delta;
                     }
                 }
-
-                // Merge incoming weights into existing per-CP weights:
-                // - When incomingSum >= 1.0 - eps (full-skin replacement): incoming weights replace the CP completely and normalize to 1.0.
-                // - When 0 < incomingSum < 1.0 - eps (partial bone selection): preserve surviving base weights for bones NOT in featureBoneSet
-                //   scaled proportionally to (1.0 - incomingSum), so selecting bone A (0.25) preserves bone B (0.75)!
-                // - If a CP has an explicit 0 entry in incomingByCp for a bone in featureBoneSet, that bone's weight is removed and remainder renormalized.
-                for (int cp = 0; cp < cpCount; cp++)
-                {
-                    var incoming = incomingByCp[cp];
-                    if (incoming == null || incoming.Count == 0)
-                    {
-                        continue;
-                    }
-
-                    double incomingSum = 0d;
-                    foreach (var kv in incoming)
-                    {
-                        if (kv.Value > k_MinWeightEpsilon)
-                        {
-                            incomingSum += kv.Value;
-                        }
-                    }
-
-                    var merged = new Dictionary<string, double>(StringComparer.Ordinal);
-                    foreach (var kv in incoming)
-                    {
-                        if (kv.Value > k_MinWeightEpsilon)
-                        {
-                            merged[kv.Key] = kv.Value;
-                        }
-                    }
-
-                    double remainingBudget = 1d - incomingSum;
-                    var existing = state.WeightsByCp[cp];
-                    if (remainingBudget > k_MinWeightEpsilon && existing != null && existing.Count > 0)
-                    {
-                        double existingOtherSum = 0d;
-                        foreach (var kv in existing)
-                        {
-                            if (!featureBoneSet.Contains(kv.Key) && kv.Value > k_MinWeightEpsilon)
-                            {
-                                existingOtherSum += kv.Value;
-                            }
-                        }
-
-                        if (existingOtherSum > k_MinWeightEpsilon)
-                        {
-                            double scale = remainingBudget / existingOtherSum;
-                            foreach (var kv in existing)
-                            {
-                                if (!featureBoneSet.Contains(kv.Key) && kv.Value > k_MinWeightEpsilon)
-                                {
-                                    merged[kv.Key] = kv.Value * scale;
-                                }
-                            }
-                        }
-                    }
-
-                    state.WeightsByCp[cp] = NormalizeCpWeights(merged);
-                }
-
-                anyFeatureApplied = true;
             }
 
-            // Build per-bone cluster weight lookup from finalized normalized per-CP weights.
+            // Finalize: prune non-positive accumulated weights, renormalize per control point, and populate cluster map.
             for (int cp = 0; cp < cpCount; cp++)
             {
                 var cpMap = NormalizeCpWeights(state.WeightsByCp[cp]);
@@ -745,6 +764,80 @@ namespace Triturbo.BlendShare.FbxExport
             }
 
             return state;
+        }
+
+        private static bool ApplyArmatureNodesToFbx(
+            FbxManager manager,
+            FbxNode rootNode,
+            Dictionary<string, PreparedArmatureBone> armatureBonesByPath,
+            out string error)
+        {
+            error = null;
+            if (armatureBonesByPath == null || armatureBonesByPath.Count == 0)
+            {
+                return true;
+            }
+
+            var orderedPaths = armatureBonesByPath.Keys
+                .OrderBy(CountPathDepth)
+                .ThenBy(p => p, StringComparer.Ordinal)
+                .ToArray();
+
+            for (int i = 0; i < orderedPaths.Length; i++)
+            {
+                string path = orderedPaths[i];
+                var entry = armatureBonesByPath[path];
+                var node = FbxSdkNodeUtility.FindNodeByPath(rootNode, path);
+                if (node == null)
+                {
+                    if (!entry.Record.CreateIfMissing)
+                    {
+                        continue;
+                    }
+
+                    if (!TryResolveOrCreateBoneNode(
+                            manager,
+                            rootNode,
+                            armatureBonesByPath,
+                            path,
+                            new HashSet<string>(StringComparer.Ordinal),
+                            out node,
+                            out error))
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    if (!ApplyPreparedTransformToNode(node, entry, out error))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        private static bool ApplyPreparedTransformToNode(
+            FbxNode node,
+            PreparedArmatureBone entry,
+            out string error)
+        {
+            error = null;
+            if (!entry.Record.HasTransformData)
+            {
+                error = $"Armature bone '{entry.Path}' is missing local bind transform data.";
+                return false;
+            }
+
+            if (entry.CanUseRawProperties)
+            {
+                FbxSdkNodeUtility.ApplyRawTransformPropertiesToNode(node, entry.Record);
+                return true;
+            }
+
+            return FbxSdkNodeUtility.TryApplyRawLocalMatrixToNode(node, entry.RawLocalMatrix, out error);
         }
 
         private static Dictionary<string, double> NormalizeCpWeights(Dictionary<string, double> weights)
@@ -992,9 +1085,17 @@ namespace Triturbo.BlendShare.FbxExport
                 }
 
                 var record = FindBoneRecord(armature, current);
-                if (record == null)
+                if (record == null || !record.CreateIfMissing)
                 {
-                    error = $"Missing target FBX bone '{current}' and no ArmatureBoneRecord was found to create it.";
+                    error = record == null
+                        ? $"Missing target FBX bone '{current}' and no ArmatureBoneRecord was found to create it."
+                        : $"Target FBX bone '{current}' is missing and ArmatureBoneRecord has CreateIfMissing = false.";
+                    return false;
+                }
+
+                if (!record.HasTransformData)
+                {
+                    error = $"Armature bone '{current}' is missing local bind transform data.";
                     return false;
                 }
 
@@ -1017,7 +1118,7 @@ namespace Triturbo.BlendShare.FbxExport
         private static bool TryResolveOrCreateBoneNode(
             FbxManager manager,
             FbxNode rootNode,
-            Dictionary<string, ArmatureBoneRecord> boneRecords,
+            Dictionary<string, PreparedArmatureBone> boneRecords,
             string bonePath,
             HashSet<string> resolving,
             out FbxNode node,
@@ -1036,16 +1137,18 @@ namespace Triturbo.BlendShare.FbxExport
                 return false;
             }
 
-            if (!boneRecords.TryGetValue(bonePath, out var record))
+            if (!boneRecords.TryGetValue(bonePath, out var entry) || !entry.Record.CreateIfMissing)
             {
                 resolving.Remove(bonePath);
-                error = $"Cannot create missing FBX bone '{bonePath}': no ArmatureBoneRecord available.";
+                error = entry == null
+                    ? $"Cannot create missing FBX bone '{bonePath}': no ArmatureBoneRecord available."
+                    : $"Cannot create missing FBX bone '{bonePath}': ArmatureBoneRecord has CreateIfMissing = false.";
                 return false;
             }
 
             string parentPath = FbxNameUtility.NormalizePath(
-                !string.IsNullOrEmpty(record.ParentPath)
-                    ? record.ParentPath
+                !string.IsNullOrEmpty(entry.Record.ParentPath)
+                    ? entry.Record.ParentPath
                     : FbxSdkNodeUtility.GetParentPath(bonePath));
 
             FbxNode parentNode;
@@ -1076,8 +1179,7 @@ namespace Triturbo.BlendShare.FbxExport
                 : FbxSkeleton.EType.eLimbNode);
             created.SetNodeAttribute(skeleton);
 
-            var rawLocal = record.LocalBindMatrix;
-            if (!FbxSdkNodeUtility.TryApplyRawLocalMatrixToNode(created, rawLocal, out error))
+            if (!ApplyPreparedTransformToNode(created, entry, out error))
             {
                 created.Destroy();
                 return false;
@@ -1088,25 +1190,28 @@ namespace Triturbo.BlendShare.FbxExport
             return true;
         }
 
-        private static Dictionary<string, (string PatchId, FbxMatrix4x4 LocalBind)> GetOrCreateArmatureBoneRegistry(
+        private static Dictionary<string, (string PatchId, PreparedArmatureBone Bone)> GetOrCreateArmatureBoneRegistry(
             IDictionary<string, object> sessionState)
         {
             if (sessionState.TryGetValue(k_ArmatureRegistryStateKey, out var existing) &&
-                existing is Dictionary<string, (string, FbxMatrix4x4)> dict)
+                existing is Dictionary<string, (string, PreparedArmatureBone)> dict)
             {
                 return dict;
             }
 
-            var created = new Dictionary<string, (string, FbxMatrix4x4)>(StringComparer.Ordinal);
+            var created = new Dictionary<string, (string, PreparedArmatureBone)>(StringComparer.Ordinal);
             sessionState[k_ArmatureRegistryStateKey] = created;
             return created;
         }
 
         private static bool RegisterAndValidateArmatureBones(
+            FbxNode rootNode,
             ArmatureDocument armature,
             string patchId,
-            FbxExportSpace space, double unitMeters, double toleranceMeters,
-            Dictionary<string, (string PatchId, FbxMatrix4x4 LocalBind)> registry,
+            FbxExportSpace space,
+            double unitMeters,
+            double toleranceMeters,
+            Dictionary<string, (string PatchId, PreparedArmatureBone Bone)> registry,
             List<FbxExportDiagnostic> diagnostics)
         {
             bool ok = true;
@@ -1124,11 +1229,56 @@ namespace Triturbo.BlendShare.FbxExport
                 }
 
                 string path = FbxNameUtility.NormalizePath(bone.Path);
-                var rawLocal = space.BindMatrixToRaw(bone.LocalBindMatrix);
+                if (!bone.HasTransformData)
+                {
+                    diagnostics.Add(new FbxExportDiagnostic(
+                        FbxExportDiagnosticSeverity.Error,
+                        "FBX_EXPORT_ARMATURE_NO_TRANSFORM",
+                        $"Armature bone '{path}' is missing local bind transform data.",
+                        patchId: patchId,
+                        featureTypeId: SkinWeightFeature.FeatureTypeId));
+                    ok = false;
+                    continue;
+                }
+
+                if (bone.CreateIfMissing && FbxSdkNodeUtility.FindNodeByPath(rootNode, path) == null)
+                {
+                    if (!CanCreateBoneHierarchyFromArmature(rootNode, armature, path, space, out string createError))
+                    {
+                        diagnostics.Add(new FbxExportDiagnostic(
+                            FbxExportDiagnosticSeverity.Error,
+                            "FBX_EXPORT_SKIN_MISSING_BONE",
+                            createError,
+                            patchId: patchId,
+                            featureTypeId: SkinWeightFeature.FeatureTypeId));
+                        ok = false;
+                        continue;
+                    }
+                }
+
+                var prepared = new PreparedArmatureBone(path, bone, space);
+                if (!FbxAffineSpaceTransform.TryCreate(prepared.RawLocalMatrix, out _))
+                {
+                    diagnostics.Add(new FbxExportDiagnostic(
+                        FbxExportDiagnosticSeverity.Error,
+                        "FBX_EXPORT_ARMATURE_INVALID_MATRIX",
+                        $"Armature bone '{path}' has a singular or non-finite local bind matrix.",
+                        patchId: patchId,
+                        featureTypeId: SkinWeightFeature.FeatureTypeId));
+                    ok = false;
+                    continue;
+                }
 
                 if (registry.TryGetValue(path, out var existing))
                 {
-                    if (!MatricesMatch(existing.LocalBind, rawLocal, unitMeters, toleranceMeters))
+                    bool conflict = !MatricesMatch(existing.Bone.RawLocalMatrix, prepared.RawLocalMatrix, unitMeters, toleranceMeters);
+                    if (!conflict && existing.Bone.CanUseRawProperties && prepared.CanUseRawProperties)
+                    {
+                        double transTol = toleranceMeters / unitMeters;
+                        conflict = !existing.Bone.Record.ApproximatelyTransform(prepared.Record, k_BindMatrixCompareTolerance, transTol);
+                    }
+
+                    if (conflict)
                     {
                         diagnostics.Add(new FbxExportDiagnostic(
                             FbxExportDiagnosticSeverity.Error,
@@ -1141,11 +1291,23 @@ namespace Triturbo.BlendShare.FbxExport
                 }
                 else
                 {
-                    registry[path] = (patchId, rawLocal);
+                    registry[path] = (patchId, prepared);
                 }
             }
 
             return ok;
+        }
+
+        private static int CountPathDepth(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return 0;
+            int depth = 0;
+            for (int i = 0; i < path.Length; i++)
+            {
+                if (path[i] == '/') depth++;
+            }
+
+            return depth;
         }
 
         private readonly struct RawClusterMatrices
@@ -1160,9 +1322,26 @@ namespace Triturbo.BlendShare.FbxExport
             }
         }
 
+        private sealed class PreparedArmatureBone
+        {
+            public string Path { get; }
+            public ArmatureBoneRecord Record { get; }
+            public FbxMatrix4x4 RawLocalMatrix { get; }
+            public bool CanUseRawProperties { get; }
+
+            public PreparedArmatureBone(string path, ArmatureBoneRecord record, FbxExportSpace space)
+            {
+                Path = path;
+                Record = record;
+                RawLocalMatrix = space != null ? space.BindMatrixToRaw(record.LocalBindMatrix) : record.LocalBindMatrix;
+                CanUseRawProperties = space != null && space.IsExactIdentity && record.HasRawTransformProperties;
+            }
+        }
+
         private sealed class SkinBuildState
         {
             public string SkinName { get; set; } = "Skin";
+            public bool HasSkinChanges { get; set; }
             public Dictionary<string, double>[] WeightsByCp { get; }
             public List<string> OrderedBonePaths { get; } = new List<string>();
             public HashSet<string> OriginalBoneSet { get; } = new HashSet<string>(StringComparer.Ordinal);
@@ -1171,8 +1350,8 @@ namespace Triturbo.BlendShare.FbxExport
                 new Dictionary<string, RawClusterMatrices>(StringComparer.Ordinal);
             public Dictionary<string, Dictionary<int, double>> ClusterWeightsByBone { get; } =
                 new Dictionary<string, Dictionary<int, double>>(StringComparer.Ordinal);
-            public Dictionary<string, ArmatureBoneRecord> BoneArmatureLookup { get; } =
-                new Dictionary<string, ArmatureBoneRecord>(StringComparer.Ordinal);
+            public Dictionary<string, PreparedArmatureBone> ArmatureBonesByPath { get; } =
+                new Dictionary<string, PreparedArmatureBone>(StringComparer.Ordinal);
 
             public SkinBuildState(int cpCount)
             {
@@ -1213,15 +1392,10 @@ namespace Triturbo.BlendShare.FbxExport
                     }
 
                     string path = FbxNameUtility.NormalizePath(b.Path);
-                    if (!BoneArmatureLookup.ContainsKey(path))
+                    if (!ArmatureBonesByPath.TryGetValue(path, out var existing) ||
+                        (b.CreateIfMissing && !existing.Record.CreateIfMissing))
                     {
-                        BoneArmatureLookup[path] = new ArmatureBoneRecord
-                        {
-                            Path = b.Path,
-                            ParentPath = b.ParentPath,
-                            LocalBindMatrix = space.BindMatrixToRaw(b.LocalBindMatrix),
-                            GlobalBindMatrix = space.BindMatrixToRaw(b.GlobalBindMatrix)
-                        };
+                        ArmatureBonesByPath[path] = new PreparedArmatureBone(path, b, space);
                     }
                 }
             }

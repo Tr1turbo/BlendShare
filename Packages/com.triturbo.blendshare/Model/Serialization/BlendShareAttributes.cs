@@ -12,7 +12,8 @@ namespace Triturbo.BlendShare.Model.Serialization
         NormalDelta = 2,
         NormalizedWeight = 3,
         UvCoord = 4,
-        UvDelta = 5
+        UvDelta = 5,
+        SignedWeightDelta = 6
     }
 
     /// <summary>

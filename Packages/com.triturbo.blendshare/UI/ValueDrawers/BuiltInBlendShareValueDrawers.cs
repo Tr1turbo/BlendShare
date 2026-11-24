@@ -268,6 +268,8 @@ namespace Triturbo.BlendShare.UI.ValueDrawers
                     string formatted = DrawerUi.Format(entry, "G6");
                     if (context.Semantic == DataSemantic.NormalizedWeight && entry is double weight)
                         formatted += $" ({weight:P1})";
+                    else if (context.Semantic == DataSemantic.SignedWeightDelta && entry is double delta)
+                        formatted = $"{(delta >= 0d ? "+" : string.Empty)}{delta.ToString("G6", CultureInfo.InvariantCulture)} ({(delta >= 0d ? "+" : string.Empty)}{delta:P1})";
                     label.text = $"[{buffer.Indices[slot]}] → {formatted}";
                     label.tooltip = $"{DrawerUi.Format(entry, "G17")} {DrawerUi.Hint(context)}".TrimEnd();
                 }

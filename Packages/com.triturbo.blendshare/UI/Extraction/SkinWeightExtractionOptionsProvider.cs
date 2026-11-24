@@ -1415,6 +1415,7 @@ namespace Triturbo.BlendShare.UI.Extraction
             private readonly HashSet<string> m_SelectedSimpleMeshKeys = new HashSet<string>(StringComparer.Ordinal);
             private readonly HashSet<string> m_SelectedSimpleBonePaths = new HashSet<string>(StringComparer.Ordinal);
             private readonly HashSet<string> m_DisabledMeshKeys = new HashSet<string>(StringComparer.Ordinal);
+            private string m_ArmatureOnlyHostMeshKey = string.Empty;
 
             public SkinWeightSelectionMode SelectionMode { get; set; } = SkinWeightSelectionMode.Simple;
             public bool DefaultsInitialized { get; set; }
@@ -1525,6 +1526,7 @@ namespace Triturbo.BlendShare.UI.Extraction
                 m_SelectedTransformBonePaths.Clear();
                 m_ForcedTransformBonePaths.Clear();
                 m_SelectedNewBonePaths.Clear();
+                m_ArmatureOnlyHostMeshKey = string.Empty;
             }
 
             public bool IsBoneTransformForced(string bonePath)
@@ -1551,6 +1553,27 @@ namespace Triturbo.BlendShare.UI.Extraction
             {
                 m_ForcedTransformBonePaths.Clear();
                 m_SelectedNewBonePaths.Clear();
+                m_ArmatureOnlyHostMeshKey = string.Empty;
+            }
+
+            public bool HasMeshScopedSelections()
+            {
+                return m_SelectedWeightBonePathsByMesh
+                           .Any(pair => !m_DisabledMeshKeys.Contains(pair.Key) && pair.Value.Count > 0) ||
+                       m_SelectedBindposeBonePathsByMesh
+                           .Any(pair => !m_DisabledMeshKeys.Contains(pair.Key) && pair.Value.Count > 0);
+            }
+
+            public IReadOnlyCollection<string> GetSelectedBoneTransformPaths()
+            {
+                var combined = new HashSet<string>(m_SelectedTransformBonePaths, StringComparer.Ordinal);
+                combined.UnionWith(m_ForcedTransformBonePaths);
+                return combined.OrderBy(path => path, StringComparer.Ordinal).ToArray();
+            }
+
+            public void SetArmatureOnlyHostMesh(string meshPath)
+            {
+                m_ArmatureOnlyHostMeshKey = NormalizePathKey(meshPath);
             }
 
             public IEnumerable<(string MeshKey, string BonePath)> GetSelectedMeshBonePairs()
@@ -1625,33 +1648,25 @@ namespace Triturbo.BlendShare.UI.Extraction
                     allMeshKeys.Add(key);
                 }
 
-                bool anyBindposeSelected = false;
                 foreach (string meshKey in allMeshKeys)
                 {
                     bool meshEnabled = !m_DisabledMeshKeys.Contains(meshKey);
                     target.SetMeshEnabled(meshKey, meshEnabled);
 
-                    var combinedBones = new HashSet<string>(StringComparer.Ordinal);
-                    if (m_SelectedWeightBonePathsByMesh.TryGetValue(meshKey, out var weights))
-                    {
-                        combinedBones.UnionWith(weights);
-                    }
+                    IEnumerable<string> weights = m_SelectedWeightBonePathsByMesh.TryGetValue(meshKey, out var weightSet)
+                        ? weightSet.OrderBy(p => p, StringComparer.Ordinal)
+                        : Enumerable.Empty<string>();
+                    IEnumerable<string> bindposes = m_SelectedBindposeBonePathsByMesh.TryGetValue(meshKey, out var bindposeSet)
+                        ? bindposeSet.OrderBy(p => p, StringComparer.Ordinal)
+                        : Enumerable.Empty<string>();
 
-                    if (m_SelectedBindposeBonePathsByMesh.TryGetValue(meshKey, out var bindposes))
-                    {
-                        combinedBones.UnionWith(bindposes);
-                        if (meshEnabled && bindposes.Count > 0)
-                        {
-                            anyBindposeSelected = true;
-                        }
-                    }
-
-                    target.SetSelectedBonePaths(
-                        meshKey,
-                        combinedBones.OrderBy(p => p, StringComparer.Ordinal));
+                    target.SetSelectedWeightBonePaths(meshKey, weights);
+                    target.SetSelectedBindposeBonePaths(meshKey, bindposes);
                 }
 
-                target.IncludeClusterBindMatrices = anyBindposeSelected;
+                target.SetSelectedTransformBonePaths(GetSelectedBoneTransformPaths());
+                target.SetSelectedNewBonePaths(m_SelectedNewBonePaths.OrderBy(p => p, StringComparer.Ordinal));
+                target.ArmatureOnlyHostMeshPath = m_ArmatureOnlyHostMeshKey ?? string.Empty;
             }
 
             private static void SetSelection(HashSet<string> selections, string key, bool selected)
@@ -2373,6 +2388,14 @@ namespace Triturbo.BlendShare.UI.Extraction
                     {
                         AddAutomaticArmatureDependencies(pair.BonePath, true);
                     }
+                }
+
+                if (!m_State.HasMeshScopedSelections() &&
+                    m_State.GetSelectedBoneTransformPaths().Count > 0 &&
+                    (m_Comparison.Meshes.FirstOrDefault(mesh => m_State.IsMeshEnabled(mesh.MeshPath)) ??
+                     m_Comparison.Meshes.FirstOrDefault()) is { } hostMesh)
+                {
+                    m_State.SetArmatureOnlyHostMesh(hostMesh.MeshPath);
                 }
 
                 m_State.SyncToExtractionOptions(m_ExtractionOptions, m_Comparison);

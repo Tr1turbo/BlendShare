@@ -5,6 +5,7 @@ using Triturbo.BlendShare.Container.Serialization;
 using Triturbo.BlendShare.EditorAssets.Binding;
 using Triturbo.BlendShare.Model.Features;
 using Triturbo.BlendShare.Model.Validation;
+using Triturbo.BlendShare.Runtime.Assets;
 using UnityEngine;
 
 namespace Triturbo.BlendShare.Pipeline.Apply
@@ -13,10 +14,10 @@ namespace Triturbo.BlendShare.Pipeline.Apply
     {
         public Mesh BaseMesh { get; set; }
         public Transform[] IncomingBones { get; set; }
+        public Transform IncomingRootBone { get; set; }
         public Transform TargetRootTransform { get; set; }
         public Transform MeshRendererTransform { get; set; }
         public IReadOnlyDictionary<BoneOverrideKey, Transform> BoneTransformOverrides { get; set; }
-        public IReadOnlyDictionary<(string PatchId, string ArmatureId), Transform> ArmatureRootOverrides { get; set; }
         public int MaxBonesPerVertex { get; set; } = 4;
         public bool CreateMissingBones { get; set; }
         public IReadOnlyList<PatchMeshApplicationItem> Items { get; set; } = Array.Empty<PatchMeshApplicationItem>();
@@ -30,7 +31,10 @@ namespace Triturbo.BlendShare.Pipeline.Apply
         public bool Succeeded { get; internal set; }
         public Mesh OutputMesh { get; internal set; }
         public Transform[] OutputBones { get; internal set; }
+        public Transform OutputRootBone { get; internal set; }
+        public string OutputRootBonePath { get; internal set; } = string.Empty;
         public IReadOnlyList<AppliedBoneBinding> AppliedBoneBindings { get; internal set; } = Array.Empty<AppliedBoneBinding>();
+        public IReadOnlyList<GeneratedArmatureBoneRecord> AppliedArmatureBones { get; internal set; } = Array.Empty<GeneratedArmatureBoneRecord>();
         public BlendShareSkinWeightInfluenceSummary SkinWeightInfluenceSummary { get; internal set; }
         public IReadOnlyList<ApplyDiagnostic> Diagnostics { get; internal set; }
         public int AppliedFeatureCount { get; internal set; }
@@ -87,6 +91,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                         {
                             PatchId = item.PatchId, MeshId = item.MeshId, Feature = feature, MeshHeader = item.MeshHeader,
                             Armatures = item.Armatures, CreateMissingBones = item.CreateMissingBones,
+                            BindPoseOverrides = item.BindPoseOverrides,
                             VertexBinding = item.VertexBinding, EffectiveSettings = item.EffectiveSettings, PayloadSource = item.PayloadSource
                         });
                     }
@@ -96,10 +101,11 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                 context.WorkingMesh = request.CloneBaseMesh ? clone : request.BaseMesh;
                 if (!context.WorkingMesh || !context.WorkingMesh.isReadable) throw new InvalidOperationException("Working mesh is unreadable.");
                 context.WorkingBones = (Transform[])request.IncomingBones?.Clone();
+                context.IncomingRootBone = request.IncomingRootBone;
+                context.OutputRootBone = request.IncomingRootBone;
                 context.TargetRootTransform = request.TargetRootTransform;
                 context.MeshRendererTransform = request.MeshRendererTransform;
                 context.BoneTransformOverrides = request.BoneTransformOverrides;
-                context.ArmatureRootOverrides = request.ArmatureRootOverrides;
                 context.MaxBonesPerVertex = request.MaxBonesPerVertex > 0 ? request.MaxBonesPerVertex : 4;
                 context.CreateMissingBones = request.CreateMissingBones;
                 context.PreserveExistingBlendShapes = request.PreserveExistingBlendShapes;
@@ -113,7 +119,10 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     if (applied.Status == FeatureApplyStatus.Applied) result.AppliedFeatureCount += inputs.Count;
                 }
                 result.OutputBones = context.WorkingBones;
+                result.OutputRootBone = context.OutputRootBone;
+                result.OutputRootBonePath = context.OutputRootBonePath;
                 result.AppliedBoneBindings = context.AppliedBoneBindings;
+                result.AppliedArmatureBones = context.AppliedArmatureBones;
                 result.SkinWeightInfluenceSummary = context.SkinWeightInfluenceSummary;
                 result.OutputMesh = context.WorkingMesh;
                 result.Succeeded = true;

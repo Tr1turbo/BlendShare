@@ -227,7 +227,7 @@ namespace Triturbo.BlendShare.UI.Authoring
                 foreach (string bonePath in skin.BonePaths)
                 {
                     var bone = skin.Armature.Bones.Find(item => item.Path == bonePath);
-                    if (bone == null || !meshApplier.CreateMissingBones || transformsByPath.ContainsKey(bonePath))
+                    if (bone == null || !bone.CreateIfMissing || !meshApplier.CreateMissingBones || transformsByPath.ContainsKey(bonePath))
                     {
                         continue;
                     }
@@ -801,6 +801,14 @@ namespace Triturbo.BlendShare.UI.Authoring
             Armature = armature;
             var weighted = feature.Clusters.Select(cluster => cluster.BonePath).Distinct().ToArray();
             var needed = new HashSet<string>(weighted, StringComparer.Ordinal);
+            foreach (var bone in armature.Bones)
+            {
+                if (bone != null && bone.CreateIfMissing && !string.IsNullOrEmpty(bone.Path))
+                {
+                    needed.Add(bone.Path);
+                }
+            }
+
             BonePaths = armature.Bones.OrderBy(bone => bone.Path.Count(character => character == '/'))
                 .Select(bone => bone.Path).Where(needed.Remove).Concat(weighted.Where(needed.Contains)).ToArray();
         }

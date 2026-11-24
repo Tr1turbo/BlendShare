@@ -3,6 +3,7 @@ using System.Linq;
 using nadena.dev.ndmf;
 using nadena.dev.ndmf.animator;
 using Triturbo.BlendShare.Pipeline.Apply;
+using Triturbo.BlendShare.Runtime.Assets;
 using Triturbo.BlendShare.Components;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -26,6 +27,7 @@ namespace Triturbo.BlendShare.NDMF
             var animator = context.Extension<AnimatorServicesContext>();
             var mergeResolver = new BlendShareBoneBindingMergeResolver(context, animator);
             var uses = new List<AvatarBoneBindingUse>();
+            var armatureBonesByPath = new Dictionary<string, GeneratedArmatureBoneRecord>(System.StringComparer.Ordinal);
             var capturedWeights = BlendShareBlendShapeWeightService.CaptureExistingRendererWeights(components);
             bool succeeded = true;
             foreach (var group in components.GroupBy(c => c.TargetRenderer))
@@ -42,8 +44,9 @@ namespace Triturbo.BlendShare.NDMF
                 var incoming = renderer.sharedMesh;
                 var result = BlendShareAvatarApplyService.ApplyToRenderer(new AvatarRendererApplyRequest
                 {
-                    IncomingMesh = incoming, IncomingBones = renderer.bones, Components = group.ToArray(),
-                    BoneProxies = proxies, RendererTransform = renderer.transform, TargetRootTransform = root.transform,
+                    IncomingMesh = incoming, IncomingBones = renderer.bones, IncomingRootBone = renderer.rootBone,
+                    Components = group.ToArray(), BoneProxies = proxies,
+                    RendererTransform = renderer.transform, TargetRootTransform = root.transform,
                     CreateMissingBones = true, FlushDirtySettings = true
                 });
                 if (!result.Succeeded)
@@ -55,17 +58,42 @@ namespace Triturbo.BlendShare.NDMF
 
                 var output = result.MeshResult.OutputMesh;
                 uses.AddRange(result.BoneBindingUses);
+                if (result.MeshResult.AppliedArmatureBones != null)
+                {
+                    foreach (var armBone in result.MeshResult.AppliedArmatureBones)
+                    {
+                        if (armBone != null && !string.IsNullOrEmpty(armBone.Path))
+                        {
+                            armatureBonesByPath[armBone.Path] = armBone;
+                        }
+                    }
+                }
+
                 ObjectRegistry.RegisterReplacedObject(incoming, output);
                 context.AssetSaver.SaveAsset(output);
                 renderer.sharedMesh = output;
                 var bones = result.MeshResult.OutputBones;
                 if (bones != null && bones.Length > 0)
                     renderer.bones = bones;
+                if (result.MeshResult.OutputRootBone != null)
+                    renderer.rootBone = result.MeshResult.OutputRootBone;
                 foreach (var applier in group)
                     BlendShareBlendShapeWeightService.ApplyWeightsToRenderer(applier, renderer);
                 BlendShareBlendShapeWeightService.ApplyCapturedRendererWeights(capturedWeights, renderer);
             }
             if (!succeeded) return;
+
+            // Apply authored existing-bone transform changes (non-proxy) in parent-before-child order.
+            foreach (var armBone in armatureBonesByPath.Values
+                         .OrderBy(b => b.Path.Count(c => c == '/'))
+                         .ThenBy(b => b.Path, System.StringComparer.Ordinal))
+            {
+                var existing = root.transform.Find(armBone.Path);
+                if (existing != null)
+                {
+                    armBone.ApplyLocalTransform(existing);
+                }
+            }
             BlendShareBlendShapeWeightService.RetargetRendererBlendShapeCurves(components, animator);
             if (!mergeResolver.Prepare(uses, out var diagnostic) || !mergeResolver.Cleanup(out diagnostic))
             {
