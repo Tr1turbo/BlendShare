@@ -98,7 +98,103 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             var optionsSet = request.FeatureOptions ?? new ExtractionOptionsSet();
             var seenMeshIds = new HashSet<string>(StringComparer.Ordinal);
             var extractedMeshes = new List<MeshDocument>(request.Meshes.Count);
+            var armaturesById = new Dictionary<string, ArmatureDocument>(StringComparer.Ordinal);
+            var armatureBonesByPath = new Dictionary<string, Dictionary<string, ArmatureBoneRecord>>(StringComparer.Ordinal);
+            var armatureWeightedPaths = new Dictionary<string, List<string>>(StringComparer.Ordinal);
             bool hasError = false;
+
+            Action<string, string, IReadOnlyList<IFbxNode>, IReadOnlyDictionary<string, FbxMatrix4x4>, FbxAffineSpaceTransform> registerArmature =
+                (armId, rootPath, boneNodes, clusterBindWorldByPath, worldToCanon) =>
+                {
+                    if (string.IsNullOrWhiteSpace(armId)) return;
+                    if (!armaturesById.TryGetValue(armId, out var armDoc))
+                    {
+                        armDoc = new ArmatureDocument
+                        {
+                            ArmatureId = armId,
+                            Name = armId,
+                            RootBonePath = string.Empty
+                        };
+                        armaturesById.Add(armId, armDoc);
+                        armatureBonesByPath.Add(armId, new Dictionary<string, ArmatureBoneRecord>(StringComparer.Ordinal));
+                        armatureWeightedPaths.Add(armId, new List<string>());
+                    }
+
+                    var boneMap = armatureBonesByPath[armId];
+                    var weightedList = armatureWeightedPaths[armId];
+                    if (boneNodes == null) return;
+
+                    // Collect bones and their ancestor chains in parent-before-child order.
+                    var chain = new List<IFbxNode>();
+                    for (int i = 0; i < boneNodes.Count; i++)
+                    {
+                        chain.Clear();
+                        var curr = boneNodes[i];
+                        while (curr != null && !curr.IsRoot)
+                        {
+                            chain.Add(curr);
+                            curr = curr.Parent;
+                        }
+
+                        for (int k = chain.Count - 1; k >= 0; k--)
+                        {
+                            var node = chain[k];
+                            string path = FbxNameUtility.NormalizePath(node.Path);
+                            if (string.IsNullOrEmpty(path)) continue;
+
+                            string parentPath = node.Parent != null && !node.Parent.IsRoot
+                                ? FbxNameUtility.NormalizePath(node.Parent.Path)
+                                : string.Empty;
+
+                            FbxMatrix4x4 clusterGlobal = default;
+                            bool fromCluster = clusterBindWorldByPath != null &&
+                                               clusterBindWorldByPath.TryGetValue(path, out clusterGlobal);
+                            if (fromCluster) weightedList.Add(path);
+
+                            FbxMatrix4x4 globalCanon = fromCluster
+                                ? clusterGlobal
+                                : worldToCanon.InverseOffset * node.NodeToWorldMatrix * worldToCanon.Offset;
+
+                            // Derive local bind relative to the recorded parent's global bind so skin cluster bind poses stay self-consistent.
+                            FbxMatrix4x4 localCanon;
+                            if (!string.IsNullOrEmpty(parentPath) &&
+                                boneMap.TryGetValue(parentPath, out var parentRecord) &&
+                                parentRecord.GlobalBindMatrix.TryInverse(out var parentInv))
+                            {
+                                localCanon = globalCanon * parentInv;
+                            }
+                            else
+                            {
+                                localCanon = worldToCanon.InverseOffset * node.NodeToParentMatrix * worldToCanon.Offset;
+                            }
+
+                            if (boneMap.TryGetValue(path, out var existing))
+                            {
+                                if (fromCluster && !existing.GlobalBindMatrix.Approximately(globalCanon, 1e-4d))
+                                {
+                                    diagnostics.Add(new ExtractionDiagnostic(
+                                        ExtractionDiagnosticSeverity.Warning,
+                                        "PIPE_EXT_ARMATURE_BIND_MISMATCH",
+                                        $"Conflicting skin bind pose for bone '{path}' in armature '{armId}'; keeping first recorded bind pose."));
+                                }
+                                continue;
+                            }
+
+                            var record = new ArmatureBoneRecord
+                            {
+                                Path = path,
+                                ParentPath = parentPath,
+                                LocalBindMatrix = localCanon,
+                                GlobalBindMatrix = globalCanon
+                            };
+                            boneMap.Add(path, record);
+                            armDoc.Bones.Add(record);
+                        }
+                    }
+
+                    // Recompute armature RootBonePath deterministically as the lowest common ancestor of all weighted bones.
+                    armDoc.RootBonePath = SkinWeightFeatureExtractor.ComputeLowestCommonAncestorPath(weightedList);
+                };
 
             for (int m = 0; m < request.Meshes.Count; m++)
             {
@@ -204,7 +300,8 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                     normalizedOriginMesh,
                     compatibility,
                     provenance,
-                    request.EncodeOptions);
+                    request.EncodeOptions,
+                    registerArmature);
 
                 var meshDoc = new MeshDocument
                 {
@@ -344,7 +441,8 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             {
                 PatchId = patchId,
                 DisplayName = displayName,
-                Meshes = extractedMeshes
+                Meshes = extractedMeshes,
+                Armatures = new List<ArmatureDocument>(armaturesById.Values)
             };
 
             return new PatchExtractionResult(true, doc, diagnostics);

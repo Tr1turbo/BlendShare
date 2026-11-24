@@ -20,7 +20,9 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
         OriginBindingFastPath = 1,
         OriginBindingCoincidentFallback = 2,
         FbxInverseMapComputed = 3,
-        FbxInverseMapCached = 4
+        FbxInverseMapCached = 4,
+        ComposedReferenceMeshComputed = 5,
+        ComposedReferenceMeshCached = 6
     }
 
     /// <summary>
@@ -57,11 +59,14 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
         public MeshDocument MeshHeader { get; set; }
         public Mesh TargetUnityMesh { get; set; }
         public UnityMeshSnapshot TargetSnapshotOverride { get; set; }
+        public Mesh ReferenceUnityMesh { get; set; }
+        public UnityMeshSnapshot ReferenceSnapshotOverride { get; set; }
         public GameObject TargetFbxAsset { get; set; }
         public IFbxScene TargetFbxSceneOverride { get; set; }
         public string TargetFbxNodePathOverride { get; set; }
         public FbxUnityImportSettings? TargetImportSettingsOverride { get; set; }
         public ILazyPayloadSource PayloadSource { get; set; }
+        public VertexMapComposePolicy ComposePolicy { get; set; } = VertexMapComposePolicy.RejectConflictingGroups;
         public bool PreferOriginBinding { get; set; }
         public bool AllowDiskCache { get; set; } = true;
     }
@@ -72,20 +77,30 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
         public ResolvedVertexBinding Binding { get; }
         public string FailureCode { get; }
         public string Diagnostic { get; }
+        public System.Collections.Generic.IReadOnlyList<int> ConflictingTargetVertices { get; }
 
-        private BindingResolveResult(bool succeeded, ResolvedVertexBinding binding, string failureCode, string diagnostic)
+        private BindingResolveResult(
+            bool succeeded,
+            ResolvedVertexBinding binding,
+            string failureCode,
+            string diagnostic,
+            System.Collections.Generic.IReadOnlyList<int> conflictingTargetVertices = null)
         {
             Succeeded = succeeded;
             Binding = binding;
             FailureCode = failureCode ?? string.Empty;
             Diagnostic = diagnostic ?? string.Empty;
+            ConflictingTargetVertices = conflictingTargetVertices ?? Array.Empty<int>();
         }
 
         public static BindingResolveResult Success(ResolvedVertexBinding binding) =>
             new BindingResolveResult(true, binding, string.Empty, binding.Diagnostic);
 
-        public static BindingResolveResult Fail(string code, string diagnostic) =>
-            new BindingResolveResult(false, null, code, diagnostic);
+        public static BindingResolveResult Fail(
+            string code,
+            string diagnostic,
+            System.Collections.Generic.IReadOnlyList<int> conflictingTargetVertices = null) =>
+            new BindingResolveResult(false, null, code, diagnostic, conflictingTargetVertices);
     }
 
     /// <summary>
@@ -139,6 +154,7 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
 
             bool hasOriginBinding = request.MeshHeader.OriginBinding != null && request.MeshHeader.OriginBinding.HasPayload;
             bool hasTargetFbx = request.TargetFbxSceneOverride != null || request.TargetFbxAsset != null;
+            bool hasReferenceMesh = request.ReferenceSnapshotOverride != null || request.ReferenceUnityMesh != null;
 
             string originFailureDiag = null;
             if (hasOriginBinding && (request.PreferOriginBinding || !hasTargetFbx))
@@ -150,12 +166,13 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                 }
 
                 originFailureDiag = originRes.Diagnostic;
-                if (!hasTargetFbx)
+                if (!hasTargetFbx && !hasReferenceMesh)
                 {
                     return originRes;
                 }
             }
 
+            BindingResolveResult directFbxFailure = null;
             if (hasTargetFbx)
             {
                 var fbxRes = TryResolveFromTargetFbx(request, snapshot);
@@ -163,6 +180,8 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                 {
                     return fbxRes;
                 }
+
+                directFbxFailure = fbxRes;
 
                 // Fallback to OriginBinding if we didn't already try it.
                 if (hasOriginBinding && originFailureDiag == null)
@@ -173,17 +192,177 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                         return originFallback;
                     }
 
-                    return BindingResolveResult.Fail(
-                        fbxRes.FailureCode,
-                        $"{fbxRes.Diagnostic} (OriginBinding fallback also failed: {originFallback.Diagnostic})");
+                    originFailureDiag = originFallback.Diagnostic;
                 }
+            }
 
-                return fbxRes;
+            // Reference-mesh composed binding: resolve Reference -> Origin CP, then compose with Target -> Reference.
+            if (hasReferenceMesh)
+            {
+                return TryResolveViaReferenceMesh(request, snapshot);
+            }
+
+            if (directFbxFailure != null)
+            {
+                return originFailureDiag != null
+                    ? BindingResolveResult.Fail(
+                        directFbxFailure.FailureCode,
+                        $"{directFbxFailure.Diagnostic} (OriginBinding fallback also failed: {originFailureDiag})")
+                    : directFbxFailure;
             }
 
             return BindingResolveResult.Fail(
                 "BIND_NO_SOURCE",
-                "Neither a target FBX nor an embedded OriginBinding payload is available to bind this mesh.");
+                "Neither a target FBX, a reference Unity mesh, nor an embedded OriginBinding payload is available to bind this mesh.");
+        }
+
+        private BindingResolveResult TryResolveViaReferenceMesh(
+            BindingResolveRequest request,
+            UnityMeshSnapshot targetSnapshot)
+        {
+            UnityMeshSnapshot refSnapshot = request.ReferenceSnapshotOverride;
+            if (refSnapshot == null)
+            {
+                if (request.ReferenceUnityMesh == null ||
+                    !UnityMeshReaderUtility.TryReadMeshSnapshot(request.ReferenceUnityMesh, out refSnapshot))
+                {
+                    return BindingResolveResult.Fail(
+                        "BIND_REF_MESH_READ_FAILED",
+                        "Failed to read CPU geometry from reference Unity mesh.");
+                }
+            }
+
+            // Resolve Reference Unity Mesh -> Origin ControlPoints (without recursing into ReferenceMesh again).
+            var refRes = Resolve(new BindingResolveRequest
+            {
+                MeshHeader = request.MeshHeader,
+                TargetSnapshotOverride = refSnapshot,
+                TargetFbxAsset = request.TargetFbxAsset,
+                TargetFbxSceneOverride = request.TargetFbxSceneOverride,
+                TargetFbxNodePathOverride = request.TargetFbxNodePathOverride,
+                TargetImportSettingsOverride = request.TargetImportSettingsOverride,
+                PayloadSource = request.PayloadSource,
+                PreferOriginBinding = request.PreferOriginBinding,
+                AllowDiskCache = request.AllowDiskCache
+            });
+
+            if (!refRes.Succeeded || refRes.Binding == null)
+            {
+                return BindingResolveResult.Fail(
+                    "BIND_REF_RESOLUTION_FAILED",
+                    $"Could not bind reference mesh to patch origin: {refRes.FailureCode} ({refRes.Diagnostic})");
+            }
+
+            var targetDig = UnityMeshGeometryDigests.Compute(targetSnapshot);
+            var refDig = UnityMeshGeometryDigests.Compute(refSnapshot);
+            string composedKey = ComputeComposedResolutionKeyHash(
+                refRes.Binding.CsrBlobId,
+                refDig.CombinedGeometryKey,
+                targetDig.CombinedGeometryKey,
+                request.ComposePolicy);
+
+            if (request.AllowDiskCache &&
+                m_CacheStore.TryLoadResolution(composedKey, out var cachedIdx, out var cachedCsr))
+            {
+                return BindingResolveResult.Success(new ResolvedVertexBinding(
+                    cachedCsr,
+                    refRes.Binding.SpaceContract,
+                    BindingSourceKind.ComposedReferenceMeshCached,
+                    cachedIdx.CsrBlobId,
+                    cacheHit: true));
+            }
+
+            // Track whether UnityMeshToMeshMapper consulted single-frame blendshapes on either snapshot to break ties.
+            // If so, bypass cache storage under the geometry-only key so swapped deltas never return a stale CSR.
+            TrackingBlendShapeSnapshot trackedRefShapes = refSnapshot.BlendShapes != null
+                ? new TrackingBlendShapeSnapshot(refSnapshot.BlendShapes)
+                : null;
+            TrackingBlendShapeSnapshot trackedTargetShapes = targetSnapshot.BlendShapes != null
+                ? new TrackingBlendShapeSnapshot(targetSnapshot.BlendShapes)
+                : null;
+            UnityMeshSnapshot mapRefSnap = trackedRefShapes != null
+                ? new UnityMeshSnapshot(refSnapshot.Vertices, refSnapshot.Triangles, refSnapshot.SubmeshTriangleOffsets, refSnapshot.Uv0, trackedRefShapes)
+                : refSnapshot;
+            UnityMeshSnapshot mapTargetSnap = trackedTargetShapes != null
+                ? new UnityMeshSnapshot(targetSnapshot.Vertices, targetSnapshot.Triangles, targetSnapshot.SubmeshTriangleOffsets, targetSnapshot.Uv0, trackedTargetShapes)
+                : targetSnapshot;
+
+            var correspondence = UnityMeshToMeshMapper.Map(mapRefSnap, mapTargetSnap);
+            if (!correspondence.Succeeded)
+            {
+                return BindingResolveResult.Fail(
+                    "BIND_COMPOSED_CORRESPONDENCE_FAILED",
+                    $"Reference-to-target Unity mesh mapping failed: {correspondence.Diagnostic}");
+            }
+
+            var composed = VertexMapComposer.Compose(
+                refRes.Binding.VertexMap,
+                correspondence,
+                request.ComposePolicy);
+
+            if (!composed.Succeeded)
+            {
+                if (composed.ConflictingMergedTargetCount > 0)
+                {
+                    return BindingResolveResult.Fail(
+                        "BIND_COMPOSED_MERGE_CONFLICT",
+                        $"Reference mesh composition rejected {composed.ConflictingMergedTargetCount} target vertex(es) with conflicting merged FBX control-point groups ({composed.Diagnostic}).",
+                        composed.ConflictingTargetVertices);
+                }
+
+                return BindingResolveResult.Fail(
+                    "BIND_COMPOSED_UNRESOLVED",
+                    composed.Diagnostic,
+                    composed.ConflictingTargetVertices);
+            }
+
+            var composedCsr = CsrVertexMapFactory.FromJaggedGroups(
+                composed.TargetFbxGroups,
+                refRes.Binding.VertexMap.TargetCount,
+                IndexDomain.UnityVertex,
+                IndexDomain.ControlPoint);
+
+            bool usedBlendShapeTieBreaker = (trackedRefShapes != null && trackedRefShapes.WasConsulted) ||
+                                            (trackedTargetShapes != null && trackedTargetShapes.WasConsulted);
+            string blobId = usedBlendShapeTieBreaker
+                ? CsrVertexMapFactory.ComputeCsrBlobId(composedCsr)
+                : m_CacheStore.StoreResolution(
+                    composedKey,
+                    composedCsr,
+                    matchedScale: 1f,
+                    matchedBakeAxisConversion: false,
+                    writeToDisk: request.AllowDiskCache);
+
+            return BindingResolveResult.Success(new ResolvedVertexBinding(
+                composedCsr,
+                refRes.Binding.SpaceContract,
+                BindingSourceKind.ComposedReferenceMeshComputed,
+                blobId,
+                cacheHit: false,
+                diagnostic: composed.ConflictingMergedTargetCount > 0
+                    ? $"Composed with {composed.ConflictingMergedTargetCount} merged union vertex(es) under AllowMergedUnion policy."
+                    : string.Empty));
+        }
+
+        private static string ComputeComposedResolutionKeyHash(
+            string referenceCsrBlobId,
+            string referenceGeometryKey,
+            string targetGeometryKey,
+            VertexMapComposePolicy policy)
+        {
+            using (var sha = SHA256.Create())
+            using (var cs = new CryptoStream(Stream.Null, sha, CryptoStreamMode.Write))
+            using (var bw = new BinaryWriter(cs, Encoding.UTF8, leaveOpen: true))
+            {
+                bw.Write("BlendShare.ComposedBindingKey.v1");
+                bw.Write(referenceCsrBlobId ?? string.Empty);
+                bw.Write(referenceGeometryKey ?? string.Empty);
+                bw.Write(targetGeometryKey ?? string.Empty);
+                bw.Write((int)policy);
+                bw.Flush();
+                cs.FlushFinalBlock();
+                return ToLowerHex(sha.Hash);
+            }
         }
 
         private BindingResolveResult TryResolveFromOriginBinding(

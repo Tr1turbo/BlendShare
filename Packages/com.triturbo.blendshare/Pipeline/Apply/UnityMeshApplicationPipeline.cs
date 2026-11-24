@@ -13,6 +13,11 @@ namespace Triturbo.BlendShare.Pipeline.Apply
     {
         public Mesh BaseMesh { get; set; }
         public Transform[] IncomingBones { get; set; }
+        public Transform TargetRootTransform { get; set; }
+        public Transform MeshRendererTransform { get; set; }
+        public IReadOnlyDictionary<BoneOverrideKey, Transform> BoneTransformOverrides { get; set; }
+        public int MaxBonesPerVertex { get; set; } = 4;
+        public bool CreateMissingBones { get; set; }
         public IReadOnlyList<PatchMeshApplicationItem> Items { get; set; } = Array.Empty<PatchMeshApplicationItem>();
         public bool CloneBaseMesh { get; set; } = true;
         public bool PreserveExistingBlendShapes { get; set; } = true;
@@ -23,6 +28,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
         public bool Succeeded { get; internal set; }
         public Mesh OutputMesh { get; internal set; }
         public Transform[] OutputBones { get; internal set; }
+        public IReadOnlyList<AppliedBoneBinding> AppliedBoneBindings { get; internal set; } = Array.Empty<AppliedBoneBinding>();
         public IReadOnlyList<ApplyDiagnostic> Diagnostics { get; internal set; }
         public int AppliedFeatureCount { get; internal set; }
     }
@@ -76,6 +82,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                         groups[typeId].Add(new FeatureApplyInput
                         {
                             PatchId = item.PatchId, MeshId = item.MeshId, Feature = feature, MeshHeader = item.MeshHeader,
+                            Armatures = item.Armatures,
                             VertexBinding = item.VertexBinding, EffectiveSettings = item.EffectiveSettings, PayloadSource = item.PayloadSource
                         });
                     }
@@ -85,6 +92,11 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                 context.WorkingMesh = request.CloneBaseMesh ? clone : request.BaseMesh;
                 if (!context.WorkingMesh || !context.WorkingMesh.isReadable) throw new InvalidOperationException("Working mesh is unreadable.");
                 context.WorkingBones = (Transform[])request.IncomingBones?.Clone();
+                context.TargetRootTransform = request.TargetRootTransform;
+                context.MeshRendererTransform = request.MeshRendererTransform;
+                context.BoneTransformOverrides = request.BoneTransformOverrides;
+                context.MaxBonesPerVertex = request.MaxBonesPerVertex > 0 ? request.MaxBonesPerVertex : 4;
+                context.CreateMissingBones = request.CreateMissingBones;
                 context.PreserveExistingBlendShapes = request.PreserveExistingBlendShapes;
                 foreach (var applier in appliers)
                 {
@@ -96,6 +108,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     if (applied.Status == FeatureApplyStatus.Applied) result.AppliedFeatureCount += inputs.Count;
                 }
                 result.OutputBones = context.WorkingBones;
+                result.AppliedBoneBindings = context.AppliedBoneBindings;
                 result.OutputMesh = context.WorkingMesh;
                 result.Succeeded = true;
             }

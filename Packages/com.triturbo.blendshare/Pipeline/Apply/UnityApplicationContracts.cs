@@ -57,11 +57,73 @@ namespace Triturbo.BlendShare.Pipeline.Apply
             new FeatureApplyResult(FeatureApplyStatus.Failed, false, diagnostics);
     }
 
+    /// <summary>
+    /// Concrete bone binding resolved and applied during Unity mesh generation.
+    /// Passed directly into Artifact persistence and NDMF renderer updates without re-parsing.
+    /// </summary>
+    public sealed class AppliedBoneBinding
+    {
+        public string PatchId { get; }
+        public string ArmatureId { get; }
+        public string SourceBonePath { get; }
+        public string TargetBonePath { get; }
+        public Transform TargetTransform { get; }
+        public Matrix4x4 BindPose { get; }
+        public int BoneIndex { get; }
+        public bool IsNewBone { get; }
+
+        public AppliedBoneBinding(
+            string patchId,
+            string armatureId,
+            string sourceBonePath,
+            string targetBonePath,
+            Transform targetTransform,
+            Matrix4x4 bindPose,
+            int boneIndex,
+            bool isNewBone)
+        {
+            PatchId = patchId ?? string.Empty;
+            ArmatureId = armatureId ?? string.Empty;
+            SourceBonePath = sourceBonePath ?? string.Empty;
+            TargetBonePath = targetBonePath ?? string.Empty;
+            TargetTransform = targetTransform;
+            BindPose = bindPose;
+            BoneIndex = boneIndex;
+            IsNewBone = isNewBone;
+        }
+    }
+
+    /// <summary>
+    /// Optional per-bone transform override (e.g. from BlendShareBoneProxy or NDMF preview) keyed by (PatchId, ArmatureId, SourceBonePath).
+    /// </summary>
+    public readonly struct BoneOverrideKey : IEquatable<BoneOverrideKey>
+    {
+        public string PatchId { get; }
+        public string ArmatureId { get; }
+        public string SourceBonePath { get; }
+
+        public BoneOverrideKey(string patchId, string armatureId, string sourceBonePath)
+        {
+            PatchId = patchId ?? string.Empty;
+            ArmatureId = armatureId ?? string.Empty;
+            SourceBonePath = sourceBonePath ?? string.Empty;
+        }
+
+        public bool Equals(BoneOverrideKey other) =>
+            string.Equals(PatchId, other.PatchId, StringComparison.Ordinal) &&
+            string.Equals(ArmatureId, other.ArmatureId, StringComparison.Ordinal) &&
+            string.Equals(SourceBonePath, other.SourceBonePath, StringComparison.Ordinal);
+
+        public override bool Equals(object obj) => obj is BoneOverrideKey other && Equals(other);
+        public override int GetHashCode() => HashCode.Combine(PatchId, ArmatureId, SourceBonePath);
+    }
+
     public abstract class PatchMeshContext
     {
         public string PatchId { get; set; }
         public string MeshId { get; set; }
         public MeshDocument MeshHeader { get; set; }
+        public IReadOnlyList<ArmatureDocument> Armatures { get; set; }
         public BlendShareImportSettings EffectiveSettings { get; set; }
         public ILazyPayloadSource PayloadSource { get; set; }
         public ResolvedVertexBinding VertexBinding { get; set; }
@@ -81,8 +143,14 @@ namespace Triturbo.BlendShare.Pipeline.Apply
     {
         public Mesh WorkingMesh { get; internal set; }
         public Transform[] WorkingBones { get; set; }
+        public Transform TargetRootTransform { get; internal set; }
+        public Transform MeshRendererTransform { get; internal set; }
+        public IReadOnlyDictionary<BoneOverrideKey, Transform> BoneTransformOverrides { get; internal set; }
+        public int MaxBonesPerVertex { get; internal set; } = 4;
+        public bool CreateMissingBones { get; internal set; }
         public IReadOnlyList<PatchMeshApplicationItem> Items { get; internal set; }
         public bool PreserveExistingBlendShapes { get; internal set; } = true;
+        public List<AppliedBoneBinding> AppliedBoneBindings { get; } = new List<AppliedBoneBinding>();
         public List<ApplyDiagnostic> Diagnostics { get; } = new List<ApplyDiagnostic>();
     }
 
@@ -110,6 +178,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
 
         public FeatureUnityApplierRegistry()
         {
+            Register(new SkinWeightUnityApplier());
             Register(new BlendShapeUnityApplier());
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies().Where(a => !a.IsDynamic).OrderBy(a => a.FullName, StringComparer.Ordinal))
             {

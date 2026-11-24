@@ -2,6 +2,7 @@
     "name": "Triturbo.BlendShare.Pipeline.Editor",
     "rootNamespace": "Triturbo.BlendShare.Pipeline",
     "references": [
+        "Unity.Collections",
         "Triturbo.BlendShare.Primitives",
         "Triturbo.BlendShare.Runtime",
         "Triturbo.BlendShare.Model.Editor",

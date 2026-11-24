@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Triturbo.BlendShare.Primitives;
 
 namespace Triturbo.BlendShare.Mapping
 {
@@ -9,7 +10,7 @@ namespace Triturbo.BlendShare.Mapping
     /// </summary>
     public enum VertexMapComposePolicy
     {
-        /// <summary>Take the sorted distinct union of source FBX control-point groups (matches Unity weld groups).</summary>
+        /// <summary>Take the sorted distinct union of source FBX control-point groups (legacy opt-in only).</summary>
         AllowMergedUnion = 0,
         /// <summary>Reject any merged target vertex whose source vertices map to different FBX control-point groups.</summary>
         RejectConflictingGroups = 1
@@ -35,18 +36,23 @@ namespace Triturbo.BlendShare.Mapping
         /// <summary>Number of merged target vertices whose source vertices had differing FBX control-point groups.</summary>
         public int ConflictingMergedTargetCount { get; }
 
+        /// <summary>Target vertex indices where N:1 source vertices had conflicting FBX control-point groups.</summary>
+        public IReadOnlyList<int> ConflictingTargetVertices { get; }
+
         internal VertexMapComposeResult(
             bool succeeded,
             string diagnostic,
             int[][] targetFbxGroups,
             int unresolvedTargetCount,
-            int conflictingMergedTargetCount)
+            int conflictingMergedTargetCount,
+            int[] conflictingTargetVertices = null)
         {
             Succeeded = succeeded;
             Diagnostic = diagnostic ?? string.Empty;
             TargetFbxGroups = targetFbxGroups ?? Array.Empty<int[]>();
             UnresolvedTargetCount = unresolvedTargetCount;
             ConflictingMergedTargetCount = conflictingMergedTargetCount;
+            ConflictingTargetVertices = conflictingTargetVertices ?? Array.Empty<int>();
         }
     }
 
@@ -56,6 +62,28 @@ namespace Triturbo.BlendShare.Mapping
     /// </summary>
     public static class VertexMapComposer
     {
+        /// <summary>
+        /// BlendShare 2.0 entry point composing an immutable <see cref="CsrVertexMap"/> with explicit
+        /// conflict rejection by default (<see cref="VertexMapComposePolicy.RejectConflictingGroups"/>).
+        /// </summary>
+        public static VertexMapComposeResult Compose(
+            CsrVertexMap sourceCsr,
+            MeshVertexCorrespondence correspondence,
+            VertexMapComposePolicy policy = VertexMapComposePolicy.RejectConflictingGroups)
+        {
+            if (sourceCsr == null)
+            {
+                return new VertexMapComposeResult(
+                    succeeded: false,
+                    diagnostic: "Composition requires a non-null source CSR vertex map.",
+                    targetFbxGroups: Array.Empty<int[]>(),
+                    unresolvedTargetCount: correspondence != null ? correspondence.TargetVertexCount : 0,
+                    conflictingMergedTargetCount: 0);
+            }
+
+            return Compose(CsrVertexMapFactory.ToJaggedGroups(sourceCsr), correspondence, policy);
+        }
+
         /// <summary>
         /// Composes <paramref name="sourceFbxGroups"/> with <paramref name="correspondence"/> to produce
         /// FBX control-point groups indexed by target Unity vertices.
@@ -80,6 +108,7 @@ namespace Triturbo.BlendShare.Mapping
             var unionSet = new HashSet<int>();
             var firstCanonical = new HashSet<int>();
             var currentCanonical = new HashSet<int>();
+            var conflictingIndices = new List<int>();
             int unresolved = 0;
             int conflicts = 0;
 
@@ -149,6 +178,11 @@ namespace Triturbo.BlendShare.Mapping
 
                 if (missingContributor)
                 {
+                    if (differs)
+                    {
+                        conflicts++;
+                        conflictingIndices.Add(t);
+                    }
                     composed[t] = Array.Empty<int>();
                     unresolved++;
                     continue;
@@ -157,6 +191,7 @@ namespace Triturbo.BlendShare.Mapping
                 if (differs)
                 {
                     conflicts++;
+                    conflictingIndices.Add(t);
                     if (policy == VertexMapComposePolicy.RejectConflictingGroups)
                     {
                         composed[t] = Array.Empty<int>();
@@ -188,7 +223,8 @@ namespace Triturbo.BlendShare.Mapping
                 diagnostic: diagnostic,
                 targetFbxGroups: composed,
                 unresolvedTargetCount: unresolved,
-                conflictingMergedTargetCount: conflicts);
+                conflictingMergedTargetCount: conflicts,
+                conflictingTargetVertices: conflictingIndices.Count > 0 ? conflictingIndices.ToArray() : Array.Empty<int>());
         }
     }
 }

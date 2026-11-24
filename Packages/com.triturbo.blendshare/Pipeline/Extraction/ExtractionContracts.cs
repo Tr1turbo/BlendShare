@@ -314,6 +314,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
         public FbxTopologyCompatibilityResult TopologyCompatibility { get; }
         public MeshSpaceProvenance SpaceProvenance { get; }
         public PayloadEncodeOptions EncodeOptions { get; }
+        private readonly Action<string, string, IReadOnlyList<IFbxNode>, IReadOnlyDictionary<string, FbxMatrix4x4>, FbxAffineSpaceTransform> m_ArmatureRegistrar;
 
         public MeshExtractionContext(
             string meshId,
@@ -327,7 +328,8 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             IFbxMeshGeometry normalizedOriginMesh,
             FbxTopologyCompatibilityResult topologyCompatibility,
             MeshSpaceProvenance spaceProvenance,
-            PayloadEncodeOptions encodeOptions)
+            PayloadEncodeOptions encodeOptions,
+            Action<string, string, IReadOnlyList<IFbxNode>, IReadOnlyDictionary<string, FbxMatrix4x4>, FbxAffineSpaceTransform> armatureRegistrar = null)
         {
             MeshId = meshId ?? string.Empty;
             NodePath = nodePath ?? string.Empty;
@@ -341,6 +343,17 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             TopologyCompatibility = topologyCompatibility;
             SpaceProvenance = spaceProvenance;
             EncodeOptions = encodeOptions;
+            m_ArmatureRegistrar = armatureRegistrar;
+        }
+
+        public void RegisterArmatureBones(
+            string armatureId,
+            string rootBonePath,
+            IReadOnlyList<IFbxNode> boneNodes,
+            IReadOnlyDictionary<string, FbxMatrix4x4> canonicalClusterBindWorldByPath,
+            FbxAffineSpaceTransform worldToCanonical)
+        {
+            m_ArmatureRegistrar?.Invoke(armatureId, rootBonePath, boneNodes, canonicalClusterBindWorldByPath, worldToCanonical);
         }
     }
 
@@ -442,6 +455,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             }
 
             s_Extractors = new Dictionary<string, IFeatureExtractor>(StringComparer.Ordinal);
+            AddBuiltInLocked(new SkinWeightFeatureExtractor());
             AddBuiltInLocked(new BlendShapeFeatureExtractor());
             DiscoverExternalLocked();
         }
