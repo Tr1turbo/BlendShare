@@ -43,9 +43,30 @@ namespace Triturbo.BlendShare.Model.Documents
 
         public FbxCoordinateAxes OriginAxes => new FbxCoordinateAxes(OriginRightAxis, OriginUpAxis, OriginFrontAxis);
 
-        public bool IsValid =>
-            CanonicalMeshSpace.IsValidAxes(OriginAxes) &&
-            CanonicalMeshSpace.IsValidUnitMeters(OriginRawMetersPerUnit);
+        public bool IsValid
+        {
+            get
+            {
+                if (double.IsNaN(OriginRawMetersPerUnit) || double.IsInfinity(OriginRawMetersPerUnit) || OriginRawMetersPerUnit <= 0d)
+                {
+                    return false;
+                }
+
+                int r = (int)OriginRightAxis;
+                int u = (int)OriginUpAxis;
+                int f = (int)OriginFrontAxis;
+                int unknown = (int)FbxCoordinateAxis.Unknown;
+                if (r < 0 || r >= unknown || u < 0 || u >= unknown || f < 0 || f >= unknown)
+                {
+                    return false;
+                }
+
+                int rd = r / 2;
+                int ud = u / 2;
+                int fd = f / 2;
+                return rd != ud && rd != fd && ud != fd;
+            }
+        }
 
         public bool MatchesSpace(MeshSpaceProvenance other) =>
             other != null &&
