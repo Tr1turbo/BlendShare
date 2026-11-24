@@ -1,0 +1,1235 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Autodesk.Fbx;
+using Triturbo.BlendShare.Fbx;
+using Triturbo.BlendShare.Model.Documents;
+using Triturbo.BlendShare.Model.Features;
+using Triturbo.BlendShare.Pipeline.Export;
+using Triturbo.BlendShare.Primitives;
+
+namespace Triturbo.BlendShare.FbxExport
+{
+    /// <summary>
+    /// Autodesk FBX SDK writer and ufbx round-trip verifier for <see cref="SkinWeightFeature"/>.
+    /// Converts canonical cluster bind matrices and armature bone transforms into Target FBX raw space,
+    /// preserves untouched base weights for partial-bone selections, creates missing skeleton nodes
+    /// deterministically, and verifies raw weights, cluster bind matrices, and created bone transforms.
+    /// </summary>
+    public sealed class SkinWeightFbxWriter : IFeatureFbxWriter
+    {
+        private const string k_ArmatureRegistryStateKey = "fbx-export.armature-bones";
+        private const double k_BindMatrixCompareTolerance = 1e-3d;
+        private const double k_MinWeightEpsilon = 1e-6d;
+
+        public string FeatureTypeId => SkinWeightFeature.FeatureTypeId;
+        public int ExecutionOrder => 50;
+
+        public FbxFeatureWriteResult Preflight(FbxExportMeshContext context, IReadOnlyList<FbxFeatureWriteInput> inputs)
+        {
+            var diagnostics = new List<FbxExportDiagnostic>();
+            if (context == null || context.TargetMesh == null || context.ReaderMesh == null)
+            {
+                diagnostics.Add(new FbxExportDiagnostic(
+                    FbxExportDiagnosticSeverity.Error,
+                    "FBX_EXPORT_SKIN_NO_MESH",
+                    "Skin weight FBX preflight requires valid SDK and ufbx meshes.",
+                    featureTypeId: FeatureTypeId));
+                return FbxFeatureWriteResult.Failed(diagnostics.ToArray());
+            }
+
+            // Fail closed on multi-skin meshes instead of silently destroying secondary skin deformers.
+            int weightedSkinCount = CountWeightedSkins(context.ReaderMesh);
+            if (weightedSkinCount > 1)
+            {
+                diagnostics.Add(new FbxExportDiagnostic(
+                    FbxExportDiagnosticSeverity.Error,
+                    "FBX_EXPORT_MULTIPLE_SKINS_UNSUPPORTED",
+                    $"Target FBX mesh '{context.TargetNodePath}' has {weightedSkinCount} weighted skin deformers; rebuilding multiple skin deformers is not supported.",
+                    meshId: context.TargetNodePath,
+                    featureTypeId: FeatureTypeId));
+                return FbxFeatureWriteResult.Failed(diagnostics.ToArray());
+            }
+
+            // Validate original skin clusters can be read without short/failed copies before mutating anything.
+            var baseSkin = FindPrimarySkin(context.ReaderMesh);
+            if (baseSkin != null &&
+                !TryReadRawSkinWeightsByCp(baseSkin, context.ReaderMesh.ControlPointCount, out _, out string readErr))
+            {
+                diagnostics.Add(new FbxExportDiagnostic(
+                    FbxExportDiagnosticSeverity.Error,
+                    "FBX_EXPORT_ORIGINAL_SKIN_READ_FAILED",
+                    readErr,
+                    meshId: context.TargetNodePath,
+                    featureTypeId: FeatureTypeId));
+                return FbxFeatureWriteResult.Failed(diagnostics.ToArray());
+            }
+
+            int cpCount = context.ReaderMesh.ControlPointCount;
+            var boneRegistry = GetOrCreateArmatureBoneRegistry(context.SessionState);
+            bool hasErrors = false;
+
+            for (int i = 0; i < inputs.Count; i++)
+            {
+                var input = inputs[i];
+                var feature = input.Feature as SkinWeightFeature;
+                if (feature == null)
+                {
+                    diagnostics.Add(new FbxExportDiagnostic(
+                        FbxExportDiagnosticSeverity.Error,
+                        "FBX_EXPORT_SKIN_WRONG_TYPE",
+                        $"Expected SkinWeightFeature but received '{input.Feature?.GetType().Name}'.",
+                        patchId: input.PatchItem.PatchId,
+                        meshId: input.MeshHeader.MeshId,
+                        featureTypeId: FeatureTypeId));
+                    hasErrors = true;
+                    continue;
+                }
+
+                var armature = FindArmature(input.Armatures, feature.ArmatureId);
+                if (armature != null)
+                {
+                    if (!RegisterAndValidateArmatureBones(
+                            armature,
+                            input.PatchItem.PatchId,
+                            context.CanonicalToTargetRaw,
+                            boneRegistry,
+                            diagnostics))
+                    {
+                        hasErrors = true;
+                    }
+                }
+
+                if (feature.Clusters == null || feature.Clusters.Count == 0)
+                {
+                    continue;
+                }
+
+                for (int c = 0; c < feature.Clusters.Count; c++)
+                {
+                    var cluster = feature.Clusters[c];
+                    string bonePath = FbxNameUtility.NormalizePath(cluster?.BonePath ?? string.Empty);
+                    if (string.IsNullOrEmpty(bonePath))
+                    {
+                        diagnostics.Add(new FbxExportDiagnostic(
+                            FbxExportDiagnosticSeverity.Error,
+                            "FBX_EXPORT_SKIN_EMPTY_BONE_PATH",
+                            "Skin weight cluster has an empty bone path.",
+                            patchId: input.PatchItem.PatchId,
+                            meshId: input.MeshHeader.MeshId,
+                            featureTypeId: FeatureTypeId));
+                        hasErrors = true;
+                        continue;
+                    }
+
+                    if (FbxSdkNodeUtility.FindNodeByPath(context.RootNode, bonePath) == null)
+                    {
+                        if (!CanCreateBoneHierarchyFromArmature(
+                                context.RootNode,
+                                armature,
+                                bonePath,
+                                context.CanonicalToTargetRaw,
+                                out string boneError))
+                        {
+                            diagnostics.Add(new FbxExportDiagnostic(
+                                FbxExportDiagnosticSeverity.Error,
+                                "FBX_EXPORT_SKIN_MISSING_BONE",
+                                boneError,
+                                patchId: input.PatchItem.PatchId,
+                                meshId: input.MeshHeader.MeshId,
+                                featureTypeId: FeatureTypeId));
+                            hasErrors = true;
+                        }
+                    }
+
+                    if (cluster.HasClusterMatrices)
+                    {
+                        var rawMeshMat = FbxSdkNodeUtility.ConvertCanonicalMatrixToTargetRaw(
+                            cluster.TransformMatrix,
+                            context.CanonicalToTargetRaw);
+                        var rawLinkMat = FbxSdkNodeUtility.ConvertCanonicalMatrixToTargetRaw(
+                            cluster.TransformLinkMatrix,
+                            context.CanonicalToTargetRaw);
+                        if (!FbxAffineSpaceTransform.TryCreate(rawMeshMat, out _) ||
+                            !FbxAffineSpaceTransform.TryCreate(rawLinkMat, out _))
+                        {
+                            diagnostics.Add(new FbxExportDiagnostic(
+                                FbxExportDiagnosticSeverity.Error,
+                                "FBX_EXPORT_SKIN_INVALID_MATRIX",
+                                $"Skin cluster '{bonePath}' has singular or non-finite bind matrices.",
+                                patchId: input.PatchItem.PatchId,
+                                meshId: input.MeshHeader.MeshId,
+                                featureTypeId: FeatureTypeId));
+                            hasErrors = true;
+                        }
+                    }
+
+                    if (cluster.Payload.HasPayload)
+                    {
+                        using var lease = cluster.Payload.Acquire(input.PayloadSource);
+                        var buf = lease.Value?.DeltaWeights;
+                        if (buf == null || buf.Domain != IndexDomain.ControlPoint || buf.DomainCount != cpCount)
+                        {
+                            diagnostics.Add(new FbxExportDiagnostic(
+                                FbxExportDiagnosticSeverity.Error,
+                                "FBX_EXPORT_SKIN_DOMAIN_MISMATCH",
+                                $"Skin cluster '{bonePath}' payload domain does not match target control point count {cpCount}.",
+                                patchId: input.PatchItem.PatchId,
+                                meshId: input.MeshHeader.MeshId,
+                                featureTypeId: FeatureTypeId));
+                            hasErrors = true;
+                            continue;
+                        }
+
+                        for (int k = 0; k < buf.Count; k++)
+                        {
+                            double w = buf.Values[k];
+                            if (double.IsNaN(w) || double.IsInfinity(w) || w < 0d)
+                            {
+                                diagnostics.Add(new FbxExportDiagnostic(
+                                    FbxExportDiagnosticSeverity.Error,
+                                    "FBX_EXPORT_SKIN_INVALID_WEIGHT",
+                                    $"Skin cluster '{bonePath}' contains invalid weight {w} at control point {buf.Indices[k]}.",
+                                    patchId: input.PatchItem.PatchId,
+                                    meshId: input.MeshHeader.MeshId,
+                                    featureTypeId: FeatureTypeId));
+                                hasErrors = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            return hasErrors
+                ? FbxFeatureWriteResult.Failed(diagnostics.ToArray())
+                : FbxFeatureWriteResult.Succeeded(modifiedMesh: false, diagnostics.ToArray());
+        }
+
+        public FbxFeatureWriteResult Write(FbxExportMeshContext context, IReadOnlyList<FbxFeatureWriteInput> inputs)
+        {
+            var diagnostics = new List<FbxExportDiagnostic>();
+            if (inputs == null || inputs.Count == 0)
+            {
+                return FbxFeatureWriteResult.Skipped();
+            }
+
+            var state = BuildExpectedSkinState(
+                context.ReaderMesh,
+                inputs,
+                context.CanonicalToTargetRaw,
+                out bool anyFeatureApplied,
+                out string stateError);
+            if (state == null)
+            {
+                diagnostics.Add(new FbxExportDiagnostic(
+                    FbxExportDiagnosticSeverity.Error,
+                    "FBX_EXPORT_SKIN_BUILD_FAILED",
+                    stateError ?? "Failed building skin weight state.",
+                    meshId: context.TargetNodePath,
+                    featureTypeId: FeatureTypeId));
+                return FbxFeatureWriteResult.Failed(diagnostics.ToArray());
+            }
+
+            if (!anyFeatureApplied)
+            {
+                return FbxFeatureWriteResult.Skipped();
+            }
+
+            var boneNodesByPath = new Dictionary<string, FbxNode>(StringComparer.Ordinal);
+            foreach (string bonePath in state.OrderedBonePaths)
+            {
+                var boneNode = FbxSdkNodeUtility.FindNodeByPath(context.RootNode, bonePath);
+                if (boneNode == null)
+                {
+                    if (!TryResolveOrCreateBoneNode(
+                            context.Manager,
+                            context.RootNode,
+                            state.BoneArmatureLookup,
+                            bonePath,
+                            context.CanonicalToTargetRaw,
+                            new HashSet<string>(StringComparer.Ordinal),
+                            out boneNode,
+                            out string createError))
+                    {
+                        diagnostics.Add(new FbxExportDiagnostic(
+                            FbxExportDiagnosticSeverity.Error,
+                            "FBX_EXPORT_SKIN_BONE_CREATE_FAILED",
+                            createError,
+                            meshId: context.TargetNodePath,
+                            featureTypeId: FeatureTypeId));
+                        return FbxFeatureWriteResult.Failed(diagnostics.ToArray());
+                    }
+                }
+
+                boneNodesByPath[bonePath] = boneNode;
+            }
+
+            var targetMesh = context.TargetMesh;
+            for (int i = targetMesh.GetDeformerCount(FbxDeformer.EDeformerType.eSkin) - 1; i >= 0; i--)
+            {
+                var existingSkin = targetMesh.GetDeformer(i, FbxDeformer.EDeformerType.eSkin);
+                existingSkin?.Destroy();
+            }
+
+            string skinName = string.IsNullOrWhiteSpace(state.SkinName) ? "Skin" : state.SkinName;
+            var sdkSkin = FbxSkin.Create(context.Manager, skinName);
+            targetMesh.AddDeformer(sdkSkin);
+
+            var fallbackMeshGlobal = context.TargetNode.EvaluateGlobalTransform();
+
+            foreach (string bonePath in state.OrderedBonePaths)
+            {
+                if (!state.ClusterWeightsByBone.TryGetValue(bonePath, out var cpWeights) || cpWeights.Count == 0)
+                {
+                    if (!state.OriginalBoneSet.Contains(bonePath))
+                    {
+                        continue;
+                    }
+                }
+
+                var boneNode = boneNodesByPath[bonePath];
+                string clusterName = FbxSdkNodeUtility.GetLeafName(bonePath);
+                var sdkCluster = FbxCluster.Create(context.Manager, clusterName);
+                sdkCluster.SetLink(boneNode);
+                sdkCluster.SetLinkMode(FbxCluster.ELinkMode.eNormalize);
+
+                if (state.RawClusterMatricesByBone.TryGetValue(bonePath, out var matrices))
+                {
+                    sdkCluster.SetTransformMatrix(FbxSdkNodeUtility.ToFbxAMatrix(matrices.TransformMatrix));
+                    sdkCluster.SetTransformLinkMatrix(FbxSdkNodeUtility.ToFbxAMatrix(matrices.TransformLinkMatrix));
+                }
+                else
+                {
+                    sdkCluster.SetTransformMatrix(fallbackMeshGlobal);
+                    sdkCluster.SetTransformLinkMatrix(boneNode.EvaluateGlobalTransform());
+                }
+
+                if (cpWeights != null)
+                {
+                    foreach (var kv in cpWeights.OrderBy(pair => pair.Key))
+                    {
+                        if (kv.Value > k_MinWeightEpsilon)
+                        {
+                            sdkCluster.AddControlPointIndex(kv.Key, kv.Value);
+                        }
+                    }
+                }
+
+                sdkSkin.AddCluster(sdkCluster);
+            }
+
+            return FbxFeatureWriteResult.Succeeded(modifiedMesh: true, diagnostics.ToArray());
+        }
+
+        public FbxFeatureWriteResult Verify(FbxExportVerifyMeshContext context, IReadOnlyList<FbxFeatureWriteInput> inputs)
+        {
+            var diagnostics = new List<FbxExportDiagnostic>();
+            if (inputs == null || inputs.Count == 0)
+            {
+                return FbxFeatureWriteResult.Skipped();
+            }
+
+            var expected = BuildExpectedSkinState(
+                context.OriginalReaderMesh,
+                inputs,
+                context.CanonicalToTargetRaw,
+                out bool anyFeatureApplied,
+                out string stateError);
+            if (expected == null)
+            {
+                diagnostics.Add(new FbxExportDiagnostic(
+                    FbxExportDiagnosticSeverity.Error,
+                    "FBX_EXPORT_VERIFY_SKIN_EXPECTED_FAILED",
+                    stateError ?? "Failed computing expected skin weights for verification.",
+                    meshId: context.TargetNodePath,
+                    featureTypeId: FeatureTypeId));
+                return FbxFeatureWriteResult.Failed(diagnostics.ToArray());
+            }
+
+            if (!anyFeatureApplied)
+            {
+                return FbxFeatureWriteResult.Skipped();
+            }
+
+            var verifiedSkin = FindPrimarySkin(context.VerifiedMesh);
+            if (verifiedSkin == null)
+            {
+                diagnostics.Add(new FbxExportDiagnostic(
+                    FbxExportDiagnosticSeverity.Error,
+                    "FBX_EXPORT_VERIFY_SKIN_MISSING",
+                    $"Verified FBX mesh '{context.TargetNodePath}' is missing a skin deformer.",
+                    meshId: context.TargetNodePath,
+                    featureTypeId: FeatureTypeId));
+                return FbxFeatureWriteResult.Failed(diagnostics.ToArray());
+            }
+
+            // Structural check (always runs even when VerifyNumerics == false):
+            // 1) Every expected weighted bone has a cluster in verifiedSkin.
+            var verifiedClustersByBone = new Dictionary<string, IFbxSkinCluster>(StringComparer.Ordinal);
+            for (int c = 0; c < verifiedSkin.Clusters.Count; c++)
+            {
+                var cl = verifiedSkin.Clusters[c];
+                if (cl != null && !string.IsNullOrEmpty(cl.BonePath))
+                {
+                    verifiedClustersByBone[FbxNameUtility.NormalizePath(cl.BonePath)] = cl;
+                }
+            }
+
+            foreach (var kv in expected.ClusterWeightsByBone)
+            {
+                if (kv.Value.Count > 0 && !verifiedClustersByBone.ContainsKey(kv.Key))
+                {
+                    diagnostics.Add(new FbxExportDiagnostic(
+                        FbxExportDiagnosticSeverity.Error,
+                        "FBX_EXPORT_VERIFY_SKIN_BONE_MISSING",
+                        $"Verified FBX mesh '{context.TargetNodePath}' is missing skin cluster for bone '{kv.Key}'.",
+                        meshId: context.TargetNodePath,
+                        featureTypeId: FeatureTypeId));
+                    return FbxFeatureWriteResult.Failed(diagnostics.ToArray());
+                }
+            }
+
+            // 2) Verify newly created bones exist in VerifiedScene.
+            var verifiedNodeMap = BuildNodeMap(context.VerifiedScene);
+            var originalNodeMap = BuildNodeMap(context.OriginalReaderScene);
+            foreach (string bonePath in expected.OrderedBonePaths)
+            {
+                if (!verifiedNodeMap.TryGetValue(bonePath, out var verifiedBoneNode))
+                {
+                    diagnostics.Add(new FbxExportDiagnostic(
+                        FbxExportDiagnosticSeverity.Error,
+                        "FBX_EXPORT_VERIFY_BONE_NODE_MISSING",
+                        $"Verified FBX scene is missing bone node '{bonePath}'.",
+                        meshId: context.TargetNodePath,
+                        featureTypeId: FeatureTypeId));
+                    return FbxFeatureWriteResult.Failed(diagnostics.ToArray());
+                }
+
+                // If the bone was newly created (absent in original scene), verify its local transform matches ArmatureDocument.
+                if (context.VerifyNumerics &&
+                    !originalNodeMap.ContainsKey(bonePath) &&
+                    expected.BoneArmatureLookup.TryGetValue(bonePath, out var boneRecord))
+                {
+                    var expectedLocalRaw = FbxSdkNodeUtility.ConvertCanonicalMatrixToTargetRaw(
+                        boneRecord.LocalBindMatrix,
+                        context.CanonicalToTargetRaw);
+                    if (!verifiedBoneNode.NodeToParentMatrix.Approximately(expectedLocalRaw, k_BindMatrixCompareTolerance))
+                    {
+                        diagnostics.Add(new FbxExportDiagnostic(
+                            FbxExportDiagnosticSeverity.Error,
+                            "FBX_EXPORT_VERIFY_BONE_TRANSFORM_MISMATCH",
+                            $"Newly created bone '{bonePath}' local bind transform does not match expected matrix.",
+                            meshId: context.TargetNodePath,
+                            featureTypeId: FeatureTypeId));
+                        return FbxFeatureWriteResult.Failed(diagnostics.ToArray());
+                    }
+                }
+            }
+
+            if (!context.VerifyNumerics)
+            {
+                return FbxFeatureWriteResult.Succeeded(modifiedMesh: false, diagnostics.ToArray());
+            }
+
+            // Numeric verification:
+            // 1) Read RAW (un-renormalized) weights so scaled/corrupt raw weights are caught immediately.
+            int cpCount = context.VerifiedMesh.ControlPointCount;
+            if (!TryReadRawSkinWeightsByCp(verifiedSkin, cpCount, out var actualRawByCp, out string readErr))
+            {
+                diagnostics.Add(new FbxExportDiagnostic(
+                    FbxExportDiagnosticSeverity.Error,
+                    "FBX_EXPORT_VERIFY_SKIN_READ_FAILED",
+                    readErr,
+                    meshId: context.TargetNodePath,
+                    featureTypeId: FeatureTypeId));
+                return FbxFeatureWriteResult.Failed(diagnostics.ToArray());
+            }
+
+            double weightTol = Math.Max(1e-3d, context.NumericVerificationToleranceMeters * 10d);
+            double maxDiff = 0d;
+            int worstCp = -1;
+            string worstBone = string.Empty;
+
+            for (int cp = 0; cp < cpCount; cp++)
+            {
+                var expMap = expected.WeightsByCp[cp];
+                var actMap = actualRawByCp[cp];
+                if ((expMap == null || expMap.Count == 0) && (actMap == null || actMap.Count == 0))
+                {
+                    continue;
+                }
+
+                if (expMap != null)
+                {
+                    foreach (var kv in expMap)
+                    {
+                        double act = 0d;
+                        if (actMap != null)
+                        {
+                            actMap.TryGetValue(kv.Key, out act);
+                        }
+
+                        double diff = Math.Abs(kv.Value - act);
+                        if (diff > maxDiff)
+                        {
+                            maxDiff = diff;
+                            worstCp = cp;
+                            worstBone = kv.Key;
+                        }
+                    }
+                }
+
+                if (actMap != null)
+                {
+                    foreach (var kv in actMap)
+                    {
+                        if (expMap != null && expMap.ContainsKey(kv.Key))
+                        {
+                            continue;
+                        }
+
+                        double diff = Math.Abs(kv.Value);
+                        if (diff > maxDiff)
+                        {
+                            maxDiff = diff;
+                            worstCp = cp;
+                            worstBone = kv.Key;
+                        }
+                    }
+                }
+            }
+
+            if (maxDiff > weightTol)
+            {
+                diagnostics.Add(new FbxExportDiagnostic(
+                    FbxExportDiagnosticSeverity.Error,
+                    "FBX_EXPORT_VERIFY_SKIN_MISMATCH",
+                    $"Skin weight round-trip verification failed on '{context.TargetNodePath}': max raw weight diff {maxDiff:E3} at CP {worstCp} bone '{worstBone}' exceeds tolerance {weightTol:E3}.",
+                    meshId: context.TargetNodePath,
+                    featureTypeId: FeatureTypeId));
+                return FbxFeatureWriteResult.Failed(diagnostics.ToArray());
+            }
+
+            // 2) Verify cluster bind matrices (MeshBindWorld & BindToWorld) for every cluster with explicit matrices.
+            foreach (var kv in expected.RawClusterMatricesByBone)
+            {
+                if (!verifiedClustersByBone.TryGetValue(kv.Key, out var verifiedCluster))
+                {
+                    continue;
+                }
+
+                if (!verifiedCluster.MeshBindWorld.Approximately(kv.Value.TransformMatrix, k_BindMatrixCompareTolerance) ||
+                    !verifiedCluster.BindToWorld.Approximately(kv.Value.TransformLinkMatrix, k_BindMatrixCompareTolerance))
+                {
+                    diagnostics.Add(new FbxExportDiagnostic(
+                        FbxExportDiagnosticSeverity.Error,
+                        "FBX_EXPORT_VERIFY_CLUSTER_MATRIX_MISMATCH",
+                        $"Cluster bind matrices for bone '{kv.Key}' on '{context.TargetNodePath}' did not round-trip within tolerance.",
+                        meshId: context.TargetNodePath,
+                        featureTypeId: FeatureTypeId));
+                    return FbxFeatureWriteResult.Failed(diagnostics.ToArray());
+                }
+            }
+
+            return FbxFeatureWriteResult.Succeeded(modifiedMesh: false, diagnostics.ToArray());
+        }
+
+        private static SkinBuildState BuildExpectedSkinState(
+            IFbxMesh readerMesh,
+            IReadOnlyList<FbxFeatureWriteInput> inputs,
+            FbxAffineSpaceTransform canonicalToTargetRaw,
+            out bool anyFeatureApplied,
+            out string error)
+        {
+            anyFeatureApplied = false;
+            error = null;
+
+            int cpCount = readerMesh.ControlPointCount;
+            var state = new SkinBuildState(cpCount);
+
+            var baseSkin = FindPrimarySkin(readerMesh);
+            if (baseSkin != null)
+            {
+                state.SkinName = baseSkin.Name;
+                if (!TryReadRawSkinWeightsByCp(baseSkin, cpCount, out var rawBaseWeights, out error))
+                {
+                    return null;
+                }
+
+                for (int cp = 0; cp < cpCount; cp++)
+                {
+                    var normalized = NormalizeCpWeights(rawBaseWeights[cp]);
+                    if (normalized != null && normalized.Count > 0)
+                    {
+                        state.WeightsByCp[cp] = normalized;
+                    }
+                }
+
+                for (int c = 0; c < baseSkin.Clusters.Count; c++)
+                {
+                    var cl = baseSkin.Clusters[c];
+                    if (cl == null || string.IsNullOrEmpty(cl.BonePath))
+                    {
+                        continue;
+                    }
+
+                    string bonePath = FbxNameUtility.NormalizePath(cl.BonePath);
+                    if (string.IsNullOrEmpty(bonePath))
+                    {
+                        continue;
+                    }
+
+                    state.AddBonePath(bonePath, isOriginal: true);
+                    var meshMat = cl.MeshBindWorld;
+                    var linkMat = cl.BindToWorld;
+                    if (FbxAffineSpaceTransform.TryCreate(meshMat, out _) &&
+                        FbxAffineSpaceTransform.TryCreate(linkMat, out _))
+                    {
+                        state.RawClusterMatricesByBone[bonePath] = new RawClusterMatrices(meshMat, linkMat);
+                    }
+                }
+            }
+
+            // Apply each patch's SkinWeightFeature in order.
+            for (int i = 0; i < inputs.Count; i++)
+            {
+                var input = inputs[i];
+                var feature = input.Feature as SkinWeightFeature;
+                if (feature == null || feature.Clusters == null || feature.Clusters.Count == 0)
+                {
+                    continue;
+                }
+
+                var armature = FindArmature(input.Armatures, feature.ArmatureId);
+                if (armature != null)
+                {
+                    state.RegisterArmature(armature);
+                }
+
+                var featureBoneSet = new HashSet<string>(StringComparer.Ordinal);
+                var incomingByCp = new Dictionary<string, double>[cpCount];
+
+                for (int c = 0; c < feature.Clusters.Count; c++)
+                {
+                    var cl = feature.Clusters[c];
+                    string bonePath = FbxNameUtility.NormalizePath(cl.BonePath);
+                    featureBoneSet.Add(bonePath);
+                    state.AddBonePath(bonePath, isOriginal: false);
+
+                    if (cl.HasClusterMatrices)
+                    {
+                        var rawMeshMat = FbxSdkNodeUtility.ConvertCanonicalMatrixToTargetRaw(
+                            cl.TransformMatrix,
+                            canonicalToTargetRaw);
+                        var rawLinkMat = FbxSdkNodeUtility.ConvertCanonicalMatrixToTargetRaw(
+                            cl.TransformLinkMatrix,
+                            canonicalToTargetRaw);
+                        state.RawClusterMatricesByBone[bonePath] = new RawClusterMatrices(rawMeshMat, rawLinkMat);
+                    }
+
+                    if (!cl.Payload.HasPayload)
+                    {
+                        continue;
+                    }
+
+                    using var lease = cl.Payload.Acquire(input.PayloadSource);
+                    var buf = lease.Value?.DeltaWeights;
+                    if (buf == null)
+                    {
+                        error = $"Missing decoded payload for skin cluster '{cl.BonePath}'.";
+                        return null;
+                    }
+
+                    for (int k = 0; k < buf.Count; k++)
+                    {
+                        int cp = buf.Indices[k];
+                        double w = buf.Values[k];
+                        if ((uint)cp >= (uint)cpCount || double.IsNaN(w) || double.IsInfinity(w) || w < 0d)
+                        {
+                            continue;
+                        }
+
+                        var map = incomingByCp[cp];
+                        if (map == null)
+                        {
+                            map = new Dictionary<string, double>(StringComparer.Ordinal);
+                            incomingByCp[cp] = map;
+                        }
+
+                        map.TryGetValue(bonePath, out double prev);
+                        map[bonePath] = prev + w;
+                    }
+                }
+
+                // Merge incoming weights into existing per-CP weights:
+                // - When incomingSum >= 1.0 - eps (full-skin replacement): incoming weights replace the CP completely and normalize to 1.0.
+                // - When 0 < incomingSum < 1.0 - eps (partial bone selection): preserve surviving base weights for bones NOT in featureBoneSet
+                //   scaled proportionally to (1.0 - incomingSum), so selecting bone A (0.25) preserves bone B (0.75)!
+                // - If a CP has an explicit 0 entry in incomingByCp for a bone in featureBoneSet, that bone's weight is removed and remainder renormalized.
+                for (int cp = 0; cp < cpCount; cp++)
+                {
+                    var incoming = incomingByCp[cp];
+                    if (incoming == null || incoming.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    double incomingSum = 0d;
+                    foreach (var kv in incoming)
+                    {
+                        if (kv.Value > k_MinWeightEpsilon)
+                        {
+                            incomingSum += kv.Value;
+                        }
+                    }
+
+                    var merged = new Dictionary<string, double>(StringComparer.Ordinal);
+                    foreach (var kv in incoming)
+                    {
+                        if (kv.Value > k_MinWeightEpsilon)
+                        {
+                            merged[kv.Key] = kv.Value;
+                        }
+                    }
+
+                    double remainingBudget = 1d - incomingSum;
+                    var existing = state.WeightsByCp[cp];
+                    if (remainingBudget > k_MinWeightEpsilon && existing != null && existing.Count > 0)
+                    {
+                        double existingOtherSum = 0d;
+                        foreach (var kv in existing)
+                        {
+                            if (!featureBoneSet.Contains(kv.Key) && kv.Value > k_MinWeightEpsilon)
+                            {
+                                existingOtherSum += kv.Value;
+                            }
+                        }
+
+                        if (existingOtherSum > k_MinWeightEpsilon)
+                        {
+                            double scale = remainingBudget / existingOtherSum;
+                            foreach (var kv in existing)
+                            {
+                                if (!featureBoneSet.Contains(kv.Key) && kv.Value > k_MinWeightEpsilon)
+                                {
+                                    merged[kv.Key] = kv.Value * scale;
+                                }
+                            }
+                        }
+                    }
+
+                    state.WeightsByCp[cp] = NormalizeCpWeights(merged);
+                }
+
+                anyFeatureApplied = true;
+            }
+
+            // Build per-bone cluster weight lookup from finalized normalized per-CP weights.
+            for (int cp = 0; cp < cpCount; cp++)
+            {
+                var cpMap = NormalizeCpWeights(state.WeightsByCp[cp]);
+                state.WeightsByCp[cp] = cpMap;
+                if (cpMap == null || cpMap.Count == 0)
+                {
+                    continue;
+                }
+
+                foreach (var kv in cpMap)
+                {
+                    if (!state.ClusterWeightsByBone.TryGetValue(kv.Key, out var boneDict))
+                    {
+                        boneDict = new Dictionary<int, double>();
+                        state.ClusterWeightsByBone[kv.Key] = boneDict;
+                    }
+
+                    boneDict[cp] = kv.Value;
+                }
+            }
+
+            return state;
+        }
+
+        private static Dictionary<string, double> NormalizeCpWeights(Dictionary<string, double> weights)
+        {
+            if (weights == null || weights.Count == 0)
+            {
+                return null;
+            }
+
+            double sum = 0d;
+            foreach (var kv in weights)
+            {
+                if (kv.Value > k_MinWeightEpsilon && !double.IsNaN(kv.Value) && !double.IsInfinity(kv.Value))
+                {
+                    sum += kv.Value;
+                }
+            }
+
+            if (sum <= 0d)
+            {
+                return null;
+            }
+
+            var result = new Dictionary<string, double>(weights.Count, StringComparer.Ordinal);
+            foreach (var kv in weights)
+            {
+                if (kv.Value > k_MinWeightEpsilon && !double.IsNaN(kv.Value) && !double.IsInfinity(kv.Value))
+                {
+                    result[kv.Key] = kv.Value / sum;
+                }
+            }
+
+            return result;
+        }
+
+        private static bool TryReadRawSkinWeightsByCp(
+            IFbxSkinDeformer skin,
+            int cpCount,
+            out Dictionary<string, double>[] weightsByCp,
+            out string error)
+        {
+            error = null;
+            weightsByCp = new Dictionary<string, double>[cpCount];
+            int[] idxScratch = Array.Empty<int>();
+            double[] wScratch = Array.Empty<double>();
+
+            for (int c = 0; c < skin.Clusters.Count; c++)
+            {
+                var cl = skin.Clusters[c];
+                if (cl == null || cl.WeightCount == 0)
+                {
+                    continue;
+                }
+
+                if (cl.WeightCount < 0)
+                {
+                    error = $"Skin cluster {c} ('{cl.BonePath}') reported negative weight count ({cl.WeightCount}).";
+                    weightsByCp = null;
+                    return false;
+                }
+
+                string bonePath = FbxNameUtility.NormalizePath(cl.BonePath ?? string.Empty);
+                if (string.IsNullOrEmpty(bonePath))
+                {
+                    error = $"Skin cluster {c} has weights ({cl.WeightCount}) but an empty bone path.";
+                    weightsByCp = null;
+                    return false;
+                }
+
+                int count = cl.WeightCount;
+                if (idxScratch.Length < count)
+                {
+                    idxScratch = new int[count];
+                    wScratch = new double[count];
+                }
+
+                int wWritten = 0;
+                if (!cl.TryCopyControlPointIndices(idxScratch.AsSpan(0, count), out int idxWritten) ||
+                    !cl.TryCopyWeights(wScratch.AsSpan(0, count), out wWritten) ||
+                    idxWritten != count || wWritten != count)
+                {
+                    error = $"Failed reading skin cluster '{bonePath}' weights (expected {count}, copied {idxWritten}/{wWritten}).";
+                    weightsByCp = null;
+                    return false;
+                }
+
+                for (int i = 0; i < count; i++)
+                {
+                    int cp = idxScratch[i];
+                    double w = wScratch[i];
+                    if ((uint)cp >= (uint)cpCount || double.IsNaN(w) || double.IsInfinity(w) || w < 0d)
+                    {
+                        error = $"Skin cluster '{bonePath}' contains invalid control point index {cp} or weight {w}.";
+                        weightsByCp = null;
+                        return false;
+                    }
+
+                    if (w <= k_MinWeightEpsilon)
+                    {
+                        continue;
+                    }
+
+                    var map = weightsByCp[cp];
+                    if (map == null)
+                    {
+                        map = new Dictionary<string, double>(StringComparer.Ordinal);
+                        weightsByCp[cp] = map;
+                    }
+
+                    map.TryGetValue(bonePath, out double existing);
+                    map[bonePath] = existing + w;
+                }
+            }
+
+            return true;
+        }
+
+        private static int CountWeightedSkins(IFbxMesh mesh)
+        {
+            if (mesh?.SkinDeformers == null)
+            {
+                return 0;
+            }
+
+            int count = 0;
+            for (int i = 0; i < mesh.SkinDeformers.Count; i++)
+            {
+                var skin = mesh.SkinDeformers[i];
+                if (skin?.Clusters != null && skin.Clusters.Any(c => c != null && c.WeightCount > 0))
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private static IFbxSkinDeformer FindPrimarySkin(IFbxMesh mesh)
+        {
+            if (mesh == null || mesh.SkinDeformers == null || mesh.SkinDeformers.Count == 0)
+            {
+                return null;
+            }
+
+            for (int i = 0; i < mesh.SkinDeformers.Count; i++)
+            {
+                var skin = mesh.SkinDeformers[i];
+                if (skin != null && skin.Clusters != null && skin.Clusters.Any(c => c != null && c.WeightCount > 0))
+                {
+                    return skin;
+                }
+            }
+
+            return mesh.SkinDeformers[0];
+        }
+
+        private static Dictionary<string, IFbxNode> BuildNodeMap(IFbxScene scene)
+        {
+            var map = new Dictionary<string, IFbxNode>(StringComparer.Ordinal);
+            if (scene?.Nodes == null)
+            {
+                return map;
+            }
+
+            for (int i = 0; i < scene.Nodes.Count; i++)
+            {
+                var n = scene.Nodes[i];
+                if (n == null || n.IsRoot)
+                {
+                    continue;
+                }
+
+                string norm = FbxNameUtility.NormalizePath(n.Path);
+                if (!string.IsNullOrEmpty(norm) && !map.ContainsKey(norm))
+                {
+                    map.Add(norm, n);
+                }
+            }
+
+            return map;
+        }
+
+        private static ArmatureDocument FindArmature(IReadOnlyList<ArmatureDocument> armatures, string armatureId)
+        {
+            if (armatures == null || armatures.Count == 0)
+            {
+                return null;
+            }
+
+            if (!string.IsNullOrEmpty(armatureId))
+            {
+                for (int i = 0; i < armatures.Count; i++)
+                {
+                    if (armatures[i] != null && string.Equals(armatures[i].ArmatureId, armatureId, StringComparison.Ordinal))
+                    {
+                        return armatures[i];
+                    }
+                }
+            }
+
+            return armatures[0];
+        }
+
+        private static ArmatureBoneRecord FindBoneRecord(ArmatureDocument armature, string normalizedPath)
+        {
+            if (armature?.Bones == null)
+            {
+                return null;
+            }
+
+            for (int i = 0; i < armature.Bones.Count; i++)
+            {
+                var b = armature.Bones[i];
+                if (b != null && string.Equals(FbxNameUtility.NormalizePath(b.Path), normalizedPath, StringComparison.Ordinal))
+                {
+                    return b;
+                }
+            }
+
+            return null;
+        }
+
+        private static bool CanCreateBoneHierarchyFromArmature(
+            FbxNode rootNode,
+            ArmatureDocument armature,
+            string bonePath,
+            FbxAffineSpaceTransform canonicalToTargetRaw,
+            out string error)
+        {
+            error = null;
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            string current = bonePath;
+
+            while (!string.IsNullOrEmpty(current))
+            {
+                if (FbxSdkNodeUtility.FindNodeByPath(rootNode, current) != null)
+                {
+                    return true;
+                }
+
+                if (!visited.Add(current))
+                {
+                    error = $"Armature bone hierarchy contains a cycle at '{current}'.";
+                    return false;
+                }
+
+                var record = FindBoneRecord(armature, current);
+                if (record == null)
+                {
+                    error = $"Missing target FBX bone '{current}' and no ArmatureBoneRecord was found to create it.";
+                    return false;
+                }
+
+                var rawLocal = FbxSdkNodeUtility.ConvertCanonicalMatrixToTargetRaw(
+                    record.LocalBindMatrix,
+                    canonicalToTargetRaw);
+                if (!FbxAffineSpaceTransform.TryCreate(rawLocal, out _))
+                {
+                    error = $"Armature bone '{current}' has a singular or non-finite local bind matrix.";
+                    return false;
+                }
+
+                current = FbxNameUtility.NormalizePath(
+                    !string.IsNullOrEmpty(record.ParentPath)
+                        ? record.ParentPath
+                        : FbxSdkNodeUtility.GetParentPath(current));
+            }
+
+            return true;
+        }
+
+        private static bool TryResolveOrCreateBoneNode(
+            FbxManager manager,
+            FbxNode rootNode,
+            Dictionary<string, ArmatureBoneRecord> boneRecords,
+            string bonePath,
+            FbxAffineSpaceTransform canonicalToTargetRaw,
+            HashSet<string> resolving,
+            out FbxNode node,
+            out string error)
+        {
+            error = null;
+            node = FbxSdkNodeUtility.FindNodeByPath(rootNode, bonePath);
+            if (node != null)
+            {
+                return true;
+            }
+
+            if (!resolving.Add(bonePath))
+            {
+                error = $"Armature hierarchy cycle detected while creating FBX bone '{bonePath}'.";
+                return false;
+            }
+
+            if (!boneRecords.TryGetValue(bonePath, out var record))
+            {
+                resolving.Remove(bonePath);
+                error = $"Cannot create missing FBX bone '{bonePath}': no ArmatureBoneRecord available.";
+                return false;
+            }
+
+            string parentPath = FbxNameUtility.NormalizePath(
+                !string.IsNullOrEmpty(record.ParentPath)
+                    ? record.ParentPath
+                    : FbxSdkNodeUtility.GetParentPath(bonePath));
+
+            FbxNode parentNode;
+            if (string.IsNullOrEmpty(parentPath))
+            {
+                parentNode = rootNode;
+            }
+            else if (!TryResolveOrCreateBoneNode(
+                         manager,
+                         rootNode,
+                         boneRecords,
+                         parentPath,
+                         canonicalToTargetRaw,
+                         resolving,
+                         out parentNode,
+                         out error))
+            {
+                resolving.Remove(bonePath);
+                return false;
+            }
+
+            resolving.Remove(bonePath);
+
+            string leafName = FbxSdkNodeUtility.GetLeafName(bonePath);
+            var created = FbxNode.Create(manager, leafName);
+            var skeleton = FbxSkeleton.Create(manager, leafName);
+            skeleton.SetSkeletonType(parentNode == rootNode
+                ? FbxSkeleton.EType.eRoot
+                : FbxSkeleton.EType.eLimbNode);
+            created.SetNodeAttribute(skeleton);
+
+            var rawLocal = FbxSdkNodeUtility.ConvertCanonicalMatrixToTargetRaw(
+                record.LocalBindMatrix,
+                canonicalToTargetRaw);
+            if (!FbxSdkNodeUtility.TryApplyRawLocalMatrixToNode(created, rawLocal, out error))
+            {
+                created.Destroy();
+                return false;
+            }
+
+            parentNode.AddChild(created);
+            node = created;
+            return true;
+        }
+
+        private static Dictionary<string, (string PatchId, FbxMatrix4x4 LocalBind)> GetOrCreateArmatureBoneRegistry(
+            IDictionary<string, object> sessionState)
+        {
+            if (sessionState.TryGetValue(k_ArmatureRegistryStateKey, out var existing) &&
+                existing is Dictionary<string, (string, FbxMatrix4x4)> dict)
+            {
+                return dict;
+            }
+
+            var created = new Dictionary<string, (string, FbxMatrix4x4)>(StringComparer.Ordinal);
+            sessionState[k_ArmatureRegistryStateKey] = created;
+            return created;
+        }
+
+        private static bool RegisterAndValidateArmatureBones(
+            ArmatureDocument armature,
+            string patchId,
+            FbxAffineSpaceTransform canonicalToTargetRaw,
+            Dictionary<string, (string PatchId, FbxMatrix4x4 LocalBind)> registry,
+            List<FbxExportDiagnostic> diagnostics)
+        {
+            bool ok = true;
+            if (armature?.Bones == null)
+            {
+                return true;
+            }
+
+            for (int i = 0; i < armature.Bones.Count; i++)
+            {
+                var bone = armature.Bones[i];
+                if (bone == null || string.IsNullOrWhiteSpace(bone.Path))
+                {
+                    continue;
+                }
+
+                string path = FbxNameUtility.NormalizePath(bone.Path);
+                var rawLocal = FbxSdkNodeUtility.ConvertCanonicalMatrixToTargetRaw(
+                    bone.LocalBindMatrix,
+                    canonicalToTargetRaw);
+
+                if (registry.TryGetValue(path, out var existing))
+                {
+                    if (!existing.LocalBind.Approximately(rawLocal, k_BindMatrixCompareTolerance))
+                    {
+                        diagnostics.Add(new FbxExportDiagnostic(
+                            FbxExportDiagnosticSeverity.Error,
+                            "FBX_EXPORT_ARMATURE_CONFLICT",
+                            $"Bone '{path}' has conflicting bind transforms between patch '{existing.PatchId}' and patch '{patchId}'.",
+                            patchId: patchId,
+                            featureTypeId: SkinWeightFeature.FeatureTypeId));
+                        ok = false;
+                    }
+                }
+                else
+                {
+                    registry[path] = (patchId, rawLocal);
+                }
+            }
+
+            return ok;
+        }
+
+        private readonly struct RawClusterMatrices
+        {
+            public FbxMatrix4x4 TransformMatrix { get; }
+            public FbxMatrix4x4 TransformLinkMatrix { get; }
+
+            public RawClusterMatrices(FbxMatrix4x4 transformMatrix, FbxMatrix4x4 transformLinkMatrix)
+            {
+                TransformMatrix = transformMatrix;
+                TransformLinkMatrix = transformLinkMatrix;
+            }
+        }
+
+        private sealed class SkinBuildState
+        {
+            public string SkinName { get; set; } = "Skin";
+            public Dictionary<string, double>[] WeightsByCp { get; }
+            public List<string> OrderedBonePaths { get; } = new List<string>();
+            public HashSet<string> OriginalBoneSet { get; } = new HashSet<string>(StringComparer.Ordinal);
+            private readonly HashSet<string> m_SeenBones = new HashSet<string>(StringComparer.Ordinal);
+            public Dictionary<string, RawClusterMatrices> RawClusterMatricesByBone { get; } =
+                new Dictionary<string, RawClusterMatrices>(StringComparer.Ordinal);
+            public Dictionary<string, Dictionary<int, double>> ClusterWeightsByBone { get; } =
+                new Dictionary<string, Dictionary<int, double>>(StringComparer.Ordinal);
+            public Dictionary<string, ArmatureBoneRecord> BoneArmatureLookup { get; } =
+                new Dictionary<string, ArmatureBoneRecord>(StringComparer.Ordinal);
+
+            public SkinBuildState(int cpCount)
+            {
+                WeightsByCp = new Dictionary<string, double>[cpCount];
+            }
+
+            public void AddBonePath(string bonePath, bool isOriginal)
+            {
+                if (string.IsNullOrEmpty(bonePath))
+                {
+                    return;
+                }
+
+                if (isOriginal)
+                {
+                    OriginalBoneSet.Add(bonePath);
+                }
+
+                if (m_SeenBones.Add(bonePath))
+                {
+                    OrderedBonePaths.Add(bonePath);
+                }
+            }
+
+            public void RegisterArmature(ArmatureDocument armature)
+            {
+                if (armature?.Bones == null)
+                {
+                    return;
+                }
+
+                for (int i = 0; i < armature.Bones.Count; i++)
+                {
+                    var b = armature.Bones[i];
+                    if (b == null || string.IsNullOrWhiteSpace(b.Path))
+                    {
+                        continue;
+                    }
+
+                    string path = FbxNameUtility.NormalizePath(b.Path);
+                    if (!BoneArmatureLookup.ContainsKey(path))
+                    {
+                        BoneArmatureLookup[path] = b;
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,31 @@
+{
+    "name": "Triturbo.BlendShare.FbxExport.Editor",
+    "rootNamespace": "Triturbo.BlendShare.FbxExport",
+    "references": [
+        "Triturbo.BlendShare.Primitives",
+        "Triturbo.BlendShare.Model.Editor",
+        "Triturbo.FBX",
+        "Triturbo.BlendShare.Container.Editor",
+        "Triturbo.BlendShare.Pipeline.Editor",
+        "Autodesk.Fbx"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "ENABLE_FBX_SDK"
+    ],
+    "versionDefines": [
+        {
+            "name": "com.autodesk.fbx",
+            "expression": "4.2.0",
+            "define": "ENABLE_FBX_SDK"
+        }
+    ],
+    "noEngineReferences": false
+}
