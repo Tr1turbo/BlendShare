@@ -66,7 +66,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
 
         public bool AllowDiskBindingCache { get; set; } = true;
         public bool PreserveExistingBlendShapes { get; set; } = true;
-        public int MaxBonesPerVertex { get; set; } = 4;
+        public int MaxBonesPerVertex { get; set; } = 0;
 
         /// <summary>Optional repository override (defaults to <see cref="BlendShareSourceRepository.Shared"/>).</summary>
         public BlendShareSourceRepository Repository { get; set; }
@@ -461,6 +461,10 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                 return new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
             }
 
+            int effectiveMaxBones = request.MaxBonesPerVertex > 0
+                ? request.MaxBonesPerVertex
+                : BlendShareSkinWeightSettings.EffectiveMaxBonesPerVertex;
+
             var meshApplyRes = UnityMeshApplicationPipeline.Apply(new UnityMeshApplyRequest
             {
                 BaseMesh = request.IncomingMesh,
@@ -469,7 +473,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                 MeshRendererTransform = request.RendererTransform,
                 BoneTransformOverrides = boneOverrides,
                 ArmatureRootOverrides = armatureRootOverrides,
-                MaxBonesPerVertex = request.MaxBonesPerVertex,
+                MaxBonesPerVertex = effectiveMaxBones,
                 CreateMissingBones = request.CreateMissingBones,
                 PreserveExistingBlendShapes = request.PreserveExistingBlendShapes,
                 Items = items,
@@ -479,6 +483,11 @@ namespace Triturbo.BlendShare.Pipeline.Apply
             if (meshApplyRes.Diagnostics != null)
             {
                 diagnostics.AddRange(meshApplyRes.Diagnostics);
+            }
+
+            if (meshApplyRes.Succeeded && meshApplyRes.AppliedBoneBindings.Count > 0)
+            {
+                BlendShareSkinWeightInfluenceDiagnostics.Set(request.Components, meshApplyRes.SkinWeightInfluenceSummary);
             }
 
             var uses = new List<AvatarBoneBindingUse>();

@@ -17,6 +17,8 @@ namespace Triturbo.BlendShare.NDMF
         private static readonly TogglablePreviewNode s_PreviewNode =
             TogglablePreviewNode.Create(() => "BlendShare", "com.triturbo.blendshare/BlendSharePreview", true);
         private static readonly Dictionary<string, PublishedValue<long>> s_SettingsRevisionsByGuid = new();
+        private static readonly PublishedValue<bool> s_LimitSkinWeightsToFour =
+            new PublishedValue<bool>(BlendShareSkinWeightSettings.LimitSkinWeightsToFour);
 
         static BlendShareNdmfPreview()
         {
@@ -31,6 +33,10 @@ namespace Triturbo.BlendShare.NDMF
 
                 // Invoke PublishedValue setter outside lock to avoid re-entrancy deadlocks during invalidation.
                 value.Value = revision;
+            };
+            BlendShareSkinWeightSettings.Changed += () =>
+            {
+                s_LimitSkinWeightsToFour.Value = BlendShareSkinWeightSettings.LimitSkinWeightsToFour;
             };
         }
 
@@ -125,6 +131,7 @@ namespace Triturbo.BlendShare.NDMF
             if (components.Count == 0 || !proxySmr || !proxySmr.sharedMesh)
                 return Task.FromResult<IRenderFilterNode>(new Node());
             ObserveTransform(context, originalSmr.transform);
+            context.Observe(s_LimitSkinWeightsToFour);
             var incomingBones = proxySmr.bones;
             var result = BlendShareAvatarApplyService.ApplyToRenderer(new AvatarRendererApplyRequest
             {

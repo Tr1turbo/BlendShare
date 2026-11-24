@@ -25,6 +25,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
             while (poses.Count < bones.Count) poses.Add(Matrix4x4.identity);
             var records = new List<AppliedBoneBinding>();
             var rows = new BoneWeight1[mesh.vertexCount][];
+            var rawInfluenceCounts = new int[mesh.vertexCount];
             var created = new List<Transform>();
             try
             {
@@ -33,7 +34,9 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                 int offset = 0;
                 for (int v = 0; v < rows.Length; v++)
                 {
-                    rows[v] = new BoneWeight1[counts.Length == 0 ? 0 : counts[v]];
+                    int cCount = counts.Length == 0 ? 0 : counts[v];
+                    rows[v] = new BoneWeight1[cCount];
+                    rawInfluenceCounts[v] = cCount;
                     for (int i = 0; i < rows[v].Length; i++) rows[v][i] = weights[offset++];
                 }
 
@@ -141,6 +144,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                             }
                         }
                         if (sums.Count == 0) continue;
+                        rawInfluenceCounts[v] = sums.Count;
                         var top = sums.OrderByDescending(p => p.Value).ThenBy(p => p.Key)
                             .Take(Mathf.Clamp(context.MaxBonesPerVertex, 1, 255)).ToArray();
                         double total = top.Sum(p => p.Value);
@@ -149,12 +153,24 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     }
                 }
                 if (records.Count == 0) return FeatureApplyResult.Skipped();
+                int verticesOverFour = 0;
+                int verticesOverByteLimit = 0;
+                int maxInfluences = 0;
+                for (int v = 0; v < rawInfluenceCounts.Length; v++)
+                {
+                    int rawCount = rawInfluenceCounts[v];
+                    if (rawCount > 4) verticesOverFour++;
+                    if (rawCount > 255) verticesOverByteLimit++;
+                    if (rawCount > maxInfluences) maxInfluences = rawCount;
+                }
                 using var finalCounts = new NativeArray<byte>(rows.Select(r => checked((byte)r.Length)).ToArray(), Allocator.Temp);
                 using var finalWeights = new NativeArray<BoneWeight1>(rows.SelectMany(r => r).ToArray(), Allocator.Temp);
                 mesh.SetBoneWeights(finalCounts, finalWeights);
                 mesh.bindposes = poses.ToArray();
                 context.WorkingBones = bones.ToArray();
                 context.AppliedBoneBindings.AddRange(records);
+                context.SkinWeightInfluenceSummary = new BlendShareSkinWeightInfluenceSummary(
+                    verticesOverFour, verticesOverByteLimit, maxInfluences);
                 return FeatureApplyResult.Applied();
             }
             catch (Exception ex)

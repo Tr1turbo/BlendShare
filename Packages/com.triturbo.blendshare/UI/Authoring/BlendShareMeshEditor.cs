@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShapeShare;
 using Triturbo.BlendShare.Components;
+using Triturbo.BlendShare.Pipeline.Apply;
 using Triturbo.BlendShare.Runtime.Assets;
 using Triturbo.BlendShare.Inspector;
 using UnityEditor;
@@ -61,6 +62,8 @@ namespace Triturbo.BlendShare.UI.Authoring
         {
             EditorApplication.contextualPropertyMenu -= AddBlendShapeAnimationMenuItems;
             EditorApplication.contextualPropertyMenu += AddBlendShapeAnimationMenuItems;
+            BlendShareSkinWeightInfluenceDiagnostics.Changed -= InternalEditorUtility.RepaintAllViews;
+            BlendShareSkinWeightInfluenceDiagnostics.Changed += InternalEditorUtility.RepaintAllViews;
         }
 
         private void OnEnable()
@@ -1219,137 +1222,24 @@ namespace Triturbo.BlendShare.UI.Authoring
             }
         }
     }
-    internal static class BlendShareSkinWeightSettings
+    internal static class BlendShareSkinWeightLimitMenu
     {
-        private const string k_LimitSkinWeightsPreferenceKey =
-            "com.triturbo.blendshare.limitSkinWeightsToFour";
         private const string k_LimitSkinWeightsMenuPath =
             "Tools/BlendShare/Limit Skin Weights to 4 Influences";
-
-        internal static bool LimitSkinWeightsToFour =>
-            EditorPrefs.GetBool(k_LimitSkinWeightsPreferenceKey, true);
 
         [MenuItem(k_LimitSkinWeightsMenuPath, false, 200)]
         private static void ToggleSkinWeightLimit()
         {
-            EditorPrefs.SetBool(
-                k_LimitSkinWeightsPreferenceKey,
-                !LimitSkinWeightsToFour);
+            BlendShareSkinWeightSettings.SetLimitSkinWeightsToFour(
+                !BlendShareSkinWeightSettings.LimitSkinWeightsToFour);
             InternalEditorUtility.RepaintAllViews();
         }
 
         [MenuItem(k_LimitSkinWeightsMenuPath, true)]
         private static bool ValidateSkinWeightLimit()
         {
-            Menu.SetChecked(k_LimitSkinWeightsMenuPath, LimitSkinWeightsToFour);
+            Menu.SetChecked(k_LimitSkinWeightsMenuPath, BlendShareSkinWeightSettings.LimitSkinWeightsToFour);
             return true;
-        }
-    }
-
-    internal readonly struct BlendShareSkinWeightInfluenceSummary : IEquatable<BlendShareSkinWeightInfluenceSummary>
-    {
-        internal BlendShareSkinWeightInfluenceSummary(
-            int verticesOverFour,
-            int verticesOverByteLimit,
-            int maximumInfluences)
-        {
-            VerticesOverFour = verticesOverFour;
-            VerticesOverByteLimit = verticesOverByteLimit;
-            MaximumInfluences = maximumInfluences;
-        }
-
-        internal int VerticesOverFour { get; }
-        internal int VerticesOverByteLimit { get; }
-        internal int MaximumInfluences { get; }
-
-        public bool Equals(BlendShareSkinWeightInfluenceSummary other)
-        {
-            return VerticesOverFour == other.VerticesOverFour &&
-                   VerticesOverByteLimit == other.VerticesOverByteLimit &&
-                   MaximumInfluences == other.MaximumInfluences;
-        }
-
-        public override bool Equals(object obj)
-        {
-            return obj is BlendShareSkinWeightInfluenceSummary other && Equals(other);
-        }
-
-        public override int GetHashCode()
-        {
-            unchecked
-            {
-                int hashCode = VerticesOverFour;
-                hashCode = (hashCode * 397) ^ VerticesOverByteLimit;
-                hashCode = (hashCode * 397) ^ MaximumInfluences;
-                return hashCode;
-            }
-        }
-    }
-
-    internal static class BlendShareSkinWeightInfluenceDiagnostics
-    {
-        private static readonly ConditionalWeakTable<BlendShareMesh, Entry> s_Entries = new();
-
-        internal static void Set(
-            IEnumerable<BlendShareMesh> components,
-            BlendShareSkinWeightInfluenceSummary summary)
-        {
-            bool changed = false;
-            foreach (var component in (components ?? Enumerable.Empty<BlendShareMesh>())
-                         .Where(component => component != null)
-                         .Distinct())
-            {
-                if (!s_Entries.TryGetValue(component, out var existing))
-                {
-                    s_Entries.Add(component, new Entry(summary));
-                    changed = true;
-                    continue;
-                }
-
-                if (!existing.Summary.Equals(summary))
-                {
-                    existing.Summary = summary;
-                    changed = true;
-                }
-            }
-
-            if (changed)
-            {
-                InternalEditorUtility.RepaintAllViews();
-            }
-        }
-
-        internal static bool TryGet(
-            BlendShareMesh component,
-            out BlendShareSkinWeightInfluenceSummary summary)
-        {
-            if (component != null &&
-                s_Entries.TryGetValue(component, out var entry))
-            {
-                summary = entry.Summary;
-                return true;
-            }
-
-            summary = default;
-            return false;
-        }
-
-        internal static void Clear(BlendShareMesh component)
-        {
-            if (component != null)
-            {
-                s_Entries.Remove(component);
-            }
-        }
-
-        private sealed class Entry
-        {
-            internal Entry(BlendShareSkinWeightInfluenceSummary summary)
-            {
-                Summary = summary;
-            }
-
-            internal BlendShareSkinWeightInfluenceSummary Summary { get; set; }
         }
     }
 }

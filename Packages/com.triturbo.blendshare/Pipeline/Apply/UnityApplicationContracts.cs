@@ -153,6 +153,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
         public IReadOnlyList<PatchMeshApplicationItem> Items { get; internal set; }
         public bool PreserveExistingBlendShapes { get; internal set; } = true;
         public List<AppliedBoneBinding> AppliedBoneBindings { get; } = new List<AppliedBoneBinding>();
+        public BlendShareSkinWeightInfluenceSummary SkinWeightInfluenceSummary { get; set; }
         public List<ApplyDiagnostic> Diagnostics { get; } = new List<ApplyDiagnostic>();
     }
 
