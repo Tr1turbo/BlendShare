@@ -11,7 +11,7 @@ namespace Triturbo.BlendShare.Core
     /// <summary>
     /// Shared state for one Unity mesh generation run.
     /// </summary>
-    public sealed class UnityMeshGenerationSession
+    public sealed class UnityMeshGenerationSession : System.IDisposable
     {
         private readonly List<Object> generatedObjects = new();
         private readonly Dictionary<string, Object> generatedObjectsByKey = new();
@@ -29,6 +29,7 @@ namespace Triturbo.BlendShare.Core
         private readonly Dictionary<BlendShareBoneProxyBinding, string> artifactPathByBinding = new();
         private readonly HashSet<string> completedSteps = new();
         private UnityArmatureObject armature;
+        internal UnityVertexMappingResolver Mappings { get; } = new();
 
         public Object TargetMeshContainer { get; }
         public IReadOnlyList<BlendShareObject> Patches { get; }
@@ -597,6 +598,11 @@ namespace Triturbo.BlendShare.Core
             return AddObject(key, created) as T;
         }
 
+        public void Dispose()
+        {
+            Mappings.Dispose();
+        }
+
         public void DestroyGeneratedObjects()
         {
             foreach (var generatedObject in generatedObjects)
@@ -611,6 +617,7 @@ namespace Triturbo.BlendShare.Core
 
             generatedObjects.Clear();
             generatedObjectsByKey.Clear();
+            Mappings.Dispose();
         }
 
         private static string BuildGeneratedObjectKey(System.Type type, string key, string fallbackName)

@@ -254,7 +254,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         private static bool StageUnityBoneWeights(
             UnityMeshFeatureContext context,
             SkinWeightFeatureObject feature,
-            UnityVertexMappingObject mapping,
+            IUnityToFbxVertexMap mapping,
             Mesh mesh,
             BoneTable boneTable,
             out string error)
@@ -284,7 +284,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         private static void StageUnitySkinBinding(
             UnityMeshFeatureContext context,
             SkinWeightFeatureObject feature,
-            UnityVertexMappingObject mapping,
+            IUnityToFbxVertexMap mapping,
             BoneTable boneTable,
             string rootBonePath,
             UnityArmatureBoneData[] artifactBones)
@@ -1358,7 +1358,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             UnityMeshFeatureContext context,
             SkinWeightFeatureObject feature,
             Mesh mesh,
-            UnityVertexMappingObject mapping,
+            IUnityToFbxVertexMap mapping,
             out string error)
         {
             error = null;
@@ -1495,7 +1495,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             UnityMeshFeatureContext context,
             SkinWeightFeatureObject feature,
             string path,
-            UnityVertexMappingObject mapping,
+            IUnityToFbxVertexMap mapping,
             out Matrix4x4 bindPose,
             out string error)
         {
@@ -1528,7 +1528,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             SkinWeightFeatureObject feature,
             string path,
             Matrix4x4 currentBindPose,
-            UnityVertexMappingObject mapping,
+            IUnityToFbxVertexMap mapping,
             out Matrix4x4 bindPose,
             out string error)
         {
@@ -1554,7 +1554,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             UnityMeshFeatureContext context,
             SkinWeightFeatureObject feature,
             string path,
-            UnityVertexMappingObject mapping,
+            IUnityToFbxVertexMap mapping,
             HashSet<string> resolving,
             out Matrix4x4 localToWorld,
             out string error)
@@ -1684,7 +1684,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         private static UnityArmatureBoneData[] BuildArtifactBones(
             UnityMeshFeatureContext context,
             SkinWeightFeatureObject feature,
-            UnityVertexMappingObject mapping)
+            IUnityToFbxVertexMap mapping)
         {
             if (context == null || feature?.Armature == null)
             {
@@ -1700,7 +1700,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         private static UnityArmatureBoneData CreateArtifactBoneNode(
             UnityMeshFeatureContext context,
             SkinWeightFeatureObject feature,
-            UnityVertexMappingObject mapping,
+            IUnityToFbxVertexMap mapping,
             FbxArmatureBoneData bone)
         {
             if (TryGetProxyBoneNode(context, feature, bone.m_Path, out var proxyBone))
@@ -1892,7 +1892,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
 
         private static bool BuildUnityBoneWeights(
             SkinWeightFeatureObject feature,
-            UnityVertexMappingObject mapping,
+            IUnityToFbxVertexMap mapping,
             Mesh mesh,
             BoneTable boneTable,
             out string error)
@@ -2233,7 +2233,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             public bool Stage(
                 Mesh targetMesh,
                 SkinWeightFeatureObject feature,
-                UnityVertexMappingObject mapping,
+                IUnityToFbxVertexMap mapping,
                 BoneTable targetBoneTable,
                 IEnumerable<BlendShareMesh> sourceComponents,
                 out string error)

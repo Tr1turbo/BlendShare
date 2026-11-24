@@ -96,14 +96,13 @@ namespace Triturbo.BlendShare.Core
                 return false;
             }
 
-            if (mapping.m_UnityMesh == targetMesh)
+            if (!string.IsNullOrEmpty(mapping.m_UnityVertexHash))
             {
-                return true;
+                return TryCalculatePositionHash(targetMesh, out string targetHash) &&
+                       mapping.m_UnityVertexHash == targetHash;
             }
 
-            return !string.IsNullOrEmpty(mapping.m_UnityVertexHash) &&
-                   TryCalculatePositionHash(targetMesh, out string targetHash) &&
-                   mapping.m_UnityVertexHash == targetHash;
+            return mapping.m_UnityMesh == targetMesh;
         }
 
         /// <summary>

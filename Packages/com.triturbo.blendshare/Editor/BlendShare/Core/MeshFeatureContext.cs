@@ -76,6 +76,9 @@ namespace Triturbo.BlendShare.Core
         private readonly Dictionary<MeshFeatureObject, MeshFeatureHandle> handlesByFeature;
         private readonly Dictionary<Type, object> featuresByType = new();
         private readonly HashSet<MeshFeatureHandle> handled = new();
+        private readonly Mesh initialWorkingMesh;
+        private Mesh workingMesh;
+        private bool workingMeshReplaced;
 
         internal UnityMeshFeatureContext(
             UnityMeshGenerationSession session,
@@ -89,7 +92,8 @@ namespace Triturbo.BlendShare.Core
             Session = session;
             MeshKey = MeshNodePath.Normalize(meshKey);
             OriginalMesh = originalMesh;
-            WorkingMesh = workingMesh;
+            initialWorkingMesh = workingMesh;
+            this.workingMesh = workingMesh;
             TargetRenderer = targetRenderer;
             TargetRootTransform = targetRootTransform ?? session?.TargetMeshes?.RootTransform;
             this.handles = (handles ?? Array.Empty<MeshFeatureHandle>())
@@ -121,7 +125,19 @@ namespace Triturbo.BlendShare.Core
         /// <summary>
         /// Gets or sets the mesh containing the accumulated output of earlier feature generators.
         /// </summary>
-        public Mesh WorkingMesh { get; set; }
+        public Mesh WorkingMesh
+        {
+            get => workingMesh;
+            set
+            {
+                if (!ReferenceEquals(value, initialWorkingMesh))
+                {
+                    workingMeshReplaced = true;
+                }
+
+                workingMesh = value;
+            }
+        }
 
         /// <summary>
         /// Gets the target renderer when the mesh belongs to a skinned hierarchy.
@@ -168,21 +184,38 @@ namespace Triturbo.BlendShare.Core
         }
 
         /// <summary>
-        /// Finds a stored vertex mapping compatible with the target mesh for a feature contribution.
+        /// Resolves a vertex mapping compatible with the target mesh for a feature contribution.
+        /// Delegates to the session's <see cref="UnityVertexMappingResolver"/> (exact hash match,
+        /// mesh-to-mesh auto-remap, or FBX inverse fallback).
         /// </summary>
         /// <param name="feature">Feature whose source mesh and mapping overrides should be used.</param>
-        /// <param name="targetMesh">Target mesh to test for compatibility.</param>
-        /// <returns>A compatible mapping, or <c>null</c> when none is available.</returns>
-        public UnityVertexMappingObject GetMappingFor(MeshFeatureObject feature, Mesh targetMesh)
+        /// <param name="targetMesh">Target mesh to resolve a mapping for.</param>
+        /// <returns>A compatible vertex map, or <c>null</c> when none can be resolved.</returns>
+        public IUnityToFbxVertexMap GetMappingFor(MeshFeatureObject feature, Mesh targetMesh)
         {
             var handle = GetHandle(feature);
-            var compatibilityMesh = targetMesh == WorkingMesh && OriginalMesh != null
+            // Only substitute OriginalMesh when WorkingMesh has not been replaced by an earlier generator.
+            var compatibilityMesh = !workingMeshReplaced &&
+                                    ReferenceEquals(targetMesh, WorkingMesh) &&
+                                    OriginalMesh != null &&
+                                    targetMesh != null &&
+                                    OriginalMesh.vertexCount == targetMesh.vertexCount
                 ? OriginalMesh
                 : targetMesh;
+
+            if (Session != null)
+            {
+                return Session.Mappings.Resolve(
+                    handle.MeshData,
+                    compatibilityMesh,
+                    handle.MappingOverrides,
+                    handle.Patch?.m_Target).Map;
+            }
+
             return handle.MappingOverrides
-                       .FirstOrDefault(mapping => mapping.IsCompatibleWith(handle.MeshData, compatibilityMesh)) ??
+                       .FirstOrDefault(mapping => UnityMeshEditorDataUtility.IsMappingCompatible(mapping, handle.MeshData, compatibilityMesh)) ??
                    (handle.MeshData?.m_Mappings ?? Array.Empty<UnityVertexMappingObject>())
-                       .FirstOrDefault(mapping => mapping != null && mapping.IsCompatibleWith(handle.MeshData, compatibilityMesh));
+                       .FirstOrDefault(mapping => UnityMeshEditorDataUtility.IsMappingCompatible(mapping, handle.MeshData, compatibilityMesh));
         }
 
         /// <summary>

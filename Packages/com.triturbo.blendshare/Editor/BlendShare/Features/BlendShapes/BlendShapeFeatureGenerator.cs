@@ -42,7 +42,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             var mesh = context.WorkingMesh;
             int writeOrder = mesh.blendShapeCount;
             var slots = new Dictionary<string, BlendShapeCandidate>(System.StringComparer.Ordinal);
-            var mappingValidity = new Dictionary<UnityVertexMappingObject, bool>(ReferenceComparer<UnityVertexMappingObject>.Instance);
+            var mappingValidity = new Dictionary<IUnityToFbxVertexMap, bool>(ReferenceComparer<IUnityToFbxVertexMap>.Instance);
             foreach (var feature in features)
             {
                 var mapping = context.GetMappingFor(feature, mesh);
@@ -154,7 +154,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             return MeshFeatureGenerationResult.Success();
         }
 
-        private static bool MappingCoversMesh(UnityVertexMappingObject mapping, int vertexCount)
+        private static bool MappingCoversMesh(IUnityToFbxVertexMap mapping, int vertexCount)
         {
             if (mapping == null || vertexCount <= 0)
             {
@@ -310,7 +310,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
         {
             internal BlendShapeCandidate(
                 FbxBlendShapeData shape,
-                UnityVertexMappingObject mapping,
+                IUnityToFbxVertexMap mapping,
                 int writeOrder)
             {
                 Shape = shape;
@@ -319,7 +319,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             }
 
             internal FbxBlendShapeData Shape { get; }
-            internal UnityVertexMappingObject Mapping { get; }
+            internal IUnityToFbxVertexMap Mapping { get; }
             internal int WriteOrder { get; }
         }
 

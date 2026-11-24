@@ -16,7 +16,7 @@ namespace Triturbo.BlendShare.Core
     /// <summary>
     /// ScriptableObject mapping from Unity mesh vertices back to FBX control-point indices.
     /// </summary>
-    public class UnityVertexMappingObject : ScriptableObject
+    public class UnityVertexMappingObject : ScriptableObject, IUnityToFbxVertexMap
     {
         public string m_UnityVertexHash;
 
@@ -30,6 +30,11 @@ namespace Triturbo.BlendShare.Core
 
         public bool m_IsValid;
         public string m_Report;
+
+        /// <inheritdoc />
+        public int UnityVertexCount => m_UnityVertexCount;
+
+        /// <inheritdoc />
         public FbxUnitySpaceConversion SpaceConversion => m_SpaceConversion;
         public string UnityVerticesHashShort
         {

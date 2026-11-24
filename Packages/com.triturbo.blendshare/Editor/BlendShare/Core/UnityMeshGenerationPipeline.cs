@@ -147,7 +147,7 @@ namespace Triturbo.BlendShare.Core
             UnityMeshTargetLookup targetLookup)
         {
             var targetRoot = targetMeshContainer is GameObject gameObject ? gameObject.transform : null;
-            var session = new UnityMeshGenerationSession(
+            using var session = new UnityMeshGenerationSession(
                 targetMeshContainer,
                 patches,
                 targetLookup,
@@ -174,7 +174,7 @@ namespace Triturbo.BlendShare.Core
             IUnityGenerationPreparation preparation,
             UnityBonePathCollisionPolicy bonePathCollisionPolicy)
         {
-            var session = new UnityMeshGenerationSession(
+            using var session = new UnityMeshGenerationSession(
                 targetRoot,
                 patches,
                 targetLookup,
@@ -601,61 +601,68 @@ namespace Triturbo.BlendShare.Core
             IReadOnlyList<BlendShareObject> patches)
         {
             var session = new UnityMeshGenerationSession(targetMeshContainer, patches, targetLookup);
-            var definitions = new List<UnityBatchDefinition>();
-            var definitionsByKey = new Dictionary<string, UnityBatchDefinition>(StringComparer.Ordinal);
-            foreach (var patch in patches)
+            try
             {
-                foreach (var meshData in patch?.Meshes ?? Array.Empty<MeshDataObject>())
+                var definitions = new List<UnityBatchDefinition>();
+                var definitionsByKey = new Dictionary<string, UnityBatchDefinition>(StringComparer.Ordinal);
+                foreach (var patch in patches)
                 {
-                    if (meshData == null || !targetLookup.TryGetMesh(meshData, out var targetMesh))
+                    foreach (var meshData in patch?.Meshes ?? Array.Empty<MeshDataObject>())
+                    {
+                        if (meshData == null || !targetLookup.TryGetMesh(meshData, out var targetMesh))
+                        {
+                            return false;
+                        }
+
+                        string meshKey = MeshNodePath.Normalize(meshData.m_Path);
+                        targetLookup.TryGetRenderer(meshData, out var renderer);
+                        var definition = GetOrCreateDefinition(
+                            definitions,
+                            definitionsByKey,
+                            meshKey,
+                            targetMesh,
+                            renderer);
+                        definition.AddFeatures(patch, meshData);
+                    }
+                }
+
+                foreach (var definition in definitions)
+                {
+                    var context = new UnityMeshFeatureContext(
+                        session,
+                        definition.MeshKey,
+                        definition.OriginalMesh,
+                        definition.OriginalMesh,
+                        definition.Renderer,
+                        targetLookup.RootTransform,
+                        definition.Handles);
+                    bool canGenerateFeature = false;
+                    foreach (var generator in FeatureGenerators)
+                    {
+                        var result = generator.CanApplyToUnityMesh(context);
+                        if (result.Failed)
+                        {
+                            return false;
+                        }
+
+                        if (result.Status != MeshFeatureGenerationStatus.Skipped)
+                        {
+                            canGenerateFeature = true;
+                        }
+                    }
+
+                    if (!canGenerateFeature || context.GetUnhandledHandles().Count > 0)
                     {
                         return false;
                     }
-
-                    string meshKey = MeshNodePath.Normalize(meshData.m_Path);
-                    targetLookup.TryGetRenderer(meshData, out var renderer);
-                    var definition = GetOrCreateDefinition(
-                        definitions,
-                        definitionsByKey,
-                        meshKey,
-                        targetMesh,
-                        renderer);
-                    definition.AddFeatures(patch, meshData);
                 }
-            }
 
-            foreach (var definition in definitions)
+                return true;
+            }
+            finally
             {
-                var context = new UnityMeshFeatureContext(
-                    session,
-                    definition.MeshKey,
-                    definition.OriginalMesh,
-                    definition.OriginalMesh,
-                    definition.Renderer,
-                    targetLookup.RootTransform,
-                    definition.Handles);
-                bool canGenerateFeature = false;
-                foreach (var generator in FeatureGenerators)
-                {
-                    var result = generator.CanApplyToUnityMesh(context);
-                    if (result.Failed)
-                    {
-                        return false;
-                    }
-
-                    if (result.Status != MeshFeatureGenerationStatus.Skipped)
-                    {
-                        canGenerateFeature = true;
-                    }
-                }
-
-                if (!canGenerateFeature || context.GetUnhandledHandles().Count > 0)
-                {
-                    return false;
-                }
+                session.Mappings.Dispose();
             }
-
-            return true;
         }
 
         private static void TryEnableGeneratedMeshReadability(Mesh mesh)
@@ -781,7 +788,9 @@ namespace Triturbo.BlendShare.Core
                 yield break;
             }
 
-            if (UnityMeshEditorDataUtility.IsMappingCompatible(meshComponent.Mapping, meshData, targetMesh))
+            // Pass valid component mappings through so UnityVertexMappingResolver can use them both
+            // for direct exact match and as a reference mesh for mesh-to-mesh auto-remap.
+            if (meshComponent.Mapping != null && meshComponent.Mapping.m_IsValid)
             {
                 yield return meshComponent.Mapping;
             }
