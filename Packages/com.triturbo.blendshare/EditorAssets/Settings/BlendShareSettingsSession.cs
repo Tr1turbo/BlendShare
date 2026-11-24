@@ -55,6 +55,7 @@ namespace Triturbo.BlendShare.EditorAssets.Settings
     {
         private static readonly Dictionary<string, BlendShareSettingsUndoBuffer> s_Buffers = new Dictionary<string, BlendShareSettingsUndoBuffer>();
         private static readonly Dictionary<string, long> s_Revisions = new Dictionary<string, long>();
+        private static readonly Dictionary<string, long> s_PendingUndoFlushes = new Dictionary<string, long>();
         private static readonly HashSet<string> s_WritingGuids = new HashSet<string>();
         private const string k_QueuedPrefix = "BlendShare.Settings.Queued.";
         private static bool s_ExitingEditMode;
@@ -64,6 +65,7 @@ namespace Triturbo.BlendShare.EditorAssets.Settings
         {
             RebuildBufferMapFromLoadedObjects();
             Undo.undoRedoPerformed += OnUndoRedo;
+            EditorApplication.update += FlushPendingUndoFlushes;
             AssemblyReloadEvents.beforeAssemblyReload += () => FlushAllDirty();
             EditorApplication.quitting += () => FlushAllDirty();
             EditorApplication.playModeStateChanged += OnPlayModeChanged;
@@ -173,11 +175,18 @@ namespace Triturbo.BlendShare.EditorAssets.Settings
                 if (hash == buffer.LastObservedHash) continue;
                 RecordChange(buffer, hash);
                 string guid = buffer.AssetGuid;
-                long revision = GetSettingsRevision(guid);
-                EditorApplication.delayCall += () =>
-                {
-                    if (revision == GetSettingsRevision(guid)) Flush(guid);
-                };
+                s_PendingUndoFlushes[guid] = GetSettingsRevision(guid);
+            }
+        }
+
+        private static void FlushPendingUndoFlushes()
+        {
+            if (s_PendingUndoFlushes.Count == 0) return;
+            var pending = s_PendingUndoFlushes.ToArray();
+            s_PendingUndoFlushes.Clear();
+            foreach (var entry in pending)
+            {
+                if (entry.Value == GetSettingsRevision(entry.Key)) Flush(entry.Key);
             }
         }
 
