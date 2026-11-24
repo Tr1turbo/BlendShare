@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShapeShare;
@@ -7,23 +8,43 @@ using UnityEngine.UIElements;
 
 namespace Triturbo.BlendShare.UI.Inspectors
 {
+    /// <summary>
+    /// Verbatim port of the original <c>SkinWeightFeatureObjectEditor</c> / <c>SkinWeightFeatureEditorFactory</c>
+    /// UI wired to BlendShare 2.0 <see cref="SkinWeightFeature"/> (preserving lazy payload discipline).
+    /// </summary>
     public sealed class SkinWeightInspectorDrawer : IFeatureInspectorDrawer
     {
         public string FeatureTypeId => SkinWeightFeature.FeatureTypeId;
         public int DisplayOrder => 20;
 
+        private static string DisplayName => Localization.FeatureName("skin-weights");
+
         public VisualElement CreateInspectorElement(BlendShareFeatureData data, FeatureInspectorContext context)
         {
-            var feature = (SkinWeightFeature)data;
             var box = BlendShareInspectorUi.Box();
-            box.Add(BlendShareInspectorUi.Header(Localization.FeatureName("skin-weights")));
-            var armature = context.Armatures.FirstOrDefault(a => a?.ArmatureId == feature.ArmatureId);
+            var title = new Label(DisplayName);
+            BlendShareInspectorUi.StyleStrong(title);
+            title.style.marginBottom = 4;
+            box.Add(title);
+
+            var feature = data as SkinWeightFeature;
+            if (feature == null)
+            {
+                box.Add(new HelpBox(Localization.S("features.skin-weights.missing_data"), HelpBoxMessageType.Warning));
+                return box;
+            }
+
+            var armature = context.Armatures.FirstOrDefault(a => a != null && string.Equals(a.ArmatureId, feature.ArmatureId, StringComparison.Ordinal));
             var clusters = feature.Clusters.Where(c => c != null).ToList();
-            var paths = clusters.Select(c => c.BonePath).Concat(armature?.Bones.Where(b => b != null)
-                .Select(b => b.Path) ?? Enumerable.Empty<string>());
-            // Distinct affected vertices span cluster payloads and cannot be counted from the manifest.
-            var count = new Button { text = Localization.S("common.expand") };
-            count.clicked += () =>
+            int affectedBoneCount = clusters
+                .Select(c => c.BonePath)
+                .Concat((armature?.Bones ?? (IEnumerable<Model.Documents.ArmatureBoneRecord>)Array.Empty<Model.Documents.ArmatureBoneRecord>()).Where(b => b != null).Select(b => b.Path))
+                .Where(p => !string.IsNullOrEmpty(p))
+                .Distinct(StringComparer.Ordinal)
+                .Count();
+
+            var countButton = BlendShareInspectorUi.InlineButton(Localization.S("common.expand"), null);
+            countButton.clicked += () =>
             {
                 var vertices = new HashSet<int>();
                 foreach (var cluster in clusters)
@@ -31,22 +52,45 @@ namespace Triturbo.BlendShare.UI.Inspectors
                     if (cluster.Payload?.HasPayload != true) continue;
                     using var lease = cluster.Payload.Acquire(context.PayloadSource);
                     if (lease.Value?.DeltaWeights != null)
-                        foreach (int index in lease.Value.DeltaWeights.Indices) vertices.Add(index);
+                    {
+                        foreach (int index in lease.Value.DeltaWeights.Indices)
+                        {
+                            vertices.Add(index);
+                        }
+                    }
                 }
-                count.text = Localization.SF("features.skin-weights.affected_vertices_value", vertices.Count,
-                    context.MeshHeader?.Topology?.ControlPointCount ?? 0);
-                count.SetEnabled(false);
+
+                int totalControlPoints = context.MeshHeader?.Topology?.ControlPointCount ?? -1;
+                countButton.text = totalControlPoints >= 0
+                    ? Localization.SF("features.skin-weights.affected_vertices_value", vertices.Count, totalControlPoints)
+                    : vertices.Count.ToString();
+                countButton.SetEnabled(false);
             };
-            box.Add(BlendShareInspectorUi.LabeledRow(Localization.S("features.skin-weights.affected_vertices"), count));
-            box.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.affected_bones"), paths.Where(p => !string.IsNullOrEmpty(p)).Distinct().Count().ToString()));
+
+            box.Add(BlendShareInspectorUi.LabeledRow(Localization.S("features.skin-weights.affected_vertices"), countButton));
+            box.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.affected_bones"), affectedBoneCount.ToString()));
             box.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.bindposes"), clusters.Count(c => c.HasClusterMatrices).ToString()));
             box.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.root_bone"), feature.RootBonePath));
-            if (armature != null) box.Add(new ArmatureTreeView(armature, context));
+
+            if (armature != null)
+            {
+                var armatureFoldout = new Foldout
+                {
+                    text = $"{Localization.S("features.skin-weights.shared_armature")} ({armature.ArmatureId})",
+                    value = true
+                };
+                armatureFoldout.style.marginTop = 4;
+                armatureFoldout.Add(new ArmatureTreeView(armature, context));
+                box.Add(armatureFoldout);
+            }
+
             box.Add(context.Advanced(feature));
             return box;
         }
 
-        public VisualElement CreateCompactBadgeElement(BlendShareFeatureData data, FeatureInspectorContext context) =>
-            new BlendShareFeatureBadge(Localization.FeatureName("skin-weights"), CreateInspectorElement(data, context));
+        public VisualElement CreateCompactBadgeElement(BlendShareFeatureData data, FeatureInspectorContext context)
+        {
+            return new BlendShareFeatureBadge(DisplayName);
+        }
     }
 }

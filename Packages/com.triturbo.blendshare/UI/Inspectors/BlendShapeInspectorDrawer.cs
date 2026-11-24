@@ -7,226 +7,813 @@ using Triturbo.BlendShare.Inspector;
 using Triturbo.BlendShare.Model.Features;
 using Triturbo.BlendShare.Model.Settings;
 using UnityEditor;
+using UnityEditorInternal;
 using UnityEngine;
 using UnityEngine.UIElements;
-using Ui = Triturbo.BlendShare.Inspector.BlendShareInspectorUi;
 
 namespace Triturbo.BlendShare.UI.Inspectors
 {
+    /// <summary>
+    /// Verbatim port of the original <c>BlendShapeFeatureObjectEditor</c> / <c>BlendShapeFeatureEditorElement</c>
+    /// (preserving the exact lockable header, Selection Set controls, filter icon, multi-select
+    /// <see cref="ReorderableList"/>, and collapsible disabled list) wired strictly to BlendShare 2.0
+    /// <see cref="BlendShapeFeature"/> + <see cref="BlendShapeFeatureSettings"/> via <see cref="BlendShareSettingsUndoBuffer"/>.
+    /// </summary>
     public sealed class BlendShapeInspectorDrawer : IFeatureInspectorDrawer
     {
-        private const string k_LockKey = "blendshapes.locked";
+        private const string k_LockedPrefKey = "blendshapes.locked";
+        private const bool k_DefaultLocked = true;
+
         public string FeatureTypeId => BlendShapeFeature.FeatureTypeId;
         public int DisplayOrder => 10;
 
-        public VisualElement CreateInspectorElement(BlendShareFeatureData feature, FeatureInspectorContext context) =>
-            Create((BlendShapeFeature)feature, context, false);
+        private static string DisplayName => Localization.FeatureName("blend-shapes");
 
-        public VisualElement CreateCompactBadgeElement(BlendShareFeatureData feature, FeatureInspectorContext context) =>
-            Create((BlendShapeFeature)feature, context, true);
-
-        private static VisualElement Create(BlendShapeFeature feature, FeatureInspectorContext context, bool compact)
+        public VisualElement CreateInspectorElement(BlendShareFeatureData feature, FeatureInspectorContext context)
         {
-            var selection = new BlendShapeWorkingSelection(feature, context);
-            var box = Ui.Box();
-            var header = Row();
-            var title = Ui.ValueLabel(Localization.FeatureName("blend-shapes"));
-            title.style.flexGrow = 1;
-            Ui.StyleStrong(title);
-            header.Add(title);
-            bool locked = compact || context.IsReadOnly ||
-                BlendShareInspectorUtility.GetAssetEditorPrefBool(context.PatchAsset, k_LockKey, true);
+            var bsFeature = feature as BlendShapeFeature;
+            bool locked = context.IsReadOnly ||
+                          BlendShareInspectorUtility.GetAssetEditorPrefBool(context.PatchAsset, k_LockedPrefKey, k_DefaultLocked);
+            return CreateBoxedLockableElement(
+                bsFeature,
+                context,
+                locked,
+                value => BlendShareInspectorUtility.SetAssetEditorPrefBool(context.PatchAsset, k_LockedPrefKey, value, k_DefaultLocked),
+                !context.IsReadOnly);
+        }
+
+        public VisualElement CreateCompactBadgeElement(BlendShareFeatureData feature, FeatureInspectorContext context)
+        {
+            var bsFeature = feature as BlendShapeFeature;
+            if (bsFeature == null)
+            {
+                return new BlendShareFeatureBadge(DisplayName);
+            }
+
+            var selection = new BlendShapeWorkingSelection(bsFeature, context);
+            string label = Localization.SF("features.blend-shapes.status.compact", selection.Active.Count, selection.Ids.Count);
+            return new BlendShareFeatureBadge(
+                label,
+                BlendShapeFeatureEditorElement.Create(bsFeature, context, lockedMode: true, showActiveListHeader: false, includeAdvanced: false));
+        }
+
+        private static VisualElement CreateBoxedLockableElement(
+            BlendShapeFeature feature,
+            FeatureInspectorContext context,
+            bool initialLocked,
+            Action<bool> lockChanged,
+            bool showLockButton)
+        {
+            var box = BlendShareInspectorUi.Box();
             var content = new VisualElement();
-            var lockButton = new Button { name = "selection-lock" };
-            if (!compact)
-            {
-                lockButton.SetEnabled(!context.IsReadOnly);
-                header.Add(lockButton);
-                box.Add(header);
-            }
-            box.viewDataKey = context.MeshId + "/" + feature.FeatureId;
-            box.Add(content);
-            void Build()
-            {
-                lockButton.Clear();
-                lockButton.Add(Ui.IconElement(locked ? "Locked" : "Unlocked"));
-                lockButton.tooltip = S(locked ? "unlock_tooltip" : "lock_tooltip");
-                content.Clear();
-                AddControls(content, selection, locked);
-            }
-            lockButton.clicked += () =>
+            bool locked = initialLocked;
+
+            var header = new VisualElement();
+            header.style.flexDirection = FlexDirection.Row;
+            header.style.alignItems = Align.Center;
+            header.style.marginBottom = 4;
+
+            var title = new Label(DisplayName);
+            BlendShareInspectorUi.StyleStrong(title);
+            title.style.flexGrow = 1;
+            header.Add(title);
+
+            Button lockButton = null;
+            lockButton = CreateLockButton(() =>
             {
                 locked = !locked;
-                BlendShareInspectorUtility.SetAssetEditorPrefBool(context.PatchAsset, k_LockKey, locked, true);
-                Build();
-            };
-            Build();
-            box.Add(context.Advanced(feature));
-            return compact ? new BlendShareFeatureBadge(Localization.SF("features.blend-shapes.status.compact",
-                selection.Active.Count, selection.Ids.Count), box) : box;
+                lockChanged?.Invoke(locked);
+                Rebuild();
+            });
+            if (showLockButton)
+            {
+                header.Add(lockButton);
+            }
+
+            box.Add(header);
+            box.Add(content);
+
+            void Rebuild()
+            {
+                UpdateLockButton(lockButton, locked);
+                lockButton.tooltip = locked
+                    ? Localization.S("features.blend-shapes.unlock_tooltip")
+                    : Localization.S("features.blend-shapes.lock_tooltip");
+                content.Clear();
+                content.Add(BlendShapeFeatureEditorElement.Create(feature, context, locked, showActiveListHeader: true, includeAdvanced: true));
+            }
+
+            Rebuild();
+            return box;
         }
 
-        private static string S(string key) => Localization.S("features.blend-shapes." + key);
-
-        private static VisualElement Row() => new VisualElement
+        private static Button CreateLockButton(Action clicked)
         {
-            style = { flexDirection = FlexDirection.Row, flexWrap = Wrap.Wrap, alignItems = Align.Center }
-        };
-
-        private static void AddControls(VisualElement parent, BlendShapeWorkingSelection selection, bool locked)
-        {
-            var controls = new VisualElement();
-            var lists = new VisualElement();
-            var filter = new TextField(Localization.S("common.filter")) { name = "shape-filter", viewDataKey = "shape-filter" };
-            Ui.AddIconToPrefixLabel(filter, EditorGUIUtility.IconContent("Filter Icon"));
-            if (!locked)
-            {
-                parent.Add(controls);
-                parent.Add(filter);
-            }
-            parent.Add(lists);
-            bool disabledExpanded = false;
-
-            void Refresh()
-            {
-                controls.Clear();
-                lists.Clear();
-                var active = selection.Active;
-                var disabled = selection.Ids.Except(active).ToList();
-                string choice = selection.Choice;
-                if (!locked) AddSelectionControls(controls, selection, Refresh);
-                bool Visible(string id) => selection.Name(id).IndexOf(filter.value ?? "", StringComparison.OrdinalIgnoreCase) >= 0;
-                var shown = active.Where(Visible).ToList();
-                var hidden = disabled.Where(Visible).ToList();
-                lists.Add(new Label(locked ? Localization.SF("features.blend-shapes.status.locked", active.Count, selection.Ids.Count)
-                    : Localization.SF("features.blend-shapes.status.editing", active.Count, selection.Ids.Count, shown.Count, hidden.Count, choice)));
-                AddList(lists, selection, shown, true, locked, !string.IsNullOrEmpty(filter.value), Refresh);
-                if (locked) return;
-                var foldout = new Foldout { text = S("selection.disabled_header"), value = disabledExpanded, viewDataKey = "disabled-shapes" };
-                foldout.RegisterValueChangedCallback(evt => disabledExpanded = evt.newValue);
-                AddList(foldout, selection, hidden, false, locked, false, Refresh);
-                lists.Add(foldout);
-            }
-            filter.RegisterValueChangedCallback(_ => Refresh());
-            Refresh();
+            var button = new Button(clicked);
+            button.name = "selection-lock";
+            button.style.width = 24;
+            button.style.height = 22;
+            button.style.paddingLeft = 2;
+            button.style.paddingRight = 2;
+            button.style.paddingTop = 1;
+            button.style.paddingBottom = 1;
+            return button;
         }
 
-        private static void AddSelectionControls(VisualElement controls, BlendShapeWorkingSelection selection, Action refresh)
+        private static void UpdateLockButton(Button button, bool locked)
         {
-            var choices = new List<string> { string.Empty };
-            choices.AddRange(selection.Settings.SelectionSets.Where(set => set != null).Select(set => set.SetId));
-            string selectedId = selection.Settings.ActiveSelectionSetId;
-            if (!choices.Contains(selectedId)) selectedId = string.Empty;
-            // Use a distinct ID for the unsaved choice so Default remains selectable.
-            const string unsavedId = "$unsaved";
-            if (selectedId.Length == 0 && !selection.Active.SequenceEqual(selection.Ids))
+            var icon = EditorGUIUtility.IconContent(locked ? "Locked" : "Unlocked");
+            button.Clear();
+            if (icon?.image != null)
             {
-                selectedId = unsavedId;
-                choices.Add(unsavedId);
+                var image = new Image { image = icon.image };
+                image.style.width = 16;
+                image.style.height = 16;
+                image.style.alignSelf = Align.Center;
+                button.Add(image);
+                button.text = string.Empty;
+                return;
             }
-            string Format(string id) => id == selectedId ? selection.Choice :
-                selection.Settings.FindSelectionSet(id)?.DisplayName ?? S("selection.default");
-            var popup = new PopupField<string>(S("selection_set"), choices, choices.IndexOf(selectedId), Format, Format);
-            popup.RegisterValueChangedCallback(evt =>
+
+            button.text = locked ? Localization.S("common.lock") : Localization.S("common.unlock");
+        }
+    }
+
+    public sealed class BlendShapeFeatureEditorElement : VisualElement
+    {
+        private readonly BlendShapeFeature m_Feature;
+        private readonly BlendShapeWorkingSelection m_Selection;
+        private readonly FeatureInspectorContext m_Context;
+        private readonly TextField m_FilterField;
+        private readonly PopupField<string> m_SetPopup;
+        private readonly Label m_StatusLabel;
+        private Button m_SaveButton;
+        private Button m_SaveAsButton;
+        private Button m_RevertButton;
+        private Button m_DeleteButton;
+        private Button m_MuteVisibleButton;
+        private Button m_EnableVisibleButton;
+        private Button m_EnableAllButton;
+        private Button m_ActiveSelectedActionButton;
+        private Button m_DisabledSelectedActionButton;
+        private readonly Foldout m_DisabledFoldout;
+        private readonly List<string> m_ActiveIds = new List<string>();
+        private readonly List<string> m_VisibleActiveIds = new List<string>();
+        private readonly List<string> m_VisibleAvailableIds = new List<string>();
+        private readonly BlendShapeListView m_ActiveBlendShapeList;
+        private readonly BlendShapeListView m_DisabledBlendShapeList;
+        private readonly bool m_LockedMode;
+
+        private static string DefaultChoice => Localization.S("features.blend-shapes.selection.default");
+        private static string UnsavedChoice => Localization.S("features.blend-shapes.selection.unsaved");
+
+        private BlendShapeFeatureEditorElement(
+            BlendShapeFeature feature,
+            FeatureInspectorContext context,
+            bool lockedMode,
+            bool showActiveListHeader,
+            bool includeAdvanced)
+        {
+            m_Feature = feature;
+            m_Context = context;
+            m_LockedMode = lockedMode;
+
+            if (m_Feature == null)
             {
-                if (evt.newValue == unsavedId) return;
-                selection.Switch(evt.newValue);
-                refresh();
-            });
-            controls.Add(popup);
-            var buttons = Row();
-            void Save(bool asNew)
-            {
-                var current = selection.CurrentSet;
-                string name = SelectionSetNamePrompt.Show(S("selection.name_prompt"),
-                    asNew ? S("selection.default_name") : current?.DisplayName);
-                if (string.IsNullOrWhiteSpace(name)) return;
-                selection.Save(name.Trim(), asNew);
-                refresh();
+                Add(new HelpBox(Localization.S("features.blend-shapes.missing_data"), HelpBoxMessageType.Warning));
+                return;
             }
-            var save = Ui.SmallButton(Localization.S("common.save"), () => Save(false));
-            save.SetEnabled(selection.CurrentSet != null);
-            buttons.Add(save);
-            buttons.Add(Ui.SmallButton(Localization.S("common.save_as"), () => Save(true)));
-            var revert = Ui.SmallButton(Localization.S("common.revert"), () =>
+
+            m_Selection = new BlendShapeWorkingSelection(m_Feature, m_Context);
+            m_ActiveIds.Clear();
+            m_ActiveIds.AddRange(m_Selection.Active);
+            RefreshVisibleActiveIds();
+
+            if (!m_LockedMode)
             {
-                selection.Switch(selection.Settings.ActiveSelectionSetId);
-                refresh();
-            });
-            revert.SetEnabled(selection.Choice != S("selection.default"));
-            buttons.Add(revert);
-            var delete = Ui.SmallButton(Localization.S("common.delete"), () =>
+                m_SetPopup = new PopupField<string>(Localization.S("features.blend-shapes.selection_set"), BuildPopupChoices(), GetCurrentPopupChoice());
+                m_SetPopup.RegisterValueChangedCallback(evt => ApplySelectionChoice(evt.newValue));
+                Add(m_SetPopup);
+
+                Add(CreateSelectionSetButtons());
+
+                m_FilterField = new TextField(Localization.S("common.filter")) { name = "shape-filter" };
+                AddFilterIcon(m_FilterField);
+                m_FilterField.RegisterValueChangedCallback(_ => RefreshAfterSelectionChange());
+                Add(m_FilterField);
+                Add(CreateMuteButtons());
+            }
+
+            m_StatusLabel = new Label();
+            m_StatusLabel.style.opacity = 0.75f;
+            Add(m_StatusLabel);
+
+            m_ActiveBlendShapeList = new BlendShapeListView(
+                m_VisibleActiveIds,
+                id => m_Selection.Name(id),
+                m_LockedMode ? null : Localization.S("features.blend-shapes.mute"),
+                m_LockedMode ? null : ids => MuteActive(ids),
+                showActiveListHeader,
+                GetActiveListHeader,
+                m_LockedMode ? null : RefreshSelectedActionButtons);
+            m_ActiveBlendShapeList.Element.style.marginTop = 6;
+            Add(m_ActiveBlendShapeList.Element);
+
+            if (!m_LockedMode)
             {
-                if (!EditorUtility.DisplayDialog(S("selection.delete_title"),
-                    Localization.SF("features.blend-shapes.selection.delete_message", selection.CurrentSet.DisplayName),
-                    Localization.S("common.delete"), Localization.S("common.cancel"))) return;
-                selection.Delete();
-                refresh();
-            });
-            delete.SetEnabled(selection.CurrentSet != null);
-            buttons.Add(delete);
-            controls.Add(buttons);
+                m_DisabledBlendShapeList = new BlendShapeListView(
+                    m_VisibleAvailableIds,
+                    id => m_Selection.Name(id),
+                    Localization.S("features.blend-shapes.enable_action"),
+                    ids => AddAvailable(ids),
+                    false,
+                    null,
+                    RefreshSelectedActionButtons);
+                m_DisabledFoldout = new Foldout { text = Localization.S("features.blend-shapes.selection.disabled_header"), value = false };
+                m_DisabledFoldout.style.marginLeft = 0;
+                m_DisabledFoldout.style.paddingLeft = 10;
+                m_DisabledFoldout.contentContainer.style.marginLeft = 0;
+                m_DisabledFoldout.contentContainer.style.paddingLeft = 0;
+                m_DisabledFoldout.Add(CreateEnableButtons());
+                m_DisabledFoldout.Add(m_DisabledBlendShapeList.Element);
+                Add(m_DisabledFoldout);
+            }
+
+            m_ActiveBlendShapeList.Rebuild(
+                !m_LockedMode && !IsFilterActive(),
+                m_LockedMode ? null : ids => ApplyEditedActiveIds(ids, "Reorder BlendShapes"));
+            RefreshVisibleAvailableIds();
+            m_DisabledBlendShapeList?.Rebuild(false, null);
+
+            if (!m_LockedMode)
+            {
+                RefreshSelectionSetUi();
+            }
+
+            RefreshStatus();
+            RefreshSelectedActionButtons();
+
+            if (includeAdvanced)
+            {
+                Add(m_Context.Advanced(m_Feature));
+            }
         }
 
-        private static void AddList(VisualElement host, BlendShapeWorkingSelection selection, List<string> ids, bool enabled,
-            bool locked, bool filtered, Action refresh)
+        public static VisualElement Create(
+            BlendShapeFeature feature,
+            FeatureInspectorContext context,
+            bool lockedMode,
+            bool showActiveListHeader,
+            bool includeAdvanced)
         {
-            void Toggle(IEnumerable<string> affected)
+            return new BlendShapeFeatureEditorElement(feature, context, lockedMode, showActiveListHeader, includeAdvanced);
+        }
+
+        public bool IsActiveListDraggable => m_ActiveBlendShapeList != null && m_ActiveBlendShapeList.IsDraggable;
+        public IReadOnlyList<string> VisibleActiveIds => m_VisibleActiveIds;
+
+        private VisualElement CreateSelectionSetButtons()
+        {
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.flexWrap = Wrap.Wrap;
+            m_SaveButton = BlendShareInspectorUi.SmallButton(Localization.S("common.save"), SaveCurrentSet);
+            m_SaveAsButton = BlendShareInspectorUi.SmallButton(Localization.S("common.save_as"), SaveAsNewSet);
+            m_RevertButton = BlendShareInspectorUi.SmallButton(Localization.S("common.revert"), RevertCurrentSet);
+            m_DeleteButton = BlendShareInspectorUi.SmallButton(Localization.S("common.delete"), DeleteCurrentSet);
+            row.Add(m_SaveButton);
+            row.Add(m_SaveAsButton);
+            row.Add(m_RevertButton);
+            row.Add(m_DeleteButton);
+            return row;
+        }
+
+        private static void AddFilterIcon(TextField field)
+        {
+            BlendShareInspectorUi.AddIconToPrefixLabel(
+                field,
+                EditorGUIUtility.IconContent(EditorGUIUtility.isProSkin ? "d_Filter Icon" : "Filter Icon"));
+        }
+
+        private VisualElement CreateMuteButtons()
+        {
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.flexWrap = Wrap.Wrap;
+            row.style.marginTop = 4;
+            m_ActiveSelectedActionButton = CreateSelectedActionButton(
+                Localization.S("features.blend-shapes.mute"),
+                () => m_ActiveBlendShapeList.SelectedVisibleIds(),
+                MuteActive);
+            m_MuteVisibleButton = BlendShareInspectorUi.SmallButton(
+                Localization.S("features.blend-shapes.mute_visible"),
+                () => MuteActive(m_VisibleActiveIds));
+            row.Add(m_MuteVisibleButton);
+            row.Add(m_ActiveSelectedActionButton);
+            return row;
+        }
+
+        private VisualElement CreateEnableButtons()
+        {
+            var row = new VisualElement();
+            row.style.flexDirection = FlexDirection.Row;
+            row.style.flexWrap = Wrap.Wrap;
+            m_DisabledSelectedActionButton = CreateSelectedActionButton(
+                Localization.S("features.blend-shapes.enable_action"),
+                () => m_DisabledBlendShapeList.SelectedVisibleIds(),
+                AddAvailable);
+            m_EnableVisibleButton = BlendShareInspectorUi.SmallButton(
+                Localization.S("features.blend-shapes.enable_visible"),
+                () => AddAvailable(m_VisibleAvailableIds));
+            m_EnableAllButton = BlendShareInspectorUi.SmallButton(
+                Localization.S("features.blend-shapes.enable_all"),
+                () => ApplyEditedActiveIds(m_Selection.Ids, "Enable BlendShapes"));
+            row.Add(m_EnableVisibleButton);
+            row.Add(m_DisabledSelectedActionButton);
+            row.Add(m_EnableAllButton);
+            return row;
+        }
+
+        private static Button CreateSelectedActionButton(
+            string actionLabel,
+            Func<IEnumerable<string>> getSelection,
+            Action<IEnumerable<string>> applyAction)
+        {
+            var button = BlendShareInspectorUi.SmallButton(string.Empty, () => applyAction?.Invoke(getSelection?.Invoke() ?? Array.Empty<string>()));
+            button.userData = actionLabel;
+            button.SetEnabled(false);
+            return button;
+        }
+
+        private void RefreshSelectedActionButtons()
+        {
+            m_MuteVisibleButton?.SetEnabled(IsFilterActive() && m_VisibleActiveIds.Count > 0);
+            m_EnableVisibleButton?.SetEnabled(m_VisibleAvailableIds.Count > 0);
+            m_EnableAllButton?.SetEnabled(m_ActiveIds.Count < m_Selection.Ids.Count);
+            RefreshSelectedActionButton(m_ActiveSelectedActionButton, m_ActiveBlendShapeList?.SelectedVisibleCount() ?? 0);
+            RefreshSelectedActionButton(m_DisabledSelectedActionButton, m_DisabledBlendShapeList?.SelectedVisibleCount() ?? 0);
+        }
+
+        private static void RefreshSelectedActionButton(Button button, int selectedCount)
+        {
+            if (button == null) return;
+            string actionLabel = button.userData as string ?? Localization.S("common.apply");
+            button.text = Localization.SF("features.blend-shapes.selection.selected_action", actionLabel, selectedCount);
+            button.SetEnabled(selectedCount > 0);
+        }
+
+        private string GetActiveListHeader()
+        {
+            return IsFilterActive()
+                ? Localization.S("features.blend-shapes.selection.active_header_filtered")
+                : Localization.S("features.blend-shapes.selection.active_header");
+        }
+
+        private void RefreshVisibleAvailableIds()
+        {
+            m_VisibleAvailableIds.Clear();
+            var active = new HashSet<string>(m_ActiveIds, StringComparer.Ordinal);
+            string search = GetFilterText();
+            for (int i = 0; i < m_Selection.Ids.Count; i++)
             {
-                var active = selection.Active;
-                selection.SetActive(enabled ? active.Except(affected) : active.Concat(affected));
-                refresh();
-            }
-            var list = new ListView
-            {
-                itemsSource = ids, fixedItemHeight = 22, selectionType = SelectionType.Multiple,
-                reorderable = enabled && !locked && !filtered,
-                showBorder = true
-            };
-            list.makeItem = () =>
-            {
-                var row = Row();
-                var name = new Label();
-                name.style.flexGrow = 1;
-                row.Add(name);
-                if (!locked) row.Add(Ui.SmallButton(S(enabled ? "mute" : "enable_action"),
-                    () => Toggle(new[] { (string)row.userData })));
-                return row;
-            };
-            list.bindItem = (row, index) =>
-            {
-                row.userData = ids[index];
-                row.Q<Label>().text = selection.Name(ids[index]);
-            };
-            list.style.height = Math.Min(ids.Count, 12) * 22 + 2;
-            // Unity moves every selected item before the scheduled commit runs.
-            IVisualElementScheduledItem reorder = null;
-            list.itemIndexChanged += (_, __) =>
-            {
-                reorder?.Pause();
-                reorder = list.schedule.Execute(() => { selection.SetActive(ids); refresh(); });
-            };
-            if (!locked)
-            {
-                var actions = Row();
-                var visible = Ui.SmallButton(S(enabled ? "mute_visible" : "enable_visible"), () => Toggle(ids));
-                visible.SetEnabled(ids.Count != 0);
-                actions.Add(visible);
-                string verb = S(enabled ? "mute" : "enable_action");
-                var selected = Ui.SmallButton(Localization.SF("features.blend-shapes.selection.selected_action", verb, 0),
-                    () => Toggle(list.selectedItems.Cast<string>().ToArray()));
-                selected.SetEnabled(false);
-                list.selectionChanged += items =>
+                string id = m_Selection.Ids[i];
+                if (active.Contains(id)) continue;
+                string name = m_Selection.Name(id);
+                if (!string.IsNullOrWhiteSpace(search) && name.IndexOf(search, StringComparison.OrdinalIgnoreCase) < 0)
                 {
-                    int count = items.Count();
-                    selected.SetEnabled(count > 0);
-                    selected.text = Localization.SF("features.blend-shapes.selection.selected_action", verb, count);
-                };
-                actions.Add(selected);
-                if (!enabled) actions.Add(Ui.SmallButton(S("enable_all"), () => { selection.SetActive(selection.Ids); refresh(); }));
-                host.Add(actions);
+                    continue;
+                }
+
+                m_VisibleAvailableIds.Add(id);
             }
-            host.Add(list);
+
+            RefreshStatus();
+        }
+
+        private void RefreshVisibleActiveIds()
+        {
+            m_VisibleActiveIds.Clear();
+            string search = GetFilterText();
+            for (int i = 0; i < m_ActiveIds.Count; i++)
+            {
+                string id = m_ActiveIds[i];
+                string name = m_Selection.Name(id);
+                if (string.IsNullOrWhiteSpace(search) || name.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    m_VisibleActiveIds.Add(id);
+                }
+            }
+        }
+
+        private void AddAvailable(IEnumerable<string> ids)
+        {
+            var next = new List<string>(m_ActiveIds);
+            foreach (string id in ids ?? Enumerable.Empty<string>())
+            {
+                if (!string.IsNullOrEmpty(id) && !next.Contains(id))
+                {
+                    next.Add(id);
+                }
+            }
+
+            ApplyEditedActiveIds(next, "Enable BlendShapes");
+        }
+
+        private void MuteActive(IEnumerable<string> ids)
+        {
+            var muted = new HashSet<string>(ids ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
+            if (muted.Count == 0) return;
+
+            var next = m_ActiveIds.Where(id => !muted.Contains(id)).ToList();
+            m_ActiveBlendShapeList.RemoveSelection(muted);
+            ApplyEditedActiveIds(next, muted.Count == 1 ? "Mute BlendShape" : "Mute BlendShapes");
+        }
+
+        private void ApplySelectionChoice(string choice)
+        {
+            if (choice == DefaultChoice)
+            {
+                m_Selection.Switch(string.Empty);
+                RefreshAfterSelectionChange();
+                return;
+            }
+
+            if (choice == UnsavedChoice)
+            {
+                RefreshSelectionSetUi();
+                return;
+            }
+
+            var selectionSet = FindSelectionByPopupChoice(choice);
+            if (selectionSet != null)
+            {
+                m_Selection.Switch(selectionSet.SetId);
+                RefreshAfterSelectionChange();
+            }
+        }
+
+        private void SaveCurrentSet()
+        {
+            var existing = m_Selection.CurrentSet;
+            if (existing == null)
+            {
+                SaveAsNewSet();
+                return;
+            }
+
+            SaveSet(asNew: false);
+        }
+
+        private void SaveAsNewSet()
+        {
+            SaveSet(asNew: true);
+        }
+
+        private void SaveSet(bool asNew)
+        {
+            var existing = m_Selection.CurrentSet;
+            string defaultName = !asNew && existing != null ? existing.DisplayName : GetNextSetName();
+            string setName = SelectionSetNamePrompt.Show(Localization.S("features.blend-shapes.selection.name_prompt"), defaultName);
+            if (string.IsNullOrWhiteSpace(setName)) return;
+
+            setName = setName.Trim();
+            if (string.IsNullOrWhiteSpace(setName)) return;
+
+            m_Selection.Save(setName, asNew);
+            RefreshAfterSelectionChange(setName);
+        }
+
+        private void RevertCurrentSet()
+        {
+            var current = m_Selection.CurrentSet;
+            m_Selection.Switch(current != null ? current.SetId : string.Empty);
+            RefreshAfterSelectionChange();
+        }
+
+        private void DeleteCurrentSet()
+        {
+            var current = m_Selection.CurrentSet;
+            if (current == null) return;
+
+            if (!EditorUtility.DisplayDialog(
+                    Localization.S("features.blend-shapes.selection.delete_title"),
+                    Localization.SF("features.blend-shapes.selection.delete_message", current.DisplayName),
+                    Localization.S("common.delete"),
+                    Localization.S("common.cancel")))
+            {
+                return;
+            }
+
+            m_Selection.Delete();
+            RefreshAfterSelectionChange(UnsavedChoice);
+        }
+
+        private void ApplyEditedActiveIds(IEnumerable<string> ids, string undoName)
+        {
+            m_Selection.SetActive(ids, undoName);
+            RefreshAfterSelectionChange();
+        }
+
+        private void RefreshAfterSelectionChange(string selectedChoice = null)
+        {
+            RefreshActiveCache();
+            RefreshVisibleActiveIds();
+            m_ActiveBlendShapeList.Rebuild(
+                !m_LockedMode && !IsFilterActive(),
+                m_LockedMode ? null : ids => ApplyEditedActiveIds(ids, "Reorder BlendShapes"));
+            if (!m_LockedMode)
+            {
+                RefreshSelectionSetUi(selectedChoice);
+            }
+
+            RefreshVisibleAvailableIds();
+            m_DisabledBlendShapeList?.Rebuild(false, null);
+            RefreshStatus();
+            RefreshSelectedActionButtons();
+        }
+
+        private void RefreshActiveCache()
+        {
+            m_ActiveIds.Clear();
+            m_ActiveIds.AddRange(m_Selection.Active);
+            m_ActiveBlendShapeList?.PruneSelection(m_ActiveIds);
+            m_DisabledBlendShapeList?.PruneSelection(m_Selection.Ids.Except(m_ActiveIds));
+        }
+
+        private void RefreshSelectionSetUi(string selectedChoice = null)
+        {
+            var choices = BuildPopupChoices();
+            m_SetPopup.choices = choices;
+            string choice = selectedChoice != null && choices.Contains(selectedChoice) ? selectedChoice : GetCurrentPopupChoice();
+            m_SetPopup.SetValueWithoutNotify(choice);
+            RefreshSelectionSetButtons(choice);
+        }
+
+        private void RefreshSelectionSetButtons(string choice)
+        {
+            bool hasSavedSet = m_Selection.CurrentSet != null;
+            m_SaveButton?.SetEnabled(hasSavedSet);
+            m_SaveAsButton?.SetEnabled(true);
+            m_RevertButton?.SetEnabled(choice != DefaultChoice);
+            m_DeleteButton?.SetEnabled(hasSavedSet);
+        }
+
+        private void RefreshStatus()
+        {
+            if (m_LockedMode)
+            {
+                m_StatusLabel.text = Localization.SF("features.blend-shapes.status.locked", m_ActiveIds.Count, m_Selection.Ids.Count);
+                return;
+            }
+
+            string choice = GetCurrentPopupChoice();
+            m_StatusLabel.text = Localization.SF(
+                "features.blend-shapes.status.editing",
+                m_ActiveIds.Count,
+                m_Selection.Ids.Count,
+                m_VisibleActiveIds.Count,
+                m_VisibleAvailableIds.Count,
+                choice);
+        }
+
+        private List<string> BuildPopupChoices()
+        {
+            var choices = new List<string> { DefaultChoice };
+            choices.AddRange(m_Selection.Settings.SelectionSets.Where(s => s != null).Select(GetSelectionPopupName));
+            if (GetCurrentPopupChoice() == UnsavedChoice)
+            {
+                choices.Add(UnsavedChoice);
+            }
+
+            return choices;
+        }
+
+        private string GetCurrentPopupChoice()
+        {
+            var activeSet = m_Selection.CurrentSet;
+            if (activeSet != null)
+            {
+                return GetSelectionPopupName(activeSet);
+            }
+
+            return m_ActiveIds.SequenceEqual(m_Selection.Ids) ? DefaultChoice : UnsavedChoice;
+        }
+
+        private string GetSelectionPopupName(BlendShapeSelectionSet selection)
+        {
+            if (selection == null) return string.Empty;
+            string name = selection.DisplayName;
+            return string.Equals(selection.SetId, m_Selection.Settings.ActiveSelectionSetId, StringComparison.Ordinal) &&
+                   !m_Selection.Settings.WorkingSelectionMatches(selection, m_Selection.Ids)
+                ? $"{name}*"
+                : name;
+        }
+
+        private BlendShapeSelectionSet FindSelectionByPopupChoice(string displayName)
+        {
+            string normalized = displayName?.TrimEnd();
+            if (!string.IsNullOrEmpty(normalized) && normalized.EndsWith("*", StringComparison.Ordinal))
+            {
+                normalized = normalized.Substring(0, normalized.Length - 1).TrimEnd();
+            }
+
+            return m_Selection.Settings.SelectionSets.FirstOrDefault(s => s != null && string.Equals(s.DisplayName, normalized, StringComparison.Ordinal));
+        }
+
+        private bool IsFilterActive() => !string.IsNullOrWhiteSpace(GetFilterText());
+        private string GetFilterText() => m_FilterField?.value ?? string.Empty;
+
+        private string GetNextSetName()
+        {
+            string baseName = Localization.S("features.blend-shapes.selection.default_name");
+            var usedNames = new HashSet<string>(
+                m_Selection.Settings.SelectionSets.Where(s => s != null).Select(s => s.DisplayName),
+                StringComparer.Ordinal);
+            if (!usedNames.Contains(baseName)) return baseName;
+            for (int i = 2; ; i++)
+            {
+                string candidate = $"{baseName} {i}";
+                if (!usedNames.Contains(candidate)) return candidate;
+            }
+        }
+    }
+
+    internal sealed class BlendShapeListView
+    {
+        private readonly List<string> m_VisibleIds;
+        private readonly Func<string, string> m_GetName;
+        private readonly string m_ActionLabel;
+        private readonly Action<IEnumerable<string>> m_ApplyAction;
+        private readonly bool m_ShowHeader;
+        private readonly Func<string> m_GetHeader;
+        private readonly Action m_SelectionChanged;
+        private readonly HashSet<string> m_SelectedIds = new HashSet<string>(StringComparer.Ordinal);
+        private readonly IMGUIContainer m_Element;
+        private ReorderableList m_List;
+        private int m_LastSelectedVisibleIndex = -1;
+        private bool m_IsDraggable;
+
+        public BlendShapeListView(
+            List<string> visibleIds,
+            Func<string, string> getName,
+            string actionLabel,
+            Action<IEnumerable<string>> applyAction,
+            bool showHeader,
+            Func<string> getHeader,
+            Action selectionChanged)
+        {
+            m_VisibleIds = visibleIds;
+            m_GetName = getName;
+            m_ActionLabel = actionLabel;
+            m_ApplyAction = applyAction;
+            m_ShowHeader = showHeader;
+            m_GetHeader = getHeader;
+            m_SelectionChanged = selectionChanged;
+            m_Element = new IMGUIContainer(Draw);
+        }
+
+        public VisualElement Element => m_Element;
+        public bool IsDraggable => m_IsDraggable;
+
+        public void Rebuild(bool draggable, Action<IEnumerable<string>> applyReorder)
+        {
+            m_IsDraggable = draggable;
+            m_List = new ReorderableList(m_VisibleIds, typeof(string), draggable, m_ShowHeader, false, false)
+            {
+                elementHeight = EditorGUIUtility.singleLineHeight + 4,
+                footerHeight = 0,
+                drawHeaderCallback = rect => EditorGUI.LabelField(rect, m_GetHeader?.Invoke() ?? string.Empty),
+                drawElementCallback = DrawElement,
+                onReorderCallback = _ => applyReorder?.Invoke(m_VisibleIds)
+            };
+        }
+
+        public IEnumerable<string> SelectedVisibleIds()
+        {
+            return m_SelectedIds.Where(id => m_VisibleIds.Contains(id)).ToArray();
+        }
+
+        public int SelectedVisibleCount()
+        {
+            return m_SelectedIds.Count(id => m_VisibleIds.Contains(id));
+        }
+
+        public void RemoveSelection(IEnumerable<string> ids)
+        {
+            m_SelectedIds.ExceptWith(ids ?? Enumerable.Empty<string>());
+            if (m_SelectedIds.Count == 0)
+            {
+                m_LastSelectedVisibleIndex = -1;
+            }
+
+            m_SelectionChanged?.Invoke();
+        }
+
+        public void PruneSelection(IEnumerable<string> validIds)
+        {
+            var valid = new HashSet<string>(validIds ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
+            m_SelectedIds.RemoveWhere(id => !valid.Contains(id));
+            if (m_SelectedIds.Count == 0)
+            {
+                m_LastSelectedVisibleIndex = -1;
+            }
+
+            m_SelectionChanged?.Invoke();
+        }
+
+        private void Draw()
+        {
+            bool prevEnabled = GUI.enabled;
+            GUI.enabled = true;
+            try
+            {
+                m_List?.DoLayoutList();
+            }
+            finally
+            {
+                GUI.enabled = prevEnabled;
+            }
+        }
+
+        private void DrawElement(Rect rect, int visibleIndex, bool isActive, bool isFocused)
+        {
+            if (visibleIndex < 0 || visibleIndex >= m_VisibleIds.Count)
+            {
+                return;
+            }
+
+            string shapeId = m_VisibleIds[visibleIndex];
+            bool hasAction = !string.IsNullOrEmpty(m_ActionLabel) && m_ApplyAction != null;
+            float actionWidth = hasAction ? 56f : 0f;
+            const float listElementMargin = 6f;
+            float handleWidth = m_IsDraggable ? 14f : 0f;
+            var selectionRect = new Rect(
+                rect.x - listElementMargin - handleWidth,
+                rect.y,
+                rect.width + handleWidth + listElementMargin * 2,
+                rect.height);
+            var actionRect = new Rect(rect.xMax - actionWidth, rect.y + 2, actionWidth, EditorGUIUtility.singleLineHeight);
+            var labelRect = new Rect(rect.x, rect.y + 2, rect.width - actionWidth - (hasAction ? 6 : 0), EditorGUIUtility.singleLineHeight);
+
+            if (m_SelectedIds.Contains(shapeId))
+            {
+                EditorGUI.DrawRect(selectionRect, SelectionColor());
+            }
+
+            if (m_SelectionChanged != null)
+            {
+                HandleSelection(selectionRect, actionRect, visibleIndex, shapeId);
+            }
+
+            EditorGUI.LabelField(labelRect, m_GetName(shapeId));
+            if (hasAction && GUI.Button(actionRect, m_ActionLabel, EditorStyles.miniButton))
+            {
+                m_ApplyAction?.Invoke(new[] { shapeId });
+            }
+        }
+
+        private void HandleSelection(Rect rowRect, Rect actionRect, int visibleIndex, string shapeId)
+        {
+            Event evt = Event.current;
+            if (evt.type != EventType.MouseDown || evt.button != 0 || !rowRect.Contains(evt.mousePosition) || actionRect.Contains(evt.mousePosition))
+            {
+                return;
+            }
+
+            if (evt.shift && m_LastSelectedVisibleIndex >= 0)
+            {
+                int start = Mathf.Clamp(Math.Min(m_LastSelectedVisibleIndex, visibleIndex), 0, m_VisibleIds.Count - 1);
+                int end = Mathf.Clamp(Math.Max(m_LastSelectedVisibleIndex, visibleIndex), 0, m_VisibleIds.Count - 1);
+                for (int i = start; i <= end; i++)
+                {
+                    m_SelectedIds.Add(m_VisibleIds[i]);
+                }
+            }
+            else if (evt.command || evt.control)
+            {
+                if (!m_SelectedIds.Remove(shapeId))
+                {
+                    m_SelectedIds.Add(shapeId);
+                }
+
+                m_LastSelectedVisibleIndex = visibleIndex;
+            }
+            else
+            {
+                m_SelectedIds.Clear();
+                m_SelectedIds.Add(shapeId);
+                m_LastSelectedVisibleIndex = visibleIndex;
+            }
+
+            m_List.index = visibleIndex;
+            m_SelectionChanged?.Invoke();
+        }
+
+        private static Color SelectionColor()
+        {
+            return EditorGUIUtility.isProSkin
+                ? new Color(0.24f, 0.38f, 0.56f, 0.55f)
+                : new Color(0.30f, 0.55f, 0.88f, 0.35f);
         }
     }
 
@@ -235,6 +822,7 @@ namespace Triturbo.BlendShare.UI.Inspectors
         private readonly FeatureInspectorContext m_Context;
         private readonly string m_FeatureId;
         private readonly Dictionary<string, string> m_Names;
+
         public List<string> Ids { get; }
         public BlendShapeFeatureSettings Settings => EffectiveSettingsResolver.FindFeatureSettings(
             m_Context.Buffer?.Settings, m_Context.MeshId, m_FeatureId) as BlendShapeFeatureSettings ?? new BlendShapeFeatureSettings();
@@ -248,7 +836,7 @@ namespace Triturbo.BlendShare.UI.Inspectors
         {
             m_Context = context;
             m_FeatureId = feature.FeatureId;
-            m_Names = new Dictionary<string, string>();
+            m_Names = new Dictionary<string, string>(StringComparer.Ordinal);
             Ids = new List<string>();
             foreach (var shape in feature.Shapes)
             {
@@ -258,7 +846,7 @@ namespace Triturbo.BlendShare.UI.Inspectors
             }
         }
 
-        public string Name(string id) => m_Names[id];
+        public string Name(string id) => m_Names.TryGetValue(id, out var name) ? name : id;
 
         private void Edit(string label, Action<BlendShapeFeatureSettings> change) =>
             m_Context.RecordEditAndCommit(label, settings => change(EffectiveSettingsResolver.FindOrCreateFeatureSettings<BlendShapeFeatureSettings>(
@@ -272,6 +860,7 @@ namespace Triturbo.BlendShare.UI.Inspectors
                 Copy(current.DisabledShapeIds, settings.DisabledShapeIds);
                 Copy(current.OrderOverrides, settings.OrderOverrides);
             }
+
             settings.DisabledShapeIds.RemoveAll(m_Names.ContainsKey);
             settings.DisabledShapeIds.AddRange(Ids.Except(active));
             settings.OrderOverrides.RemoveAll(m_Names.ContainsKey);
@@ -279,10 +868,10 @@ namespace Triturbo.BlendShare.UI.Inspectors
             settings.HasWorkingOverride = true;
         }
 
-        public void SetActive(IEnumerable<string> ids)
+        public void SetActive(IEnumerable<string> ids, string undoLabel = "Edit BlendShape Selection")
         {
             var active = ids.Distinct().ToList();
-            Edit("Edit BlendShape Selection", settings => WriteWorking(settings, active));
+            Edit(undoLabel, settings => WriteWorking(settings, active));
         }
 
         public void Switch(string id) => Edit("Apply BlendShape Selection", settings =>
@@ -296,7 +885,7 @@ namespace Triturbo.BlendShare.UI.Inspectors
             }
         });
 
-        public void Save(string name, bool asNew) => Edit("Save BlendShape Selection Set", settings =>
+        public void Save(string name, bool asNew) => Edit(asNew ? "Save BlendShape Selection Set" : "Update BlendShape Selection Set", settings =>
         {
             var source = settings.FindSelectionSet(settings.ActiveSelectionSetId);
             var set = asNew ? null : source;
@@ -305,6 +894,7 @@ namespace Triturbo.BlendShare.UI.Inspectors
                 set = new BlendShapeSelectionSet { SetId = Guid.NewGuid().ToString("N") };
                 settings.SelectionSets.Add(set);
             }
+
             bool useSaved = !settings.HasWorkingOverride && source != null;
             Copy(useSaved ? source.DisabledShapeIds : settings.DisabledShapeIds, set.DisabledShapeIds);
             Copy(useSaved ? source.OrderOverrides : settings.OrderOverrides, set.OrderOverrides);
@@ -329,6 +919,7 @@ namespace Triturbo.BlendShare.UI.Inspectors
             destination.AddRange(source);
         }
     }
+
     internal sealed class SelectionSetNamePrompt : EditorWindow
     {
         private string m_Value;
