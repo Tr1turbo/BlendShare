@@ -1,9 +1,7 @@
 {
     "name": "Triturbo.BlendShare.Runtime",
-    "rootNamespace": "",
+    "rootNamespace": "Triturbo.BlendShare.Runtime",
     "references": [
-        "Triturbo.BlendShare.Primitives",
-        "Triturbo.FBX",
         "VRC.SDKBase"
     ],
     "includePlatforms": [],

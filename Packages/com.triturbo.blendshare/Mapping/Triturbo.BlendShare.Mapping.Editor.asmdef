@@ -3,7 +3,7 @@
     "rootNamespace": "Triturbo.BlendShare.Mapping",
     "references": [
         "Triturbo.BlendShare.Primitives",
-        "Triturbo.FBX"
+        "Triturbo.BlendShare.Fbx.Editor"
     ],
     "includePlatforms": [
         "Editor"

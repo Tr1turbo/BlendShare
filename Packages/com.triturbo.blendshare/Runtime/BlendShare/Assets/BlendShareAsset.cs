@@ -1,10 +1,30 @@
 using System;
 using System.Collections.Generic;
-using Triturbo.BlendShare.Primitives;
 using UnityEngine;
 
 namespace Triturbo.BlendShare.Runtime.Assets
 {
+    /// <summary>
+    /// Unity-serializable byte range (offset + length) cached in <see cref="BlendShareAsset"/> TOC records.
+    /// Keeps Runtime 100% decoupled from Editor-only Primitives and Fbx assemblies.
+    /// </summary>
+    [Serializable]
+    public struct BlendShareByteRange
+    {
+        public long Offset;
+        public long Length;
+
+        public long End => checked(Offset + Length);
+
+        public BlendShareByteRange(long offset, long length)
+        {
+            if (offset < 0) throw new ArgumentOutOfRangeException(nameof(offset));
+            if (length < 0) throw new ArgumentOutOfRangeException(nameof(length));
+            Offset = offset;
+            Length = length;
+        }
+    }
+
     /// <summary>
     /// Serialized TOC index record cached inside BlendShareAsset (Library/Artifacts).
     /// Contains only deterministic offsets, lengths, identifiers, and digests—zero paths, InstanceIDs, or timestamps.
@@ -21,7 +41,7 @@ namespace Triturbo.BlendShare.Runtime.Assets
         public bool Required;
         public string CodecId;
         public int CodecVersion;
-        public ByteSlice Slice;
+        public BlendShareByteRange Slice;
         public long UncompressedBytes;
         public string Sha256Hex;
     }
@@ -63,9 +83,9 @@ namespace Triturbo.BlendShare.Runtime.Assets
         [SerializeField] private string m_DisplayName = string.Empty;
         [SerializeField] private string m_SourceRevision = string.Empty;
         [SerializeField] private long m_TotalFileLength;
-        [SerializeField] private ByteSlice m_ManifestSlice;
-        [SerializeField] private ByteSlice m_IndexTableSlice;
-        [SerializeField] private ByteSlice m_PayloadSectionSlice;
+        [SerializeField] private BlendShareByteRange m_ManifestSlice;
+        [SerializeField] private BlendShareByteRange m_IndexTableSlice;
+        [SerializeField] private BlendShareByteRange m_PayloadSectionSlice;
         [SerializeField] private int m_ArmaturesEntryIndex = -1;
         [SerializeField] private BlendShareMeshToc[] m_Meshes = Array.Empty<BlendShareMeshToc>();
         [SerializeField] private BlendShareTocEntry[] m_Entries = Array.Empty<BlendShareTocEntry>();
@@ -75,9 +95,9 @@ namespace Triturbo.BlendShare.Runtime.Assets
         public string DisplayName => m_DisplayName ?? string.Empty;
         public string SourceRevision => m_SourceRevision ?? string.Empty;
         public long TotalFileLength => m_TotalFileLength;
-        public ByteSlice ManifestSlice => m_ManifestSlice;
-        public ByteSlice IndexTableSlice => m_IndexTableSlice;
-        public ByteSlice PayloadSectionSlice => m_PayloadSectionSlice;
+        public BlendShareByteRange ManifestSlice => m_ManifestSlice;
+        public BlendShareByteRange IndexTableSlice => m_IndexTableSlice;
+        public BlendShareByteRange PayloadSectionSlice => m_PayloadSectionSlice;
         public int ArmaturesEntryIndex => m_ArmaturesEntryIndex;
         public IReadOnlyList<BlendShareMeshToc> Meshes => m_Meshes ?? Array.Empty<BlendShareMeshToc>();
         public IReadOnlyList<BlendShareTocEntry> Entries => m_Entries ?? Array.Empty<BlendShareTocEntry>();
@@ -88,9 +108,9 @@ namespace Triturbo.BlendShare.Runtime.Assets
             string displayName,
             string sourceRevision,
             long totalFileLength,
-            ByteSlice manifestSlice,
-            ByteSlice indexTableSlice,
-            ByteSlice payloadSectionSlice,
+            BlendShareByteRange manifestSlice,
+            BlendShareByteRange indexTableSlice,
+            BlendShareByteRange payloadSectionSlice,
             int armaturesEntryIndex,
             BlendShareMeshToc[] meshes,
             BlendShareTocEntry[] entries)

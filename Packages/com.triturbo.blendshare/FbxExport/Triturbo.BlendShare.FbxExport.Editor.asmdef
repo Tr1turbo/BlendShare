@@ -4,7 +4,7 @@
     "references": [
         "Triturbo.BlendShare.Primitives",
         "Triturbo.BlendShare.Model.Editor",
-        "Triturbo.FBX",
+        "Triturbo.BlendShare.Fbx.Editor",
         "Triturbo.BlendShare.Container.Editor",
         "Triturbo.BlendShare.Pipeline.Editor",
         "Autodesk.Fbx"

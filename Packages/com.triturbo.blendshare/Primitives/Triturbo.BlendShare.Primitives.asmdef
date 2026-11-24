@@ -2,7 +2,9 @@
     "name": "Triturbo.BlendShare.Primitives",
     "rootNamespace": "Triturbo.BlendShare",
     "references": [],
-    "includePlatforms": [],
+    "includePlatforms": [
+        "Editor"
+    ],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,

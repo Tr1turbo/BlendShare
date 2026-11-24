@@ -33,7 +33,7 @@ namespace Triturbo.BlendShare.EditorAssets
                     Required = src.Required,
                     CodecId = src.CodecId ?? string.Empty,
                     CodecVersion = src.CodecVersion,
-                    Slice = src.Slice,
+                    Slice = ToByteRange(src.Slice),
                     UncompressedBytes = src.UncompressedBytes,
                     Sha256Hex = ToLowerHex(src.Sha256)
                 };
@@ -66,9 +66,9 @@ namespace Triturbo.BlendShare.EditorAssets
                 toc.DisplayName,
                 toc.SourceRevision,
                 toc.TotalFileLength,
-                toc.ManifestSlice,
-                toc.IndexTableSlice,
-                toc.PayloadSectionSlice,
+                ToByteRange(toc.ManifestSlice),
+                ToByteRange(toc.IndexTableSlice),
+                ToByteRange(toc.PayloadSectionSlice),
                 toc.ArmaturesEntry != null ? toc.ArmaturesEntry.EntryIndex : -1,
                 meshes,
                 tocEntries);
@@ -94,7 +94,7 @@ namespace Triturbo.BlendShare.EditorAssets
                     src.Required,
                     src.CodecId,
                     src.CodecVersion,
-                    src.Slice,
+                    ToByteSlice(src.Slice),
                     src.UncompressedBytes,
                     ParseHex32(src.Sha256Hex, "Sha256Hex")));
             }
@@ -103,11 +103,14 @@ namespace Triturbo.BlendShare.EditorAssets
                 asset.PatchId,
                 asset.DisplayName,
                 revisionBytes,
-                asset.ManifestSlice,
-                asset.IndexTableSlice,
-                asset.PayloadSectionSlice,
+                ToByteSlice(asset.ManifestSlice),
+                ToByteSlice(asset.IndexTableSlice),
+                ToByteSlice(asset.PayloadSectionSlice),
                 entries);
         }
+
+        private static BlendShareByteRange ToByteRange(ByteSlice slice) => new BlendShareByteRange(slice.Offset, slice.Length);
+        private static ByteSlice ToByteSlice(BlendShareByteRange range) => new ByteSlice(range.Offset, range.Length);
 
         public static string ToLowerHex(byte[] bytes)
         {

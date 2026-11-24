@@ -1,7 +1,9 @@
 {
-    "name": "Triturbo.BlendShapeShare.Localization",
-    "rootNamespace": "",
-    "references": [],
+    "name": "Triturbo.BlendShare.Fbx.Editor",
+    "rootNamespace": "Triturbo.BlendShare.Fbx",
+    "references": [
+        "Triturbo.BlendShare.Primitives"
+    ],
     "includePlatforms": [
         "Editor"
     ],

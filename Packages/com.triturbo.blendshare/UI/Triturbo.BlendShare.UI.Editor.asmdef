@@ -5,7 +5,7 @@
         "Triturbo.BlendShare.Primitives",
         "Triturbo.BlendShare.Runtime",
         "Triturbo.BlendShare.Model.Editor",
-        "Triturbo.FBX",
+        "Triturbo.BlendShare.Fbx.Editor",
         "Triturbo.BlendShare.Container.Editor",
         "Triturbo.BlendShare.EditorAssets.Editor",
         "Triturbo.BlendShare.Pipeline.Editor"
