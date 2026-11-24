@@ -137,7 +137,7 @@ namespace Triturbo.BlendShare.Core
         private static MeshDataObject CreateMeshData(MeshFeatureExtractionContext context)
         {
             var meshDataObject = ScriptableObject.CreateInstance<MeshDataObject>();
-            var fbxMesh = context.GetOriginFbxMesh() ?? context.GetSourceFbxMesh();
+            IFbxMeshGeometry fbxMesh = context.GetOriginFbxMesh() ?? context.GetSourceFbxMesh();
             meshDataObject.Initialize(
                 context.GetResolvedFbxNodePath(),
                 FbxTopologyHash.Calculate(fbxMesh));

@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Fbx;
-using Triturbo.BlendShare.Fbx.Ufbx;
 using UnityEngine;
 
 namespace Triturbo.BlendShare.Features.SkinWeights
@@ -25,18 +24,18 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return transform != null ? transform.GetComponent<SkinnedMeshRenderer>() : null;
         }
 
-        public static UfbxSkinDeformer GetPrimarySkinDeformer(MeshFeatureExtractionContext context)
+        public static IFbxSkinDeformer GetPrimarySkinDeformer(MeshFeatureExtractionContext context)
         {
             return GetPrimarySourceSkinDeformer(context);
         }
 
-        public static UfbxSkinDeformer GetPrimarySourceSkinDeformer(MeshFeatureExtractionContext context)
+        public static IFbxSkinDeformer GetPrimarySourceSkinDeformer(MeshFeatureExtractionContext context)
         {
             return context?.GetSourceFbxMesh()?.SkinDeformers
                 .FirstOrDefault(deformer => deformer != null && deformer.Clusters.Any(cluster => cluster.WeightCount > 0));
         }
 
-        public static UfbxSkinDeformer GetPrimaryOriginSkinDeformer(MeshFeatureExtractionContext context)
+        public static IFbxSkinDeformer GetPrimaryOriginSkinDeformer(MeshFeatureExtractionContext context)
         {
             return context?.GetOriginFbxMesh()?.SkinDeformers
                 .FirstOrDefault(deformer => deformer != null && deformer.Clusters.Any(cluster => cluster.WeightCount > 0));
@@ -54,7 +53,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 : null);
         }
 
-        public static UfbxSkinCluster GetCluster(UfbxSkinDeformer skin, int boneIndex)
+        public static IFbxSkinCluster GetCluster(IFbxSkinDeformer skin, int boneIndex)
         {
             return skin != null && boneIndex >= 0 && boneIndex < skin.Clusters.Count
                 ? skin.Clusters[boneIndex]

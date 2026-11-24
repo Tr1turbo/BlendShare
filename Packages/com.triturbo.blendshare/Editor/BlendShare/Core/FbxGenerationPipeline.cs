@@ -4,6 +4,7 @@ using System.Linq;
 
 #if ENABLE_FBX_SDK
 using Autodesk.Fbx;
+using Triturbo.BlendShare.Fbx;
 using Debug = UnityEngine.Debug;
 using UfbxScene = Triturbo.BlendShare.Fbx.Ufbx.UfbxScene;
 
@@ -48,7 +49,7 @@ namespace Triturbo.BlendShare.Core
             FbxManager fbxManager = null;
             FbxImporter fbxImporter = null;
             FbxExporter exporter = null;
-            UfbxScene readerScene = null;
+            IFbxScene readerScene = null;
             try
             {
                 fbxManager = FbxManager.Create();

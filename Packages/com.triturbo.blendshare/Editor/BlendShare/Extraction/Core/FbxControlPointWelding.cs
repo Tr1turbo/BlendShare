@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using Triturbo.BlendShare.Fbx;
-using Triturbo.BlendShare.Fbx.Ufbx;
 using Debug = UnityEngine.Debug;
 
 #if ENABLE_FBX_SDK
@@ -33,7 +32,7 @@ namespace Triturbo.BlendShare.Core
                 .Where(group => group.Length > 1)
                 .ToArray() ?? System.Array.Empty<int[]>();
         }
-        public static FbxControlPointWelding FromUfbxMesh(UfbxMesh mesh)
+        public static FbxControlPointWelding FromFbxMesh(IFbxMeshGeometry mesh)
         {
             if (mesh == null || mesh.ControlPointCount == 0)
             {
@@ -41,7 +40,7 @@ namespace Triturbo.BlendShare.Core
             }
 
             var stopwatch = Stopwatch.StartNew();
-            var controlPoints = mesh.GetVertices();
+            var controlPoints = mesh.GetControlPoints();
             var controlPointPosition = new Dictionary<Vector3d, List<int>>();
 
             for (int i = 0; i < controlPoints.Length; i++)
@@ -65,14 +64,14 @@ namespace Triturbo.BlendShare.Core
             {
                 foreach (var channel in deformer.Channels)
                 {
-                    foreach (var shape in channel.BlendShapes)
+                    foreach (var keyframe in channel.Keyframes)
                     {
                         if (groups.Count == 0)
                         {
                             break;
                         }
 
-                        groups = GroupWithShape(groups, controlPoints, shape);
+                        groups = GroupWithShape(groups, controlPoints, keyframe.Shape);
                     }
 
                     if (groups.Count == 0)
@@ -257,7 +256,7 @@ namespace Triturbo.BlendShare.Core
         private static List<List<int>> GroupWithShape(
             List<List<int>> groups,
             IReadOnlyList<Vector3d> basePositions,
-            UfbxBlendShape shape)
+            IFbxBlendShape shape)
         {
             if (groups == null || groups.Count == 0 || shape == null || shape.OffsetCount <= 0)
             {
@@ -265,8 +264,8 @@ namespace Triturbo.BlendShare.Core
             }
 
             var indices = new int[shape.OffsetCount];
-            var deltas = new double[shape.OffsetCount * 3];
-            if (shape.CopyOffsets(indices, deltas, null) == 0)
+            var deltas = new Vector3d[shape.OffsetCount];
+            if (!shape.TryCopyOffsets(indices, deltas, System.Span<Vector3d>.Empty, System.Span<double>.Empty, out int written) || written != indices.Length)
             {
                 return groups;
             }
@@ -275,7 +274,7 @@ namespace Triturbo.BlendShare.Core
                 groups,
                 basePositions,
                 indices,
-                FbxArrayUtility.ToVector3dArray(deltas));
+                deltas);
         }
 
         internal static List<List<int>> GroupWithSparseShapeOffsets(

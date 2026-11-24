@@ -4,7 +4,6 @@ using System.Linq;
 using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Fbx.Unity;
-using Triturbo.BlendShare.Fbx.Ufbx;
 using UnityEngine;
 
 namespace Triturbo.BlendShare.Features.SkinWeights
@@ -400,37 +399,46 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             };
         }
 
-        private static bool ApproximatelyNodeTransform(UfbxNode first, UfbxNode second, double epsilon)
+        private static bool ApproximatelyNodeTransform(IFbxNode first, IFbxNode second, double epsilon)
         {
-            return first != null &&
-                   second != null &&
-                   first.RotationOrder == second.RotationOrder &&
-                   first.InheritMode == second.InheritMode &&
-                   first.RotationActive == second.RotationActive &&
-                   first.LclTranslation.Approximately(second.LclTranslation, epsilon) &&
-                   first.LclRotation.Approximately(second.LclRotation, epsilon) &&
-                   first.LclScaling.Approximately(second.LclScaling, epsilon) &&
-                   first.PreRotation.Approximately(second.PreRotation, epsilon) &&
-                   first.PostRotation.Approximately(second.PostRotation, epsilon) &&
-                   first.RotationPivot.Approximately(second.RotationPivot, epsilon) &&
-                   first.ScalingPivot.Approximately(second.ScalingPivot, epsilon) &&
-                   first.RotationOffset.Approximately(second.RotationOffset, epsilon) &&
-                   first.ScalingOffset.Approximately(second.ScalingOffset, epsilon) &&
+            if (first == null || second == null)
+            {
+                return false;
+            }
+
+            var firstRaw = first.RawTransform;
+            var secondRaw = second.RawTransform;
+            return firstRaw.RotationOrder == secondRaw.RotationOrder &&
+                   firstRaw.OriginalInheritMode == secondRaw.OriginalInheritMode &&
+                   firstRaw.RotationActive == secondRaw.RotationActive &&
+                   firstRaw.LclTranslation.Approximately(secondRaw.LclTranslation, epsilon) &&
+                   firstRaw.LclRotation.Approximately(secondRaw.LclRotation, epsilon) &&
+                   firstRaw.LclScaling.Approximately(secondRaw.LclScaling, epsilon) &&
+                   firstRaw.PreRotation.Approximately(secondRaw.PreRotation, epsilon) &&
+                   firstRaw.PostRotation.Approximately(secondRaw.PostRotation, epsilon) &&
+                   firstRaw.RotationPivot.Approximately(secondRaw.RotationPivot, epsilon) &&
+                   firstRaw.ScalingPivot.Approximately(secondRaw.ScalingPivot, epsilon) &&
+                   firstRaw.RotationOffset.Approximately(secondRaw.RotationOffset, epsilon) &&
+                   firstRaw.ScalingOffset.Approximately(secondRaw.ScalingOffset, epsilon) &&
                    first.NodeToParentMatrix.Approximately(second.NodeToParentMatrix, epsilon);
         }
 
-        internal static Dictionary<int, string> BuildBonePathsByIndex(UfbxSkinDeformer skin)
+        internal static Dictionary<int, string> BuildBonePathsByIndex(IFbxSkinDeformer skin)
         {
-            return (skin?.Clusters ?? (IEnumerable<UfbxSkinCluster>)Array.Empty<UfbxSkinCluster>())
-                .Select((cluster, index) => new { cluster, index })
-                .Where(item => item.cluster?.BoneNode != null)
+            return (skin?.Clusters ?? (IEnumerable<IFbxSkinCluster>)Array.Empty<IFbxSkinCluster>())
+                .Select((cluster, index) => new
+                {
+                    index,
+                    path = cluster?.BoneNode?.Path ?? cluster?.BonePath
+                })
+                .Where(item => !string.IsNullOrWhiteSpace(item.path))
                 .ToDictionary(
                     item => item.index,
-                    item => MeshNodePath.Normalize(item.cluster.BoneNode.Path));
+                    item => MeshNodePath.Normalize(item.path));
         }
 
         internal static Dictionary<string, Dictionary<int, double>> BuildWeightsByPath(
-            UfbxSkinDeformer skin,
+            IFbxSkinDeformer skin,
             IReadOnlyDictionary<int, string> bonePathByIndex)
         {
             var result = new Dictionary<string, Dictionary<int, double>>(StringComparer.Ordinal);
@@ -447,7 +455,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     continue;
                 }
 
-                var indices = cluster.GetIndices();
+                var indices = cluster.GetControlPointIndices();
                 var weights = cluster.GetWeights();
                 int count = Math.Min(indices.Length, weights.Length);
                 for (int i = 0; i < count; i++)
@@ -474,7 +482,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static HashSet<string> BuildClusterBonePaths(
-            UfbxSkinDeformer skin,
+            IFbxSkinDeformer skin,
             IReadOnlyDictionary<int, string> bonePathByIndex)
         {
             var result = new HashSet<string>(StringComparer.Ordinal);
@@ -496,7 +504,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         internal static Dictionary<string, SkinWeightClusterData> BuildBindPosesByPath(
-            UfbxSkinDeformer skin,
+            IFbxSkinDeformer skin,
             IReadOnlyDictionary<int, string> bonePathByIndex)
         {
             var result = new Dictionary<string, SkinWeightClusterData>(StringComparer.Ordinal);

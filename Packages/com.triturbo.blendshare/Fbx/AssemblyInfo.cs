@@ -1,3 +1,2 @@
-using System.Runtime.CompilerServices;
-
-[assembly: InternalsVisibleTo("Triturbo.BlendShapeShare.Data.Editor")]
+// Triturbo.FBX assembly metadata.
+// Note: InternalsVisibleTo was intentionally removed in FBX Reader v3; consumers interact through IFbx* contracts.

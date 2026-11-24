@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Fbx;
-using Triturbo.BlendShare.Fbx.Ufbx;
 
 namespace Triturbo.BlendShare.Features.BlendShapes
 {
@@ -116,11 +115,21 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             var sourceChannels = GetBlendChannels(pair.SourceMesh);
             var originChannels = GetBlendChannelsByName(pair.OriginMesh);
             int controlPointCount = pair.OriginMesh?.ControlPointCount ?? 0;
+            Vector3d[] cachedSourceBaseNormals = null;
+            bool sourceBaseNormalsLoaded = false;
             result.BlendShapes = sourceChannels
                 .Select(channel => new BlendShapeComparisonEntry
                 {
                     Name = channel.Name,
-                    Status = GetStatus(channel, originChannels, sourceOffset, controlPointCount, deltaTolerance)
+                    Status = GetStatus(
+                        channel,
+                        originChannels,
+                        sourceOffset,
+                        controlPointCount,
+                        deltaTolerance,
+                        pair.SourceMesh,
+                        ref cachedSourceBaseNormals,
+                        ref sourceBaseNormalsLoaded)
                 })
                 .ToArray();
             result.Message = pair.OriginMesh == null
@@ -129,15 +138,15 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             return result;
         }
 
-        private static Dictionary<string, UfbxBlendChannel> GetBlendChannelsByName(UfbxMesh mesh)
+        private static Dictionary<string, IFbxBlendChannel> GetBlendChannelsByName(IFbxMeshGeometry mesh)
         {
             return GetBlendChannels(mesh)
                 .ToDictionary(channel => channel.Name, channel => channel, StringComparer.Ordinal);
         }
 
-        private static IReadOnlyList<UfbxBlendChannel> GetBlendChannels(UfbxMesh mesh)
+        private static IReadOnlyList<IFbxBlendChannel> GetBlendChannels(IFbxMeshGeometry mesh)
         {
-            var result = new List<UfbxBlendChannel>();
+            var result = new List<IFbxBlendChannel>();
             var seen = new HashSet<string>(StringComparer.Ordinal);
             if (mesh == null)
             {
@@ -158,11 +167,14 @@ namespace Triturbo.BlendShare.Features.BlendShapes
         }
 
         private static BlendShapeComparisonStatus GetStatus(
-            UfbxBlendChannel source,
-            IReadOnlyDictionary<string, UfbxBlendChannel> originChannels,
+            IFbxBlendChannel source,
+            IReadOnlyDictionary<string, IFbxBlendChannel> originChannels,
             FbxMatrix4x4 sourceOffset,
             int controlPointCount,
-            double deltaTolerance)
+            double deltaTolerance,
+            IFbxMeshGeometry sourceMesh,
+            ref Vector3d[] cachedSourceBaseNormals,
+            ref bool sourceBaseNormalsLoaded)
         {
             if (source == null)
             {
@@ -176,31 +188,45 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                 return BlendShapeComparisonStatus.New;
             }
 
-            return BlendShapesMatch(source, origin, sourceOffset, controlPointCount, deltaTolerance)
+            return BlendShapesMatch(
+                source,
+                origin,
+                sourceOffset,
+                controlPointCount,
+                deltaTolerance,
+                sourceMesh,
+                ref cachedSourceBaseNormals,
+                ref sourceBaseNormalsLoaded)
                 ? BlendShapeComparisonStatus.Same
                 : BlendShapeComparisonStatus.Changed;
         }
 
         private static bool BlendShapesMatch(
-            UfbxBlendChannel source,
-            UfbxBlendChannel origin,
+            IFbxBlendChannel source,
+            IFbxBlendChannel origin,
             FbxMatrix4x4 sourceOffset,
             int controlPointCount,
-            double deltaTolerance)
+            double deltaTolerance,
+            IFbxMeshGeometry sourceMesh,
+            ref Vector3d[] cachedSourceBaseNormals,
+            ref bool sourceBaseNormalsLoaded)
         {
-            if (source.BlendShapes.Count != origin.BlendShapes.Count)
+            if (source.Keyframes.Count != origin.Keyframes.Count)
             {
                 return false;
             }
 
-            for (int i = 0; i < source.BlendShapes.Count; i++)
+            for (int i = 0; i < source.Keyframes.Count; i++)
             {
                 if (!BlendShapeFramesMatch(
-                        source.BlendShapes[i],
-                        origin.BlendShapes[i],
+                        source.Keyframes[i],
+                        origin.Keyframes[i],
                         sourceOffset,
                         controlPointCount,
-                        deltaTolerance))
+                        deltaTolerance,
+                        sourceMesh,
+                        ref cachedSourceBaseNormals,
+                        ref sourceBaseNormalsLoaded))
                 {
                     return false;
                 }
@@ -210,19 +236,41 @@ namespace Triturbo.BlendShare.Features.BlendShapes
         }
 
         private static bool BlendShapeFramesMatch(
-            UfbxBlendShape source,
-            UfbxBlendShape origin,
+            IFbxBlendKeyframe source,
+            IFbxBlendKeyframe origin,
             FbxMatrix4x4 sourceOffset,
             int controlPointCount,
-            double deltaTolerance)
+            double deltaTolerance,
+            IFbxMeshGeometry sourceMesh,
+            ref Vector3d[] cachedSourceBaseNormals,
+            ref bool sourceBaseNormalsLoaded)
         {
-            if (Math.Abs(source.Weight - origin.Weight) > FrameWeightComparisonTolerance)
+            if (source == null || origin == null)
+            {
+                return source == null && origin == null;
+            }
+
+            if (Math.Abs(source.TargetWeight - origin.TargetWeight) > FrameWeightComparisonTolerance)
             {
                 return false;
             }
 
-            var sourceDeltas = CopyDeltas(source, sourceOffset, controlPointCount);
-            var originDeltas = CopyDeltas(origin, FbxMatrix4x4.Identity, controlPointCount);
+            Vector3d[] sourceBaseNormals = null;
+            if (!sourceOffset.IsIdentity && source.Shape?.HasNormalOffsets == true)
+            {
+                if (!sourceBaseNormalsLoaded)
+                {
+                    // Cache representative per-control-point normals once per mesh instead of
+                    // re-reading them for every blendshape keyframe during inspection.
+                    cachedSourceBaseNormals = sourceMesh?.GetFirstCornerNormals() ?? Array.Empty<Vector3d>();
+                    sourceBaseNormalsLoaded = true;
+                }
+
+                sourceBaseNormals = cachedSourceBaseNormals;
+            }
+
+            var sourceDeltas = CopyDeltas(source.Shape, sourceOffset, controlPointCount, sourceBaseNormals);
+            var originDeltas = CopyDeltas(origin.Shape, FbxMatrix4x4.Identity, controlPointCount, null);
             foreach (var pair in sourceDeltas)
             {
                 originDeltas.TryGetValue(pair.Key, out var originDelta);
@@ -245,9 +293,10 @@ namespace Triturbo.BlendShare.Features.BlendShapes
         }
 
         private static Dictionary<int, BlendShapeDelta> CopyDeltas(
-            UfbxBlendShape frame,
+            IFbxBlendShape frame,
             FbxMatrix4x4 transform,
-            int controlPointCount)
+            int controlPointCount,
+            Vector3d[] baseNormals)
         {
             var result = new Dictionary<int, BlendShapeDelta>();
             if (frame == null || frame.OffsetCount <= 0)
@@ -256,32 +305,41 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             }
 
             var indices = new int[frame.OffsetCount];
-            var values = new double[frame.OffsetCount * 3];
-            var normals = new double[frame.OffsetCount * 3];
-            if (frame.CopyOffsets(indices, values, normals) == 0)
+            var deltas = new Vector3d[frame.OffsetCount];
+            var normalDeltas = frame.HasNormalOffsets
+                ? new Vector3d[frame.OffsetCount]
+                : Array.Empty<Vector3d>();
+            if (!frame.TryCopyOffsets(indices, deltas, normalDeltas, Span<double>.Empty, out int count) || count == 0)
             {
                 return result;
             }
 
-            var deltas = FbxArrayUtility.ToVector3dArray(values);
-            var normalDeltas = FbxArrayUtility.ToVector3dArray(normals);
-            var baseNormals = frame.OwnerMesh?.GetNormals();
-            transform.TryInverse(out var inverseTransform);
-            int count = Math.Min(indices.Length, Math.Min(deltas.Length, normalDeltas.Length));
-            for (int i = 0; i < count; i++)
+            bool isIdentity = transform.IsIdentity;
+            FbxMatrix4x4 inverseTransform = FbxMatrix4x4.Identity;
+            if (!isIdentity)
             {
-                if (indices[i] < 0 || indices[i] >= controlPointCount)
+                transform.TryInverse(out inverseTransform);
+            }
+
+            int safeCount = Math.Min(count, Math.Min(indices.Length, deltas.Length));
+            int baseNormalLength = baseNormals?.Length ?? 0;
+            for (int i = 0; i < safeCount; i++)
+            {
+                int cp = indices[i];
+                if (cp < 0 || cp >= controlPointCount)
                 {
                     continue;
                 }
 
-                result[indices[i]] = new BlendShapeDelta(
-                    TransformVector(transform, deltas[i]),
-                    TransformNormalDelta(
-                        transform,
+                Vector3d positionDelta = isIdentity ? deltas[i] : transform.TransformVector(deltas[i]);
+                Vector3d rawNormalDelta = i < normalDeltas.Length ? normalDeltas[i] : Vector3d.zero;
+                Vector3d normalDelta = isIdentity
+                    ? rawNormalDelta
+                    : TransformNormalDelta(
                         inverseTransform,
-                        indices[i] < (baseNormals?.Length ?? 0) ? baseNormals[indices[i]] : Vector3d.zero,
-                        normalDeltas[i]));
+                        cp < baseNormalLength ? baseNormals[cp] : Vector3d.zero,
+                        rawNormalDelta);
+                result[cp] = new BlendShapeDelta(positionDelta, normalDelta);
             }
 
             return result;
@@ -303,45 +361,18 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                    Math.Abs(left.z - right.z) <= tolerance;
         }
 
-        private static Vector3d TransformVector(FbxMatrix4x4 matrix, Vector3d vector)
-        {
-            if (matrix.IsIdentity)
-            {
-                return vector;
-            }
-
-            return new Vector3d(
-                vector.x * matrix[0, 0] + vector.y * matrix[1, 0] + vector.z * matrix[2, 0],
-                vector.x * matrix[0, 1] + vector.y * matrix[1, 1] + vector.z * matrix[2, 1],
-                vector.x * matrix[0, 2] + vector.y * matrix[1, 2] + vector.z * matrix[2, 2]);
-        }
-
         private static Vector3d TransformNormalDelta(
-            FbxMatrix4x4 matrix,
             FbxMatrix4x4 inverseMatrix,
             Vector3d baseNormal,
             Vector3d normalDelta)
         {
-            if (matrix.IsIdentity)
-            {
-                return normalDelta;
-            }
-
             if (baseNormal.sqrMagnitude <= Vector3d.Epsilon)
             {
-                return TransformNormal(inverseMatrix, normalDelta);
+                return inverseMatrix.TransformNormalWithInverse(normalDelta);
             }
 
-            return TransformNormal(inverseMatrix, baseNormal + normalDelta) -
-                   TransformNormal(inverseMatrix, baseNormal);
-        }
-
-        private static Vector3d TransformNormal(FbxMatrix4x4 inverseMatrix, Vector3d normal)
-        {
-            return new Vector3d(
-                normal.x * inverseMatrix[0, 0] + normal.y * inverseMatrix[0, 1] + normal.z * inverseMatrix[0, 2],
-                normal.x * inverseMatrix[1, 0] + normal.y * inverseMatrix[1, 1] + normal.z * inverseMatrix[1, 2],
-                normal.x * inverseMatrix[2, 0] + normal.y * inverseMatrix[2, 1] + normal.z * inverseMatrix[2, 2]).normalized;
+            return inverseMatrix.TransformNormalWithInverse(baseNormal + normalDelta) -
+                   inverseMatrix.TransformNormalWithInverse(baseNormal);
         }
 
         private readonly struct BlendShapeDelta

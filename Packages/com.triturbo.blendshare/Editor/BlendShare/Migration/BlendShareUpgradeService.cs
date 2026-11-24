@@ -7,7 +7,6 @@ using Triturbo.BlendShare.Persistence;
 using UnityEditor;
 using UnityEngine;
 using Triturbo.BlendShare.Fbx;
-using Triturbo.BlendShare.Fbx.Ufbx;
 using Triturbo.BlendShare.Fbx.Unity;
 using Triturbo.BlendShare.Hashing;
 using CurrentFbxBlendShapeData = Triturbo.BlendShare.Features.BlendShapes.FbxBlendShapeData;
@@ -68,7 +67,7 @@ namespace Triturbo.BlendShare.Migration
                 .Where(legacyMesh => legacyMesh != null)
                 .ToList() ?? new List<MeshData>();
             var meshPaths = ResolveFbxMeshPaths(legacyAsset.m_Original, legacyMeshes);
-            UfbxScene originalScene = null;
+            IFbxScene originalScene = null;
             var sceneResult = FbxUnityAssetReader.ReadScene(legacyAsset.m_Original);
             if (sceneResult.Success)
             {
@@ -104,7 +103,7 @@ namespace Triturbo.BlendShare.Migration
         private static MeshDataObject ConvertMesh(
             MeshData legacyMesh,
             string meshPath,
-            UfbxScene originalScene,
+            IFbxScene originalScene,
             float importScale,
             bool bakeAxisConversion,
             Matrix4x4 importerSpaceTransform)
@@ -154,7 +153,7 @@ namespace Triturbo.BlendShare.Migration
                 importScale,
                 bakeAxisConversion,
                 importerSpaceTransform,
-                out UfbxMesh fbxMesh);
+                out IFbxMesh fbxMesh);
 
             if (fbxMesh != null && fbxMesh.ControlPointCount > 0)
             {

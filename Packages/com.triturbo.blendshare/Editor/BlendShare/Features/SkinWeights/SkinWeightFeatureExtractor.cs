@@ -4,7 +4,6 @@ using System.Linq;
 using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Fbx.Unity;
-using Triturbo.BlendShare.Fbx.Ufbx;
 using UnityEngine;
 
 namespace Triturbo.BlendShare.Features.SkinWeights
@@ -1213,7 +1212,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
         }
 
         private static List<SkinWeightClusterData> ExtractSelectedBindPoses(
-            UfbxSkinDeformer sourceSkin,
+            IFbxSkinDeformer sourceSkin,
             IEnumerable<string> selectedBonePaths,
             IReadOnlyDictionary<int, string> sourceBonesByIndex)
         {
@@ -1390,19 +1389,20 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                     $"Bone '{node.m_Path}' was not found in the source FBX. Re-open the extraction session and select a valid source model.");
             }
 
+            var rawTransform = sourceNode.RawTransform;
             node.m_HasTransformData = true;
-            node.m_LclTranslation = sourceNode.LclTranslation;
-            node.m_LclRotation = sourceNode.LclRotation;
-            node.m_LclScaling = sourceNode.LclScaling;
-            node.m_RotationOrder = sourceNode.RotationOrder;
-            node.m_InheritMode = sourceNode.InheritMode;
-            node.m_RotationActive = sourceNode.RotationActive;
-            node.m_PreRotation = sourceNode.PreRotation;
-            node.m_PostRotation = sourceNode.PostRotation;
-            node.m_RotationPivot = sourceNode.RotationPivot;
-            node.m_ScalingPivot = sourceNode.ScalingPivot;
-            node.m_RotationOffset = sourceNode.RotationOffset;
-            node.m_ScalingOffset = sourceNode.ScalingOffset;
+            node.m_LclTranslation = rawTransform.LclTranslation;
+            node.m_LclRotation = rawTransform.LclRotation;
+            node.m_LclScaling = rawTransform.LclScaling;
+            node.m_RotationOrder = rawTransform.RotationOrder;
+            node.m_InheritMode = rawTransform.OriginalInheritMode;
+            node.m_RotationActive = rawTransform.RotationActive;
+            node.m_PreRotation = rawTransform.PreRotation;
+            node.m_PostRotation = rawTransform.PostRotation;
+            node.m_RotationPivot = rawTransform.RotationPivot;
+            node.m_ScalingPivot = rawTransform.ScalingPivot;
+            node.m_RotationOffset = rawTransform.RotationOffset;
+            node.m_ScalingOffset = rawTransform.ScalingOffset;
             node.m_EvaluatedNodeToParentMatrix = sourceNode.NodeToParentMatrix;
             return node;
         }

@@ -1,72 +1,92 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using Triturbo.BlendShare.Fbx;
+using System.Runtime.InteropServices;
 
 namespace Triturbo.BlendShare.Fbx.Ufbx
 {
-    public abstract class UfbxDeformer : UfbxElement
+    /// <summary>Base class for scene-backed ufbx deformers attached to a mesh.</summary>
+    public abstract class UfbxDeformer : UfbxElement, IFbxDeformer
     {
-        protected UfbxDeformer(UfbxScene scene, UfbxElementType elementType, UfbxMesh ownerMesh, int index, long id, string name)
+        /// <summary>Initializes a scene-backed deformer.</summary>
+        protected UfbxDeformer(UfbxScene scene, FbxElementType elementType, UfbxMesh ownerMesh, int index, long id, string name)
             : base(scene, elementType, index, id, name)
         {
-            OwnerMesh = ownerMesh;
+            OwnerUfbxMesh = ownerMesh ?? throw new ArgumentNullException(nameof(ownerMesh));
         }
 
-        public UfbxMesh OwnerMesh { get; }
+        internal UfbxMesh OwnerUfbxMesh { get; }
+
+        /// <inheritdoc />
+        public IFbxMeshGeometry OwnerMesh => OwnerUfbxMesh;
     }
 
-    public sealed class UfbxSkinDeformer : UfbxDeformer
+    /// <summary>Scene-backed ufbx skin deformer.</summary>
+    public sealed class UfbxSkinDeformer : UfbxDeformer, IFbxSkinDeformer
     {
-        private IReadOnlyList<UfbxSkinCluster> snapshotClusters;
-        private IReadOnlyList<UfbxSkinCluster> clusters;
+        private readonly object lazyLock = new object();
+        private IReadOnlyList<IFbxSkinCluster> clusters;
 
         internal UfbxSkinDeformer(UfbxScene scene, UfbxMesh ownerMesh, int skinIndex, long id, string name, int clusterCount)
-            : base(scene, UfbxElementType.SkinDeformer, ownerMesh, skinIndex, id, name)
+            : base(scene, FbxElementType.SkinDeformer, ownerMesh, skinIndex, id, name)
         {
             ClusterCount = Math.Max(0, clusterCount);
         }
 
-        internal UfbxSkinDeformer(
-            UfbxSkinDeformer source,
-            UfbxMesh ownerMesh)
-            : base(source.Scene, UfbxElementType.SkinDeformer, ownerMesh, source.Index, source.Id, source.Name)
-        {
-            ClusterCount = source.ClusterCount;
-        }
-
+        /// <inheritdoc />
         public int ClusterCount { get; }
-        public IReadOnlyList<UfbxSkinCluster> Clusters => snapshotClusters ?? (clusters ??= BuildClusters());
 
-        internal void SetSnapshotClusters(IEnumerable<UfbxSkinCluster> clusters)
+        /// <inheritdoc />
+        public IReadOnlyList<IFbxSkinCluster> Clusters
         {
-            snapshotClusters = FbxCollection.ToReadOnly(clusters);
+            get
+            {
+                var existing = clusters;
+                if (existing != null)
+                {
+                    return existing;
+                }
+
+                lock (lazyLock)
+                {
+                    if (clusters == null)
+                    {
+                        clusters = BuildClusters();
+                    }
+
+                    return clusters;
+                }
+            }
         }
 
-        private IReadOnlyList<UfbxSkinCluster> BuildClusters()
+        private IReadOnlyList<IFbxSkinCluster> BuildClusters()
         {
-            EnsureAlive();
-            var result = new List<UfbxSkinCluster>(ClusterCount);
+            var handle = RequireHandle();
+            var result = new List<IFbxSkinCluster>(ClusterCount);
             for (int i = 0; i < ClusterCount; i++)
             {
-                if (UfbxNative.GetSkinClusterInfo(Scene.Handle, OwnerMesh.Index, Index, i, out var info) == 0)
+                if (UfbxNative.GetSkinClusterInfo(handle, OwnerUfbxMesh.Index, Index, i, out var info) != UfbxNative.StatusOk)
                 {
                     continue;
                 }
 
-                string name = UfbxScene.CopyString(info.NameLength, buffer => UfbxNative.CopyClusterName(Scene.Handle, OwnerMesh.Index, Index, i, buffer, buffer.Length));
-                var boneNode = info.BoneNodeIndex >= 0 && info.BoneNodeIndex < Scene.Nodes.Count ? Scene.Nodes[info.BoneNodeIndex] : null;
-                result.Add(new UfbxSkinCluster(Scene, OwnerMesh, this, i, (long)info.Id, name, boneNode, info));
+                string name = UfbxScene.CopyString(
+                    info.NameLength,
+                    (ref byte dst, int size) => UfbxNative.CopyClusterName(handle, OwnerUfbxMesh.Index, Index, i, ref dst, size));
+                var boneNode = info.BoneNodeIndex >= 0 && info.BoneNodeIndex < Scene.Nodes.Count
+                    ? Scene.Nodes[info.BoneNodeIndex]
+                    : null;
+                result.Add(new UfbxSkinCluster(Scene, OwnerUfbxMesh, this, i, (long)info.Id, name, boneNode, info));
             }
 
-            return FbxCollection.ToReadOnly(result);
+            return FbxReadOnlyList.ToReadOnly(result);
         }
     }
 
-    public sealed class UfbxSkinCluster : UfbxElement
+    /// <summary>Scene-backed ufbx skin cluster containing bind matrices and sparse control point weights.</summary>
+    public sealed class UfbxSkinCluster : UfbxElement, IFbxSkinCluster
     {
-        private readonly int[] snapshotIndices;
-        private readonly double[] snapshotWeights;
+        private readonly UfbxMesh ownerMesh;
+        private readonly UfbxSkinDeformer ownerSkin;
 
         internal UfbxSkinCluster(
             UfbxScene scene,
@@ -75,176 +95,167 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             int clusterIndex,
             long id,
             string name,
-            UfbxNode boneNode,
+            IFbxNode boneNode,
             UfbxNative.ClusterInfo info)
-            : base(scene, UfbxElementType.SkinCluster, clusterIndex, id, name)
+            : base(scene, FbxElementType.SkinCluster, clusterIndex, id, name)
         {
-            OwnerMesh = ownerMesh;
-            OwnerSkin = ownerSkin;
+            this.ownerMesh = ownerMesh ?? throw new ArgumentNullException(nameof(ownerMesh));
+            this.ownerSkin = ownerSkin ?? throw new ArgumentNullException(nameof(ownerSkin));
             BoneNode = boneNode;
+            BonePath = boneNode?.Path ?? string.Empty;
             WeightCount = Math.Max(0, info.WeightCount);
-            MeshBindWorld = UfbxScene.ToMatrix(info.MeshBindWorld);
-            BindToWorld = UfbxScene.ToMatrix(info.BoneBindWorld);
-            MeshNodeToBone = UfbxScene.ToMatrix(info.MeshNodeToBone);
-            GeometryToBone = UfbxScene.ToMatrix(info.GeometryToBone);
+            MeshBindWorld = info.MeshBindWorld.ToFbxMatrix();
+            BindToWorld = info.BoneBindWorld.ToFbxMatrix();
+            MeshNodeToBone = info.MeshNodeToBone.ToFbxMatrix();
+            GeometryToBone = info.GeometryToBone.ToFbxMatrix();
         }
 
-        internal UfbxSkinCluster(
-            UfbxSkinCluster source,
-            UfbxMesh ownerMesh,
-            UfbxSkinDeformer ownerSkin,
-            int[] indices,
-            double[] weights,
-            FbxMatrix4x4 meshBindWorld,
-            FbxMatrix4x4 bindToWorld)
-            : base(source.Scene, UfbxElementType.SkinCluster, source.Index, source.Id, source.Name)
-        {
-            OwnerMesh = ownerMesh;
-            OwnerSkin = ownerSkin;
-            BoneNode = source.BoneNode;
-            snapshotIndices = indices?.ToArray() ?? Array.Empty<int>();
-            snapshotWeights = weights?.ToArray() ?? Array.Empty<double>();
-            WeightCount = Math.Min(snapshotIndices.Length, snapshotWeights.Length);
-            MeshBindWorld = meshBindWorld;
-            BindToWorld = bindToWorld;
-            MeshNodeToBone = source.MeshNodeToBone;
-            GeometryToBone = source.GeometryToBone;
-        }
+        /// <inheritdoc />
+        public IFbxMeshGeometry OwnerMesh => ownerMesh;
 
-        public UfbxMesh OwnerMesh { get; }
-        public UfbxSkinDeformer OwnerSkin { get; }
-        public UfbxNode BoneNode { get; }
+        /// <inheritdoc />
+        public IFbxSkinDeformer OwnerSkin => ownerSkin;
+
+        /// <inheritdoc />
+        public IFbxNode BoneNode { get; }
+
+        /// <inheritdoc />
+        public string BonePath { get; }
+
+        /// <inheritdoc />
         public int WeightCount { get; }
+
+        /// <inheritdoc />
         public FbxMatrix4x4 MeshBindWorld { get; }
+
+        /// <inheritdoc />
         public FbxMatrix4x4 BindToWorld { get; }
+
+        /// <inheritdoc />
         public FbxMatrix4x4 MeshNodeToBone { get; }
+
+        /// <inheritdoc />
         public FbxMatrix4x4 GeometryToBone { get; }
 
-        public int CopyIndices(int[] destination)
+        /// <inheritdoc />
+        public bool TryCopyControlPointIndices(Span<int> destination, out int written)
         {
-            if (snapshotIndices != null)
+            var handle = RequireHandle();
+            if (destination.Length < WeightCount)
             {
-                return CopyIntArray(snapshotIndices, destination, WeightCount);
+                written = 0;
+                return false;
             }
 
-            EnsureAlive();
-            return UfbxNative.CopyClusterIndices(Scene.Handle, OwnerMesh.Index, OwnerSkin.Index, Index, destination, destination?.Length ?? 0);
-        }
-
-        public int CopyVertices(int[] destination)
-        {
-            return CopyIndices(destination);
-        }
-
-        public int CopyWeights(double[] destination)
-        {
-            if (snapshotWeights != null)
+            if (WeightCount == 0)
             {
-                return CopyDoubleArray(snapshotWeights, destination, WeightCount);
+                written = 0;
+                return true;
             }
 
-            EnsureAlive();
-            return UfbxNative.CopyClusterWeights(Scene.Handle, OwnerMesh.Index, OwnerSkin.Index, Index, destination, destination?.Length ?? 0);
+            int result = UfbxNative.CopyClusterIndices(
+                handle,
+                ownerMesh.Index,
+                ownerSkin.Index,
+                Index,
+                ref MemoryMarshal.GetReference(destination),
+                destination.Length);
+            return UfbxMesh.FinishCopy(result, out written);
         }
 
-        public int[] GetIndices()
+        /// <inheritdoc />
+        public bool TryCopyWeights(Span<double> destination, out int written)
         {
-            var values = new int[WeightCount];
-            return CopyIndices(values) != 0 ? values : Array.Empty<int>();
-        }
-
-        public int[] GetVertices()
-        {
-            return GetIndices();
-        }
-
-        public double[] GetWeights()
-        {
-            var values = new double[WeightCount];
-            return CopyWeights(values) != 0 ? values : Array.Empty<double>();
-        }
-
-        private static int CopyIntArray(IReadOnlyList<int> source, int[] destination, int count)
-        {
-            if (source == null || destination == null || destination.Length < count || source.Count < count)
+            var handle = RequireHandle();
+            if (destination.Length < WeightCount)
             {
-                return 0;
+                written = 0;
+                return false;
             }
 
-            for (int i = 0; i < count; i++)
+            if (WeightCount == 0)
             {
-                destination[i] = source[i];
+                written = 0;
+                return true;
             }
 
-            return 1;
-        }
-
-        private static int CopyDoubleArray(IReadOnlyList<double> source, double[] destination, int count)
-        {
-            if (source == null || destination == null || destination.Length < count || source.Count < count)
-            {
-                return 0;
-            }
-
-            for (int i = 0; i < count; i++)
-            {
-                destination[i] = source[i];
-            }
-
-            return 1;
+            int result = UfbxNative.CopyClusterWeights(
+                handle,
+                ownerMesh.Index,
+                ownerSkin.Index,
+                Index,
+                ref MemoryMarshal.GetReference(destination),
+                destination.Length);
+            return UfbxMesh.FinishCopy(result, out written);
         }
     }
 
-    public sealed class UfbxBlendDeformer : UfbxDeformer
+    /// <summary>Scene-backed ufbx blend deformer.</summary>
+    public sealed class UfbxBlendDeformer : UfbxDeformer, IFbxBlendDeformer
     {
-        private IReadOnlyList<UfbxBlendChannel> snapshotChannels;
-        private IReadOnlyList<UfbxBlendChannel> channels;
+        private readonly object lazyLock = new object();
+        private IReadOnlyList<IFbxBlendChannel> channels;
 
         internal UfbxBlendDeformer(UfbxScene scene, UfbxMesh ownerMesh, int deformerIndex, long id, string name, int channelCount)
-            : base(scene, UfbxElementType.BlendDeformer, ownerMesh, deformerIndex, id, name)
+            : base(scene, FbxElementType.BlendDeformer, ownerMesh, deformerIndex, id, name)
         {
             ChannelCount = Math.Max(0, channelCount);
         }
 
-        internal UfbxBlendDeformer(
-            UfbxBlendDeformer source,
-            UfbxMesh ownerMesh)
-            : base(source.Scene, UfbxElementType.BlendDeformer, ownerMesh, source.Index, source.Id, source.Name)
-        {
-            ChannelCount = source.ChannelCount;
-        }
-
+        /// <inheritdoc />
         public int ChannelCount { get; }
-        public IReadOnlyList<UfbxBlendChannel> Channels => snapshotChannels ?? (channels ??= BuildChannels());
 
-        internal void SetSnapshotChannels(IEnumerable<UfbxBlendChannel> channels)
+        /// <inheritdoc />
+        public IReadOnlyList<IFbxBlendChannel> Channels
         {
-            snapshotChannels = FbxCollection.ToReadOnly(channels);
+            get
+            {
+                var existing = channels;
+                if (existing != null)
+                {
+                    return existing;
+                }
+
+                lock (lazyLock)
+                {
+                    if (channels == null)
+                    {
+                        channels = BuildChannels();
+                    }
+
+                    return channels;
+                }
+            }
         }
 
-        private IReadOnlyList<UfbxBlendChannel> BuildChannels()
+        private IReadOnlyList<IFbxBlendChannel> BuildChannels()
         {
-            EnsureAlive();
-            var result = new List<UfbxBlendChannel>(ChannelCount);
+            var handle = RequireHandle();
+            var result = new List<IFbxBlendChannel>(ChannelCount);
             for (int i = 0; i < ChannelCount; i++)
             {
-                if (UfbxNative.GetBlendChannelInfo(Scene.Handle, OwnerMesh.Index, Index, i, out var info) == 0)
+                if (UfbxNative.GetBlendChannelInfo(handle, OwnerUfbxMesh.Index, Index, i, out var info) != UfbxNative.StatusOk)
                 {
                     continue;
                 }
 
-                string name = UfbxScene.CopyString(info.NameLength, buffer => UfbxNative.CopyBlendChannelName(Scene.Handle, OwnerMesh.Index, Index, i, buffer, buffer.Length));
-                result.Add(new UfbxBlendChannel(Scene, OwnerMesh, this, i, (long)info.Id, name, info.FrameCount));
+                string name = UfbxScene.CopyString(
+                    info.NameLength,
+                    (ref byte dst, int size) => UfbxNative.CopyBlendChannelName(handle, OwnerUfbxMesh.Index, Index, i, ref dst, size));
+                result.Add(new UfbxBlendChannel(Scene, OwnerUfbxMesh, this, i, (long)info.Id, name, info.KeyframeCount));
             }
 
-            return FbxCollection.ToReadOnly(result);
+            return FbxReadOnlyList.ToReadOnly(result);
         }
     }
 
-    public sealed class UfbxBlendChannel : UfbxElement
+    /// <summary>Scene-backed ufbx blend channel containing ordered target keyframes.</summary>
+    public sealed class UfbxBlendChannel : UfbxElement, IFbxBlendChannel
     {
-        private IReadOnlyList<UfbxBlendShape> snapshotBlendShapes;
-        private IReadOnlyList<UfbxBlendShape> blendShapes;
+        private readonly object lazyLock = new object();
+        private readonly UfbxMesh ownerMesh;
+        private readonly UfbxBlendDeformer ownerDeformer;
+        private IReadOnlyList<IFbxBlendKeyframe> keyframes;
 
         internal UfbxBlendChannel(
             UfbxScene scene,
@@ -253,163 +264,266 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             int channelIndex,
             long id,
             string name,
-            int blendShapeCount)
-            : base(scene, UfbxElementType.BlendChannel, channelIndex, id, name)
+            int keyframeCount)
+            : base(scene, FbxElementType.BlendChannel, channelIndex, id, name)
         {
-            OwnerMesh = ownerMesh;
-            OwnerDeformer = ownerDeformer;
-            BlendShapeCount = Math.Max(0, blendShapeCount);
+            this.ownerMesh = ownerMesh ?? throw new ArgumentNullException(nameof(ownerMesh));
+            this.ownerDeformer = ownerDeformer ?? throw new ArgumentNullException(nameof(ownerDeformer));
+            KeyframeCount = Math.Max(0, keyframeCount);
         }
 
-        internal UfbxBlendChannel(
-            UfbxBlendChannel source,
-            UfbxMesh ownerMesh,
-            UfbxBlendDeformer ownerDeformer)
-            : base(source.Scene, UfbxElementType.BlendChannel, source.Index, source.Id, source.Name)
-        {
-            OwnerMesh = ownerMesh;
-            OwnerDeformer = ownerDeformer;
-            BlendShapeCount = source.BlendShapeCount;
-        }
+        /// <inheritdoc />
+        public IFbxMeshGeometry OwnerMesh => ownerMesh;
 
-        public UfbxMesh OwnerMesh { get; }
-        public UfbxBlendDeformer OwnerDeformer { get; }
-        public int BlendShapeCount { get; }
-        public IReadOnlyList<UfbxBlendShape> BlendShapes => snapshotBlendShapes ?? (blendShapes ??= BuildBlendShapes());
+        /// <inheritdoc />
+        public IFbxBlendDeformer OwnerDeformer => ownerDeformer;
 
-        internal void SetSnapshotBlendShapes(IEnumerable<UfbxBlendShape> blendShapes)
-        {
-            snapshotBlendShapes = FbxCollection.ToReadOnly(blendShapes);
-        }
+        /// <inheritdoc />
+        public int KeyframeCount { get; }
 
-        private IReadOnlyList<UfbxBlendShape> BuildBlendShapes()
+        /// <inheritdoc />
+        public IReadOnlyList<IFbxBlendKeyframe> Keyframes
         {
-            EnsureAlive();
-            var result = new List<UfbxBlendShape>(BlendShapeCount);
-            for (int i = 0; i < BlendShapeCount; i++)
+            get
             {
-                if (UfbxNative.GetBlendFrameInfo(Scene.Handle, OwnerMesh.Index, OwnerDeformer.Index, Index, i, out var info) == 0)
+                var existing = keyframes;
+                if (existing != null)
+                {
+                    return existing;
+                }
+
+                lock (lazyLock)
+                {
+                    if (keyframes == null)
+                    {
+                        keyframes = BuildKeyframes();
+                    }
+
+                    return keyframes;
+                }
+            }
+        }
+
+        private IReadOnlyList<IFbxBlendKeyframe> BuildKeyframes()
+        {
+            var handle = RequireHandle();
+            var result = new List<IFbxBlendKeyframe>(KeyframeCount);
+            for (int i = 0; i < KeyframeCount; i++)
+            {
+                if (UfbxNative.GetBlendKeyframeInfo(handle, ownerMesh.Index, ownerDeformer.Index, Index, i, out var info) != UfbxNative.StatusOk)
                 {
                     continue;
                 }
 
-                string name = UfbxScene.CopyString(info.NameLength, buffer => UfbxNative.CopyBlendFrameName(Scene.Handle, OwnerMesh.Index, OwnerDeformer.Index, Index, i, buffer, buffer.Length));
-                result.Add(new UfbxBlendShape(Scene, OwnerMesh, OwnerDeformer, this, i, (long)info.Id, name, info.Weight, info.OffsetCount));
+                string shapeName = UfbxScene.CopyString(
+                    info.ShapeNameLength,
+                    (ref byte dst, int size) => UfbxNative.CopyBlendShapeName(handle, ownerMesh.Index, ownerDeformer.Index, Index, i, ref dst, size));
+                var shape = new UfbxBlendShape(
+                    Scene,
+                    ownerMesh,
+                    ownerDeformer,
+                    this,
+                    i,
+                    (long)info.ShapeId,
+                    shapeName,
+                    info.OffsetCount,
+                    info.HasNormalOffsets != 0,
+                    info.HasOffsetWeights != 0);
+                result.Add(new UfbxBlendKeyframe(info.TargetWeight, info.EffectiveWeight, shape));
             }
 
-            return FbxCollection.ToReadOnly(result);
+            return FbxReadOnlyList.ToReadOnly(result);
         }
     }
 
-    public sealed class UfbxBlendShape : UfbxElement
+    /// <summary>Scene-backed blend channel keyframe pairing weights with its target shape.</summary>
+    public sealed class UfbxBlendKeyframe : IFbxBlendKeyframe
     {
-        private readonly int[] snapshotIndices;
-        private readonly Vector3d[] snapshotPositions;
-        private readonly Vector3d[] snapshotNormals;
+        internal UfbxBlendKeyframe(double targetWeight, double effectiveWeight, IFbxBlendShape shape)
+        {
+            TargetWeight = targetWeight;
+            EffectiveWeight = effectiveWeight;
+            Shape = shape ?? throw new ArgumentNullException(nameof(shape));
+        }
+
+        /// <inheritdoc />
+        public double TargetWeight { get; }
+
+        /// <inheritdoc />
+        public double EffectiveWeight { get; }
+
+        /// <inheritdoc />
+        public IFbxBlendShape Shape { get; }
+    }
+
+    /// <summary>Scene-backed blend target shape exposing sparse control point offsets.</summary>
+    public sealed class UfbxBlendShape : UfbxElement, IFbxBlendShape
+    {
+        private readonly UfbxMesh ownerMesh;
+        private readonly UfbxBlendDeformer ownerDeformer;
+        private readonly UfbxBlendChannel ownerChannel;
 
         internal UfbxBlendShape(
             UfbxScene scene,
             UfbxMesh ownerMesh,
             UfbxBlendDeformer ownerDeformer,
             UfbxBlendChannel ownerChannel,
-            int blendShapeIndex,
+            int keyframeIndex,
             long id,
             string name,
-            double weight,
-            int offsetCount)
-            : base(scene, UfbxElementType.BlendShape, blendShapeIndex, id, name)
+            int offsetCount,
+            bool hasNormalOffsets,
+            bool hasOffsetWeights)
+            : base(scene, FbxElementType.BlendShape, keyframeIndex, id, name)
         {
-            OwnerMesh = ownerMesh;
-            OwnerDeformer = ownerDeformer;
-            OwnerChannel = ownerChannel;
-            Weight = weight;
+            this.ownerMesh = ownerMesh ?? throw new ArgumentNullException(nameof(ownerMesh));
+            this.ownerDeformer = ownerDeformer ?? throw new ArgumentNullException(nameof(ownerDeformer));
+            this.ownerChannel = ownerChannel ?? throw new ArgumentNullException(nameof(ownerChannel));
             OffsetCount = Math.Max(0, offsetCount);
+            HasNormalOffsets = hasNormalOffsets;
+            HasOffsetWeights = hasOffsetWeights;
         }
 
-        internal UfbxBlendShape(
-            UfbxBlendShape source,
-            UfbxMesh ownerMesh,
-            UfbxBlendDeformer ownerDeformer,
-            UfbxBlendChannel ownerChannel,
-            int[] indices,
-            Vector3d[] positions,
-            Vector3d[] normals)
-            : base(source.Scene, UfbxElementType.BlendShape, source.Index, source.Id, source.Name)
-        {
-            OwnerMesh = ownerMesh;
-            OwnerDeformer = ownerDeformer;
-            OwnerChannel = ownerChannel;
-            Weight = source.Weight;
-            snapshotIndices = indices?.ToArray() ?? Array.Empty<int>();
-            snapshotPositions = UfbxMesh.Copy(positions);
-            snapshotNormals = UfbxMesh.Copy(normals);
-            OffsetCount = Math.Min(snapshotIndices.Length, snapshotPositions.Length);
-        }
+        /// <inheritdoc />
+        public IFbxMeshGeometry OwnerMesh => ownerMesh;
 
-        public UfbxMesh OwnerMesh { get; }
-        public UfbxBlendDeformer OwnerDeformer { get; }
-        public UfbxBlendChannel OwnerChannel { get; }
-        public double Weight { get; }
+        /// <inheritdoc />
+        public IFbxBlendDeformer OwnerDeformer => ownerDeformer;
+
+        /// <inheritdoc />
+        public IFbxBlendChannel OwnerChannel => ownerChannel;
+
+        /// <inheritdoc />
         public int OffsetCount { get; }
 
-        public int CopyOffsets(int[] destinationIndices, double[] destinationPositions, double[] destinationNormals)
+        /// <inheritdoc />
+        public bool HasNormalOffsets { get; }
+
+        /// <inheritdoc />
+        public bool HasOffsetWeights { get; }
+
+        /// <inheritdoc />
+        public bool TryCopyOffsets(
+            Span<int> destinationControlPoints,
+            Span<Vector3d> destinationPositionOffsets,
+            Span<Vector3d> destinationNormalOffsets,
+            Span<double> destinationOffsetWeights,
+            out int written)
         {
-            if (snapshotIndices != null)
+            var handle = RequireHandle();
+            uint outputMask = 0u;
+            int minCapacity = int.MaxValue;
+
+            if (!destinationControlPoints.IsEmpty)
             {
-                return CopySnapshotOffsets(destinationIndices, destinationPositions, destinationNormals);
+                outputMask |= UfbxNative.BlendOutIndices;
+                minCapacity = Math.Min(minCapacity, destinationControlPoints.Length);
             }
 
-            EnsureAlive();
-            int destinationCount = Math.Min(
-                destinationIndices?.Length ?? 0,
-                destinationPositions?.Length / 3 ?? 0);
-            if (destinationNormals != null)
+            if (!destinationPositionOffsets.IsEmpty)
             {
-                destinationCount = Math.Min(destinationCount, destinationNormals.Length / 3);
+                outputMask |= UfbxNative.BlendOutPositions;
+                minCapacity = Math.Min(minCapacity, destinationPositionOffsets.Length);
             }
 
-            return UfbxNative.CopyBlendFrameOffsets(
-                Scene.Handle,
-                OwnerMesh.Index,
-                OwnerDeformer.Index,
-                OwnerChannel.Index,
-                Index,
-                destinationIndices,
-                destinationPositions,
-                destinationNormals,
-                destinationCount);
-        }
-
-        private int CopySnapshotOffsets(int[] destinationIndices, double[] destinationPositions, double[] destinationNormals)
-        {
-            int destinationCount = Math.Min(destinationIndices?.Length ?? 0, destinationPositions?.Length / 3 ?? 0);
-            if (destinationNormals != null)
+            if (!destinationNormalOffsets.IsEmpty)
             {
-                destinationCount = Math.Min(destinationCount, destinationNormals.Length / 3);
+                outputMask |= UfbxNative.BlendOutNormals;
+                minCapacity = Math.Min(minCapacity, destinationNormalOffsets.Length);
             }
 
-            if (destinationIndices == null || destinationPositions == null || destinationCount < OffsetCount)
+            if (!destinationOffsetWeights.IsEmpty)
             {
-                return 0;
+                outputMask |= UfbxNative.BlendOutWeights;
+                minCapacity = Math.Min(minCapacity, destinationOffsetWeights.Length);
             }
 
-            for (int i = 0; i < OffsetCount; i++)
+            if (outputMask == 0u)
             {
-                destinationIndices[i] = snapshotIndices[i];
-                destinationPositions[i * 3] = snapshotPositions[i].x;
-                destinationPositions[i * 3 + 1] = snapshotPositions[i].y;
-                destinationPositions[i * 3 + 2] = snapshotPositions[i].z;
-                if (destinationNormals != null)
-                {
-                    var normal = i < snapshotNormals.Length ? snapshotNormals[i] : Vector3d.zero;
-                    destinationNormals[i * 3] = normal.x;
-                    destinationNormals[i * 3 + 1] = normal.y;
-                    destinationNormals[i * 3 + 2] = normal.z;
-                }
+                written = 0;
+                return OffsetCount == 0;
             }
 
-            return 1;
+            if (minCapacity < OffsetCount)
+            {
+                written = 0;
+                return false;
+            }
+
+            if (OffsetCount == 0)
+            {
+                written = 0;
+                return true;
+            }
+
+            // Use concrete IntPtr.Zero overloads for the two most common omitted-buffer paths,
+            // and never pass MemoryMarshal.GetReference of an empty span as a native buffer.
+            int result;
+            if (outputMask == (UfbxNative.BlendOutIndices | UfbxNative.BlendOutPositions))
+            {
+                result = UfbxNative.CopyBlendShapeOffsetsIndicesAndPositions(
+                    handle,
+                    ownerMesh.Index,
+                    ownerDeformer.Index,
+                    ownerChannel.Index,
+                    Index,
+                    outputMask,
+                    ref MemoryMarshal.GetReference(destinationControlPoints),
+                    ref MemoryMarshal.GetReference(destinationPositionOffsets),
+                    IntPtr.Zero,
+                    IntPtr.Zero,
+                    minCapacity);
+            }
+            else if (outputMask == (UfbxNative.BlendOutIndices | UfbxNative.BlendOutPositions | UfbxNative.BlendOutNormals))
+            {
+                result = UfbxNative.CopyBlendShapeOffsetsIndicesPositionsNormals(
+                    handle,
+                    ownerMesh.Index,
+                    ownerDeformer.Index,
+                    ownerChannel.Index,
+                    Index,
+                    outputMask,
+                    ref MemoryMarshal.GetReference(destinationControlPoints),
+                    ref MemoryMarshal.GetReference(destinationPositionOffsets),
+                    ref MemoryMarshal.GetReference(destinationNormalOffsets),
+                    IntPtr.Zero,
+                    minCapacity);
+            }
+            else
+            {
+                int dummyIndex = 0;
+                Vector3d dummyPosition = default;
+                Vector3d dummyNormal = default;
+                double dummyWeight = 0d;
+
+                ref int indicesRef = ref (outputMask & UfbxNative.BlendOutIndices) != 0u
+                    ? ref MemoryMarshal.GetReference(destinationControlPoints)
+                    : ref dummyIndex;
+                ref Vector3d positionsRef = ref (outputMask & UfbxNative.BlendOutPositions) != 0u
+                    ? ref MemoryMarshal.GetReference(destinationPositionOffsets)
+                    : ref dummyPosition;
+                ref Vector3d normalsRef = ref (outputMask & UfbxNative.BlendOutNormals) != 0u
+                    ? ref MemoryMarshal.GetReference(destinationNormalOffsets)
+                    : ref dummyNormal;
+                ref double weightsRef = ref (outputMask & UfbxNative.BlendOutWeights) != 0u
+                    ? ref MemoryMarshal.GetReference(destinationOffsetWeights)
+                    : ref dummyWeight;
+
+                result = UfbxNative.CopyBlendShapeOffsets(
+                    handle,
+                    ownerMesh.Index,
+                    ownerDeformer.Index,
+                    ownerChannel.Index,
+                    Index,
+                    outputMask,
+                    ref indicesRef,
+                    ref positionsRef,
+                    ref normalsRef,
+                    ref weightsRef,
+                    minCapacity);
+            }
+
+            return UfbxMesh.FinishCopy(result, out written);
         }
     }
-
 }

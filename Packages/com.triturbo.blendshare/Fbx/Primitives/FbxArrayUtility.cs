@@ -2,8 +2,10 @@ using System;
 
 namespace Triturbo.BlendShare.Fbx
 {
+    /// <summary>Conversions for packed FBX numeric arrays.</summary>
     public static class FbxArrayUtility
     {
+        /// <summary>Vector3d.</summary>
         public static Vector3d[] ToVector3dArray(double[] values)
         {
             if (values == null || values.Length == 0)

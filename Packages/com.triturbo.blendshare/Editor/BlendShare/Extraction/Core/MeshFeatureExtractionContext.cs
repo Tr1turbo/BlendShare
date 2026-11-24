@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.Fbx;
-using Triturbo.BlendShare.Fbx.Ufbx;
 using Triturbo.BlendShare.Fbx.Unity;
 using UnityEngine;
 
@@ -46,7 +45,7 @@ namespace Triturbo.BlendShare.Core
         private readonly UnityMeshExtractionSource originUnityMeshes;
         private readonly Dictionary<string, Transform> sourceTransformsByPath = new();
         private readonly Dictionary<string, Transform> originTransformsByPath = new();
-        private readonly Dictionary<string, UfbxMesh> normalizedSourceMeshesByPath = new();
+        private readonly Dictionary<string, IFbxMeshGeometry> normalizedSourceMeshesByPath = new();
 
 #if ENABLE_FBX_SDK
         private FbxSdkExtractionSource sourceSdkSource;
@@ -58,8 +57,8 @@ namespace Triturbo.BlendShare.Core
         public GameObject OriginFbxGo { get; }
         public MeshFeatureExtractionOptionsSet Options { get; }
         public IReadOnlyList<MeshFeatureExtractionMeshRequest> Meshes { get; }
-        public UfbxScene SourceScene { get; }
-        public UfbxScene OriginScene { get; }
+        public IFbxScene SourceScene { get; }
+        public IFbxScene OriginScene { get; }
         public bool RawFbxSdkAccessAllowed => rawFbxSdkAccessAllowed;
         public bool SourceFbxSdkLoaded
         {
@@ -139,17 +138,17 @@ namespace Triturbo.BlendShare.Core
             OriginScene?.Dispose();
         }
 
-        internal UfbxNode GetSourceNode(string path)
+        internal IFbxNode GetSourceNode(string path)
         {
             return GetNode(SourceScene, path);
         }
 
-        internal UfbxNode GetOriginNode(string path)
+        internal IFbxNode GetOriginNode(string path)
         {
             return GetNode(OriginScene, path);
         }
 
-        internal UfbxMesh GetSourceFbxMesh(string path)
+        internal IFbxMeshGeometry GetSourceFbxMesh(string path)
         {
             string key = BuildMeshKey(path);
             if (normalizedSourceMeshesByPath.TryGetValue(key, out var normalized))
@@ -171,12 +170,12 @@ namespace Triturbo.BlendShare.Core
             return normalized;
         }
 
-        internal UfbxMesh GetOriginFbxMesh(string path)
+        internal IFbxMesh GetOriginFbxMesh(string path)
         {
             return GetFbxMesh(OriginScene, path);
         }
 
-        internal UfbxMesh GetRawSourceFbxMesh(string path)
+        internal IFbxMesh GetRawSourceFbxMesh(string path)
         {
             return GetFbxMesh(SourceScene, path);
         }
@@ -191,12 +190,12 @@ namespace Triturbo.BlendShare.Core
             return originUnityMeshes.GetMesh(path);
         }
 
-        private UfbxNode GetNode(UfbxScene scene, string path)
+        private IFbxNode GetNode(IFbxScene scene, string path)
         {
             return scene?.FindNodeByPath(MeshNodePath.ToFbxPath(path));
         }
 
-        private UfbxMesh GetFbxMesh(UfbxScene scene, string path)
+        private IFbxMesh GetFbxMesh(IFbxScene scene, string path)
         {
             string fbxPath = MeshNodePath.ToFbxPath(path);
             return scene?.FindMeshByNodePath(fbxPath);
@@ -243,7 +242,7 @@ namespace Triturbo.BlendShare.Core
             var readerMesh = OriginScene?.FindMeshByNodePath(fbxPath);
             if (readerMesh != null && readerMesh.ControlPointCount > 0)
             {
-                return FbxControlPointWelding.FromUfbxMesh(readerMesh);
+                return FbxControlPointWelding.FromFbxMesh(readerMesh);
             }
 
 #if ENABLE_FBX_SDK
@@ -277,7 +276,7 @@ namespace Triturbo.BlendShare.Core
             return requestedFbxPaths.Count == 0 || requestedFbxPaths.Contains(MeshNodePath.ToFbxPath(path));
         }
 
-        private static UfbxScene ReadScene(GameObject fbxGo, string label)
+        private static IFbxScene ReadScene(GameObject fbxGo, string label)
         {
             var result = FbxUnityAssetReader.ReadScene(fbxGo);
             if (!result.Success)
@@ -400,7 +399,7 @@ namespace Triturbo.BlendShare.Core
         /// Gets the source FBX mesh geometry at the current path.
         /// </summary>
         /// <returns>The source FBX mesh geometry, or <c>null</c> when the path cannot be resolved.</returns>
-        public UfbxMesh GetSourceFbxMesh()
+        public IFbxMeshGeometry GetSourceFbxMesh()
         {
             return Session.GetSourceFbxMesh(Path);
         }
@@ -409,7 +408,7 @@ namespace Triturbo.BlendShare.Core
         /// Gets the origin FBX mesh geometry at the current path.
         /// </summary>
         /// <returns>The origin FBX mesh geometry, or <c>null</c> when the path cannot be resolved.</returns>
-        public UfbxMesh GetOriginFbxMesh()
+        public IFbxMesh GetOriginFbxMesh()
         {
             return Session.GetOriginFbxMesh(Path);
         }
@@ -417,7 +416,7 @@ namespace Triturbo.BlendShare.Core
         /// <summary>
         /// Gets the source FBX scene node at the current path.
         /// </summary>
-        public UfbxNode GetSourceNode()
+        public IFbxNode GetSourceNode()
         {
             return Session.GetSourceNode(Path);
         }
@@ -425,7 +424,7 @@ namespace Triturbo.BlendShare.Core
         /// <summary>
         /// Gets the origin FBX scene node at the current path.
         /// </summary>
-        public UfbxNode GetOriginNode()
+        public IFbxNode GetOriginNode()
         {
             return Session.GetOriginNode(Path);
         }

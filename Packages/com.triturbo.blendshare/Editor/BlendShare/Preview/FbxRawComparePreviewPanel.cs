@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShapeShare;
 using Triturbo.BlendShare.Core;
+using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Fbx.Unity;
-using Triturbo.BlendShare.Fbx.Ufbx;
 using Triturbo.BlendShare.Hashing;
 using UnityEditor;
 using UnityEngine;
@@ -25,7 +25,7 @@ namespace Triturbo.BlendShare.Preview
         public readonly string TopologyHash;
         public readonly bool HasValidTopology;
 
-        public FbxPreviewMeshInfo(UfbxMesh mesh, FbxTopologySignature topology)
+        public FbxPreviewMeshInfo(IFbxMesh mesh, FbxTopologySignature topology)
         {
             Exists = mesh != null;
             ControlPointCount = mesh?.ControlPointCount ?? 0;
@@ -90,15 +90,15 @@ namespace Triturbo.BlendShare.Preview
         private string errorCalculationMessage;
         private MessageType errorCalculationMessageType = MessageType.Info;
         private string alignmentCachePath;
-        private UfbxMesh alignmentCacheOriginalMesh;
-        private UfbxMesh alignmentCacheSourceMesh;
+        private IFbxMesh alignmentCacheOriginalMesh;
+        private IFbxMesh alignmentCacheSourceMesh;
         private Vector3 alignmentCachePosition;
         private Vector3 alignmentCacheRotation;
         private Vector3 alignmentCacheScale;
         private bool alignmentCacheResult;
         private bool alignmentCacheValid;
-        private UfbxMesh alignmentVertexCacheOriginalMesh;
-        private UfbxMesh alignmentVertexCacheSourceMesh;
+        private IFbxMesh alignmentVertexCacheOriginalMesh;
+        private IFbxMesh alignmentVertexCacheSourceMesh;
         private Vector3[] alignmentOriginalVertices = Array.Empty<Vector3>();
         private Vector3[] alignmentSourceVertices = Array.Empty<Vector3>();
         private float alignmentOriginalMeshSize;
@@ -168,8 +168,8 @@ namespace Triturbo.BlendShare.Preview
 
                 var originalMesh = original.FindMesh(path);
                 var sourceMesh = source.FindMesh(path);
-                var originalMeshVertices = originalMesh?.GetVertices();
-                var sourceMeshVertices = sourceMesh?.GetVertices();
+                var originalMeshVertices = originalMesh?.GetControlPoints();
+                var sourceMeshVertices = sourceMesh?.GetControlPoints();
                 int count = compatibility.OriginalControlPointCount;
                 if (count <= 0)
                 {
@@ -578,7 +578,7 @@ namespace Triturbo.BlendShare.Preview
                 : path;
         }
 
-        private static string FormatMeshSummary(UfbxMesh mesh)
+        private static string FormatMeshSummary(IFbxMesh mesh)
         {
             return mesh == null
                 ? Localization.S("patch_creator.preview.missing")
@@ -918,8 +918,8 @@ namespace Triturbo.BlendShare.Preview
                 return false;
             }
 
-            var originalRawVertices = originalMesh.GetVertices();
-            var sourceRawVertices = sourceMesh.GetVertices();
+            var originalRawVertices = originalMesh.GetControlPoints();
+            var sourceRawVertices = sourceMesh.GetControlPoints();
             originalVertices = new Vector3[compatibility.OriginalControlPointCount];
             sourceVertices = new Vector3[compatibility.OriginalControlPointCount];
             for (int i = 0; i < compatibility.OriginalControlPointCount; i++)
@@ -1776,8 +1776,8 @@ namespace Triturbo.BlendShare.Preview
         }
 
         private bool CalculateControlPointPrefixesCoincident(
-            UfbxMesh originalMesh,
-            UfbxMesh sourceMesh,
+            IFbxMesh originalMesh,
+            IFbxMesh sourceMesh,
             Matrix4x4 sourceMatrix)
         {
             if (originalMesh == null || sourceMesh == null ||
@@ -1810,7 +1810,7 @@ namespace Triturbo.BlendShare.Preview
             return true;
         }
 
-        private void EnsureAlignmentVertexCache(UfbxMesh originalMesh, UfbxMesh sourceMesh)
+        private void EnsureAlignmentVertexCache(IFbxMesh originalMesh, IFbxMesh sourceMesh)
         {
             if (!ReferenceEquals(alignmentVertexCacheOriginalMesh, originalMesh))
             {
@@ -1826,9 +1826,9 @@ namespace Triturbo.BlendShare.Preview
             }
         }
 
-        private static Vector3[] ToUnityVertices(UfbxMesh mesh)
+        private static Vector3[] ToUnityVertices(IFbxMesh mesh)
         {
-            var vertices = mesh?.GetVertices();
+            var vertices = mesh?.GetControlPoints();
             if (vertices == null || vertices.Length == 0)
             {
                 return Array.Empty<Vector3>();
@@ -1939,28 +1939,27 @@ namespace Triturbo.BlendShare.Preview
 
         private sealed class PreviewSlot : IDisposable
         {
-            public UfbxMesh[] Meshes = Array.Empty<UfbxMesh>();
+            private Dictionary<string, IFbxMesh> meshesByPath = new Dictionary<string, IFbxMesh>(StringComparer.Ordinal);
+            private string[] paths = Array.Empty<string>();
+            public IFbxMesh[] Meshes = Array.Empty<IFbxMesh>();
             public bool IsAssigned;
             public string ReadMessage;
             public string SelectedPath;
-            public UfbxMesh SelectedMesh;
+            public IFbxMesh SelectedMesh;
             public Mesh Mesh;
             public Mesh WireMesh;
             public UfbxPreviewMeshBuildResult BuildResult;
 
             public bool HasMeshes => Meshes.Length > 0;
-            public string[] Paths => Meshes
-                .Select(mesh => mesh.OwnerNode?.Path ?? mesh.Name)
-                .Where(path => !string.IsNullOrEmpty(path))
-                .Distinct(StringComparer.Ordinal)
-                .OrderBy(path => path, StringComparer.Ordinal)
-                .ToArray();
+            public string[] Paths => paths;
 
             public void Bind(FbxInspectionAsset asset)
             {
                 DestroyPreviewMeshes();
                 IsAssigned = asset?.FbxObject != null;
-                Meshes = Array.Empty<UfbxMesh>();
+                Meshes = Array.Empty<IFbxMesh>();
+                meshesByPath = new Dictionary<string, IFbxMesh>(StringComparer.Ordinal);
+                paths = Array.Empty<string>();
                 SelectedPath = null;
                 SelectedMesh = null;
                 ReadMessage = null;
@@ -1975,8 +1974,38 @@ namespace Triturbo.BlendShare.Preview
 
                 Meshes = asset.Scene.Meshes
                     .Where(mesh => mesh != null && mesh.ControlPointCount > 0)
-                    .OrderBy(mesh => mesh.OwnerNode?.Path ?? mesh.Name, StringComparer.Ordinal)
+                    .OrderBy(mesh => mesh.PrimaryNode?.Path ?? mesh.Name, StringComparer.Ordinal)
                     .ToArray();
+
+                // Register every scene instance path for instanced meshes so multi-instance nodes
+                // appear individually in the selector and receive their own transforms in combined preview.
+                foreach (var mesh in Meshes)
+                {
+                    bool addedAnyInstance = false;
+                    var instances = mesh.Instances;
+                    if (instances != null)
+                    {
+                        for (int i = 0; i < instances.Count; i++)
+                        {
+                            string instancePath = instances[i]?.Path;
+                            if (!string.IsNullOrEmpty(instancePath))
+                            {
+                                if (!meshesByPath.ContainsKey(instancePath))
+                                {
+                                    meshesByPath.Add(instancePath, mesh);
+                                }
+                                addedAnyInstance = true;
+                            }
+                        }
+                    }
+
+                    if (!addedAnyInstance && !string.IsNullOrEmpty(mesh.Name) && !meshesByPath.ContainsKey(mesh.Name))
+                    {
+                        meshesByPath.Add(mesh.Name, mesh);
+                    }
+                }
+
+                paths = meshesByPath.Keys.OrderBy(path => path, StringComparer.Ordinal).ToArray();
                 if (Meshes.Length == 0)
                 {
                     ReadMessage = Localization.S("patch_creator.preview.no_raw_meshes");
@@ -2027,14 +2056,14 @@ namespace Triturbo.BlendShare.Preview
                 DestroyPreviewMeshes();
             }
 
-            public UfbxMesh FindMesh(string path)
+            public IFbxMesh FindMesh(string path)
             {
                 if (string.IsNullOrEmpty(path))
                 {
                     return null;
                 }
 
-                return Meshes.FirstOrDefault(mesh => string.Equals(mesh.OwnerNode?.Path ?? mesh.Name, path, StringComparison.Ordinal));
+                return meshesByPath.TryGetValue(path, out var mesh) ? mesh : null;
             }
 
             private void DestroyPreviewMeshes()

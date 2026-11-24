@@ -1,368 +1,329 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.Fbx;
-using Triturbo.BlendShare.Fbx.Ufbx;
 
 namespace Triturbo.BlendShare.Core
 {
-    /// <summary>
-    /// Creates normalized source ufbx mesh snapshots for extraction.
-    /// Welding decisions live here.
-    /// </summary>
     internal static class UfbxSourceMeshNormalizer
     {
-        public static UfbxMesh Normalize(UfbxMesh source, FbxControlPointWelding welding, FbxMatrix4x4 sourceOffset)
+        public static IFbxMeshGeometry Normalize(IFbxMeshGeometry source, FbxControlPointWelding welding, FbxMatrix4x4 sourceOffset)
         {
-            if (source == null)
+            if (source == null || !sourceOffset.TryInverse(out var inverse))
             {
                 return null;
             }
 
-            var vertices = source.GetVertices();
-            var normals = source.GetNormals();
-            var tangents = source.GetTangents();
-
-            if (!sourceOffset.TryInverse(out var inverseSourceOffset))
-            {
-                return null;
-            }
-
-            TransformPoints(vertices, sourceOffset);
-            TransformNormals(normals, inverseSourceOffset);
-            TransformVectors(tangents, sourceOffset, preserveMagnitude: true);
-
-            if (welding != null && welding.HasGroups)
-            {
-                welding.ApplyAverage(vertices);
-                welding.ApplyAverage(normals);
-                welding.ApplyAverage(tangents);
-            }
-
-            var snapshot = new UfbxMesh(source, vertices, normals, tangents);
-            snapshot.SetSnapshotDeformers(CopyDeformers(source, snapshot, welding, sourceOffset, inverseSourceOffset));
-            return snapshot;
+            return new NormalizedFbxMesh(source, welding, sourceOffset, inverse);
         }
 
-        private static IEnumerable<UfbxDeformer> CopyDeformers(
-            UfbxMesh source,
-            UfbxMesh ownerMesh,
-            FbxControlPointWelding welding,
-            FbxMatrix4x4 sourceOffset,
-            FbxMatrix4x4 inverseSourceOffset)
-        {
-            foreach (var deformer in source.Deformers)
-            {
-                switch (deformer)
-                {
-                    case UfbxBlendDeformer blend:
-                        yield return CopyBlendDeformer(blend, ownerMesh, welding, sourceOffset, inverseSourceOffset);
-                        break;
-                    case UfbxSkinDeformer skin:
-                        yield return CopySkinDeformer(skin, ownerMesh, welding, inverseSourceOffset);
-                        break;
-                }
-            }
-        }
-
-        private static UfbxBlendDeformer CopyBlendDeformer(
-            UfbxBlendDeformer source,
-            UfbxMesh ownerMesh,
-            FbxControlPointWelding welding,
-            FbxMatrix4x4 sourceOffset,
-            FbxMatrix4x4 inverseSourceOffset)
-        {
-            var snapshot = new UfbxBlendDeformer(source, ownerMesh);
-            snapshot.SetSnapshotChannels(source.Channels.Select(channel => CopyBlendChannel(channel, ownerMesh, snapshot, welding, sourceOffset, inverseSourceOffset)));
-            return snapshot;
-        }
-
-        private static UfbxBlendChannel CopyBlendChannel(
-            UfbxBlendChannel source,
-            UfbxMesh ownerMesh,
-            UfbxBlendDeformer ownerDeformer,
-            FbxControlPointWelding welding,
-            FbxMatrix4x4 sourceOffset,
-            FbxMatrix4x4 inverseSourceOffset)
-        {
-            var snapshot = new UfbxBlendChannel(source, ownerMesh, ownerDeformer);
-            snapshot.SetSnapshotBlendShapes(source.BlendShapes.Select(shape => CopyBlendShape(shape, ownerMesh, ownerDeformer, snapshot, welding, sourceOffset, inverseSourceOffset)));
-            return snapshot;
-        }
-
-        private static UfbxBlendShape CopyBlendShape(
-            UfbxBlendShape source,
-            UfbxMesh ownerMesh,
-            UfbxBlendDeformer ownerDeformer,
-            UfbxBlendChannel ownerChannel,
-            FbxControlPointWelding welding,
-            FbxMatrix4x4 sourceOffset,
-            FbxMatrix4x4 inverseSourceOffset)
-        {
-            int controlPointCount = ownerMesh.ControlPointCount;
-            var positionDeltas = new Vector3d[controlPointCount];
-            var normalDeltas = new Vector3d[controlPointCount];
-
-            if (source.OffsetCount > 0)
-            {
-                var indices = new int[source.OffsetCount];
-                var positions = new double[source.OffsetCount * 3];
-                var normals = new double[source.OffsetCount * 3];
-                if (source.CopyOffsets(indices, positions, normals) != 0)
-                {
-                    CopyDense(indices, FbxArrayUtility.ToVector3dArray(positions), positionDeltas);
-                    CopyDense(indices, FbxArrayUtility.ToVector3dArray(normals), normalDeltas);
-                }
-            }
-
-            TransformVectors(positionDeltas, sourceOffset, preserveMagnitude: false);
-            TransformNormalDeltas(
-                normalDeltas,
-                source.OwnerMesh?.GetNormals(),
-                sourceOffset,
-                inverseSourceOffset);
-
-            if (welding != null && welding.HasGroups)
-            {
-                welding.ApplyAverage(positionDeltas);
-                welding.ApplyAverage(normalDeltas);
-            }
-
-            BuildSparse(positionDeltas, normalDeltas, out var sparseIndices, out var sparsePositions, out var sparseNormals);
-            return new UfbxBlendShape(source, ownerMesh, ownerDeformer, ownerChannel, sparseIndices, sparsePositions, sparseNormals);
-        }
-
-        private static UfbxSkinDeformer CopySkinDeformer(
-            UfbxSkinDeformer source,
-            UfbxMesh ownerMesh,
-            FbxControlPointWelding welding,
-            FbxMatrix4x4 inverseSourceOffset)
-        {
-            var snapshot = new UfbxSkinDeformer(source, ownerMesh);
-            snapshot.SetSnapshotClusters(source.Clusters.Select(cluster => CopySkinCluster(cluster, ownerMesh, snapshot, welding, inverseSourceOffset)));
-            return snapshot;
-        }
-
-        private static UfbxSkinCluster CopySkinCluster(
-            UfbxSkinCluster source,
-            UfbxMesh ownerMesh,
-            UfbxSkinDeformer ownerSkin,
-            FbxControlPointWelding welding,
-            FbxMatrix4x4 inverseSourceOffset)
-        {
-            int controlPointCount = ownerMesh.ControlPointCount;
-            var denseWeights = new double[controlPointCount];
-            var indices = source.GetIndices();
-            var weights = source.GetWeights();
-            int count = System.Math.Min(indices.Length, weights.Length);
-            for (int i = 0; i < count; i++)
-            {
-                int index = indices[i];
-                if (index >= 0 && index < denseWeights.Length)
-                {
-                    denseWeights[index] = weights[i];
-                }
-            }
-
-            if (welding != null && welding.HasGroups)
-            {
-                welding.ApplyAverage(
-                    denseWeights,
-                    () => new DoubleAccumulator(),
-                    (accumulator, value) => accumulator.Add(value),
-                    (accumulator, mergedCount) => accumulator.Average(mergedCount));
-            }
-
-            var sparseIndices = new List<int>();
-            var sparseWeights = new List<double>();
-            for (int i = 0; i < denseWeights.Length; i++)
-            {
-                if (denseWeights[i] == 0d)
-                {
-                    continue;
-                }
-
-                sparseIndices.Add(i);
-                sparseWeights.Add(denseWeights[i]);
-            }
-
-            return new UfbxSkinCluster(
-                source,
-                ownerMesh,
-                ownerSkin,
-                sparseIndices.ToArray(),
-                sparseWeights.ToArray(),
-                CorrectMeshBindWorld(inverseSourceOffset, source.MeshBindWorld),
-                source.BindToWorld);
-        }
-
-        internal static FbxMatrix4x4 CorrectMeshBindWorld(
-            FbxMatrix4x4 inverseSourceOffset,
-            FbxMatrix4x4 meshBindWorld)
+        internal static FbxMatrix4x4 CorrectMeshBindWorld(FbxMatrix4x4 inverseSourceOffset, FbxMatrix4x4 meshBindWorld)
         {
             return inverseSourceOffset * meshBindWorld;
         }
 
-        private static void CopyDense(
-            IReadOnlyList<int> indices,
-            IReadOnlyList<Vector3d> values,
-            Vector3d[] destination)
+        private static bool Copy<T>(T[] values, Span<T> destination, out int written)
         {
-            int count = System.Math.Min(indices?.Count ?? 0, values?.Count ?? 0);
-            for (int i = 0; i < count; i++)
+            written = 0;
+            if (values == null || !values.AsSpan().TryCopyTo(destination)) return false;
+            written = values.Length;
+            return true;
+        }
+
+        internal sealed class NormalizedFbxMesh : IFbxMeshGeometry
+        {
+            private readonly Vector3d[] points;
+            private readonly Vector3d[] normals;
+            private readonly Vector3d[] tangents;
+            private readonly int[] faceSizes;
+            private readonly int[] corners;
+
+            public long Id { get; }
+            public string Name { get; }
+            public int ControlPointCount => points.Length;
+            public int FaceCount => faceSizes.Length;
+            public int FaceCornerCount => corners.Length;
+            public IReadOnlyList<IFbxDeformer> Deformers { get; }
+            public IReadOnlyList<IFbxBlendDeformer> BlendDeformers { get; }
+            public IReadOnlyList<IFbxSkinDeformer> SkinDeformers { get; }
+
+            internal NormalizedFbxMesh(IFbxMeshGeometry source, FbxControlPointWelding welding, FbxMatrix4x4 offset, FbxMatrix4x4 inverse)
             {
-                int index = indices[i];
-                if (index >= 0 && index < destination.Length)
+                Id = source.Id;
+                Name = source.Name;
+                points = source.GetControlPoints();
+                var rawNormals = source.GetFirstCornerNormals();
+                // Retain the untransformed base normals for blendshape normal-delta transformation
+                // without issuing a second native read across the bridge.
+                bool mutatesNormals = !offset.IsIdentity || (welding != null && welding.HasGroups);
+                normals = mutatesNormals ? (Vector3d[])rawNormals.Clone() : rawNormals;
+                tangents = source.GetFirstCornerTangents();
+                faceSizes = source.GetFaceSizes();
+                corners = source.GetFaceCornerControlPoints();
+
+                if (!offset.IsIdentity)
                 {
-                    destination[index] = values[i];
+                    for (int i = 0; i < points.Length; i++) points[i] = offset.TransformPoint(points[i]);
+                    for (int i = 0; i < normals.Length; i++) normals[i] = inverse.TransformNormalWithInverse(normals[i]);
+                    for (int i = 0; i < tangents.Length; i++) tangents[i] = offset.TransformDirectionPreservingMagnitude(tangents[i]);
                 }
-            }
-        }
+                welding?.ApplyAverage(points);
+                welding?.ApplyAverage(normals);
+                welding?.ApplyAverage(tangents);
 
-        private static void TransformPoints(Vector3d[] points, FbxMatrix4x4 matrix)
-        {
-            if (points == null || matrix.IsIdentity)
-            {
-                return;
-            }
-
-            for (int i = 0; i < points.Length; i++)
-            {
-                points[i] = TransformPoint(matrix, points[i]);
-            }
-        }
-
-        private static void TransformVectors(Vector3d[] vectors, FbxMatrix4x4 matrix, bool preserveMagnitude)
-        {
-            if (vectors == null || matrix.IsIdentity)
-            {
-                return;
-            }
-
-            for (int i = 0; i < vectors.Length; i++)
-            {
-                vectors[i] = preserveMagnitude
-                    ? TransformDirectionPreservingMagnitude(matrix, vectors[i])
-                    : TransformVector(matrix, vectors[i]);
-            }
-        }
-
-        private static void TransformNormals(Vector3d[] normals, FbxMatrix4x4 inverseMatrix)
-        {
-            if (normals == null || inverseMatrix.IsIdentity)
-            {
-                return;
-            }
-
-            for (int i = 0; i < normals.Length; i++)
-            {
-                normals[i] = TransformNormal(inverseMatrix, normals[i]);
-            }
-        }
-
-        private static void TransformNormalDeltas(
-            Vector3d[] deltas,
-            IReadOnlyList<Vector3d> baseNormals,
-            FbxMatrix4x4 sourceOffset,
-            FbxMatrix4x4 inverseSourceOffset)
-        {
-            if (deltas == null || sourceOffset.IsIdentity)
-            {
-                return;
-            }
-
-            for (int i = 0; i < deltas.Length; i++)
-            {
-                var baseNormal = i < (baseNormals?.Count ?? 0) ? baseNormals[i] : Vector3d.zero;
-                if (baseNormal.sqrMagnitude <= Vector3d.Epsilon)
+                var deformers = new List<IFbxDeformer>();
+                foreach (var deformer in source.Deformers)
                 {
-                    deltas[i] = TransformNormal(inverseSourceOffset, deltas[i]);
-                    continue;
+                    if (deformer is IFbxBlendDeformer blend)
+                        deformers.Add(new NormalizedBlendDeformer(blend, this, shape =>
+                            CopyBlendShape(shape, ControlPointCount, welding, offset, inverse, rawNormals)));
+                    else if (deformer is IFbxSkinDeformer skin)
+                        deformers.Add(new NormalizedSkinDeformer(skin, this, welding, inverse));
                 }
 
-                var correctedBase = TransformNormal(inverseSourceOffset, baseNormal);
-                var correctedTarget = TransformNormal(inverseSourceOffset, baseNormal + deltas[i]);
-                deltas[i] = correctedTarget - correctedBase;
+                Deformers = deformers.AsReadOnly();
+                BlendDeformers = deformers.OfType<IFbxBlendDeformer>().ToArray();
+                SkinDeformers = deformers.OfType<IFbxSkinDeformer>().ToArray();
+            }
+
+            public bool TryCopyFaceSizes(Span<int> destination, out int written) => Copy(faceSizes, destination, out written);
+            public bool TryCopyFaceCornerControlPoints(Span<int> destination, out int written) => Copy(corners, destination, out written);
+            public bool TryCopyControlPoints(Span<Vector3d> destination, out int written) => Copy(points, destination, out written);
+            public bool TryCopyFirstCornerNormals(Span<Vector3d> destination, out int written) =>
+                Copy(normals.Length == ControlPointCount ? normals : null, destination, out written);
+            public bool TryCopyFirstCornerTangents(Span<Vector3d> destination, out int written) =>
+                Copy(tangents.Length == ControlPointCount ? tangents : null, destination, out written);
+        }
+
+        internal abstract class NormalizedElement : IFbxElement
+        {
+            public long Id { get; }
+            public string Name { get; }
+            public FbxElementType ElementType { get; }
+            public IFbxMeshGeometry OwnerMesh { get; }
+
+            protected NormalizedElement(IFbxElement source, IFbxMeshGeometry mesh)
+            {
+                Id = source.Id;
+                Name = source.Name;
+                ElementType = source.ElementType;
+                OwnerMesh = mesh;
             }
         }
 
-        private static Vector3d TransformNormal(FbxMatrix4x4 inverseMatrix, Vector3d normal)
+        internal sealed class NormalizedBlendDeformer : NormalizedElement, IFbxBlendDeformer
         {
-            var transformed = new Vector3d(
-                normal.x * inverseMatrix[0, 0] + normal.y * inverseMatrix[0, 1] + normal.z * inverseMatrix[0, 2],
-                normal.x * inverseMatrix[1, 0] + normal.y * inverseMatrix[1, 1] + normal.z * inverseMatrix[1, 2],
-                normal.x * inverseMatrix[2, 0] + normal.y * inverseMatrix[2, 1] + normal.z * inverseMatrix[2, 2]);
-            return transformed.normalized;
-        }
+            public int ChannelCount => Channels.Count;
+            public IReadOnlyList<IFbxBlendChannel> Channels { get; }
 
-        private static Vector3d TransformPoint(FbxMatrix4x4 matrix, Vector3d point)
-        {
-            return new Vector3d(
-                point.x * matrix[0, 0] + point.y * matrix[1, 0] + point.z * matrix[2, 0] + matrix[3, 0],
-                point.x * matrix[0, 1] + point.y * matrix[1, 1] + point.z * matrix[2, 1] + matrix[3, 1],
-                point.x * matrix[0, 2] + point.y * matrix[1, 2] + point.z * matrix[2, 2] + matrix[3, 2]);
-        }
-
-        private static Vector3d TransformVector(FbxMatrix4x4 matrix, Vector3d vector)
-        {
-            return new Vector3d(
-                vector.x * matrix[0, 0] + vector.y * matrix[1, 0] + vector.z * matrix[2, 0],
-                vector.x * matrix[0, 1] + vector.y * matrix[1, 1] + vector.z * matrix[2, 1],
-                vector.x * matrix[0, 2] + vector.y * matrix[1, 2] + vector.z * matrix[2, 2]);
-        }
-
-        private static Vector3d TransformDirectionPreservingMagnitude(FbxMatrix4x4 matrix, Vector3d vector)
-        {
-            var transformed = TransformVector(matrix, vector);
-            double sourceMagnitude = vector.magnitude;
-            double transformedMagnitude = transformed.magnitude;
-            return sourceMagnitude > Vector3d.Epsilon && transformedMagnitude > Vector3d.Epsilon
-                ? transformed * (sourceMagnitude / transformedMagnitude)
-                : transformed;
-        }
-
-        private static void BuildSparse(
-            IReadOnlyList<Vector3d> positions,
-            IReadOnlyList<Vector3d> normals,
-            out int[] indices,
-            out Vector3d[] sparsePositions,
-            out Vector3d[] sparseNormals)
-        {
-            var indexList = new List<int>();
-            var positionList = new List<Vector3d>();
-            var normalList = new List<Vector3d>();
-            int count = System.Math.Max(positions?.Count ?? 0, normals?.Count ?? 0);
-            for (int i = 0; i < count; i++)
+            internal NormalizedBlendDeformer(IFbxBlendDeformer source, IFbxMeshGeometry mesh, Func<IFbxBlendShape, ShapeOffsets> copy)
+                : base(source, mesh)
             {
-                var position = i < (positions?.Count ?? 0) ? positions[i] : Vector3d.zero;
-                var normal = i < (normals?.Count ?? 0) ? normals[i] : Vector3d.zero;
-                if (position.IsZero() && normal.IsZero())
+                Channels = source.Channels.Select(channel => new NormalizedBlendChannel(channel, this, copy)).ToArray();
+            }
+        }
+
+        internal sealed class NormalizedBlendChannel : NormalizedElement, IFbxBlendChannel
+        {
+            public IFbxBlendDeformer OwnerDeformer { get; }
+            public int KeyframeCount => Keyframes.Count;
+            public IReadOnlyList<IFbxBlendKeyframe> Keyframes { get; }
+
+            internal NormalizedBlendChannel(IFbxBlendChannel source, IFbxBlendDeformer owner, Func<IFbxBlendShape, ShapeOffsets> copy)
+                : base(source, owner.OwnerMesh)
+            {
+                OwnerDeformer = owner;
+                Keyframes = source.Keyframes.Select(key => new NormalizedBlendKeyframe(key, this, copy)).ToArray();
+            }
+        }
+
+        internal sealed class NormalizedBlendKeyframe : IFbxBlendKeyframe
+        {
+            public double TargetWeight { get; }
+            public double EffectiveWeight { get; }
+            public IFbxBlendShape Shape { get; }
+
+            internal NormalizedBlendKeyframe(IFbxBlendKeyframe source, IFbxBlendChannel owner, Func<IFbxBlendShape, ShapeOffsets> copy)
+            {
+                TargetWeight = source.TargetWeight;
+                EffectiveWeight = source.EffectiveWeight;
+                var shape = source.Shape;
+                Shape = shape == null ? null : new NormalizedBlendShape(shape, owner, copy(shape));
+            }
+        }
+
+        internal sealed class ShapeOffsets
+        {
+            internal readonly int[] Indices;
+            internal readonly Vector3d[] Positions;
+            internal readonly Vector3d[] Normals;
+            internal readonly double[] Weights;
+
+            internal ShapeOffsets(int count, bool normals, bool weights)
+            {
+                Indices = new int[count];
+                Positions = new Vector3d[count];
+                Normals = normals ? new Vector3d[count] : null;
+                Weights = weights ? new double[count] : null;
+            }
+        }
+
+        private static ShapeOffsets CopyBlendShape(IFbxBlendShape source, int pointCount, FbxControlPointWelding welding,
+            FbxMatrix4x4 offset, FbxMatrix4x4 inverse, Vector3d[] baseNormals)
+        {
+            var sparse = new ShapeOffsets(source.OffsetCount, source.HasNormalOffsets, source.HasOffsetWeights);
+            if (!source.TryCopyOffsets(sparse.Indices, sparse.Positions, sparse.Normals, sparse.Weights, out int written)
+                || written != sparse.Indices.Length)
+                throw new InvalidOperationException("Unable to copy FBX blend shape offsets.");
+
+            for (int i = 0; !offset.IsIdentity && i < written; i++)
+            {
+                sparse.Positions[i] = offset.TransformVector(sparse.Positions[i]);
+                if (sparse.Normals == null) continue;
+                int index = sparse.Indices[i];
+                var normal = (uint)index < (uint)baseNormals.Length ? baseNormals[index] : Vector3d.zero;
+                sparse.Normals[i] = normal.sqrMagnitude <= Vector3d.Epsilon
+                    ? inverse.TransformNormalWithInverse(sparse.Normals[i])
+                    : inverse.TransformNormalWithInverse(normal + sparse.Normals[i]) - inverse.TransformNormalWithInverse(normal);
+            }
+
+            if (welding == null || !welding.HasGroups || written == 0) return sparse;
+
+            var positions = new Vector3d[pointCount];
+            var normalOffsets = source.HasNormalOffsets ? new Vector3d[pointCount] : null;
+            // Keep explicit weights attached to their original control points. Newly affected points use the FBX default.
+            var weightByPoint = source.HasOffsetWeights ? new Dictionary<int, double>() : null;
+            for (int i = 0; i < written; i++)
+            {
+                int index = sparse.Indices[i];
+                if ((uint)index >= (uint)pointCount) continue;
+                positions[index] = sparse.Positions[i];
+                if (normalOffsets != null) normalOffsets[index] = sparse.Normals[i];
+                if (weightByPoint != null) weightByPoint[index] = sparse.Weights[i];
+            }
+
+            welding.ApplyAverage(positions);
+            welding.ApplyAverage(normalOffsets);
+            var affected = new List<int>();
+            for (int i = 0; i < pointCount; i++)
+            {
+                if (!positions[i].IsZero() || (normalOffsets != null && !normalOffsets[i].IsZero()) ||
+                    (weightByPoint != null && weightByPoint.ContainsKey(i))) affected.Add(i);
+            }
+
+            var result = new ShapeOffsets(affected.Count, source.HasNormalOffsets, source.HasOffsetWeights);
+            for (int i = 0; i < affected.Count; i++)
+            {
+                int index = affected[i];
+                result.Indices[i] = index;
+                result.Positions[i] = positions[index];
+                if (normalOffsets != null) result.Normals[i] = normalOffsets[index];
+                if (weightByPoint != null) result.Weights[i] = weightByPoint.TryGetValue(index, out var weight) ? weight : 1d;
+            }
+            return result;
+        }
+
+        internal sealed class NormalizedBlendShape : NormalizedElement, IFbxBlendShape
+        {
+            private readonly ShapeOffsets offsets;
+            public IFbxBlendChannel OwnerChannel { get; }
+            public IFbxBlendDeformer OwnerDeformer => OwnerChannel.OwnerDeformer;
+            public int OffsetCount => offsets.Indices.Length;
+            public bool HasNormalOffsets => offsets.Normals != null;
+            public bool HasOffsetWeights => offsets.Weights != null;
+
+            internal NormalizedBlendShape(IFbxBlendShape source, IFbxBlendChannel owner, ShapeOffsets offsets)
+                : base(source, owner.OwnerMesh)
+            {
+                OwnerChannel = owner;
+                this.offsets = offsets;
+            }
+
+            public bool TryCopyOffsets(Span<int> indices, Span<Vector3d> positions, Span<Vector3d> normals, Span<double> weights, out int written)
+            {
+                written = 0;
+                if (indices.IsEmpty && positions.IsEmpty && normals.IsEmpty && weights.IsEmpty)
                 {
-                    continue;
+                    return OffsetCount == 0;
                 }
 
-                indexList.Add(i);
-                positionList.Add(position);
-                normalList.Add(normal);
+                if ((!indices.IsEmpty && indices.Length < OffsetCount) || (!positions.IsEmpty && positions.Length < OffsetCount) ||
+                    (!normals.IsEmpty && normals.Length < OffsetCount) || (!weights.IsEmpty && weights.Length < OffsetCount)) return false;
+
+                if (!indices.IsEmpty) offsets.Indices.AsSpan().CopyTo(indices);
+                if (!positions.IsEmpty) offsets.Positions.AsSpan().CopyTo(positions);
+                if (!normals.IsEmpty)
+                {
+                    if (HasNormalOffsets) offsets.Normals.AsSpan().CopyTo(normals);
+                    else normals.Slice(0, OffsetCount).Clear();
+                }
+                if (!weights.IsEmpty)
+                {
+                    if (HasOffsetWeights) offsets.Weights.AsSpan().CopyTo(weights);
+                    else weights.Slice(0, OffsetCount).Fill(1d);
+                }
+                written = OffsetCount;
+                return true;
+            }
+        }
+
+        internal sealed class NormalizedSkinDeformer : NormalizedElement, IFbxSkinDeformer
+        {
+            public int ClusterCount => Clusters.Count;
+            public IReadOnlyList<IFbxSkinCluster> Clusters { get; }
+
+            internal NormalizedSkinDeformer(IFbxSkinDeformer source, IFbxMeshGeometry mesh, FbxControlPointWelding welding, FbxMatrix4x4 inverse)
+                : base(source, mesh)
+            {
+                Clusters = source.Clusters.Select(cluster => new NormalizedSkinCluster(cluster, this, welding, inverse)).ToArray();
+            }
+        }
+
+        internal sealed class NormalizedSkinCluster : NormalizedElement, IFbxSkinCluster
+        {
+            private readonly int[] indices;
+            private readonly double[] weights;
+            public IFbxSkinDeformer OwnerSkin { get; }
+            public IFbxNode BoneNode => null;
+            public string BonePath { get; }
+            public int WeightCount => indices.Length;
+            public FbxMatrix4x4 MeshBindWorld { get; }
+            public FbxMatrix4x4 BindToWorld { get; }
+            public FbxMatrix4x4 MeshNodeToBone { get; }
+            public FbxMatrix4x4 GeometryToBone { get; }
+
+            internal NormalizedSkinCluster(IFbxSkinCluster source, IFbxSkinDeformer owner, FbxControlPointWelding welding, FbxMatrix4x4 inverse)
+                : base(source, owner.OwnerMesh)
+            {
+                OwnerSkin = owner;
+                BonePath = source.BonePath;
+                MeshBindWorld = CorrectMeshBindWorld(inverse, source.MeshBindWorld);
+                BindToWorld = source.BindToWorld;
+                MeshNodeToBone = source.MeshNodeToBone;
+                GeometryToBone = source.GeometryToBone;
+
+                var sourceIndices = source.GetControlPointIndices();
+                var sourceWeights = source.GetWeights();
+                var dense = new double[OwnerMesh.ControlPointCount];
+                int pairCount = Math.Min(sourceIndices.Length, sourceWeights.Length);
+                for (int i = 0; i < pairCount; i++)
+                {
+                    int index = sourceIndices[i];
+                    if ((uint)index < (uint)dense.Length) dense[index] += sourceWeights[i];
+                }
+                welding?.ApplyAverage(dense, () => new DoubleAccumulator(),
+                    (acc, value) => acc.Sum += value, (acc, count) => acc.Sum / count);
+                indices = Enumerable.Range(0, dense.Length).Where(index => dense[index] != 0d).ToArray();
+                weights = indices.Select(index => dense[index]).ToArray();
             }
 
-            indices = indexList.ToArray();
-            sparsePositions = positionList.ToArray();
-            sparseNormals = normalList.ToArray();
+            public bool TryCopyControlPointIndices(Span<int> destination, out int written) => Copy(indices, destination, out written);
+            public bool TryCopyWeights(Span<double> destination, out int written) => Copy(weights, destination, out written);
         }
 
         private sealed class DoubleAccumulator
         {
-            private double sum;
-
-            public void Add(double value)
-            {
-                sum += value;
-            }
-
-            public double Average(int count)
-            {
-                return count > 0 ? sum / count : 0d;
-            }
+            internal double Sum;
         }
     }
 }

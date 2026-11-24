@@ -6,7 +6,6 @@ using UnityEngine;
 using Stopwatch = System.Diagnostics.Stopwatch;
 
 using Triturbo.BlendShare.Fbx;
-using Triturbo.BlendShare.Fbx.Ufbx;
 using Triturbo.BlendShare.Fbx.Unity;
 
 namespace Triturbo.BlendShare.Core
@@ -28,17 +27,7 @@ namespace Triturbo.BlendShare.Core
             Mesh unityMesh,
             GameObject fbxGo)
         {
-            return BuildFromFbx(unityRendererPath, unityMesh, fbxGo, out UfbxMesh _);
-        }
-
-        public static UnityVertexMappingObject BuildFromFbx(
-            string unityRendererPath,
-            Mesh unityMesh,
-            GameObject fbxGo,
-            out UfbxMesh fbxMesh)
-        {
-            fbxMesh = null;
-            UfbxScene scene = null;
+            IFbxScene scene = null;
             try
             {
                 if (fbxGo != null)
@@ -57,7 +46,7 @@ namespace Triturbo.BlendShare.Core
                     FbxUnityAssetReader.GetImportScale(fbxGo),
                     FbxUnityAssetReader.GetBakeAxisConversion(fbxGo),
                     FbxUnityAssetReader.GetImporterSpaceTransform(fbxGo),
-                    out fbxMesh);
+                    out _);
             }
             finally
             {
@@ -68,9 +57,9 @@ namespace Triturbo.BlendShare.Core
         public static UnityVertexMappingObject BuildFromFbx(
             string unityRendererPath,
             Mesh unityMesh,
-            UfbxScene fbxScene,
+            IFbxScene fbxScene,
             float importScale,
-            out UfbxMesh fbxMesh)
+            out IFbxMesh fbxMesh)
         {
             return BuildFromFbx(
                 unityRendererPath,
@@ -85,11 +74,11 @@ namespace Triturbo.BlendShare.Core
         public static UnityVertexMappingObject BuildFromFbx(
             string unityRendererPath,
             Mesh unityMesh,
-            UfbxScene fbxScene,
+            IFbxScene fbxScene,
             float importScale,
             bool bakeAxisConversion,
             Matrix4x4 fbxToUnity,
-            out UfbxMesh fbxMesh)
+            out IFbxMesh fbxMesh)
         {
             var stopwatch = Stopwatch.StartNew();
             double lastLogMs = 0d;
@@ -403,7 +392,7 @@ namespace Triturbo.BlendShare.Core
             return groups;
         }
 
-        private static int CountBlendShapeChannels(UfbxMesh mesh)
+        private static int CountBlendShapeChannels(IFbxMesh mesh)
         {
             return mesh?.BlendDeformers.Sum(deformer => deformer.Channels.Count) ?? 0;
         }

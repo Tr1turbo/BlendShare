@@ -3,7 +3,7 @@ using System.Linq;
 
 #if ENABLE_FBX_SDK
 using Autodesk.Fbx;
-using Triturbo.BlendShare.Fbx.Ufbx;
+using Triturbo.BlendShare.Fbx;
 
 namespace Triturbo.BlendShare.Core
 {
@@ -16,13 +16,13 @@ namespace Triturbo.BlendShare.Core
 
         public FbxNode RootNode { get; }
         public float ImportScale { get; }
-        public UfbxScene ReaderScene { get; }
+        public IFbxScene ReaderScene { get; }
         public IBlendShareProgress Progress { get; }
 
         public FbxGenerationSession(
             FbxNode rootNode,
             float importScale,
-            UfbxScene readerScene = null,
+            IFbxScene readerScene = null,
             IBlendShareProgress progress = null)
         {
             RootNode = rootNode;

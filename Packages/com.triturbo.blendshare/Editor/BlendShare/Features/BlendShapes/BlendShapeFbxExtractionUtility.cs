@@ -1,19 +1,18 @@
+using System;
 using Triturbo.BlendShare.Fbx;
 using FbxReaderMatrix = Triturbo.BlendShare.Fbx.FbxMatrix4x4;
-using UfbxBlendChannel = Triturbo.BlendShare.Fbx.Ufbx.UfbxBlendChannel;
-using UfbxBlendShape = Triturbo.BlendShare.Fbx.Ufbx.UfbxBlendShape;
-using UfbxMesh = Triturbo.BlendShare.Fbx.Ufbx.UfbxMesh;
 using Vector3d = Triturbo.BlendShare.Fbx.Vector3d;
 
 namespace Triturbo.BlendShare.Features.BlendShapes
 {
     public static class BlendShapeFbxExtractionUtility
     {
+        /// <summary>Extracts dense blendshape position and normal deltas from an FBX blend channel.</summary>
         public static FbxBlendShapeData GetFbxBlendShapeData(
-            UfbxBlendChannel source,
-            UfbxMesh sourceMesh,
+            IFbxBlendChannel source,
+            IFbxMeshGeometry sourceMesh,
             FbxReaderMatrix transformMatrix,
-            UfbxMesh baseMesh = null,
+            IFbxMeshGeometry baseMesh = null,
             int controlPointLimit = -1)
         {
             if (source == null || sourceMesh == null)
@@ -22,30 +21,33 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             }
 
             int controlPointCount = controlPointLimit >= 0
-                ? System.Math.Min(controlPointLimit, sourceMesh.ControlPointCount)
+                ? Math.Min(controlPointLimit, sourceMesh.ControlPointCount)
                 : sourceMesh.ControlPointCount;
 
             if (baseMesh == null)
             {
                 baseMesh = sourceMesh;
             }
-            controlPointCount = System.Math.Min(controlPointCount, baseMesh.ControlPointCount);
+            controlPointCount = Math.Min(controlPointCount, baseMesh.ControlPointCount);
 
-            var sourceControlPoints = sourceMesh.GetVertices();
-            var baseControlPoints = baseMesh.GetVertices();
+            var sourceControlPoints = sourceMesh.GetControlPoints();
+            var baseControlPoints = ReferenceEquals(baseMesh, sourceMesh)
+                ? sourceControlPoints
+                : baseMesh.GetControlPoints();
             if (sourceControlPoints.Length == 0 || baseControlPoints.Length == 0)
             {
                 return null;
             }
 
-            int shapeCount = source.BlendShapes.Count;
+            int shapeCount = source.Keyframes.Count;
             var frames = new FbxBlendShapeFrame[shapeCount];
+            bool preserveSourceRelative = ReferenceEquals(baseMesh, sourceMesh);
 
             for (int shapeIndex = 0; shapeIndex < shapeCount; shapeIndex++)
             {
-                var sourceFrame = source.BlendShapes[shapeIndex];
-                frames[shapeIndex] = new FbxBlendShapeFrame(sourceFrame?.Weight ?? 100.0);
-                var sourceDeltas = BuildDenseUfbxDeltas(sourceFrame, controlPointCount, out var sourceNormalDeltas);
+                var sourceKeyframe = source.Keyframes[shapeIndex];
+                frames[shapeIndex] = new FbxBlendShapeFrame(sourceKeyframe?.TargetWeight ?? 100.0);
+                var sourceDeltas = BuildDenseFbxDeltas(sourceKeyframe?.Shape, controlPointCount, out var sourceNormalDeltas);
                 var deltas = new Vector3d[controlPointCount];
                 var normalDeltas = new Vector3d[controlPointCount];
 
@@ -55,10 +57,10 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                     var sourceControlPoint = GetControlPoint(sourceControlPoints, pointIndex);
                     var baseControlPoint = GetControlPoint(baseControlPoints, pointIndex);
 
-                    deltas[pointIndex] = baseMesh == sourceMesh
-                        ? TransformPoint(transformMatrix, sourceDelta)
-                        : TransformPoint(transformMatrix, sourceControlPoint + sourceDelta) - baseControlPoint;
-                    normalDeltas[pointIndex] = TransformNormalDelta(transformMatrix, sourceNormalDeltas[pointIndex]);
+                    deltas[pointIndex] = preserveSourceRelative
+                        ? transformMatrix.TransformPoint(sourceDelta)
+                        : transformMatrix.TransformPoint(sourceControlPoint + sourceDelta) - baseControlPoint;
+                    normalDeltas[pointIndex] = transformMatrix.TransformDirectionPreservingMagnitude(sourceNormalDeltas[pointIndex]);
                 }
 
                 for (int index = 0; index < deltas.Length; index++)
@@ -71,8 +73,8 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             return new FbxBlendShapeData(frames);
         }
 
-        private static Vector3d[] BuildDenseUfbxDeltas(
-            UfbxBlendShape sourceFrame,
+        private static Vector3d[] BuildDenseFbxDeltas(
+            IFbxBlendShape sourceFrame,
             int controlPointCount,
             out Vector3d[] normalDeltas)
         {
@@ -84,23 +86,27 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             }
 
             var indices = new int[sourceFrame.OffsetCount];
-            var values = new double[sourceFrame.OffsetCount * 3];
-            var normals = new double[sourceFrame.OffsetCount * 3];
-            if (sourceFrame.CopyOffsets(indices, values, normals) == 0)
+            var sourceDeltas = new Vector3d[sourceFrame.OffsetCount];
+            var sourceNormalDeltas = sourceFrame.HasNormalOffsets
+                ? new Vector3d[sourceFrame.OffsetCount]
+                : Array.Empty<Vector3d>();
+            if (!sourceFrame.TryCopyOffsets(indices, sourceDeltas, sourceNormalDeltas, Span<double>.Empty, out int count) ||
+                count == 0)
             {
                 return deltas;
             }
 
-            var sourceDeltas = FbxArrayUtility.ToVector3dArray(values);
-            var sourceNormalDeltas = FbxArrayUtility.ToVector3dArray(normals);
-            int count = System.Math.Min(indices.Length, System.Math.Min(sourceDeltas.Length, sourceNormalDeltas.Length));
-            for (int i = 0; i < count; i++)
+            int safeCount = Math.Min(count, Math.Min(indices.Length, sourceDeltas.Length));
+            for (int i = 0; i < safeCount; i++)
             {
                 int index = indices[i];
                 if (index >= 0 && index < controlPointCount)
                 {
                     deltas[index] = sourceDeltas[i];
-                    normalDeltas[index] = sourceNormalDeltas[i];
+                    if (i < sourceNormalDeltas.Length)
+                    {
+                        normalDeltas[index] = sourceNormalDeltas[i];
+                    }
                 }
             }
 
@@ -114,32 +120,6 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             return index >= 0 && index < (controlPoints?.Count ?? 0)
                 ? controlPoints[index]
                 : Vector3d.zero;
-        }
-
-        private static Vector3d TransformPoint(FbxReaderMatrix matrix, Vector3d point)
-        {
-            return new Vector3d(
-                point.x * matrix[0, 0] + point.y * matrix[1, 0] + point.z * matrix[2, 0] + matrix[3, 0],
-                point.x * matrix[0, 1] + point.y * matrix[1, 1] + point.z * matrix[2, 1] + matrix[3, 1],
-                point.x * matrix[0, 2] + point.y * matrix[1, 2] + point.z * matrix[2, 2] + matrix[3, 2]);
-        }
-
-        private static Vector3d TransformVector(FbxReaderMatrix matrix, Vector3d vector)
-        {
-            return new Vector3d(
-                vector.x * matrix[0, 0] + vector.y * matrix[1, 0] + vector.z * matrix[2, 0],
-                vector.x * matrix[0, 1] + vector.y * matrix[1, 1] + vector.z * matrix[2, 1],
-                vector.x * matrix[0, 2] + vector.y * matrix[1, 2] + vector.z * matrix[2, 2]);
-        }
-
-        private static Vector3d TransformNormalDelta(FbxReaderMatrix matrix, Vector3d normalDelta)
-        {
-            var transformed = TransformVector(matrix, normalDelta);
-            double sourceMagnitude = normalDelta.magnitude;
-            double transformedMagnitude = transformed.magnitude;
-            return sourceMagnitude > Vector3d.Epsilon && transformedMagnitude > Vector3d.Epsilon
-                ? transformed * (sourceMagnitude / transformedMagnitude)
-                : transformed;
         }
     }
 }

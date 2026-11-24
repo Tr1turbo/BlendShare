@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Triturbo.BlendShare.Fbx.Ufbx;
+using Triturbo.BlendShare.Fbx;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -38,10 +38,10 @@ namespace Triturbo.BlendShare.Preview
 
     internal readonly struct UfbxPreviewMeshBuildInput
     {
-        public readonly UfbxMesh Source;
+        public readonly IFbxMeshGeometry Source;
         public readonly Matrix4x4 Transform;
 
-        public UfbxPreviewMeshBuildInput(UfbxMesh source, Matrix4x4 transform)
+        public UfbxPreviewMeshBuildInput(IFbxMeshGeometry source, Matrix4x4 transform)
         {
             Source = source;
             Transform = transform;
@@ -120,21 +120,21 @@ namespace Triturbo.BlendShare.Preview
             }
         }
 
-        public static UfbxPreviewMeshBuildResult Build(UfbxMesh source)
+        public static UfbxPreviewMeshBuildResult Build(IFbxMeshGeometry source)
         {
             if (source == null)
             {
                 return new UfbxPreviewMeshBuildResult(null, null, UfbxPreviewMeshBuildStatus.NullMesh);
             }
 
-            var vertices = source.GetVertices();
+            var vertices = source.GetControlPoints();
             if (vertices == null || vertices.Length == 0)
             {
                 return new UfbxPreviewMeshBuildResult(null, null, UfbxPreviewMeshBuildStatus.NoVertices);
             }
 
             int[] faceSizes = source.GetFaceSizes();
-            int[] faceIndices = source.GetFaceControlPointIndices();
+            int[] faceIndices = source.GetFaceCornerControlPoints();
             if (faceSizes == null || faceSizes.Length == 0 || faceIndices == null || faceIndices.Length == 0)
             {
                 return new UfbxPreviewMeshBuildResult(null, null, UfbxPreviewMeshBuildStatus.NoFaces);
@@ -214,7 +214,7 @@ namespace Triturbo.BlendShare.Preview
             return new UfbxPreviewMeshBuildResult(mesh, wireMesh, UfbxPreviewMeshBuildStatus.Success);
         }
 
-        private static Mesh CreateMesh(UfbxMesh source, string suffix, int vertexCount)
+        private static Mesh CreateMesh(IFbxMeshGeometry source, string suffix, int vertexCount)
         {
             return new Mesh
             {

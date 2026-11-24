@@ -1,69 +1,74 @@
 #if UNITY_EDITOR
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using Triturbo.BlendShare.Fbx.Ufbx;
 using UnityEditor;
 using UnityEngine;
 
 namespace Triturbo.BlendShare.Fbx.Unity
 {
+    /// <summary>Unity Editor helpers for reading FBX assets and their ModelImporter space settings.</summary>
     public static class FbxUnityAssetReader
     {
-        public static FbxReadResult<UfbxScene> ReadScene(GameObject FbxGo)
+        /// <summary>Loads an FBX scene from a Unity imported FBX <see cref="GameObject"/> asset.</summary>
+        public static FbxReadResult<UfbxScene> ReadScene(GameObject fbxGo, UfbxLoadOptions? options = null)
         {
-            if (FbxGo == null)
+            if (fbxGo == null)
             {
                 return FbxReadResult<UfbxScene>.Failed(FbxReadStatus.InvalidArgument, "FBX asset is null.");
             }
 
-            string assetPath = AssetDatabase.GetAssetPath(FbxGo);
-            return UfbxScene.TryLoad(assetPath);
+            string assetPath = AssetDatabase.GetAssetPath(fbxGo);
+            return UfbxScene.TryLoad(assetPath, options);
         }
 
-        public static FbxReadResult<UfbxMesh> FindMesh(UfbxScene scene, string nodePath)
+        /// <summary>Finds a mesh attached to the node at the given hierarchy path.</summary>
+        public static FbxReadResult<IFbxMesh> FindMesh(IFbxScene scene, string nodePath)
         {
             if (scene == null)
             {
-                return FbxReadResult<UfbxMesh>.Failed(FbxReadStatus.InvalidArgument, "FBX scene is null.");
+                return FbxReadResult<IFbxMesh>.Failed(FbxReadStatus.InvalidArgument, "FBX scene is null.");
             }
 
             string normalizedPath = FbxNameUtility.NormalizePath(nodePath);
             if (string.IsNullOrEmpty(normalizedPath))
             {
-                return FbxReadResult<UfbxMesh>.Failed(
+                return FbxReadResult<IFbxMesh>.Failed(
                     FbxReadStatus.InvalidArgument,
                     "FBX node path is empty.");
             }
 
             var mesh = scene.FindMeshByNodePath(normalizedPath);
             return mesh != null
-                ? FbxReadResult<UfbxMesh>.Succeeded(mesh)
-                : FbxReadResult<UfbxMesh>.Failed(FbxReadStatus.NodeNotFound, $"FBX mesh node '{normalizedPath}' was not found.");
+                ? FbxReadResult<IFbxMesh>.Succeeded(mesh)
+                : FbxReadResult<IFbxMesh>.Failed(FbxReadStatus.NodeNotFound, $"FBX mesh node '{normalizedPath}' was not found.");
         }
 
+        /// <summary>Reads <see cref="ModelImporter.fileScale"/> for the asset at <paramref name="assetPath"/>.</summary>
         public static float GetImportScale(string assetPath)
         {
             var importer = AssetImporter.GetAtPath(assetPath) as ModelImporter;
             return importer != null ? importer.fileScale : 1f;
         }
 
-        public static float GetImportScale(GameObject FbxGo)
+        /// <summary>Reads <see cref="ModelImporter.fileScale"/> for the asset backing <paramref name="fbxGo"/>.</summary>
+        public static float GetImportScale(GameObject fbxGo)
         {
-            return FbxGo != null ? GetImportScale(AssetDatabase.GetAssetPath(FbxGo)) : 1f;
+            return fbxGo != null ? GetImportScale(AssetDatabase.GetAssetPath(fbxGo)) : 1f;
         }
 
+        /// <summary>Reads <see cref="ModelImporter.bakeAxisConversion"/> for the asset at <paramref name="assetPath"/>.</summary>
         public static bool GetBakeAxisConversion(string assetPath)
         {
             var importer = AssetImporter.GetAtPath(assetPath) as ModelImporter;
             return importer != null && importer.bakeAxisConversion;
         }
 
-        public static bool GetBakeAxisConversion(GameObject FbxGo)
+        /// <summary>Reads <see cref="ModelImporter.bakeAxisConversion"/> for the asset backing <paramref name="fbxGo"/>.</summary>
+        public static bool GetBakeAxisConversion(GameObject fbxGo)
         {
-            return FbxGo != null && GetBakeAxisConversion(AssetDatabase.GetAssetPath(FbxGo));
+            return fbxGo != null && GetBakeAxisConversion(AssetDatabase.GetAssetPath(fbxGo));
         }
 
+        /// <summary>Returns the FBX-to-Unity importer scale/axis matrix for the asset at <paramref name="assetPath"/>.</summary>
         public static Matrix4x4 GetImporterSpaceTransform(string assetPath)
         {
             float scale = GetImportScale(assetPath);
@@ -73,9 +78,10 @@ namespace Triturbo.BlendShare.Fbx.Unity
                 : Matrix4x4.Scale(new Vector3(-scale, scale, scale));
         }
 
-        public static Matrix4x4 GetImporterSpaceTransform(GameObject FbxGo)
+        /// <summary>Returns the FBX-to-Unity importer scale/axis matrix for the asset backing <paramref name="fbxGo"/>.</summary>
+        public static Matrix4x4 GetImporterSpaceTransform(GameObject fbxGo)
         {
-            return FbxGo != null ? GetImporterSpaceTransform(AssetDatabase.GetAssetPath(FbxGo)) : Matrix4x4.identity;
+            return fbxGo != null ? GetImporterSpaceTransform(AssetDatabase.GetAssetPath(fbxGo)) : Matrix4x4.identity;
         }
     }
 }

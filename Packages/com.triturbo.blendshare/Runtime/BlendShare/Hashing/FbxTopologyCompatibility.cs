@@ -1,5 +1,5 @@
 using System.Collections.Generic;
-using Triturbo.BlendShare.Fbx.Ufbx;
+using Triturbo.BlendShare.Fbx;
 
 namespace Triturbo.BlendShare.Hashing
 {
@@ -49,7 +49,7 @@ namespace Triturbo.BlendShare.Hashing
 
     public static class FbxMeshCompatibility
     {
-        public static FbxMeshCompatibilityResult Evaluate(UfbxMesh original, UfbxMesh source)
+        public static FbxMeshCompatibilityResult Evaluate(IFbxMeshTopology original, IFbxMeshTopology source)
         {
             if (original == null || source == null)
             {
@@ -79,11 +79,11 @@ namespace Triturbo.BlendShare.Hashing
             return EvaluateTopology(
                 originalCount,
                 original.GetFaceSizes(),
-                original.GetFaceControlPointIndices(),
+                original.GetFaceCornerControlPoints(),
                 originalSignature,
                 sourceCount,
                 source.GetFaceSizes(),
-                source.GetFaceControlPointIndices());
+                source.GetFaceCornerControlPoints());
         }
 
         public static FbxMeshCompatibilityResult EvaluateTopology(

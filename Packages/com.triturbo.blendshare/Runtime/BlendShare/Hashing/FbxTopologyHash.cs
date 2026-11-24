@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
-using Triturbo.BlendShare.Fbx.Ufbx;
+using Triturbo.BlendShare.Fbx;
 
 namespace Triturbo.BlendShare.Hashing
 {
@@ -14,7 +14,7 @@ namespace Triturbo.BlendShare.Hashing
     {
         private const string AlgorithmVersion = "BlendShare.FbxTopologyHash.v1";
 
-        public static FbxTopologySignature Calculate(UfbxMesh mesh, int controlPointLimit = -1)
+        public static FbxTopologySignature Calculate(IFbxMeshTopology mesh, int controlPointLimit = -1)
         {
             if (mesh == null)
             {
@@ -26,7 +26,7 @@ namespace Triturbo.BlendShare.Hashing
                 return Calculate(
                     mesh.ControlPointCount,
                     mesh.GetFaceSizes(),
-                    mesh.GetFaceControlPointIndices(),
+                    mesh.GetFaceCornerControlPoints(),
                     controlPointLimit);
             }
             catch (Exception exception) when (exception is DllNotFoundException || exception is EntryPointNotFoundException)

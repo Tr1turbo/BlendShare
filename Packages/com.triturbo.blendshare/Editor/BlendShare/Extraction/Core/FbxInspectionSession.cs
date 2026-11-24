@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.Fbx;
-using Triturbo.BlendShare.Fbx.Ufbx;
 using Triturbo.BlendShare.Fbx.Unity;
 using Triturbo.BlendShare.Hashing;
 using UnityEditor;
@@ -90,34 +89,34 @@ namespace Triturbo.BlendShare.Core
             return compatibility;
         }
 
-        public IReadOnlyList<UfbxBlendChannel> GetSourceBlendShapes(string path)
+        public IReadOnlyList<IFbxBlendChannel> GetSourceBlendShapes(string path)
         {
-            return Source?.GetBlendShapes(path) ?? Array.Empty<UfbxBlendChannel>();
+            return Source?.GetBlendShapes(path) ?? Array.Empty<IFbxBlendChannel>();
         }
 
-        public IReadOnlyList<UfbxBlendChannel> GetOriginBlendShapes(string path)
+        public IReadOnlyList<IFbxBlendChannel> GetOriginBlendShapes(string path)
         {
-            return Origin?.GetBlendShapes(path) ?? Array.Empty<UfbxBlendChannel>();
+            return Origin?.GetBlendShapes(path) ?? Array.Empty<IFbxBlendChannel>();
         }
 
-        public UfbxSkinDeformer GetSourceSkin(string path)
+        public IFbxSkinDeformer GetSourceSkin(string path)
         {
             return Source?.GetPrimarySkin(path);
         }
 
-        public UfbxSkinDeformer GetOriginSkin(string path)
+        public IFbxSkinDeformer GetOriginSkin(string path)
         {
             return Origin?.GetPrimarySkin(path);
         }
 
-        public IReadOnlyList<UfbxNode> GetSourceBoneNodes()
+        public IReadOnlyList<IFbxNode> GetSourceBoneNodes()
         {
-            return Source?.BoneNodes ?? Array.Empty<UfbxNode>();
+            return Source?.BoneNodes ?? Array.Empty<IFbxNode>();
         }
 
-        public IReadOnlyList<UfbxNode> GetOriginBoneNodes()
+        public IReadOnlyList<IFbxNode> GetOriginBoneNodes()
         {
-            return Origin?.BoneNodes ?? Array.Empty<UfbxNode>();
+            return Origin?.BoneNodes ?? Array.Empty<IFbxNode>();
         }
 
         public void Dispose()
@@ -149,8 +148,8 @@ namespace Triturbo.BlendShare.Core
         public GameObject FbxObject { get; }
         public string AssetPath { get; }
         public ModelImporter Importer { get; }
-        public UfbxScene Scene { get; }
-        public IReadOnlyList<UfbxNode> BoneNodes { get; }
+        public IFbxScene Scene { get; }
+        public IReadOnlyList<IFbxNode> BoneNodes { get; }
         public IReadOnlyList<string> Diagnostics { get; }
 
         private FbxInspectionAsset(
@@ -158,7 +157,7 @@ namespace Triturbo.BlendShare.Core
             GameObject fbxObject,
             string assetPath,
             ModelImporter importer,
-            UfbxScene scene,
+            IFbxScene scene,
             IReadOnlyList<string> diagnostics)
         {
             Label = label;
@@ -168,8 +167,8 @@ namespace Triturbo.BlendShare.Core
             Scene = scene;
             Diagnostics = diagnostics ?? Array.Empty<string>();
             BoneNodes = scene?.Nodes
-                .Where(node => node != null && node.NodeType == UfbxNodeType.LimbNode)
-                .ToArray() ?? Array.Empty<UfbxNode>();
+                .Where(node => node != null && node.IsBone)
+                .ToArray() ?? Array.Empty<IFbxNode>();
         }
 
         public static FbxInspectionAsset Open(
@@ -194,7 +193,7 @@ namespace Triturbo.BlendShare.Core
                 diagnostics.Add($"{label} asset is not a readable FBX ModelImporter asset.");
             }
 
-            UfbxScene scene = null;
+            IFbxScene scene = null;
             var sceneResult = FbxUnityAssetReader.ReadScene(fbxObject);
             if (sceneResult.Success)
             {
@@ -209,27 +208,27 @@ namespace Triturbo.BlendShare.Core
             return new FbxInspectionAsset(label, fbxObject, assetPath, importer, scene, diagnostics);
         }
 
-        public UfbxNode GetNode(string path)
+        public IFbxNode GetNode(string path)
         {
             ThrowIfDisposed();
             return Scene?.FindNodeByPath(MeshNodePath.ToFbxPath(path));
         }
 
-        public UfbxMesh GetMesh(string path)
+        public IFbxMesh GetMesh(string path)
         {
             ThrowIfDisposed();
             return Scene?.FindMeshByNodePath(MeshNodePath.ToFbxPath(path));
         }
 
-        public IReadOnlyList<UfbxBlendChannel> GetBlendShapes(string path)
+        public IReadOnlyList<IFbxBlendChannel> GetBlendShapes(string path)
         {
             return GetMesh(path)?.BlendDeformers
                 .SelectMany(deformer => deformer.Channels)
                 .Where(channel => channel != null)
-                .ToArray() ?? Array.Empty<UfbxBlendChannel>();
+                .ToArray() ?? Array.Empty<IFbxBlendChannel>();
         }
 
-        public UfbxSkinDeformer GetPrimarySkin(string path)
+        public IFbxSkinDeformer GetPrimarySkin(string path)
         {
             return GetMesh(path)?.SkinDeformers
                 .FirstOrDefault(deformer => deformer != null && deformer.Clusters.Any(cluster => cluster.WeightCount > 0));
@@ -271,18 +270,18 @@ namespace Triturbo.BlendShare.Core
     public sealed class FbxInspectionMeshPair
     {
         public string Path { get; }
-        public UfbxNode SourceNode { get; }
-        public UfbxNode OriginNode { get; }
-        public UfbxMesh SourceMesh { get; }
-        public UfbxMesh OriginMesh { get; }
+        public IFbxNode SourceNode { get; }
+        public IFbxNode OriginNode { get; }
+        public IFbxMesh SourceMesh { get; }
+        public IFbxMesh OriginMesh { get; }
         public IReadOnlyList<string> Diagnostics { get; }
 
         public FbxInspectionMeshPair(
             string path,
-            UfbxNode sourceNode,
-            UfbxNode originNode,
-            UfbxMesh sourceMesh,
-            UfbxMesh originMesh,
+            IFbxNode sourceNode,
+            IFbxNode originNode,
+            IFbxMesh sourceMesh,
+            IFbxMesh originMesh,
             IEnumerable<string> diagnostics)
         {
             Path = MeshNodePath.Normalize(path);

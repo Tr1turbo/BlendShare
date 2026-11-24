@@ -3,8 +3,10 @@ using System.Linq;
 
 namespace Triturbo.BlendShare.Fbx
 {
+    /// <summary>Utilities for cleaning FBX object names and paths.</summary>
     public static class FbxNameUtility
     {
+        /// <summary>Strips the FBX class prefix and null-terminated suffix from a name.</summary>
         public static string CleanObjectName(string value)
         {
             if (string.IsNullOrEmpty(value))
@@ -27,6 +29,7 @@ namespace Triturbo.BlendShare.Fbx
             return value;
         }
 
+        /// <summary>Cleans each hierarchy segment and joins nonempty segments with slashes.</summary>
         public static string NormalizePath(string value)
         {
             if (string.IsNullOrEmpty(value))

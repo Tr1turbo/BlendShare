@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Triturbo.BlendShare.Features.BlendShapes;
 using Triturbo.BlendShare.Fbx;
-using Triturbo.BlendShare.Fbx.Ufbx;
 using UnityEngine;
 using UnityBlendShapeData = Triturbo.BlendShapeShare.BlendShapeData.UnityBlendShapeData;
 using UnityBlendShapeFrame = Triturbo.BlendShapeShare.BlendShapeData.UnityBlendShapeFrame;
@@ -48,7 +47,7 @@ namespace Triturbo.BlendShare.Core
         /// Blendshape sequences are paired by index order (FBX asset path).
         /// Returns an empty/invalid pair when either mesh is null or no shared blendshapes exist.
         /// </summary>
-        public static FingerprintPair CreatePair(UfbxMesh fbxMesh, Mesh unityMesh, Matrix4x4 fbxToUnity)
+        public static FingerprintPair CreatePair(IFbxMeshGeometry fbxMesh, Mesh unityMesh, Matrix4x4 fbxToUnity)
         {
             var fbxBlendShapes = BuildFbxBlendShapeSequence(
                 fbxMesh,
@@ -79,7 +78,7 @@ namespace Triturbo.BlendShare.Core
 
         // ─── FBX / Unity fingerprint creation ─────────────────────────────────────
         public static PositionFingerprint[] CreateFromFbx(
-            UfbxMesh mesh,
+            IFbxMeshGeometry mesh,
             FbxBlendShapeData[] blendShapes,
             Matrix4x4 fbxToUnity)
         {
@@ -89,7 +88,7 @@ namespace Triturbo.BlendShare.Core
             }
 
             return CreateFromFbxPositions(
-                mesh.GetVertices(),
+                mesh.GetControlPoints(),
                 blendShapes,
                 fbxToUnity);
         }
@@ -180,7 +179,7 @@ namespace Triturbo.BlendShare.Core
         /// without frames or deltas.
         /// </summary>
         internal static FbxBlendShapeData[] BuildFbxBlendShapeSequence(
-            UfbxMesh mesh,
+            IFbxMeshGeometry mesh,
             out string[] blendShapeNames)
         {
             if (mesh == null)
@@ -288,46 +287,38 @@ namespace Triturbo.BlendShare.Core
         }
 
         // ─── FBX blendshape data construction ─────────────────────────────────────
-        internal static FbxBlendShapeData CreateFbxBlendShapeData(UfbxBlendChannel channel)
+        internal static FbxBlendShapeData CreateFbxBlendShapeData(IFbxBlendChannel channel)
         {
-            var shapes = channel?.BlendShapes ?? System.Array.Empty<UfbxBlendShape>();
-            var frames = new FbxBlendShapeFrame[shapes.Count];
-            for (int i = 0; i < shapes.Count; i++)
+            var keyframes = channel?.Keyframes ?? System.Array.Empty<IFbxBlendKeyframe>();
+            var frames = new FbxBlendShapeFrame[keyframes.Count];
+            for (int i = 0; i < keyframes.Count; i++)
             {
-                frames[i] = CreateFbxBlendShapeFrame(shapes[i]);
+                frames[i] = CreateFbxBlendShapeFrame(keyframes[i]);
             }
             return new FbxBlendShapeData(frames);
         }
 
-        internal static FbxBlendShapeFrame CreateFbxBlendShapeFrame(UfbxBlendShape shape)
+        internal static FbxBlendShapeFrame CreateFbxBlendShapeFrame(IFbxBlendKeyframe keyframe)
         {
-            var frame = new FbxBlendShapeFrame(shape?.Weight ?? 100.0);
+            var shape = keyframe?.Shape;
+            var frame = new FbxBlendShapeFrame(keyframe?.TargetWeight ?? 100.0);
             if (shape == null || shape.OffsetCount <= 0)
             {
                 return frame;
             }
 
             var indices = new int[shape.OffsetCount];
-            var values = new double[shape.OffsetCount * 3];
-            var normals = new double[shape.OffsetCount * 3];
-            if (shape.CopyOffsets(indices, values, normals) == 0)
+            var deltas = new Vector3d[shape.OffsetCount];
+            if (!shape.TryCopyOffsets(indices, deltas, System.Span<Vector3d>.Empty, System.Span<double>.Empty, out int written))
             {
                 return frame;
             }
 
-            var deltas = FbxArrayUtility.ToVector3dArray(values);
-            var normalDeltas = FbxArrayUtility.ToVector3dArray(normals);
-            int count = System.Math.Min(indices.Length, System.Math.Min(deltas.Length, normalDeltas.Length));
-            for (int i = 0; i < count; i++)
+            for (int i = 0; i < written; i++)
             {
                 if (!deltas[i].IsZero())
                 {
                     frame.SetDeltaPositionAt(indices[i], deltas[i]);
-                }
-
-                if (!normalDeltas[i].IsZero())
-                {
-                    frame.SetDeltaNormalAt(indices[i], normalDeltas[i]);
                 }
             }
             return frame;

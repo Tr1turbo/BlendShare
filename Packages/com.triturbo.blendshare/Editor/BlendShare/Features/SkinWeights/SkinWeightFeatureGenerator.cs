@@ -6,7 +6,6 @@ using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Features.SkinWeights;
 using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Fbx.Unity;
-using Triturbo.BlendShare.Fbx.Ufbx;
 using Unity.Collections;
 using UnityEditor;
 using UnityEngine;
@@ -713,7 +712,7 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             return patch != null ? patch.name : "<unknown>";
         }
 
-        private static UfbxMesh GetReaderMesh(
+        private static IFbxMesh GetReaderMesh(
             FbxMeshFeatureContext context,
             out string error)
         {
@@ -1092,27 +1091,33 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             }
 
             public static FbxSkinRebuildState FromUfbxSkin(
-                UfbxSkinDeformer skin,
+                IFbxSkinDeformer skin,
                 int controlPointCount)
             {
                 controlPointCount = Mathf.Max(0, controlPointCount);
                 var weights = Enumerable.Range(0, controlPointCount)
                     .Select(_ => new Dictionary<string, double>())
                     .ToList();
-                var pathsByBoneIndex = (skin.Clusters ?? Array.Empty<UfbxSkinCluster>())
-                    .Select((cluster, index) => new { cluster, index })
-                    .Where(item => item.cluster?.BoneNode != null)
+                var skinClusters = skin.Clusters ?? (IReadOnlyList<IFbxSkinCluster>)Array.Empty<IFbxSkinCluster>();
+                var pathsByBoneIndex = skinClusters
+                    .Select((cluster, index) => new
+                    {
+                        index,
+                        path = cluster?.BoneNode?.Path ?? cluster?.BonePath
+                    })
+                    .Where(item => !string.IsNullOrWhiteSpace(item.path))
                     .ToDictionary(
                         item => item.index,
-                        item => MeshNodePath.Normalize(item.cluster.BoneNode.Path));
+                        item => MeshNodePath.Normalize(item.path));
 
-                var clusters = (skin.Clusters ?? Array.Empty<UfbxSkinCluster>())
+                var clusters = skinClusters
                     .Select((cluster, index) => new { cluster, index })
                     .Where(item => item.cluster != null)
                     .Select(item =>
                     {
-                        string path = item.cluster.BoneNode != null
-                            ? MeshNodePath.Normalize(item.cluster.BoneNode.Path)
+                        string rawPath = item.cluster.BoneNode?.Path ?? item.cluster.BonePath;
+                        string path = !string.IsNullOrWhiteSpace(rawPath)
+                            ? MeshNodePath.Normalize(rawPath)
                             : MeshNodePath.Root;
                         if (path == MeshNodePath.Root &&
                             pathsByBoneIndex.TryGetValue(item.index, out string fallbackPath))
@@ -1267,10 +1272,10 @@ namespace Triturbo.BlendShare.Features.SkinWeights
                 WeightsByControlPoint = weightsByControlPoint ?? new Dictionary<int, double>();
             }
 
-            public static FbxOriginalClusterData FromUfbxCluster(UfbxSkinCluster cluster, string path)
+            public static FbxOriginalClusterData FromUfbxCluster(IFbxSkinCluster cluster, string path)
             {
                 var weightsByControlPoint = new Dictionary<int, double>();
-                var indices = cluster.GetIndices();
+                var indices = cluster.GetControlPointIndices();
                 var weights = cluster.GetWeights();
                 for (int i = 0; i < indices.Length && i < weights.Length; i++)
                 {
