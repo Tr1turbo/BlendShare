@@ -63,7 +63,7 @@ namespace Triturbo.BlendShare.FbxExport
             IsExactIdentity = identity;
         }
 
-        public static bool TryCreate(MeshSpaceProvenance stored, FbxSceneMetadata target, out FbxExportSpace space)
+        public static bool TryCreate(PatchSpaceProvenance stored, FbxSceneMetadata target, out FbxExportSpace space)
         {
             space = null;
             if (stored == null || !stored.IsValid ||
@@ -94,27 +94,25 @@ namespace Triturbo.BlendShare.FbxExport
     {
         public FbxPatchExportItem PatchItem { get; }
         public MeshDocument MeshHeader { get; }
-        public IReadOnlyList<ArmatureDocument> Armatures { get; }
+        public SkeletonDocument Skeleton { get; }
         public BlendShareFeatureData Feature { get; }
         public ILazyPayloadSource PayloadSource { get; }
         public string TargetNodePath { get; }
-
-        public FbxExportSpace MeshSpace { get; }
-        public FbxExportSpace ArmatureSpace { get; }
+        public FbxExportSpace PatchSpace { get; }
 
         public FbxFeatureWriteInput(
             FbxPatchExportItem patchItem,
             MeshDocument meshHeader,
-            IReadOnlyList<ArmatureDocument> armatures,
+            SkeletonDocument skeleton,
             BlendShareFeatureData feature,
             ILazyPayloadSource payloadSource,
-            string targetNodePath, FbxExportSpace meshSpace, FbxExportSpace armatureSpace)
+            string targetNodePath,
+            FbxExportSpace patchSpace)
         {
-            MeshSpace = meshSpace ?? throw new ArgumentNullException(nameof(meshSpace));
-            ArmatureSpace = armatureSpace;
+            PatchSpace = patchSpace ?? throw new ArgumentNullException(nameof(patchSpace));
             PatchItem = patchItem ?? throw new ArgumentNullException(nameof(patchItem));
             MeshHeader = meshHeader ?? throw new ArgumentNullException(nameof(meshHeader));
-            Armatures = armatures ?? Array.Empty<ArmatureDocument>();
+            Skeleton = skeleton;
             Feature = feature ?? throw new ArgumentNullException(nameof(feature));
             PayloadSource = payloadSource;
             TargetNodePath = FbxNameUtility.NormalizePath(targetNodePath ?? string.Empty);
@@ -537,7 +535,7 @@ namespace Triturbo.BlendShare.FbxExport
         /// Writes exact lossless authored FBX node transform properties (Euler, rotation order, inherit mode,
         /// pre/post rotations, rotation/scaling pivots and offsets) verbatim onto an FBX SDK node.
         /// </summary>
-        public static void ApplyRawTransformPropertiesToNode(FbxNode node, ArmatureBoneRecord bone)
+        public static void ApplyRawTransformPropertiesToNode(FbxNode node, SkeletonBoneRecord bone)
         {
             if (node == null)
             {
@@ -546,7 +544,7 @@ namespace Triturbo.BlendShare.FbxExport
 
             if (bone == null || !bone.HasRawTransformProperties)
             {
-                throw new InvalidOperationException("ArmatureBoneRecord does not contain raw FBX transform properties.");
+                throw new InvalidOperationException("SkeletonBoneRecord does not contain raw FBX transform properties.");
             }
 
             node.LclTranslation.Set(new FbxDouble3(bone.LclTranslation.x, bone.LclTranslation.y, bone.LclTranslation.z));

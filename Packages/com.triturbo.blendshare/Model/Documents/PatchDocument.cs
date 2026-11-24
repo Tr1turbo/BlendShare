@@ -7,14 +7,17 @@ namespace Triturbo.BlendShare.Model.Documents
 {
     /// <summary>
     /// Root document stored in a BLSHARE1 v5 container.
+    /// Carries a single shared <see cref="PatchSpaceProvenance"/> and a single shared <see cref="SkeletonDocument"/>
+    /// referenced by all meshes without duplication. The user-visible patch name comes from the <c>.blendshare</c>
+    /// file name and imported <c>BlendShareAsset.name</c>, never stored in the binary header.
     /// </summary>
     [BlendShareRecord(SchemaVersion = 1)]
     public sealed class PatchDocument
     {
         [BlendShareField(1)] public string PatchId = string.Empty;
-        [BlendShareField(2)] public string DisplayName = string.Empty;
-        [BlendShareField(3)] public List<MeshDocument> Meshes = new List<MeshDocument>();
-        [BlendShareField(4)] public List<ArmatureDocument> Armatures = new List<ArmatureDocument>();
+        [BlendShareField(2)] public PatchSpaceProvenance SpaceProvenance = new PatchSpaceProvenance();
+        [BlendShareField(3)] public SkeletonDocument Skeleton = new SkeletonDocument();
+        [BlendShareField(4)] public List<MeshDocument> Meshes = new List<MeshDocument>();
     }
 
     /// <summary>
@@ -30,11 +33,11 @@ namespace Triturbo.BlendShare.Model.Documents
     }
 
     /// <summary>
-    /// Records the native Origin FBX local coordinate space (axes and meters-per-unit scale)
-    /// in which a mesh's deltas and armature bind matrices are stored.
+    /// Records the single shared Origin FBX coordinate space (axes and meters-per-unit scale)
+    /// in which all mesh deltas, bind matrices, and skeleton bone transforms in a patch are stored.
     /// </summary>
     [BlendShareRecord(SchemaVersion = 1)]
-    public sealed class MeshSpaceProvenance
+    public sealed class PatchSpaceProvenance
     {
         [BlendShareField(1)] public double OriginRawMetersPerUnit = 1d;
         [BlendShareField(2)] public FbxCoordinateAxis OriginRightAxis = FbxCoordinateAxis.PositiveX;
@@ -68,13 +71,13 @@ namespace Triturbo.BlendShare.Model.Documents
             }
         }
 
-        public bool MatchesSpace(MeshSpaceProvenance other) =>
+        public bool MatchesSpace(PatchSpaceProvenance other) =>
             other != null &&
             OriginAxes.Equals(other.OriginAxes) &&
             OriginRawMetersPerUnit.Equals(other.OriginRawMetersPerUnit);
 
-        public static MeshSpaceProvenance FromMetadata(FbxCoordinateAxes axes, double metersPerUnit) =>
-            new MeshSpaceProvenance
+        public static PatchSpaceProvenance FromMetadata(FbxCoordinateAxes axes, double metersPerUnit) =>
+            new PatchSpaceProvenance
             {
                 OriginRawMetersPerUnit = metersPerUnit,
                 OriginRightAxis = axes.Right,
@@ -85,6 +88,7 @@ namespace Triturbo.BlendShare.Model.Documents
 
     /// <summary>
     /// Per-mesh header and feature collection inside a PatchDocument.
+    /// Shares coordinate provenance with its owning <see cref="PatchDocument.SpaceProvenance"/>.
     /// </summary>
     [BlendShareRecord(SchemaVersion = 1)]
     public sealed class MeshDocument
@@ -93,8 +97,7 @@ namespace Triturbo.BlendShare.Model.Documents
         [BlendShareField(2)] public string Name = string.Empty;
         [BlendShareField(3)] public string NodePath = string.Empty;
         [BlendShareField(4)] public TopologyDigestRecord Topology = new TopologyDigestRecord();
-        [BlendShareField(5)] public MeshSpaceProvenance SpaceProvenance = new MeshSpaceProvenance();
-        [BlendShareField(6)] public LazyPayload<OriginBindingDocument> OriginBinding = LazyPayload<OriginBindingDocument>.Empty;
-        [BlendShareField(7)] public List<BlendShareFeatureData> Features = new List<BlendShareFeatureData>();
+        [BlendShareField(5)] public LazyPayload<OriginBindingDocument> OriginBinding = LazyPayload<OriginBindingDocument>.Empty;
+        [BlendShareField(6)] public List<BlendShareFeatureData> Features = new List<BlendShareFeatureData>();
     }
 }

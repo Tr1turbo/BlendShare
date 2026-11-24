@@ -33,7 +33,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
             var boneTable = SeedBoneTable(context.WorkingBones, mesh.bindposes, context.TargetRootTransform);
             var weightsByVertex = ReadInitialWeights(mesh, boneTable);
             var records = new List<AppliedBoneBinding>();
-            var armatureBonesByPath = new Dictionary<string, (string PatchId, GeneratedArmatureBoneRecord Record)>(StringComparer.Ordinal);
+            var skeletonBonesByPath = new Dictionary<string, (string PatchId, GeneratedSkeletonBoneRecord Record)>(StringComparer.Ordinal);
             var createdRoots = new List<Transform>();
 
             Transform outputRootBone = context.IncomingRootBone;
@@ -42,7 +42,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                 : string.Empty;
 
             bool anyWeightOrBindposeModified = false;
-            bool anyArmatureModified = false;
+            bool anySkeletonModified = false;
 
             try
             {
@@ -55,44 +55,34 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     if (map.SourceDomain != IndexDomain.UnityVertex || map.TargetDomain != IndexDomain.ControlPoint ||
                         map.SourceCount != mesh.vertexCount ||
                         binding.SpaceContract.StoredSpace == null || !binding.SpaceContract.StoredSpace.IsValid ||
-                        (input.MeshHeader?.SpaceProvenance != null && !binding.SpaceContract.StoredSpace.MatchesSpace(input.MeshHeader.SpaceProvenance)) ||
+                        (input.SpaceProvenance != null && !binding.SpaceContract.StoredSpace.MatchesSpace(input.SpaceProvenance)) ||
                         !FbxAffineSpaceTransform.TryCreate(space, out _))
                     {
                         throw new InvalidOperationException("Invalid skin vertex binding.");
                     }
 
-                    var armature = input.Armatures?.FirstOrDefault(a => a != null && a.ArmatureId == feature.ArmatureId);
-                    if (armature != null)
+                    var skeleton = input.Skeleton;
+                    if (skeleton != null)
                     {
-                        var expectedSpace = input.MeshHeader?.SpaceProvenance ?? binding.SpaceContract.StoredSpace;
-                        var armatureSpace = armature.SpaceProvenance;
-                        if (armatureSpace == null || !armatureSpace.IsValid ||
-                            expectedSpace == null || !expectedSpace.IsValid ||
-                            !armatureSpace.MatchesSpace(expectedSpace))
-                        {
-                            throw new InvalidOperationException($"Armature '{feature.ArmatureId}' and mesh use incompatible stored spaces.");
-                        }
-
-                        CollectArtifactArmatureBones(
+                        CollectArtifactSkeletonBones(
                             context,
                             input,
-                            feature,
-                            armature,
+                            skeleton,
                             space,
-                            armatureBonesByPath);
-                        if (armature.Bones != null && armature.Bones.Count > 0)
+                            skeletonBonesByPath);
+                        if (skeleton.Bones != null && skeleton.Bones.Count > 0)
                         {
-                            anyArmatureModified = true;
+                            anySkeletonModified = true;
                         }
                     }
 
-                    var neededPaths = feature.GetNeededBonePathsInArmatureOrder(armature);
+                    var neededPaths = feature.GetNeededBonePathsInSkeletonOrder(skeleton);
                     var slotBySourcePath = new Dictionary<string, int>(StringComparer.Ordinal);
 
                     for (int n = 0; n < neededPaths.Count; n++)
                     {
                         string sourcePath = neededPaths[n];
-                        var overrideKey = new BoneOverrideKey(input.PatchId, feature.ArmatureId, sourcePath);
+                        var overrideKey = new BoneOverrideKey(input.PatchId, sourcePath);
 
                         Transform resolvedBone = null;
                         bool isProxyOverride = false;
@@ -119,7 +109,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                             string firstMissing = FindTopmostMissingPath(context.TargetRootTransform, sourcePath);
                             if (!ArmatureBoneResolver.EnsureBoneHierarchy(
                                     context.TargetRootTransform,
-                                    armature,
+                                    skeleton,
                                     sourcePath,
                                     space,
                                     out resolvedBone,
@@ -156,7 +146,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                                         context,
                                         input,
                                         feature,
-                                        armature,
+                                        skeleton,
                                         sourcePath,
                                         resolvedBone,
                                         hasBindPoseOverride,
@@ -179,7 +169,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                                     context,
                                     input,
                                     feature,
-                                    armature,
+                                    skeleton,
                                     sourcePath,
                                     resolvedBone,
                                     hasBindPoseOverride,
@@ -198,7 +188,6 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                         slotBySourcePath[sourcePath] = slotIndex;
                         records.Add(new AppliedBoneBinding(
                             input.PatchId,
-                            feature.ArmatureId,
                             sourcePath,
                             targetPath,
                             resolvedBone,
@@ -212,7 +201,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     string featureRootBonePath = FbxNameUtility.NormalizePath(feature.RootBonePath ?? string.Empty);
                     if (!string.IsNullOrEmpty(featureRootBonePath))
                     {
-                        var rootKey = new BoneOverrideKey(input.PatchId, feature.ArmatureId, featureRootBonePath);
+                        var rootKey = new BoneOverrideKey(input.PatchId, featureRootBonePath);
                         Transform resolvedRoot = null;
                         if (context.BoneTransformOverrides != null &&
                             context.BoneTransformOverrides.TryGetValue(rootKey, out var overrideRoot) &&
@@ -265,7 +254,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     }
                 }
 
-                if (!anyWeightOrBindposeModified && !anyArmatureModified)
+                if (!anyWeightOrBindposeModified && !anySkeletonModified)
                 {
                     return FeatureApplyResult.Skipped();
                 }
@@ -320,11 +309,11 @@ namespace Triturbo.BlendShare.Pipeline.Apply
 
                 context.OutputRootBone = outputRootBone;
                 context.OutputRootBonePath = outputRootBonePath;
-                foreach (var entry in armatureBonesByPath.Values
+                foreach (var entry in skeletonBonesByPath.Values
                              .OrderBy(item => CountPathDepth(item.Record.Path))
                              .ThenBy(item => item.Record.Path, StringComparer.Ordinal))
                 {
-                    context.AppliedArmatureBones.Add(entry.Record);
+                    context.AppliedSkeletonBones.Add(entry.Record);
                 }
 
                 return FeatureApplyResult.Applied();
@@ -397,22 +386,21 @@ namespace Triturbo.BlendShare.Pipeline.Apply
             return result;
         }
 
-        private static void CollectArtifactArmatureBones(
+        private static void CollectArtifactSkeletonBones(
             UnityMeshApplyContext context,
             FeatureApplyInput input,
-            SkinWeightFeature feature,
-            ArmatureDocument armature,
+            SkeletonDocument skeleton,
             FbxMatrix4x4 storedToUnityMeshLocal,
-            Dictionary<string, (string PatchId, GeneratedArmatureBoneRecord Record)> target)
+            Dictionary<string, (string PatchId, GeneratedSkeletonBoneRecord Record)> target)
         {
-            if (armature?.Bones == null || armature.Bones.Count == 0)
+            if (skeleton?.Bones == null || skeleton.Bones.Count == 0)
             {
                 return;
             }
 
-            for (int i = 0; i < armature.Bones.Count; i++)
+            for (int i = 0; i < skeleton.Bones.Count; i++)
             {
-                var bone = armature.Bones[i];
+                var bone = skeleton.Bones[i];
                 if (bone == null || string.IsNullOrWhiteSpace(bone.Path))
                 {
                     continue;
@@ -424,7 +412,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     continue;
                 }
 
-                var overrideKey = new BoneOverrideKey(input.PatchId, feature.ArmatureId, sourcePath);
+                var overrideKey = new BoneOverrideKey(input.PatchId, sourcePath);
                 if (context.BoneTransformOverrides != null &&
                     context.BoneTransformOverrides.TryGetValue(overrideKey, out var overrideTransform) &&
                     overrideTransform != null)
@@ -435,7 +423,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
 
                 if (!bone.HasTransformData)
                 {
-                    throw new InvalidOperationException($"Armature bone '{sourcePath}' is missing local bind transform data.");
+                    throw new InvalidOperationException($"Skeleton bone '{sourcePath}' is missing local bind transform data.");
                 }
 
                 string decomposeError = null;
@@ -450,16 +438,16 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                         out var scale,
                         out decomposeError))
                 {
-                    throw new InvalidOperationException($"Cannot convert armature bone '{sourcePath}': {decomposeError ?? "invalid local bind matrix"}");
+                    throw new InvalidOperationException($"Cannot convert skeleton bone '{sourcePath}': {decomposeError ?? "invalid local bind matrix"}");
                 }
 
-                var record = new GeneratedArmatureBoneRecord(sourcePath, position, rotation, scale, bone.CreateIfMissing);
+                var record = new GeneratedSkeletonBoneRecord(sourcePath, position, rotation, scale, bone.CreateIfMissing);
                 if (target.TryGetValue(sourcePath, out var existing))
                 {
                     if (!existing.Record.ApproximatelyMatches(record))
                     {
                         throw new InvalidOperationException(
-                            $"Conflicting armature bone transforms for '{sourcePath}' between patch '{existing.PatchId}' and patch '{input.PatchId}'.");
+                            $"Conflicting skeleton bone transforms for '{sourcePath}' between patch '{existing.PatchId}' and patch '{input.PatchId}'.");
                     }
 
                     if (record.CreateIfMissing && !existing.Record.CreateIfMissing)
@@ -485,7 +473,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
             UnityMeshApplyContext context,
             FeatureApplyInput input,
             SkinWeightFeature feature,
-            ArmatureDocument armature,
+            SkeletonDocument skeleton,
             string sourcePath,
             Transform resolvedBone,
             bool hasBindPoseOverride,
@@ -517,8 +505,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
             if (TryResolveBoneLocalToWorld(
                     context,
                     input,
-                    feature,
-                    armature,
+                    skeleton,
                     sourcePath,
                     resolvedBone,
                     storedToUnityMeshLocal,
@@ -540,8 +527,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
         private static bool TryResolveBoneLocalToWorld(
             UnityMeshApplyContext context,
             FeatureApplyInput input,
-            SkinWeightFeature feature,
-            ArmatureDocument armature,
+            SkeletonDocument skeleton,
             string path,
             Transform directTransform,
             FbxMatrix4x4 storedToUnityMeshLocal,
@@ -557,7 +543,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                 return true;
             }
 
-            var overrideKey = new BoneOverrideKey(input.PatchId, feature.ArmatureId, path);
+            var overrideKey = new BoneOverrideKey(input.PatchId, path);
             if (context.BoneTransformOverrides != null &&
                 context.BoneTransformOverrides.TryGetValue(overrideKey, out var overrideTransform) &&
                 overrideTransform != null)
@@ -566,8 +552,8 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                 return true;
             }
 
-            var armatureBone = armature?.GetBone(path);
-            if (armatureBone == null)
+            var skeletonBone = skeleton?.GetBone(path);
+            if (skeletonBone == null)
             {
                 var existing = directTransform != null
                     ? directTransform
@@ -586,18 +572,17 @@ namespace Triturbo.BlendShare.Pipeline.Apply
             if (!resolving.Add(path))
             {
                 localToWorld = Matrix4x4.identity;
-                error = $"Armature contains a parent cycle at '{path}'.";
+                error = $"Skeleton contains a parent cycle at '{path}'.";
                 return false;
             }
 
-            string parentPath = !string.IsNullOrEmpty(armatureBone.ParentPath)
-                ? FbxNameUtility.NormalizePath(armatureBone.ParentPath)
+            string parentPath = !string.IsNullOrEmpty(skeletonBone.ParentPath)
+                ? FbxNameUtility.NormalizePath(skeletonBone.ParentPath)
                 : GetParentPath(path);
             if (!TryResolveBoneLocalToWorld(
                     context,
                     input,
-                    feature,
-                    armature,
+                    skeleton,
                     parentPath,
                     directTransform: null,
                     storedToUnityMeshLocal,
@@ -611,12 +596,12 @@ namespace Triturbo.BlendShare.Pipeline.Apply
             }
 
             resolving.Remove(path);
-            if (!armatureBone.HasTransformData ||
-                !ArmatureBindTransformMath.ConvertCanonicalMatrixToUnity(armatureBone.LocalBindMatrix, storedToUnityMeshLocal, out var localUnity) ||
+            if (!skeletonBone.HasTransformData ||
+                !ArmatureBindTransformMath.ConvertCanonicalMatrixToUnity(skeletonBone.LocalBindMatrix, storedToUnityMeshLocal, out var localUnity) ||
                 !ArmatureBindTransformMath.TryDecomposeUnityLocalTransform(localUnity, out var pos, out var rot, out var scale, out error))
             {
                 localToWorld = Matrix4x4.identity;
-                error = $"Cannot convert armature bone '{path}': {error ?? "missing or invalid transform data"}";
+                error = $"Cannot convert skeleton bone '{path}': {error ?? "missing or invalid transform data"}";
                 return false;
             }
 

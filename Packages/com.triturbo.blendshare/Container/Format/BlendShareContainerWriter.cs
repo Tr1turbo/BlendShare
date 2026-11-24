@@ -35,10 +35,15 @@ namespace Triturbo.BlendShare.Container.Format
             bool effectiveAllowRawCopy = allowRawCopy && !options.HasValue;
             var encoding = options ?? PayloadEncodeOptions.Default;
             var sink = new PayloadSink(m_Serializer, effectiveAllowRawCopy ? rawCopySource : null, effectivePayloadSource);
+            var provenance = document.SpaceProvenance;
+            var patchEncoding = ResolvePatchEncodeOptions(encoding, provenance);
             using var manifest = new MemoryStream();
             var writer = new WireWriter(manifest);
             writer.WriteString(document.PatchId);
-            writer.WriteString(document.DisplayName);
+            writer.WriteDouble(provenance.OriginRawMetersPerUnit);
+            writer.WriteByte((byte)provenance.OriginRightAxis);
+            writer.WriteByte((byte)provenance.OriginUpAxis);
+            writer.WriteByte((byte)provenance.OriginFrontAxis);
             var entries = new List<ContainerIndexEntry>();
 
             void AddRecord(ContainerSectionKind kind, byte[] bytes, string mesh = "", BlendShareFeatureData feature = null)
@@ -50,19 +55,18 @@ namespace Triturbo.BlendShare.Container.Format
                 manifest.Write(bytes, 0, bytes.Length);
             }
 
-            AddRecord(ContainerSectionKind.Armatures, m_Serializer.SerializeRecord(
-                new ArmatureTable { Armatures = document.Armatures }, sink, encoding));
+            AddRecord(ContainerSectionKind.Skeleton, m_Serializer.SerializeRecord(
+                document.Skeleton ?? new SkeletonDocument(), sink, patchEncoding));
             foreach (var mesh in document.Meshes)
             {
-                var meshEncoding = ResolveMeshEncodeOptions(encoding, mesh.SpaceProvenance);
                 var header = new MeshDocument
                 {
                     MeshId = mesh.MeshId, Name = mesh.Name, NodePath = mesh.NodePath, Topology = mesh.Topology,
-                    SpaceProvenance = mesh.SpaceProvenance, OriginBinding = mesh.OriginBinding
+                    OriginBinding = mesh.OriginBinding
                 };
-                AddRecord(ContainerSectionKind.MeshHeader, m_Serializer.SerializeRecord(header, sink, meshEncoding, mesh.MeshId), mesh.MeshId);
+                AddRecord(ContainerSectionKind.MeshHeader, m_Serializer.SerializeRecord(header, sink, patchEncoding, mesh.MeshId), mesh.MeshId);
                 foreach (var feature in mesh.Features)
-                    AddRecord(ContainerSectionKind.Feature, m_Serializer.SerializeFeature(feature, sink, meshEncoding, mesh.MeshId), mesh.MeshId, feature);
+                    AddRecord(ContainerSectionKind.Feature, m_Serializer.SerializeFeature(feature, sink, patchEncoding, mesh.MeshId), mesh.MeshId, feature);
             }
 
             var manifestSlice = new ByteSlice(FixedHeaderSize, manifest.Length);
@@ -85,7 +89,7 @@ namespace Triturbo.BlendShare.Container.Format
             var indexBytes = index.ToArray();
             var revision = FormatIO.Hash(headerBytes, manifestBytes, indexBytes);
             Array.Copy(revision, 0, headerBytes, 20, revision.Length);
-            var toc = new ContainerToc(document.PatchId, document.DisplayName, revision, manifestSlice, indexSlice, payloadSlice, entries);
+            var toc = new ContainerToc(document.PatchId, provenance, revision, manifestSlice, indexSlice, payloadSlice, entries);
 
             stream.Position = 0;
             stream.Write(headerBytes, 0, headerBytes.Length);
@@ -96,7 +100,7 @@ namespace Triturbo.BlendShare.Container.Format
             return toc;
         }
 
-        private static PayloadEncodeOptions ResolveMeshEncodeOptions(PayloadEncodeOptions baseOptions, MeshSpaceProvenance provenance)
+        private static PayloadEncodeOptions ResolvePatchEncodeOptions(PayloadEncodeOptions baseOptions, PatchSpaceProvenance provenance)
         {
             if (provenance == null)
             {
@@ -105,19 +109,25 @@ namespace Triturbo.BlendShare.Container.Format
 
             double unitMeters = provenance.OriginRawMetersPerUnit;
             FormatIO.Check(!double.IsNaN(unitMeters) && !double.IsInfinity(unitMeters) && unitMeters > 0d,
-                "Mesh provenance requires a finite strictly positive OriginRawMetersPerUnit.");
+                "Patch space provenance requires a finite strictly positive OriginRawMetersPerUnit.");
             return baseOptions.WithPositionUnitMeters(unitMeters);
         }
 
         private void Validate(PatchDocument document, ILazyPayloadSource payloadSource)
         {
-            FormatIO.Check(!string.IsNullOrWhiteSpace(document?.PatchId) && document.Meshes != null &&
-                document.Armatures != null, "Invalid patch document.");
-            var armatures = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var armature in document.Armatures)
+            FormatIO.Check(!string.IsNullOrWhiteSpace(document?.PatchId) && document.Meshes != null,
+                "Invalid patch document.");
+            FormatIO.Check(document.SpaceProvenance != null && document.SpaceProvenance.IsValid,
+                "Patch document requires a valid shared SpaceProvenance.");
+            if (document.Skeleton?.Bones != null)
             {
-                FormatIO.Check(!string.IsNullOrWhiteSpace(armature?.ArmatureId) && armatures.Add(armature.ArmatureId),
-                    "Missing or duplicate armature ID.");
+                var bonePaths = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var bone in document.Skeleton.Bones)
+                {
+                    string normalized = SkeletonDocument.NormalizeBonePath(bone?.Path);
+                    FormatIO.Check(!string.IsNullOrEmpty(normalized) && bonePaths.Add(normalized),
+                        $"Missing or duplicate skeleton bone path '{bone?.Path}'.");
+                }
             }
             var meshes = new HashSet<string>(StringComparer.Ordinal);
             foreach (var mesh in document.Meshes)
@@ -236,11 +246,5 @@ namespace Triturbo.BlendShare.Container.Format
                 return i;
             }
         }
-    }
-
-    [BlendShareRecord]
-    internal sealed class ArmatureTable
-    {
-        [BlendShareField(1)] public List<ArmatureDocument> Armatures = new List<ArmatureDocument>();
     }
 }

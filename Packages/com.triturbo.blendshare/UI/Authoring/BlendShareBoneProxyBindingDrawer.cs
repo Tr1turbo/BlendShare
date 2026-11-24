@@ -41,12 +41,12 @@ namespace Triturbo.BlendShare.UI.Authoring
             });
         private static readonly Dictionary<int, IReadOnlyDictionary<BlendShareBoneProxyBinding,
             BlendShareBoneProxyBindingStatus>> s_BindingStatusesByProxy = new();
-        private static readonly Dictionary<int, BlendShareArmatureBoneProxyResolution> s_ResolutionsByProxy = new();
+        private static readonly Dictionary<int, BlendShareBoneProxyResolution> s_ResolutionsByProxy = new();
 
         internal static void SetBindingState(
             BlendShareBoneProxy proxy,
             IReadOnlyDictionary<BlendShareBoneProxyBinding, BlendShareBoneProxyBindingStatus> statuses,
-            BlendShareArmatureBoneProxyResolution resolution)
+            BlendShareBoneProxyResolution resolution)
         {
             if (proxy != null)
             {
@@ -172,7 +172,7 @@ namespace Triturbo.BlendShare.UI.Authoring
             SerializedProperty sourcePathProperty,
             GUIContent label)
         {
-            var armature = BlendShareComponentSetupService.GetArmature(bindingProperty.serializedObject.targetObject as BlendShareBoneProxy);
+            var skeleton = BlendShareComponentSetupService.GetSkeleton(bindingProperty.serializedObject.targetObject as BlendShareBoneProxy);
             float dropdownWidth = s_DropdownStyle.Value.fixedWidth;
             var textRect = Rect.MinMaxRect(
                 position.xMin,
@@ -195,7 +195,7 @@ namespace Triturbo.BlendShare.UI.Authoring
                 s_DropdownTextStyle.Value);
             if (EditorGUI.EndChangeCheck()) sourcePathProperty.stringValue = editedPath;
 
-            using (new EditorGUI.DisabledScope(armature == null))
+            using (new EditorGUI.DisabledScope(skeleton == null))
             {
                 if (EditorGUI.DropdownButton(
                         dropdownRect,
@@ -207,7 +207,7 @@ namespace Triturbo.BlendShare.UI.Authoring
                     var targetObject = bindingProperty.serializedObject.targetObject;
                     var dropdown = new SourceBonePathDropdown(
                         Localization.S("ndmf.bone_proxy.source_bone_path"),
-                        armature.Bones.Select(bone => bone.Path),
+                        skeleton.Bones.Select(bone => bone.Path),
                         path => SetSourcePath(targetObject, propertyPath, path));
                     dropdown.Show(position);
                 }

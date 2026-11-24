@@ -6,23 +6,17 @@ using Triturbo.BlendShare.Model.Serialization;
 namespace Triturbo.BlendShare.Model.Documents
 {
     /// <summary>
-    /// Shared armature bone table referenced by ArmatureId from SkinWeightFeature.
-    /// Stored once per PatchDocument instead of as hidden ScriptableObject subassets.
+    /// Single shared skeleton bone table stored once per <see cref="PatchDocument"/>.
+    /// Each bone is stored uniquely by its normalized FBX scene-root-relative <see cref="SkeletonBoneRecord.Path"/>
+    /// and referenced by path from per-mesh <see cref="Features.SkinWeightFeature"/> clusters.
+    /// Coordinate provenance is shared at the patch level via <see cref="PatchDocument.SpaceProvenance"/>.
     /// </summary>
     [BlendShareRecord(SchemaVersion = 1)]
-    public sealed class ArmatureDocument
+    public sealed class SkeletonDocument
     {
-        [BlendShareField(1)] public string ArmatureId = string.Empty;
-        [BlendShareField(2)] public string Name = string.Empty;
-        [BlendShareField(3)] public string RootBonePath = string.Empty;
-        [BlendShareField(4)] public List<ArmatureBoneRecord> Bones = new List<ArmatureBoneRecord>();
+        [BlendShareField(1)] public List<SkeletonBoneRecord> Bones = new List<SkeletonBoneRecord>();
 
-        /// <summary>
-        /// Coordinate space provenance (Origin FBX axes and meters-per-unit scale) for this armature's bone bind matrices.
-        /// </summary>
-        [BlendShareField(5)] public MeshSpaceProvenance SpaceProvenance = new MeshSpaceProvenance();
-
-        public ArmatureBoneRecord GetBone(string path)
+        public SkeletonBoneRecord GetBone(string path)
         {
             string normalized = NormalizeBonePath(path);
             if (string.IsNullOrEmpty(normalized) || Bones == null)
@@ -79,7 +73,7 @@ namespace Triturbo.BlendShare.Model.Documents
             return result;
         }
 
-        internal static string NormalizeBonePath(string path)
+        public static string NormalizeBonePath(string path)
         {
             if (string.IsNullOrWhiteSpace(path))
             {
@@ -106,7 +100,7 @@ namespace Triturbo.BlendShare.Model.Documents
     }
 
     [BlendShareRecord(SchemaVersion = 1)]
-    public sealed class ArmatureBoneRecord
+    public sealed class SkeletonBoneRecord
     {
         [BlendShareField(1)] public string Path = string.Empty;
         [BlendShareField(2)] public string ParentPath = string.Empty;
@@ -160,7 +154,7 @@ namespace Triturbo.BlendShare.Model.Documents
         }
 
         public bool ApproximatelyTransform(
-            ArmatureBoneRecord other,
+            SkeletonBoneRecord other,
             double linearTolerance = 1e-6,
             double translationTolerance = 1e-6)
         {

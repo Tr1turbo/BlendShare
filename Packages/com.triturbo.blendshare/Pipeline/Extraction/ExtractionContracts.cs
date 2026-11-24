@@ -249,7 +249,6 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
     public sealed class PatchExtractionRequest
     {
         public string PatchId { get; set; } = string.Empty;
-        public string DisplayName { get; set; } = string.Empty;
         public IFbxScene SourceScene { get; set; }
         public IFbxScene OriginScene { get; set; }
         public IReadOnlyList<MeshExtractionRequest> Meshes { get; set; } = Array.Empty<MeshExtractionRequest>();
@@ -289,15 +288,15 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
     }
 
     /// <summary>
-    /// Describes one source FBX bone node registered into a shared <see cref="ArmatureDocument"/> during extraction.
+    /// Describes one source FBX bone node registered into the patch's shared <see cref="SkeletonDocument"/> during extraction.
     /// </summary>
-    public readonly struct ArmatureBoneRegistration
+    public readonly struct SkeletonBoneRegistration
     {
         public string BonePath { get; }
         public IFbxNode SourceNode { get; }
         public bool CreateIfMissing { get; }
 
-        public ArmatureBoneRegistration(string bonePath, IFbxNode sourceNode, bool createIfMissing)
+        public SkeletonBoneRegistration(string bonePath, IFbxNode sourceNode, bool createIfMissing)
         {
             BonePath = FbxNameUtility.NormalizePath(bonePath ?? string.Empty);
             SourceNode = sourceNode;
@@ -332,7 +331,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
 
         /// <summary>
         /// Scene/world coordinate basis and unit conversion <c>W</c> from Source world space into Stored world space.
-        /// Used for skin/armature bone bind conjugation (<c>W^-1 * M_bone * W</c>) and mesh bind right factor
+        /// Used for skin/skeleton bone bind conjugation (<c>W^-1 * M_bone * W</c>) and mesh bind right factor
         /// (<c>L^-1 * M_meshBind * W</c>), strictly independent of per-mesh local offset <c>O</c>.
         /// </summary>
         public FbxAffineSpaceTransform SourceWorldToStoredSpace { get; }
@@ -343,9 +342,9 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
         public FbxAffineSpaceTransform SourceMeshToStoredSpace { get; }
 
         public FbxTopologyCompatibilityResult TopologyCompatibility { get; }
-        public MeshSpaceProvenance SpaceProvenance { get; }
+        public PatchSpaceProvenance SpaceProvenance { get; }
         public PayloadEncodeOptions EncodeOptions { get; }
-        private readonly Action<string, IReadOnlyList<ArmatureBoneRegistration>, FbxAffineSpaceTransform> m_ArmatureRegistrar;
+        private readonly Action<IReadOnlyList<SkeletonBoneRegistration>, FbxAffineSpaceTransform> m_SkeletonRegistrar;
 
         public MeshExtractionContext(
             string meshId,
@@ -358,9 +357,9 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             IFbxMeshGeometry normalizedSourceMesh,
             IFbxMeshGeometry normalizedOriginMesh,
             FbxTopologyCompatibilityResult topologyCompatibility,
-            MeshSpaceProvenance spaceProvenance,
+            PatchSpaceProvenance spaceProvenance,
             PayloadEncodeOptions encodeOptions,
-            Action<string, IReadOnlyList<ArmatureBoneRegistration>, FbxAffineSpaceTransform> armatureRegistrar = null,
+            Action<IReadOnlyList<SkeletonBoneRegistration>, FbxAffineSpaceTransform> skeletonRegistrar = null,
             FbxAffineSpaceTransform? sourceWorldToStoredSpace = null,
             FbxAffineSpaceTransform? sourceMeshToStoredSpace = null)
         {
@@ -376,17 +375,16 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             TopologyCompatibility = topologyCompatibility;
             SpaceProvenance = spaceProvenance;
             EncodeOptions = encodeOptions;
-            m_ArmatureRegistrar = armatureRegistrar;
+            m_SkeletonRegistrar = skeletonRegistrar;
             SourceWorldToStoredSpace = sourceWorldToStoredSpace ?? default;
             SourceMeshToStoredSpace = sourceMeshToStoredSpace ?? default;
         }
 
-        public void RegisterArmatureBones(
-            string armatureId,
-            IReadOnlyList<ArmatureBoneRegistration> bones,
+        public void RegisterSkeletonBones(
+            IReadOnlyList<SkeletonBoneRegistration> bones,
             FbxAffineSpaceTransform sourceWorldToStored)
         {
-            m_ArmatureRegistrar?.Invoke(armatureId, bones, sourceWorldToStored);
+            m_SkeletonRegistrar?.Invoke(bones, sourceWorldToStored);
         }
     }
 

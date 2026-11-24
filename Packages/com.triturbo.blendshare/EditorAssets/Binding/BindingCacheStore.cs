@@ -53,7 +53,7 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
 
         private const int k_BindingSpaceAlgoRevision = 2;
 
-        internal static void WriteSpaceKey(BinaryWriter writer, MeshSpaceProvenance stored)
+        internal static void WriteSpaceKey(BinaryWriter writer, PatchSpaceProvenance stored)
         {
             var axes = stored?.OriginAxes ?? CanonicalMeshSpace.CanonicalAxes;
             writer.Write(k_BindingSpaceAlgoRevision);

@@ -356,9 +356,7 @@ namespace Triturbo.BlendShare.Pipeline.Persistence
                 PatchId = patch?.PatchId ?? string.Empty,
                 BlendShareGuid = guid ?? string.Empty,
                 BlendSharePath = NormalizeAssetPath(assetPath),
-                BlendShareName = patch != null
-                    ? (!string.IsNullOrWhiteSpace(patch.DisplayName) ? patch.DisplayName : patch.name)
-                    : string.Empty,
+                BlendShareName = patch != null ? patch.name : string.Empty,
                 AppliedAtUtc = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture),
                 SourceRevision = patch?.SourceRevision ?? string.Empty
             };

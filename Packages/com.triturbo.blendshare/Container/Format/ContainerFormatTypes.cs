@@ -5,11 +5,12 @@ using System.Linq;
 using System.Security.Cryptography;
 using Triturbo.BlendShare.Container.Serialization;
 using Triturbo.BlendShare.Container.Wire;
+using Triturbo.BlendShare.Model.Documents;
 using Triturbo.BlendShare.Primitives;
 
 namespace Triturbo.BlendShare.Container.Format
 {
-    public enum ContainerSectionKind { Manifest = 1, IndexTable, Payload, Feature, MeshHeader, Armatures }
+    public enum ContainerSectionKind { Manifest = 1, IndexTable, Payload, Feature, MeshHeader, Skeleton }
     public enum ContainerReadStatus { Success, InvalidFormat, UnsupportedVersion, SourceRevisionMismatch, CorruptData, NotFound, BudgetExceeded }
 
     public sealed class ContainerReadResult<T>
@@ -132,13 +133,13 @@ namespace Triturbo.BlendShare.Container.Format
     {
         public int FormatVersion => 5;
         public string PatchId { get; }
-        public string DisplayName { get; }
+        public PatchSpaceProvenance SpaceProvenance { get; }
         public string SourceRevision { get; }
         public long TotalFileLength => PayloadSectionSlice.End;
         public ByteSlice ManifestSlice { get; }
         public ByteSlice IndexTableSlice { get; }
         public ByteSlice PayloadSectionSlice { get; }
-        public ContainerIndexEntry ArmaturesEntry { get; }
+        public ContainerIndexEntry SkeletonEntry { get; }
         public IReadOnlyList<ContainerMeshToc> Meshes { get; }
         public IReadOnlyList<ContainerIndexEntry> Entries { get; }
 
@@ -148,19 +149,20 @@ namespace Triturbo.BlendShare.Container.Format
         private readonly Dictionary<string, ContainerMeshToc> m_Meshes;
         private readonly Dictionary<(string, string), ContainerIndexEntry> m_Features;
 
-        internal ContainerToc(string patch, string display, byte[] revision, ByteSlice manifest,
+        internal ContainerToc(string patch, PatchSpaceProvenance spaceProvenance, byte[] revision, ByteSlice manifest,
             ByteSlice index, ByteSlice payload, IEnumerable<ContainerIndexEntry> entries)
         {
             PatchId = patch;
-            DisplayName = display;
+            FormatIO.Check(spaceProvenance != null && spaceProvenance.IsValid, "Invalid patch space provenance.");
+            SpaceProvenance = PatchSpaceProvenance.FromMetadata(spaceProvenance.OriginAxes, spaceProvenance.OriginRawMetersPerUnit);
             SourceRevision = FormatIO.Hex(revision);
             ManifestSlice = manifest;
             IndexTableSlice = index;
             PayloadSectionSlice = payload;
             Entries = Array.AsReadOnly(entries.ToArray());
-            var armatures = Entries.Where(e => e.SectionKind == ContainerSectionKind.Armatures).ToArray();
-            FormatIO.Check(armatures.Length == 1, "Container must contain exactly one Armatures entry.");
-            ArmaturesEntry = armatures[0];
+            var skeletons = Entries.Where(e => e.SectionKind == ContainerSectionKind.Skeleton).ToArray();
+            FormatIO.Check(skeletons.Length == 1, "Container must contain exactly one Skeleton entry.");
+            SkeletonEntry = skeletons[0];
             m_Payloads = Entries.Where(e => e.SectionKind == ContainerSectionKind.Payload).ToArray();
             var features = Entries.Where(e => e.SectionKind == ContainerSectionKind.Feature).ToList();
             m_Features = new Dictionary<(string, string), ContainerIndexEntry>();
@@ -196,7 +198,7 @@ namespace Triturbo.BlendShare.Container.Format
 
         public static ContainerToc FromCachedEntries(
             string patchId,
-            string displayName,
+            PatchSpaceProvenance spaceProvenance,
             byte[] sourceRevisionBytes,
             ByteSlice manifestSlice,
             ByteSlice indexTableSlice,
@@ -210,7 +212,7 @@ namespace Triturbo.BlendShare.Container.Format
 
             return new ContainerToc(
                 patchId ?? string.Empty,
-                displayName ?? string.Empty,
+                spaceProvenance,
                 sourceRevisionBytes,
                 manifestSlice,
                 indexTableSlice,

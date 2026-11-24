@@ -57,6 +57,7 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
     public sealed class BindingResolveRequest
     {
         public MeshDocument MeshHeader { get; set; }
+        public PatchSpaceProvenance SpaceProvenance { get; set; }
         public Mesh TargetUnityMesh { get; set; }
         public UnityMeshSnapshot TargetSnapshotOverride { get; set; }
         public Mesh ReferenceUnityMesh { get; set; }
@@ -136,7 +137,7 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                 return BindingResolveResult.Fail("BIND_NO_MESH_HEADER", "MeshDocument header is required.");
             }
 
-            var stored = request.MeshHeader.SpaceProvenance;
+            var stored = request.SpaceProvenance;
             if (stored != null && !stored.IsValid)
                 return BindingResolveResult.Fail("BIND_INVALID_STORED_SPACE", "Invalid origin raw axes or unit scale.");
 
@@ -240,6 +241,7 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
             var refRes = Resolve(new BindingResolveRequest
             {
                 MeshHeader = request.MeshHeader,
+                SpaceProvenance = request.SpaceProvenance,
                 TargetSnapshotOverride = refSnapshot,
                 TargetFbxAsset = request.TargetFbxAsset,
                 TargetFbxSceneOverride = request.TargetFbxSceneOverride,
@@ -263,7 +265,7 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                 refRes.Binding.CsrBlobId,
                 refDig.CombinedGeometryKey,
                 targetDig.CombinedGeometryKey,
-                request.ComposePolicy, request.MeshHeader.SpaceProvenance);
+                request.ComposePolicy, request.SpaceProvenance);
 
             if (request.AllowDiskCache &&
                 m_CacheStore.TryLoadResolution(composedKey, out var cachedIdx, out var cachedCsr))
@@ -352,7 +354,7 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
             string referenceCsrBlobId,
             string referenceGeometryKey,
             string targetGeometryKey,
-            VertexMapComposePolicy policy, MeshSpaceProvenance stored)
+            VertexMapComposePolicy policy, PatchSpaceProvenance stored)
         {
             using (var sha = SHA256.Create())
             using (var cs = new CryptoStream(Stream.Null, sha, CryptoStreamMode.Write))
@@ -399,7 +401,7 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                 : -1;
 
             var verify = OriginBindingCodec.Verify(doc, targetSnapshot, expectedCpCount,
-                request.MeshHeader.SpaceProvenance);
+                request.SpaceProvenance);
             if (!verify.Succeeded)
             {
                 return BindingResolveResult.Fail($"BIND_ORIGIN_{verify.Status}", verify.Diagnostic);
@@ -514,13 +516,13 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                     targetGeometry.CombinedGeometryKey,
                     fbxIdentity,
                     nodePath,
-                    importSettings, request.MeshHeader.SpaceProvenance);
+                    importSettings, request.SpaceProvenance);
 
                 if (request.AllowDiskCache &&
                     m_CacheStore.TryLoadResolution(resolutionKey, out var cachedIdx, out var cachedCsr))
                 {
                     var cachedSpace = OriginBindingCodec.BuildSpaceContract(
-                        request.MeshHeader.SpaceProvenance,
+                        request.SpaceProvenance,
                         scene.Metadata,
                         cachedIdx.MatchedScale,
                         cachedIdx.MatchedBakeAxisConversion,
@@ -563,7 +565,7 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                     IndexDomain.ControlPoint);
 
                 var spaceContract = OriginBindingCodec.BuildSpaceContract(
-                    request.MeshHeader.SpaceProvenance,
+                    request.SpaceProvenance,
                     scene.Metadata,
                     mapped.MatchedScale,
                     mapped.MatchedBakeAxisConversion,
@@ -651,7 +653,7 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
             string targetMeshGeometryKey,
             string targetFbxIdentity,
             string nodePath,
-            FbxUnityImportSettings importSettings, MeshSpaceProvenance stored)
+            FbxUnityImportSettings importSettings, PatchSpaceProvenance stored)
         {
             using (var sha = SHA256.Create())
             using (var cs = new CryptoStream(Stream.Null, sha, CryptoStreamMode.Write))

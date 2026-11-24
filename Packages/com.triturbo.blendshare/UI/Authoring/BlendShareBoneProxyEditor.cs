@@ -82,7 +82,7 @@ namespace Triturbo.BlendShare.UI.Authoring
             var proxy = (BlendShareBoneProxy)target;
             serializedObject.Update();
             var availableProxies = proxy.transform.root.GetComponentsInChildren<BlendShareBoneProxy>(true);
-            var resolution = BlendShareBoneProxyResolver.Resolve(proxy.ArmatureKey, availableProxies);
+            var resolution = BlendShareBoneProxyResolver.Resolve(proxy.Patch, availableProxies);
             var bindingStatuses = GetBindingStatuses(proxy, resolution);
             BlendShareBoneProxyBindingDrawer.SetBindingState(proxy, bindingStatuses, resolution);
 
@@ -126,14 +126,8 @@ namespace Triturbo.BlendShare.UI.Authoring
             }
             //EditorGUILayout.BeginVertical("box");
             DrawSectionHeader("ndmf.bone_proxy.source_and_bindings");
-            // 2.0 identifies an armature by a patch reference and a document-local ID.
-            using (new EditorGUILayout.HorizontalScope())
-            {
-                EditorGUILayout.PropertyField(serializedObject.FindProperty("m_Patch"),
-                    Localization.G("ndmf.bone_proxy.source_armature"));
-                EditorGUILayout.PropertyField(serializedObject.FindProperty("m_ArmatureId"),
-                    GUIContent.none, GUILayout.MaxWidth(140f));
-            }
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("m_Patch"),
+                Localization.G("ndmf.bone_proxy.source_armature"));
             var bindingsProperty = serializedObject.FindProperty("m_Bindings");
             EditorGUILayout.PropertyField(
                 bindingsProperty,
@@ -205,7 +199,7 @@ namespace Triturbo.BlendShare.UI.Authoring
         private static IReadOnlyDictionary<BlendShareBoneProxyBinding, BlendShareBoneProxyBindingStatus>
             GetBindingStatuses(
                 BlendShareBoneProxy proxy,
-                BlendShareArmatureBoneProxyResolution resolution)
+                BlendShareBoneProxyResolution resolution)
         {
             var result = new Dictionary<BlendShareBoneProxyBinding, BlendShareBoneProxyBindingStatus>();
             if (proxy == null)
@@ -299,7 +293,7 @@ namespace Triturbo.BlendShare.UI.Authoring
             out bool matches)
         {
             matches = false;
-            var bone = BlendShareComponentSetupService.GetArmature(proxy)?.Bones.Find(item => item.Path == binding?.SourceBonePath);
+            var bone = BlendShareComponentSetupService.GetSkeleton(proxy)?.Bones.Find(item => item.Path == binding?.SourceBonePath);
             if (bone == null ||
                 mapping == null ||
                 !mapping.TryConvertLocalTransform(
@@ -442,18 +436,18 @@ namespace Triturbo.BlendShare.UI.Authoring
         {
             var availableProxies = proxy?.transform.root
                 .GetComponentsInChildren<BlendShareBoneProxy>(true);
-            var resolution = BlendShareBoneProxyResolver.Resolve(proxy?.ArmatureKey ?? default, availableProxies);
+            var resolution = BlendShareBoneProxyResolver.Resolve(proxy?.Patch, availableProxies);
             return GetOverriddenBindings(proxy, resolution);
         }
 
         private static IReadOnlyList<BlendShareOverriddenBinding> GetOverriddenBindings(
             BlendShareBoneProxy proxy,
-            BlendShareArmatureBoneProxyResolution resolution)
+            BlendShareBoneProxyResolution resolution)
         {
             var result = new List<BlendShareOverriddenBinding>();
             if (proxy == null ||
                 !proxy.isActiveAndEnabled ||
-                !proxy.ArmatureKey.IsValid)
+                proxy.Patch == null)
             {
                 return result;
             }
@@ -496,7 +490,7 @@ namespace Triturbo.BlendShare.UI.Authoring
             return proxy?.transform.root
                 .GetComponentsInChildren<BlendShareMesh>(true)
                 .Where(applier =>
-                    BlendShareComponentSetupService.GetArmatureKey(applier) == proxy.ArmatureKey)
+                    applier != null && proxy.Patch != null && ReferenceEquals(applier.ResolvedPatch, proxy.Patch))
                 .Select(GetFbxToUnityMapping)
                 .FirstOrDefault(candidate => candidate != null);
         }
@@ -523,7 +517,7 @@ namespace Triturbo.BlendShare.UI.Authoring
         {
             plan = null;
             diagnostic = null;
-            if (proxy == null || !proxy.ArmatureKey.IsValid || proxy.Bindings.Count == 0)
+            if (proxy == null || proxy.Patch == null || proxy.Bindings.Count == 0)
             {
                 diagnostic = Localization.S("ndmf.bone_proxy.no_source_binding");
                 return false;
@@ -547,7 +541,7 @@ namespace Triturbo.BlendShare.UI.Authoring
                     return false;
                 }
 
-                var sourceBone = BlendShareComponentSetupService.GetArmature(proxy)?.Bones.Find(bone => bone.Path == binding.SourceBonePath);
+                var sourceBone = BlendShareComponentSetupService.GetSkeleton(proxy)?.Bones.Find(bone => bone.Path == binding.SourceBonePath);
                 if (sourceBone == null ||
                     !mapping.TryConvertLocalTransform(
                         sourceBone.LocalBindMatrix,
@@ -790,12 +784,12 @@ namespace Triturbo.BlendShare.UI.Authoring
         private static void DrawBoneChain(
             BlendShareBoneProxy proxy,
             BlendShareBoneProxy selectedProxy,
-            BlendShareArmatureBoneProxyResolution resolution)
+            BlendShareBoneProxyResolution resolution)
         {
             bool isSelectedProxy = proxy == selectedProxy;
             foreach (var binding in proxy.Bindings)
             {
-                if (proxy.ArmatureKey.IsValid &&
+                if (proxy.Patch != null &&
                     (resolution == null || !resolution.IsEffective(proxy, binding)))
                 {
                     continue;
@@ -832,12 +826,12 @@ namespace Triturbo.BlendShare.UI.Authoring
     internal static class BlendShareBoneProxyEditorUpdater
     {
         private static BlendShareBoneProxy[] s_Proxies = System.Array.Empty<BlendShareBoneProxy>();
-        private static IReadOnlyDictionary<BlendShareBoneProxy, BlendShareArmatureBoneProxyResolution>
-            s_ResolutionsByProxy = new Dictionary<BlendShareBoneProxy, BlendShareArmatureBoneProxyResolution>();
+        private static IReadOnlyDictionary<BlendShareBoneProxy, BlendShareBoneProxyResolution>
+            s_ResolutionsByProxy = new Dictionary<BlendShareBoneProxy, BlendShareBoneProxyResolution>();
         private static readonly IDisposable s_EditorChangeSubscription;
 
         internal static IReadOnlyList<BlendShareBoneProxy> Proxies => s_Proxies;
-        internal static IReadOnlyDictionary<BlendShareBoneProxy, BlendShareArmatureBoneProxyResolution>
+        internal static IReadOnlyDictionary<BlendShareBoneProxy, BlendShareBoneProxyResolution>
             ResolutionsByProxy => s_ResolutionsByProxy;
 
         static BlendShareBoneProxyEditorUpdater()
@@ -860,16 +854,16 @@ namespace Triturbo.BlendShare.UI.Authoring
             s_Proxies = Resources.FindObjectsOfTypeAll<BlendShareBoneProxy>()
                 .Where(proxy => proxy != null && !EditorUtility.IsPersistent(proxy))
                 .ToArray();
-            var resolved = new Dictionary<BlendShareBoneProxy, BlendShareArmatureBoneProxyResolution>();
+            var resolved = new Dictionary<BlendShareBoneProxy, BlendShareBoneProxyResolution>();
             foreach (var group in s_Proxies
-                         .Where(proxy => proxy.isActiveAndEnabled && proxy.ArmatureKey.IsValid)
-                         .GroupBy(proxy => (proxy.transform.root, proxy.ArmatureKey)))
+                         .Where(proxy => proxy.isActiveAndEnabled && proxy.Patch != null)
+                         .GroupBy(proxy => (proxy.transform.root, proxy.Patch)))
             {
-                var armatureProxies = group.ToArray();
+                var patchProxies = group.ToArray();
                 var resolution = BlendShareBoneProxyResolver.Resolve(
-                    group.Key.ArmatureKey,
-                    armatureProxies);
-                foreach (var proxy in armatureProxies)
+                    group.Key.Patch,
+                    patchProxies);
+                foreach (var proxy in patchProxies)
                 {
                     resolved[proxy] = resolution;
                 }

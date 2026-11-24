@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using Triturbo.BlendShare.Container.Serialization;
 using Triturbo.BlendShare.Container.Wire;
+using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Model.Documents;
 using Triturbo.BlendShare.Model.Features;
 using Triturbo.BlendShare.Primitives;
@@ -28,14 +29,25 @@ namespace Triturbo.BlendShare.Container.Format
             FormatIO.Check(FormatIO.Hash(header.Bytes, manifest, index).SequenceEqual(header.Revision), "Incorrect metadata digest.");
             var metadata = new WireReader(manifest);
             string patch = metadata.ReadString();
-            string display = metadata.ReadString();
             FormatIO.Check(!string.IsNullOrWhiteSpace(patch), "Missing patch ID.");
+            double unitMeters = metadata.ReadDouble();
+            var rightAxis = (FbxCoordinateAxis)metadata.ReadByte();
+            var upAxis = (FbxCoordinateAxis)metadata.ReadByte();
+            var frontAxis = (FbxCoordinateAxis)metadata.ReadByte();
+            var spaceProvenance = new PatchSpaceProvenance
+            {
+                OriginRawMetersPerUnit = unitMeters,
+                OriginRightAxis = rightAxis,
+                OriginUpAxis = upAxis,
+                OriginFrontAxis = frontAxis
+            };
+            FormatIO.Check(spaceProvenance.IsValid, "Invalid patch space provenance.");
             var entries = ParseIndex(index, header, header.Manifest.Offset + metadata.Position);
-            return new ContainerToc(patch, display, header.Revision, header.Manifest, header.Index, header.Payload, entries);
+            return new ContainerToc(patch, spaceProvenance, header.Revision, header.Manifest, header.Index, header.Payload, entries);
         });
 
-        public ContainerReadResult<List<ArmatureDocument>> ReadArmatures(Stream stream, ContainerToc expectedToc) =>
-            Target(stream, expectedToc, () => Armatures(stream, expectedToc));
+        public ContainerReadResult<SkeletonDocument> ReadSkeleton(Stream stream, ContainerToc expectedToc) =>
+            Target(stream, expectedToc, () => Skeleton(stream, expectedToc));
 
         public ContainerReadResult<MeshDocument> ReadMeshHeader(Stream stream, ContainerToc expectedToc, string meshId) =>
             Target(stream, expectedToc, () =>
@@ -63,8 +75,14 @@ namespace Triturbo.BlendShare.Container.Format
         public ContainerReadResult<PatchDocument> ReadPatchDocument(Stream stream, ContainerToc expectedToc) =>
             Target(stream, expectedToc, () =>
             {
-                var doc = new PatchDocument { PatchId = expectedToc.PatchId, DisplayName = expectedToc.DisplayName,
-                    Armatures = Armatures(stream, expectedToc) };
+                var doc = new PatchDocument
+                {
+                    PatchId = expectedToc.PatchId,
+                    SpaceProvenance = PatchSpaceProvenance.FromMetadata(
+                        expectedToc.SpaceProvenance.OriginAxes,
+                        expectedToc.SpaceProvenance.OriginRawMetersPerUnit),
+                    Skeleton = Skeleton(stream, expectedToc)
+                };
                 foreach (var item in expectedToc.Meshes)
                 {
                     var mesh = MeshHeader(stream, expectedToc, item);
@@ -74,10 +92,19 @@ namespace Triturbo.BlendShare.Container.Format
                 return doc;
             });
 
-        private List<ArmatureDocument> Armatures(Stream stream, ContainerToc toc)
+        private SkeletonDocument Skeleton(Stream stream, ContainerToc toc)
         {
-            var value = m_Serializer.DeserializeRecord<ArmatureTable>(Verified(stream, toc, toc.ArmaturesEntry), null);
-            return value.Armatures ?? throw new InvalidDataException("Missing armature list.");
+            var value = m_Serializer.DeserializeRecord<SkeletonDocument>(Verified(stream, toc, toc.SkeletonEntry), null);
+            FormatIO.Check(value != null, "Missing skeleton document.");
+            value.Bones ??= new List<SkeletonBoneRecord>();
+            var seenPaths = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < value.Bones.Count; i++)
+            {
+                string normalized = SkeletonDocument.NormalizeBonePath(value.Bones[i]?.Path);
+                FormatIO.Check(!string.IsNullOrEmpty(normalized) && seenPaths.Add(normalized),
+                    $"Invalid or duplicate skeleton bone path '{value.Bones[i]?.Path}'.");
+            }
+            return value;
         }
 
         private MeshDocument MeshHeader(Stream stream, ContainerToc toc, ContainerMeshToc mesh)
@@ -187,7 +214,7 @@ namespace Triturbo.BlendShare.Container.Format
                 {
                     FormatIO.Check(!payloadStarted && slice.IsWithin(header.Manifest) && slice.Offset == manifestCursor &&
                         size == slice.Length && codec == "" && version == 0, "Invalid manifest entry.");
-                    bool valid = kind == ContainerSectionKind.Armatures && mesh == "" && feature == "" ||
+                    bool valid = kind == ContainerSectionKind.Skeleton && mesh == "" && feature == "" ||
                         kind == ContainerSectionKind.MeshHeader && !string.IsNullOrWhiteSpace(mesh) && feature == "" ||
                         kind == ContainerSectionKind.Feature && !string.IsNullOrWhiteSpace(feature) && !string.IsNullOrWhiteSpace(type);
                     FormatIO.Check(valid, "Invalid record kind or identity.");

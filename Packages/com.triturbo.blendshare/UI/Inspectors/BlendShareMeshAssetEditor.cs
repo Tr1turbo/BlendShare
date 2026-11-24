@@ -256,13 +256,7 @@ namespace Triturbo.BlendShare.UI.Inspectors
             var foldout = new Foldout { text = Localization.S("common.advanced"), value = false };
             foldout.Add(CreateTopologyFingerprintDrawer(mesh));
 
-            double unitMeters = mesh.SpaceProvenance?.OriginRawMetersPerUnit ?? 1d;
-            foldout.Add(new BlendShareRecordView(
-                mesh.SpaceProvenance ?? new MeshSpaceProvenance(),
-                ctx.PayloadSource,
-                "Space Provenance",
-                startExpanded: false,
-                positionUnitMeters: unitMeters));
+            double unitMeters = ctx.SpaceProvenance?.OriginRawMetersPerUnit ?? 1d;
             foldout.Add(new BlendShareRecordView(
                 mesh.OriginBinding,
                 ctx.PayloadSource,

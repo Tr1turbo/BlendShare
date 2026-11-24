@@ -7,13 +7,20 @@ namespace Triturbo.BlendShare.Model.Documents
     /// <summary>
     /// Explicit per-use affine coordinate contract from stored patch mesh-local space
     /// (Origin FBX native local space) to <c>UnityMeshLocal</c>.
+    /// Only <see cref="TargetIdentity"/> and <see cref="StoredToUnityMeshLocal"/> are serialized into
+    /// <see cref="OriginBindingDocument"/>; <see cref="StoredSpace"/> is hydrated at runtime from the
+    /// owning patch's single shared <see cref="PatchDocument.SpaceProvenance"/> without duplicating it on disk.
     /// </summary>
     [BlendShareRecord(SchemaVersion = 1)]
     public sealed class OriginSpaceContract
     {
         [BlendShareField(1)] public string TargetIdentity = string.Empty;
         [BlendShareField(2)] public FbxMatrix4x4 StoredToUnityMeshLocal = FbxMatrix4x4.Identity;
-        [BlendShareField(3)] public MeshSpaceProvenance StoredSpace = new MeshSpaceProvenance();
+
+        /// <summary>
+        /// In-memory reference to the shared stored patch space (never serialized inside per-mesh payloads).
+        /// </summary>
+        public PatchSpaceProvenance StoredSpace { get; set; }
     }
 
     /// <summary>

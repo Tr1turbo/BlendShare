@@ -10,43 +10,7 @@ using VRC.SDKBase;
 namespace Triturbo.BlendShare.Components
 {
     /// <summary>
-    /// Identifies a source armature uniquely by <c>(BlendShareAsset, ArmatureId)</c>.
-    /// </summary>
-    public readonly struct BlendShareArmatureKey : IEquatable<BlendShareArmatureKey>
-    {
-        public BlendShareAsset Patch { get; }
-        public string ArmatureId { get; }
-        public bool IsValid => Patch != null && !string.IsNullOrEmpty(ArmatureId);
-
-        public BlendShareArmatureKey(BlendShareAsset patch, string armatureId)
-        {
-            Patch = patch;
-            ArmatureId = armatureId ?? string.Empty;
-        }
-
-        public bool Equals(BlendShareArmatureKey other)
-        {
-            return ReferenceEquals(Patch, other.Patch) &&
-                   string.Equals(ArmatureId, other.ArmatureId, StringComparison.Ordinal);
-        }
-
-        public override bool Equals(object obj) => obj is BlendShareArmatureKey other && Equals(other);
-
-        public override int GetHashCode()
-        {
-            unchecked
-            {
-                int hash = Patch != null ? Patch.GetHashCode() : 0;
-                return (hash * 397) ^ StringComparer.Ordinal.GetHashCode(ArmatureId ?? string.Empty);
-            }
-        }
-
-        public static bool operator ==(BlendShareArmatureKey left, BlendShareArmatureKey right) => left.Equals(right);
-        public static bool operator !=(BlendShareArmatureKey left, BlendShareArmatureKey right) => !left.Equals(right);
-    }
-
-    /// <summary>
-    /// Maps one source-armature bone path to its final avatar <see cref="Transform"/>.
+    /// Maps one source-skeleton bone path to its final avatar <see cref="Transform"/>.
     /// </summary>
     [Serializable]
     public sealed class BlendShareBoneProxyBinding
@@ -83,7 +47,8 @@ namespace Triturbo.BlendShare.Components
     }
 
     /// <summary>
-    /// Canonical BlendShare 2.0 bone proxy component scoped strictly by <c>(BlendShareAsset, ArmatureId)</c>.
+    /// Canonical BlendShare 2.0 bone proxy component scoped strictly by its owning <see cref="BlendShareAsset"/>.
+    /// Each binding's <see cref="BlendShareBoneProxyBinding.SourceBonePath"/> uniquely identifies its source bone.
     /// Pure runtime data container; never runs passive <c>OnValidate</c> mutations or dirties scenes on load/reload.
     /// </summary>
     [DisallowMultipleComponent]
@@ -95,9 +60,6 @@ namespace Triturbo.BlendShare.Components
     {
         [SerializeField, NotKeyable]
         private BlendShareAsset m_Patch;
-
-        [SerializeField, NotKeyable]
-        private string m_ArmatureId = "armature-0";
 
         [SerializeField, NotKeyable]
         private AvatarObjectReference<Transform> m_TargetParentReference = new AvatarObjectReference<Transform>();
@@ -120,14 +82,6 @@ namespace Triturbo.BlendShare.Components
             get => m_Patch;
             set => m_Patch = value;
         }
-
-        public string ArmatureId
-        {
-            get => m_ArmatureId ?? string.Empty;
-            set => m_ArmatureId = value ?? string.Empty;
-        }
-
-        public BlendShareArmatureKey ArmatureKey => new BlendShareArmatureKey(m_Patch, ArmatureId);
 
         public Transform TargetParent
         {
@@ -353,9 +307,10 @@ namespace Triturbo.BlendShare.Components
             return true;
         }
 
-        public bool MatchesSource(BlendShareAsset patch, string armatureId, string sourceBonePath)
+        public bool MatchesSource(BlendShareAsset patch, string sourceBonePath)
         {
-            return ArmatureKey == new BlendShareArmatureKey(patch, armatureId) &&
+            return patch != null &&
+                   ReferenceEquals(m_Patch, patch) &&
                    TryGetBinding(sourceBonePath, out _);
         }
 

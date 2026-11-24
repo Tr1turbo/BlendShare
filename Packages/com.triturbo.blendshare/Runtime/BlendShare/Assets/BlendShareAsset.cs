@@ -80,50 +80,62 @@ namespace Triturbo.BlendShare.Runtime.Assets
     {
         [SerializeField] private int m_FormatVersion = 5;
         [SerializeField] private string m_PatchId = string.Empty;
-        [SerializeField] private string m_DisplayName = string.Empty;
         [SerializeField] private string m_SourceRevision = string.Empty;
+        [SerializeField] private double m_OriginRawMetersPerUnit = 1d;
+        [SerializeField] private byte m_OriginRightAxis = 0;
+        [SerializeField] private byte m_OriginUpAxis = 2;
+        [SerializeField] private byte m_OriginFrontAxis = 4;
         [SerializeField] private long m_TotalFileLength;
         [SerializeField] private BlendShareByteRange m_ManifestSlice;
         [SerializeField] private BlendShareByteRange m_IndexTableSlice;
         [SerializeField] private BlendShareByteRange m_PayloadSectionSlice;
-        [SerializeField] private int m_ArmaturesEntryIndex = -1;
+        [SerializeField] private int m_SkeletonEntryIndex = -1;
         [SerializeField] private BlendShareMeshToc[] m_Meshes = Array.Empty<BlendShareMeshToc>();
         [SerializeField] private BlendShareTocEntry[] m_Entries = Array.Empty<BlendShareTocEntry>();
 
         public int FormatVersion => m_FormatVersion;
         public string PatchId => m_PatchId ?? string.Empty;
-        public string DisplayName => m_DisplayName ?? string.Empty;
         public string SourceRevision => m_SourceRevision ?? string.Empty;
+        public double OriginRawMetersPerUnit => m_OriginRawMetersPerUnit;
+        public byte OriginRightAxis => m_OriginRightAxis;
+        public byte OriginUpAxis => m_OriginUpAxis;
+        public byte OriginFrontAxis => m_OriginFrontAxis;
         public long TotalFileLength => m_TotalFileLength;
         public BlendShareByteRange ManifestSlice => m_ManifestSlice;
         public BlendShareByteRange IndexTableSlice => m_IndexTableSlice;
         public BlendShareByteRange PayloadSectionSlice => m_PayloadSectionSlice;
-        public int ArmaturesEntryIndex => m_ArmaturesEntryIndex;
+        public int SkeletonEntryIndex => m_SkeletonEntryIndex;
         public IReadOnlyList<BlendShareMeshToc> Meshes => m_Meshes ?? Array.Empty<BlendShareMeshToc>();
         public IReadOnlyList<BlendShareTocEntry> Entries => m_Entries ?? Array.Empty<BlendShareTocEntry>();
 
         public void InitializeToc(
             int formatVersion,
             string patchId,
-            string displayName,
             string sourceRevision,
+            double originRawMetersPerUnit,
+            byte originRightAxis,
+            byte originUpAxis,
+            byte originFrontAxis,
             long totalFileLength,
             BlendShareByteRange manifestSlice,
             BlendShareByteRange indexTableSlice,
             BlendShareByteRange payloadSectionSlice,
-            int armaturesEntryIndex,
+            int skeletonEntryIndex,
             BlendShareMeshToc[] meshes,
             BlendShareTocEntry[] entries)
         {
             m_FormatVersion = formatVersion;
             m_PatchId = patchId ?? string.Empty;
-            m_DisplayName = displayName ?? string.Empty;
             m_SourceRevision = sourceRevision ?? string.Empty;
+            m_OriginRawMetersPerUnit = originRawMetersPerUnit;
+            m_OriginRightAxis = originRightAxis;
+            m_OriginUpAxis = originUpAxis;
+            m_OriginFrontAxis = originFrontAxis;
             m_TotalFileLength = totalFileLength;
             m_ManifestSlice = manifestSlice;
             m_IndexTableSlice = indexTableSlice;
             m_PayloadSectionSlice = payloadSectionSlice;
-            m_ArmaturesEntryIndex = armaturesEntryIndex;
+            m_SkeletonEntryIndex = skeletonEntryIndex;
             m_Meshes = meshes ?? Array.Empty<BlendShareMeshToc>();
             m_Entries = entries ?? Array.Empty<BlendShareTocEntry>();
         }

@@ -65,7 +65,6 @@ namespace Triturbo.BlendShare.Pipeline.Apply
     public sealed class AppliedBoneBinding
     {
         public string PatchId { get; }
-        public string ArmatureId { get; }
         public string SourceBonePath { get; }
         public string TargetBonePath { get; }
         public Transform TargetTransform { get; }
@@ -75,7 +74,6 @@ namespace Triturbo.BlendShare.Pipeline.Apply
 
         public AppliedBoneBinding(
             string patchId,
-            string armatureId,
             string sourceBonePath,
             string targetBonePath,
             Transform targetTransform,
@@ -84,7 +82,6 @@ namespace Triturbo.BlendShare.Pipeline.Apply
             bool isNewBone)
         {
             PatchId = patchId ?? string.Empty;
-            ArmatureId = armatureId ?? string.Empty;
             SourceBonePath = sourceBonePath ?? string.Empty;
             TargetBonePath = targetBonePath ?? string.Empty;
             TargetTransform = targetTransform;
@@ -95,36 +92,34 @@ namespace Triturbo.BlendShare.Pipeline.Apply
     }
 
     /// <summary>
-    /// Optional per-bone transform override (e.g. from BlendShareBoneProxy or NDMF preview) keyed by (PatchId, ArmatureId, SourceBonePath).
+    /// Optional per-bone transform override (e.g. from BlendShareBoneProxy or NDMF preview) keyed by (PatchId, SourceBonePath).
     /// </summary>
     public readonly struct BoneOverrideKey : IEquatable<BoneOverrideKey>
     {
         public string PatchId { get; }
-        public string ArmatureId { get; }
         public string SourceBonePath { get; }
 
-        public BoneOverrideKey(string patchId, string armatureId, string sourceBonePath)
+        public BoneOverrideKey(string patchId, string sourceBonePath)
         {
             PatchId = patchId ?? string.Empty;
-            ArmatureId = armatureId ?? string.Empty;
             SourceBonePath = sourceBonePath ?? string.Empty;
         }
 
         public bool Equals(BoneOverrideKey other) =>
             string.Equals(PatchId, other.PatchId, StringComparison.Ordinal) &&
-            string.Equals(ArmatureId, other.ArmatureId, StringComparison.Ordinal) &&
             string.Equals(SourceBonePath, other.SourceBonePath, StringComparison.Ordinal);
 
         public override bool Equals(object obj) => obj is BoneOverrideKey other && Equals(other);
-        public override int GetHashCode() => HashCode.Combine(PatchId, ArmatureId, SourceBonePath);
+        public override int GetHashCode() => HashCode.Combine(PatchId, SourceBonePath);
     }
 
     public abstract class PatchMeshContext
     {
         public string PatchId { get; set; }
         public string MeshId { get; set; }
+        public PatchSpaceProvenance SpaceProvenance { get; set; }
         public MeshDocument MeshHeader { get; set; }
-        public IReadOnlyList<ArmatureDocument> Armatures { get; set; }
+        public SkeletonDocument Skeleton { get; set; }
         public BlendShareImportSettings EffectiveSettings { get; set; }
         public ILazyPayloadSource PayloadSource { get; set; }
         public ResolvedVertexBinding VertexBinding { get; set; }
@@ -157,7 +152,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
         public IReadOnlyList<PatchMeshApplicationItem> Items { get; internal set; }
         public bool PreserveExistingBlendShapes { get; internal set; } = true;
         public List<AppliedBoneBinding> AppliedBoneBindings { get; } = new List<AppliedBoneBinding>();
-        public List<GeneratedArmatureBoneRecord> AppliedArmatureBones { get; } = new List<GeneratedArmatureBoneRecord>();
+        public List<GeneratedSkeletonBoneRecord> AppliedSkeletonBones { get; } = new List<GeneratedSkeletonBoneRecord>();
         public BlendShareSkinWeightInfluenceSummary SkinWeightInfluenceSummary { get; set; }
         public List<ApplyDiagnostic> Diagnostics { get; } = new List<ApplyDiagnostic>();
     }

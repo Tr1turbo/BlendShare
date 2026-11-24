@@ -589,7 +589,7 @@ namespace Triturbo.BlendShare.UI.Authoring
             SkinHeaders skin,
             Transform targetRoot)
         {
-            if (applier.TargetRenderer == null || skin?.Armature == null)
+            if (applier.TargetRenderer == null || skin?.Skeleton == null)
             {
                 return Array.Empty<BoneEntry>();
             }

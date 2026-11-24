@@ -69,34 +69,34 @@ namespace Triturbo.BlendShare.Pipeline.Apply
     public static class ArmatureBoneResolver
     {
         public static bool ResolveBoneTransform(Transform targetRoot, IReadOnlyDictionary<BoneOverrideKey, Transform> overrides,
-            string patchId, string armatureId, string sourceBonePath, out Transform resolvedTransform,
+            string patchId, string sourceBonePath, out Transform resolvedTransform,
             out string resolvedTargetPath, out bool isNewBone)
         {
             var path = FbxNameUtility.NormalizePath(sourceBonePath);
             isNewBone = false;
             resolvedTransform = null;
-            if (overrides != null) overrides.TryGetValue(new BoneOverrideKey(patchId, armatureId, path), out resolvedTransform);
+            if (overrides != null) overrides.TryGetValue(new BoneOverrideKey(patchId, path), out resolvedTransform);
             if (!resolvedTransform && targetRoot && path.Length > 0) resolvedTransform = targetRoot.Find(path);
             resolvedTargetPath = resolvedTransform ? AnimationUtility.CalculateTransformPath(resolvedTransform, targetRoot) : path;
             return resolvedTransform;
         }
 
-        public static bool EnsureBoneHierarchy(Transform targetRoot, ArmatureDocument armature, string sourceBonePath,
+        public static bool EnsureBoneHierarchy(Transform targetRoot, SkeletonDocument skeleton, string sourceBonePath,
             FbxMatrix4x4 canonicalToUnityMeshLocal, out Transform createdTransform, out string diagnostic)
         {
             createdTransform = null;
-            diagnostic = "Missing root, bone path or armature record.";
+            diagnostic = "Missing root, bone path or skeleton record.";
             var path = FbxNameUtility.NormalizePath(sourceBonePath);
             if (!targetRoot || path.Length == 0) return false;
             var pending = new Stack<(string Name, Vector3 Position, Quaternion Rotation, Vector3 Scale)>();
             Transform parent = null;
             while (path.Length > 0 && !(parent = targetRoot.Find(path)))
             {
-                var record = armature?.Bones?.Find(b => FbxNameUtility.NormalizePath(b.Path) == path);
+                var record = skeleton?.Bones?.Find(b => FbxNameUtility.NormalizePath(b.Path) == path);
                 if (record == null || !record.CreateIfMissing)
                 {
                     diagnostic = record == null
-                        ? $"Missing armature record for bone '{path}'."
+                        ? $"Missing skeleton record for bone '{path}'."
                         : $"Bone '{path}' is marked CreateIfMissing = false and does not exist in target hierarchy.";
                     return false;
                 }

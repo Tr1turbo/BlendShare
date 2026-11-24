@@ -121,7 +121,6 @@ namespace Triturbo.BlendShare.NDMF
                 context.Observe(proxyComponent, p => p.UseHierarchyParent);
                 ObserveTransform(context, context.Observe(proxyComponent, p => p.TargetParent));
                 ObservePatchSettingsRevision(context, context.Observe(proxyComponent, p => p.Patch));
-                context.Observe(proxyComponent, p => p.ArmatureId);
                 var bindings = context.Observe(proxyComponent, p => p.Bindings.Select(b =>
                     (b?.SourceBonePath, b?.Transform)).ToArray(), (a, b) => a.SequenceEqual(b));
                 foreach (var (_, target) in bindings)

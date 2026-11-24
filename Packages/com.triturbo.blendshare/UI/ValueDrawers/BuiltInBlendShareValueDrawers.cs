@@ -20,7 +20,7 @@ using Ui = Triturbo.BlendShare.Inspector.BlendShareInspectorUi;
 [assembly: RegisterBlendShareValueDrawer(typeof(PrimitiveValueDrawer))]
 [assembly: RegisterBlendShareValueDrawer(typeof(VectorValueDrawer))]
 [assembly: RegisterBlendShareValueDrawer(typeof(FbxMatrix4x4ValueDrawer))]
-[assembly: RegisterBlendShareValueDrawer(typeof(MeshSpaceProvenanceValueDrawer))]
+[assembly: RegisterBlendShareValueDrawer(typeof(PatchSpaceProvenanceValueDrawer))]
 [assembly: RegisterBlendShareValueDrawer(typeof(TopologyDigestValueDrawer))]
 [assembly: RegisterBlendShareValueDrawer(typeof(IndexedBufferValueDrawer))]
 [assembly: RegisterBlendShareValueDrawer(typeof(LazyPayloadValueDrawer))]
@@ -209,18 +209,18 @@ namespace Triturbo.BlendShare.UI.ValueDrawers
         }
     }
 
-    public sealed class MeshSpaceProvenanceValueDrawer : IBlendShareValueDrawer
+    public sealed class PatchSpaceProvenanceValueDrawer : IBlendShareValueDrawer
     {
         public int Priority => 100;
-        public bool CanDraw(Type valueType, DataSemantic semantic) => valueType == typeof(MeshSpaceProvenance);
+        public bool CanDraw(Type valueType, DataSemantic semantic) => valueType == typeof(PatchSpaceProvenance);
 
         public VisualElement CreateView(object value, Type valueType, BlendShareValueDrawContext context)
         {
-            var space = (MeshSpaceProvenance)value;
+            var space = (PatchSpaceProvenance)value;
             string Axis(FbxCoordinateAxis axis) => axis.ToString().Replace("Positive", "+").Replace("Negative", "-");
             string axes = $"{Axis(space.OriginRightAxis)} / {Axis(space.OriginUpAxis)} / {Axis(space.OriginFrontAxis)}";
             var box = Ui.Box();
-            box.Add(Ui.LabeledRow(context.Label ?? "Mesh Space", Ui.BadgeRow(
+            box.Add(Ui.LabeledRow(context.Label ?? "Space Provenance", Ui.BadgeRow(
                 Ui.Badge(DrawerUi.Unit(space.OriginRawMetersPerUnit)), Ui.Badge(axes))));
             var rawToCanonical = CanonicalMeshSpace.BuildRawToCanonical(space.OriginAxes, space.OriginRawMetersPerUnit, out _);
             box.Add(context.WithChild("Origin Raw To Canonical").Draw(rawToCanonical, typeof(FbxMatrix4x4)));
@@ -411,9 +411,9 @@ namespace Triturbo.BlendShare.UI.ValueDrawers
                 return root;
             }
             double unit = context.PositionUnitMeters;
-            if (value is MeshDocument mesh)
-                unit = mesh.SpaceProvenance != null && CanonicalMeshSpace.IsValidUnitMeters(mesh.SpaceProvenance.OriginRawMetersPerUnit)
-                    ? mesh.SpaceProvenance.OriginRawMetersPerUnit : 1d;
+            if (value is PatchDocument patch)
+                unit = patch.SpaceProvenance != null && CanonicalMeshSpace.IsValidUnitMeters(patch.SpaceProvenance.OriginRawMetersPerUnit)
+                    ? patch.SpaceProvenance.OriginRawMetersPerUnit : 1d;
             foreach (var (field, tag) in s_Fields.GetOrAdd(valueType, GetFields))
             {
                 var child = context.WithChild(ObjectNames.NicifyVariableName(field.Name), tag.Semantic,

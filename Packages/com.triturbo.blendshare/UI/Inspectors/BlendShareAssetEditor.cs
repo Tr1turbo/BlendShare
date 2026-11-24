@@ -165,7 +165,8 @@ namespace Triturbo.BlendShare.UI.Inspectors
                     buffer,
                     readOnly,
                     mesh,
-                    m_Document.Armatures,
+                    m_Document.SpaceProvenance,
+                    m_Document.Skeleton,
                     PayloadSource));
         }
 
@@ -744,6 +745,14 @@ namespace Triturbo.BlendShare.UI.Inspectors
 
             foldout.Add(BlendShareInspectorUi.Row(Localization.S("common.patch_id"), patch.PatchId));
 
+            double unitMeters = document.SpaceProvenance?.OriginRawMetersPerUnit ?? 1d;
+            foldout.Add(new BlendShareRecordView(
+                document.SpaceProvenance ?? new PatchSpaceProvenance(),
+                ctx.PayloadSource,
+                "Space Provenance",
+                startExpanded: false,
+                positionUnitMeters: unitMeters));
+
             var containerFoldout = new Foldout
             {
                 text = $"Container (BLSHARE1 v{patch.FormatVersion}, {patch.TotalFileLength:N0} B, {patch.Entries.Count} entries)",
@@ -755,7 +764,7 @@ namespace Triturbo.BlendShare.UI.Inspectors
             }
             foldout.Add(containerFoldout);
 
-            foldout.Add(new BlendShareRecordView(document, ctx.PayloadSource, "Raw Patch Document", startExpanded: false));
+            foldout.Add(new BlendShareRecordView(document, ctx.PayloadSource, "Raw Patch Document", startExpanded: false, positionUnitMeters: unitMeters));
 
             foldout.Add(BlendShareInspectorUi.FooterBox(
                 Localization.S("patch.created_by"),

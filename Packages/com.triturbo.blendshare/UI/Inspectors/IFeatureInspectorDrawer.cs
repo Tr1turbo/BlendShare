@@ -27,7 +27,8 @@ namespace Triturbo.BlendShare.UI.Inspectors
         public BlendShareSettingsUndoBuffer Buffer { get; }
         public bool IsReadOnly { get; }
 
-        public IReadOnlyList<ArmatureDocument> Armatures { get; }
+        public PatchSpaceProvenance SpaceProvenance { get; }
+        public SkeletonDocument Skeleton { get; }
         public MeshDocument MeshHeader { get; }
         public ILazyPayloadSource PayloadSource { get; }
 
@@ -38,11 +39,13 @@ namespace Triturbo.BlendShare.UI.Inspectors
             BlendShareSettingsUndoBuffer buffer,
             bool isReadOnly,
             MeshDocument meshHeader = null,
-            IReadOnlyList<ArmatureDocument> armatures = null,
+            PatchSpaceProvenance spaceProvenance = null,
+            SkeletonDocument skeleton = null,
             ILazyPayloadSource payloadSource = null)
         {
             MeshHeader = meshHeader;
-            Armatures = armatures ?? Array.Empty<ArmatureDocument>();
+            SpaceProvenance = spaceProvenance ?? BlendShareAssetTocMapper.GetSpaceProvenance(patchAsset);
+            Skeleton = skeleton;
             PayloadSource = payloadSource ?? BlendShareSourceRepository.Shared.PayloadStore;
             PatchAsset = patchAsset;
             AssetGuid = assetGuid ?? string.Empty;
@@ -55,7 +58,7 @@ namespace Triturbo.BlendShare.UI.Inspectors
         {
             var foldout = new Foldout { text = Localization.S("common.advanced"), value = false };
             foldout.Add(new BlendShareRecordView(record, PayloadSource, startExpanded: false,
-                positionUnitMeters: MeshHeader?.SpaceProvenance?.OriginRawMetersPerUnit ?? 1d));
+                positionUnitMeters: SpaceProvenance?.OriginRawMetersPerUnit ?? 1d));
             return foldout;
         }
 

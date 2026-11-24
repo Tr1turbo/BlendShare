@@ -134,9 +134,9 @@ namespace Triturbo.BlendShare.EditorAssets
             return ExecuteFailClosed(asset, (stream, toc) => m_Reader.ReadMeshHeader(stream, toc, meshId));
         }
 
-        public ContainerReadResult<List<ArmatureDocument>> ReadArmatures(BlendShareAsset asset)
+        public ContainerReadResult<SkeletonDocument> ReadSkeleton(BlendShareAsset asset)
         {
-            return ExecuteFailClosed(asset, (stream, toc) => m_Reader.ReadArmatures(stream, toc));
+            return ExecuteFailClosed(asset, (stream, toc) => m_Reader.ReadSkeleton(stream, toc));
         }
 
         public ContainerReadResult<PatchDocument> ReadPatchDocument(BlendShareAsset asset)

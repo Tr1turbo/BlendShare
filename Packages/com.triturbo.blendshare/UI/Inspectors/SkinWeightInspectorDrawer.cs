@@ -34,11 +34,11 @@ namespace Triturbo.BlendShare.UI.Inspectors
                 return box;
             }
 
-            var armature = context.Armatures.FirstOrDefault(a => a != null && string.Equals(a.ArmatureId, feature.ArmatureId, StringComparison.Ordinal));
+            var skeleton = context.Skeleton;
             var clusters = feature.Clusters.Where(c => c != null).ToList();
             int affectedBoneCount = clusters
                 .Select(c => c.BonePath)
-                .Concat((armature?.Bones ?? (IEnumerable<Model.Documents.ArmatureBoneRecord>)Array.Empty<Model.Documents.ArmatureBoneRecord>()).Where(b => b != null).Select(b => b.Path))
+                .Concat((skeleton?.Bones ?? (IEnumerable<Model.Documents.SkeletonBoneRecord>)Array.Empty<Model.Documents.SkeletonBoneRecord>()).Where(b => b != null).Select(b => b.Path))
                 .Where(p => !string.IsNullOrEmpty(p))
                 .Distinct(StringComparer.Ordinal)
                 .Count();
@@ -72,16 +72,16 @@ namespace Triturbo.BlendShare.UI.Inspectors
             box.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.bindposes"), clusters.Count(c => c.HasClusterMatrices).ToString()));
             box.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.root_bone"), feature.RootBonePath));
 
-            if (armature != null)
+            if (skeleton != null && skeleton.Bones != null && skeleton.Bones.Count > 0)
             {
-                var armatureFoldout = new Foldout
+                var skeletonFoldout = new Foldout
                 {
-                    text = $"{Localization.S("features.skin-weights.shared_armature")} ({armature.ArmatureId})",
+                    text = Localization.S("features.skin-weights.shared_armature"),
                     value = true
                 };
-                armatureFoldout.style.marginTop = 4;
-                armatureFoldout.Add(new ArmatureTreeView(armature, context));
-                box.Add(armatureFoldout);
+                skeletonFoldout.style.marginTop = 4;
+                skeletonFoldout.Add(new SkeletonTreeView(skeleton, context));
+                box.Add(skeletonFoldout);
             }
 
             box.Add(context.Advanced(feature));

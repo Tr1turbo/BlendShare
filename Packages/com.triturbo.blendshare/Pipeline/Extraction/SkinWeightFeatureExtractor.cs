@@ -25,7 +25,6 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
 
         public string FeatureTypeId => SkinWeightFeature.FeatureTypeId;
         public bool Enabled { get; set; } = false;
-        public string ArmatureId { get; set; } = "armature-0";
         public bool ExtractAllClustersWhenSelectionEmpty { get; set; } = true;
         public bool IncludeClusterBindMatrices { get; set; } = true;
         public double ZeroWeightThreshold { get; set; } = 1e-6d;
@@ -224,7 +223,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
     /// Extracts signed per-cluster sparse control-point weight deltas (<c>sourceWeight - originWeight</c>,
     /// <c>DataSemantic.SignedWeightDelta</c>), independent binary64 bind matrices in stored Origin FBX space
     /// (<c>TransformMatrix = L^-1 * M_meshBind * W</c>, <c>TransformLinkMatrix = W^-1 * M_boneBind * W</c>),
-    /// and shared <see cref="ArmatureDocument"/> bone registrations with explicit <c>CreateIfMissing</c> flags.
+    /// and shared <see cref="SkeletonDocument"/> bone registrations with explicit <c>CreateIfMissing</c> flags.
     /// </summary>
     public sealed class SkinWeightFeatureExtractor : IFeatureExtractor
     {
@@ -452,27 +451,26 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                     FeatureTypeId);
             }
 
-            // 3. Build shared armature bone registrations (matching 007f7f0 BuildSelectedArmature).
-            var armatureRegistrations = BuildArmatureRegistrations(
+            // 3. Build shared skeleton bone registrations (unique per bone path across all meshes).
+            var skeletonRegistrations = BuildSkeletonRegistrations(
                 context,
                 swOptions,
                 clusterEntries,
                 sourceBoneNodeByPath,
-                out string armatureError);
-            if (!string.IsNullOrEmpty(armatureError))
+                out string skeletonError);
+            if (!string.IsNullOrEmpty(skeletonError))
             {
                 return FeatureExtractionResult.Failed(
                     "SW_EXT_MISSING_SOURCE_BONE",
-                    armatureError,
+                    skeletonError,
                     context.MeshId,
                     FeatureTypeId,
                     diagnostics);
             }
 
-            string armatureId = string.IsNullOrWhiteSpace(swOptions.ArmatureId) ? "armature-0" : swOptions.ArmatureId.Trim();
-            if (armatureRegistrations.Count > 0)
+            if (skeletonRegistrations.Count > 0)
             {
-                context.RegisterArmatureBones(armatureId, armatureRegistrations, worldToStored);
+                context.RegisterSkeletonBones(skeletonRegistrations, worldToStored);
             }
 
             string rootBonePath = swOptions.TryGetRootBonePath(context.NodePath, out var explicitRoot)
@@ -483,7 +481,6 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             {
                 FeatureId = DefaultFeatureId,
                 Required = true,
-                ArmatureId = armatureRegistrations.Count > 0 ? armatureId : string.Empty,
                 RootBonePath = rootBonePath,
                 Clusters = clusterEntries
             };
@@ -726,7 +723,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             return result;
         }
 
-        private static List<ArmatureBoneRegistration> BuildArmatureRegistrations(
+        private static List<SkeletonBoneRegistration> BuildSkeletonRegistrations(
             MeshExtractionContext context,
             SkinWeightExtractionOptions swOptions,
             IReadOnlyList<SkinWeightClusterEntry> extractedClusters,
@@ -784,17 +781,17 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
 
             if (transformPaths.Count == 0 && createPaths.Count == 0)
             {
-                return new List<ArmatureBoneRegistration>();
+                return new List<SkeletonBoneRegistration>();
             }
 
-            var registrationsByPath = new Dictionary<string, ArmatureBoneRegistration>(StringComparer.Ordinal);
+            var registrationsByPath = new Dictionary<string, SkeletonBoneRegistration>(StringComparer.Ordinal);
             var orderedPaths = new List<string>(transformPaths);
             orderedPaths.Sort(StringComparer.Ordinal);
 
             for (int i = 0; i < orderedPaths.Count; i++)
             {
                 string path = orderedPaths[i];
-                if (!AddArmatureBoneRecursive(
+                if (!AddSkeletonBoneRecursive(
                         context,
                         sourceBoneNodeByPath,
                         registrationsByPath,
@@ -806,13 +803,13 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                 }
             }
 
-            return new List<ArmatureBoneRegistration>(registrationsByPath.Values);
+            return new List<SkeletonBoneRegistration>(registrationsByPath.Values);
         }
 
-        private static bool AddArmatureBoneRecursive(
+        private static bool AddSkeletonBoneRecursive(
             MeshExtractionContext context,
             IReadOnlyDictionary<string, IFbxNode> sourceBoneNodeByPath,
-            Dictionary<string, ArmatureBoneRegistration> registrationsByPath,
+            Dictionary<string, SkeletonBoneRegistration> registrationsByPath,
             string bonePath,
             bool createIfMissing,
             out string error)
@@ -828,7 +825,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             {
                 if (createIfMissing && !existing.CreateIfMissing)
                 {
-                    registrationsByPath[normalized] = new ArmatureBoneRegistration(normalized, existing.SourceNode, true);
+                    registrationsByPath[normalized] = new SkeletonBoneRegistration(normalized, existing.SourceNode, true);
                 }
 
                 return true;
@@ -852,7 +849,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                         ? sourceNode.Parent
                         : ResolveSourceBoneNode(context.SourceScene, sourceBoneNodeByPath, parentPath);
                     if (parentSourceNode != null &&
-                        !AddArmatureBoneRecursive(
+                        !AddSkeletonBoneRecursive(
                             context,
                             sourceBoneNodeByPath,
                             registrationsByPath,
@@ -865,7 +862,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                 }
             }
 
-            registrationsByPath[normalized] = new ArmatureBoneRegistration(normalized, sourceNode, createIfMissing);
+            registrationsByPath[normalized] = new SkeletonBoneRegistration(normalized, sourceNode, createIfMissing);
             return true;
         }
 

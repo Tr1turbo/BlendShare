@@ -65,7 +65,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     if (map.SourceDomain != IndexDomain.UnityVertex || map.TargetDomain != IndexDomain.ControlPoint ||
                         map.SourceCount != mesh.vertexCount ||
                         binding.SpaceContract.StoredSpace == null || !binding.SpaceContract.StoredSpace.IsValid ||
-                        (input.MeshHeader?.SpaceProvenance != null && !binding.SpaceContract.StoredSpace.MatchesSpace(input.MeshHeader.SpaceProvenance)) ||
+                        (input.SpaceProvenance != null && !binding.SpaceContract.StoredSpace.MatchesSpace(input.SpaceProvenance)) ||
                         !UnitySpaceContractMath.TryBuildNormalDeltaMatrix(matrix, out var normalMatrix))
                         throw new InvalidOperationException("Invalid vertex map or space contract.");
 
@@ -140,7 +140,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     var binding = input.VertexBinding;
                     var map = binding.VertexMap;
                     var matrix = binding.SpaceContract.StoredToUnityMeshLocal;
-                    var unitSpace = input.MeshHeader?.SpaceProvenance ?? binding.SpaceContract.StoredSpace;
+                    var unitSpace = input.SpaceProvenance ?? binding.SpaceContract.StoredSpace;
                     double storedUnitMeters = unitSpace != null && CanonicalMeshSpace.IsValidUnitMeters(unitSpace.OriginRawMetersPerUnit)
                         ? unitSpace.OriginRawMetersPerUnit
                         : 1d;

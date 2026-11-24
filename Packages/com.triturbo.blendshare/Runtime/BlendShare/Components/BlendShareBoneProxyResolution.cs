@@ -7,22 +7,22 @@ using UnityEngine;
 namespace Triturbo.BlendShare.Components
 {
     /// <summary>
-    /// Provides one avatar-wide effective proxy binding selection for a <see cref="BlendShareArmatureKey"/>.
+    /// Provides one avatar-wide effective proxy binding selection for a source <see cref="BlendShareAsset"/>.
     /// </summary>
-    public sealed class BlendShareArmatureBoneProxyResolution
+    public sealed class BlendShareBoneProxyResolution
     {
         private readonly Dictionary<string, BlendShareResolvedBone> m_BindingsByPath;
         private readonly List<BlendShareBoneProxy> m_SelectedProxies;
         private readonly HashSet<BlendShareBoneProxy> m_SelectedProxySet;
         private readonly List<string> m_Diagnostics;
 
-        public BlendShareArmatureBoneProxyResolution(
-            BlendShareArmatureKey armatureKey,
+        public BlendShareBoneProxyResolution(
+            BlendShareAsset patch,
             Dictionary<string, BlendShareResolvedBone> bindingsByPath,
             IEnumerable<BlendShareBoneProxy> selectedProxies,
             IEnumerable<string> diagnostics)
         {
-            ArmatureKey = armatureKey;
+            Patch = patch;
             m_BindingsByPath = bindingsByPath ??
                                new Dictionary<string, BlendShareResolvedBone>(StringComparer.Ordinal);
             m_SelectedProxies = (selectedProxies ?? Enumerable.Empty<BlendShareBoneProxy>())
@@ -35,9 +35,7 @@ namespace Triturbo.BlendShare.Components
                 .ToList();
         }
 
-        public BlendShareArmatureKey ArmatureKey { get; }
-        public BlendShareAsset Patch => ArmatureKey.Patch;
-        public string ArmatureId => ArmatureKey.ArmatureId;
+        public BlendShareAsset Patch { get; }
         public bool Success => m_Diagnostics.Count == 0;
         public IReadOnlyDictionary<string, BlendShareResolvedBone> BindingsByPath => m_BindingsByPath;
         public IReadOnlyList<BlendShareBoneProxy> SelectedProxies => m_SelectedProxies;
@@ -68,35 +66,27 @@ namespace Triturbo.BlendShare.Components
     }
 
     /// <summary>
-    /// Resolves one stable per-path proxy binding selection for a source <see cref="BlendShareArmatureKey"/>.
+    /// Resolves one stable per-path proxy binding selection for a source <see cref="BlendShareAsset"/>.
     /// </summary>
     public static class BlendShareBoneProxyResolver
     {
-        public static BlendShareArmatureBoneProxyResolution Resolve(
+        public static BlendShareBoneProxyResolution Resolve(
             BlendShareAsset patch,
-            string armatureId,
             IEnumerable<BlendShareBoneProxy> availableProxies)
         {
-            return Resolve(new BlendShareArmatureKey(patch, armatureId), availableProxies);
-        }
-
-        public static BlendShareArmatureBoneProxyResolution Resolve(
-            BlendShareArmatureKey armatureKey,
-            IEnumerable<BlendShareBoneProxy> availableProxies)
-        {
-            if (!armatureKey.IsValid)
+            if (patch == null)
             {
-                return new BlendShareArmatureBoneProxyResolution(
-                    armatureKey,
+                return new BlendShareBoneProxyResolution(
                     null,
                     null,
-                    new[] { "Cannot resolve BlendShare bone proxies without a valid patch and armature ID." });
+                    null,
+                    new[] { "Cannot resolve BlendShare bone proxies without a valid source patch." });
             }
 
             var orderedProxies = (availableProxies ?? Enumerable.Empty<BlendShareBoneProxy>())
                 .Where(proxy => proxy != null &&
                                 proxy.isActiveAndEnabled &&
-                                proxy.ArmatureKey == armatureKey)
+                                ReferenceEquals(proxy.Patch, patch))
                 .Distinct()
                 .OrderBy(proxy => GetHierarchyOrder(proxy.transform), StringComparer.Ordinal)
                 .ToArray();
@@ -119,8 +109,8 @@ namespace Triturbo.BlendShare.Components
             var effectiveProxies = new HashSet<BlendShareBoneProxy>(
                 bindings.Values.Select(binding => binding.Proxy));
 
-            return new BlendShareArmatureBoneProxyResolution(
-                armatureKey,
+            return new BlendShareBoneProxyResolution(
+                patch,
                 bindings,
                 orderedProxies.Where(effectiveProxies.Contains),
                 Array.Empty<string>());

@@ -267,13 +267,13 @@ namespace Triturbo.BlendShare.FbxExport
                         {
                             int cp = posBuf.Indices[k];
                             var p = baseControlPoints[cp];
-                            var d = input.MeshSpace.PositionDeltaToRaw(posBuf.Values[k]);
+                            var d = input.PatchSpace.PositionDeltaToRaw(posBuf.Values[k]);
                             shape.SetControlPointAt(new FbxVector4(p.X + d.x, p.Y + d.y, p.Z + d.z, p.W), cp);
                         }
 
                         if (payload.DeltaNormals != null && payload.DeltaNormals.Count > 0)
                         {
-                            if (!TryWriteNormals(context, input.MeshSpace, shape, payload.DeltaNormals, out string normalError))
+                            if (!TryWriteNormals(context, input.PatchSpace, shape, payload.DeltaNormals, out string normalError))
                             {
                                 return Fail(
                                     "FBX_EXPORT_NORMAL_WRITE_FAILED",
@@ -454,14 +454,14 @@ namespace Triturbo.BlendShare.FbxExport
                     var expected = new Vector3d[count];
                     var sourcePositions = payload.DeltaPositions;
                     for (int j = 0; j < sourcePositions.Count; j++)
-                        expected[sourcePositions.Indices[j]] = input.MeshSpace.PositionDeltaToRaw(sourcePositions.Values[j]);
+                        expected[sourcePositions.Indices[j]] = input.PatchSpace.PositionDeltaToRaw(sourcePositions.Values[j]);
 
                     var expectedNormals = verifyNormals ? new Vector3d[count] : null;
                     if (verifyNormals)
                     {
                         var sourceNormals = payload.DeltaNormals;
                         for (int j = 0; j < sourceNormals.Count; j++)
-                            expectedNormals[sourceNormals.Indices[j]] = input.MeshSpace.NormalDeltaToRaw(sourceNormals.Values[j]);
+                            expectedNormals[sourceNormals.Indices[j]] = input.PatchSpace.NormalDeltaToRaw(sourceNormals.Values[j]);
                     }
                     for (int j = 0; j < indices.Length; j++)
                     {

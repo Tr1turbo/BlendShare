@@ -56,7 +56,7 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
             int originControlPointCount,
             FbxSceneMetadata originSceneMetadata,
             string targetIdentity = null,
-            MeshSpaceProvenance storedSpace = null)
+            PatchSpaceProvenance storedSpace = null)
         {
             if (originSnapshot == null)
             {
@@ -116,15 +116,15 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
             };
         }
 
-        internal static OriginSpaceContract BuildSpaceContract(MeshSpaceProvenance storedSpace,
+        internal static OriginSpaceContract BuildSpaceContract(PatchSpaceProvenance storedSpace,
             FbxSceneMetadata target, float scale, bool bakeAxes, string targetIdentity)
         {
             var effectiveSpace = storedSpace != null
-                ? MeshSpaceProvenance.FromMetadata(storedSpace.OriginAxes, storedSpace.OriginRawMetersPerUnit)
-                : MeshSpaceProvenance.FromMetadata(target.Axes, target.UnitMeters);
+                ? PatchSpaceProvenance.FromMetadata(storedSpace.OriginAxes, storedSpace.OriginRawMetersPerUnit)
+                : PatchSpaceProvenance.FromMetadata(target.Axes, target.UnitMeters);
 
             if (!effectiveSpace.IsValid)
-                throw new ArgumentException("Stored mesh space requires valid axes and a strictly positive unit scale.");
+                throw new ArgumentException("Stored patch space requires valid axes and a strictly positive unit scale.");
 
             if (!UnitySpaceContractMath.TryBuildStoredToUnityMatrix(
                     effectiveSpace.OriginAxes, effectiveSpace.OriginRawMetersPerUnit, target, scale, bakeAxes, out var matrix, out _) ||
@@ -143,7 +143,7 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
             OriginBindingDocument binding,
             UnityMeshSnapshot targetSnapshot,
             int expectedOriginControlPointCount = -1,
-            MeshSpaceProvenance expectedSpace = null)
+            PatchSpaceProvenance expectedSpace = null)
         {
             if (binding == null)
             {
@@ -163,10 +163,12 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                     "Target Unity mesh snapshot is null.");
             }
 
+            var resolvedSpace = binding.SpaceContract?.StoredSpace ?? expectedSpace;
             if (binding.SpaceContract == null ||
-                binding.SpaceContract.StoredSpace == null ||
-                !binding.SpaceContract.StoredSpace.IsValid ||
-                (expectedSpace != null && !binding.SpaceContract.StoredSpace.MatchesSpace(expectedSpace)) ||
+                resolvedSpace == null ||
+                !resolvedSpace.IsValid ||
+                (binding.SpaceContract.StoredSpace != null && expectedSpace != null &&
+                 !binding.SpaceContract.StoredSpace.MatchesSpace(expectedSpace)) ||
                 !FbxAffineSpaceTransform.TryCreate(binding.SpaceContract.StoredToUnityMeshLocal, out _))
             {
                 return new OriginBindingVerificationResult(
@@ -175,6 +177,13 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                     null,
                     "OriginBinding SpaceContract is missing, mismatched, or non-affine/singular.");
             }
+
+            var hydratedContract = new OriginSpaceContract
+            {
+                TargetIdentity = binding.SpaceContract.TargetIdentity ?? string.Empty,
+                StoredToUnityMeshLocal = binding.SpaceContract.StoredToUnityMeshLocal,
+                StoredSpace = PatchSpaceProvenance.FromMetadata(resolvedSpace.OriginAxes, resolvedSpace.OriginRawMetersPerUnit)
+            };
 
             if (expectedOriginControlPointCount >= 0 &&
                 binding.OriginControlPointCount != expectedOriginControlPointCount)
@@ -240,7 +249,7 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                 return new OriginBindingVerificationResult(
                     OriginBindingVerificationStatus.ExactFastPath,
                     csr,
-                    binding.SpaceContract,
+                    hydratedContract,
                     string.Empty);
             }
 
@@ -253,7 +262,7 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                 return new OriginBindingVerificationResult(
                     OriginBindingVerificationStatus.CoincidentProofFallback,
                     csr,
-                    binding.SpaceContract,
+                    hydratedContract,
                     "UV0 changed; verified safely because mesh has zero coincident-position vertex classes.");
             }
 
@@ -304,7 +313,7 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
             return new OriginBindingVerificationResult(
                 OriginBindingVerificationStatus.CoincidentProofFallback,
                 csr,
-                binding.SpaceContract,
+                hydratedContract,
                 "UV0 changed; verified via coincident-vertex equivalence proofs.");
         }
 

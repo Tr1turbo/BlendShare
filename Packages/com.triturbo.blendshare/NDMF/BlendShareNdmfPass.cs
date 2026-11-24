@@ -27,7 +27,7 @@ namespace Triturbo.BlendShare.NDMF
             var animator = context.Extension<AnimatorServicesContext>();
             var mergeResolver = new BlendShareBoneBindingMergeResolver(context, animator);
             var uses = new List<AvatarBoneBindingUse>();
-            var armatureBonesByPath = new Dictionary<string, GeneratedArmatureBoneRecord>(System.StringComparer.Ordinal);
+            var skeletonBonesByPath = new Dictionary<string, GeneratedSkeletonBoneRecord>(System.StringComparer.Ordinal);
             var capturedWeights = BlendShareBlendShapeWeightService.CaptureExistingRendererWeights(components);
             bool succeeded = true;
             foreach (var group in components.GroupBy(c => c.TargetRenderer))
@@ -58,13 +58,13 @@ namespace Triturbo.BlendShare.NDMF
 
                 var output = result.MeshResult.OutputMesh;
                 uses.AddRange(result.BoneBindingUses);
-                if (result.MeshResult.AppliedArmatureBones != null)
+                if (result.MeshResult.AppliedSkeletonBones != null)
                 {
-                    foreach (var armBone in result.MeshResult.AppliedArmatureBones)
+                    foreach (var skelBone in result.MeshResult.AppliedSkeletonBones)
                     {
-                        if (armBone != null && !string.IsNullOrEmpty(armBone.Path))
+                        if (skelBone != null && !string.IsNullOrEmpty(skelBone.Path))
                         {
-                            armatureBonesByPath[armBone.Path] = armBone;
+                            skeletonBonesByPath[skelBone.Path] = skelBone;
                         }
                     }
                 }
@@ -84,14 +84,14 @@ namespace Triturbo.BlendShare.NDMF
             if (!succeeded) return;
 
             // Apply authored existing-bone transform changes (non-proxy) in parent-before-child order.
-            foreach (var armBone in armatureBonesByPath.Values
+            foreach (var skelBone in skeletonBonesByPath.Values
                          .OrderBy(b => b.Path.Count(c => c == '/'))
                          .ThenBy(b => b.Path, System.StringComparer.Ordinal))
             {
-                var existing = root.transform.Find(armBone.Path);
+                var existing = root.transform.Find(skelBone.Path);
                 if (existing != null)
                 {
-                    armBone.ApplyLocalTransform(existing);
+                    skelBone.ApplyLocalTransform(existing);
                 }
             }
             BlendShareBlendShapeWeightService.RetargetRendererBlendShapeCurves(components, animator);

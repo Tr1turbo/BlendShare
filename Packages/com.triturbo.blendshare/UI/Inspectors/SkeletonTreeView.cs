@@ -11,25 +11,23 @@ using UnityEngine.UIElements;
 
 namespace Triturbo.BlendShare.UI.Inspectors
 {
-    public sealed class ArmatureTreeView : VisualElement
+    public sealed class SkeletonTreeView : VisualElement
     {
         private const float k_TransformLabelWidth = 82f;
         private const float k_AxisLabelWidth = 14f;
         private string m_ExpandedBonePath;
         private readonly double m_UnitMeters;
 
-        public ArmatureTreeView(ArmatureDocument armature, FeatureInspectorContext context)
+        public SkeletonTreeView(SkeletonDocument skeleton, FeatureInspectorContext context)
         {
-            var bones = armature.Bones.Where(bone => bone != null).ToArray();
-            m_UnitMeters = armature.SpaceProvenance?.OriginRawMetersPerUnit ?? 1d;
+            var bones = (skeleton?.Bones ?? new List<SkeletonBoneRecord>()).Where(bone => bone != null).ToArray();
+            m_UnitMeters = context?.SpaceProvenance?.OriginRawMetersPerUnit ?? 1d;
             EnsureValidExpandedBone(bones);
             Add(CreateBonesHeader(bones.Length));
             Add(CreateBoneTree(bones));
-            Add(new BlendShareRecordView(armature.SpaceProvenance ?? new MeshSpaceProvenance(), context.PayloadSource,
-                "Space Provenance", false));
         }
 
-        private void EnsureValidExpandedBone(IReadOnlyList<ArmatureBoneRecord> bones)
+        private void EnsureValidExpandedBone(IReadOnlyList<SkeletonBoneRecord> bones)
         {
             if (bones.Count == 1)
             {
@@ -61,7 +59,7 @@ namespace Triturbo.BlendShare.UI.Inspectors
             return header;
         }
 
-        private VisualElement CreateBoneTree(IReadOnlyList<ArmatureBoneRecord> bones)
+        private VisualElement CreateBoneTree(IReadOnlyList<SkeletonBoneRecord> bones)
         {
             var tree = new VisualElement();
             var boneFoldouts = new Dictionary<string, Foldout>(StringComparer.Ordinal);
@@ -156,7 +154,7 @@ namespace Triturbo.BlendShare.UI.Inspectors
             return container;
         }
 
-        private Foldout CreateBoneFoldout(ArmatureBoneRecord bone)
+        private Foldout CreateBoneFoldout(SkeletonBoneRecord bone)
         {
             var foldout = new Foldout
             {
@@ -193,7 +191,7 @@ namespace Triturbo.BlendShare.UI.Inspectors
             return foldout;
         }
 
-        private VisualElement CreateBoneDetails(ArmatureBoneRecord bone)
+        private VisualElement CreateBoneDetails(SkeletonBoneRecord bone)
         {
             var details = new VisualElement();
             details.style.marginTop = 3;
@@ -294,7 +292,7 @@ namespace Triturbo.BlendShare.UI.Inspectors
             return group;
         }
 
-        private static BoneTreeNode BuildTree(IEnumerable<ArmatureBoneRecord> bones)
+        private static BoneTreeNode BuildTree(IEnumerable<SkeletonBoneRecord> bones)
         {
             var root = new BoneTreeNode(string.Empty, string.Empty);
             foreach (var bone in bones.OrderBy(bone => bone.Path, StringComparer.Ordinal))
@@ -342,7 +340,7 @@ namespace Triturbo.BlendShare.UI.Inspectors
         {
             public string Name { get; }
             public string Path { get; }
-            public ArmatureBoneRecord Bone { get; set; }
+            public SkeletonBoneRecord Bone { get; set; }
             public List<BoneTreeNode> Children { get; } = new();
 
             public BoneTreeNode(string name, string path)

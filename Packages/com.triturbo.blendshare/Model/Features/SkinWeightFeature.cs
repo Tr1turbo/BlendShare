@@ -12,9 +12,8 @@ namespace Triturbo.BlendShare.Model.Features
     {
         public const string FeatureTypeId = "blendshare.skin-weights";
 
-        [BlendShareField(16)] public string ArmatureId = string.Empty;
-        [BlendShareField(17)] public string RootBonePath = string.Empty;
-        [BlendShareField(18)] public List<SkinWeightClusterEntry> Clusters = new List<SkinWeightClusterEntry>();
+        [BlendShareField(16)] public string RootBonePath = string.Empty;
+        [BlendShareField(17)] public List<SkinWeightClusterEntry> Clusters = new List<SkinWeightClusterEntry>();
 
         public SkinWeightFeature()
         {
@@ -40,7 +39,7 @@ namespace Triturbo.BlendShare.Model.Features
                     continue;
                 }
 
-                string normalized = ArmatureDocument.NormalizeBonePath(cluster.BonePath);
+                string normalized = SkeletonDocument.NormalizeBonePath(cluster.BonePath);
                 if (!string.IsNullOrEmpty(normalized) && seen.Add(normalized))
                 {
                     result.Add(normalized);
@@ -51,10 +50,10 @@ namespace Triturbo.BlendShare.Model.Features
         }
 
         /// <summary>
-        /// Returns all bone paths referenced by weighted or bindpose clusters in armature parent-before-child order,
-        /// followed by any cluster bone paths not listed in the armature document.
+        /// Returns all bone paths referenced by weighted or bindpose clusters in skeleton parent-before-child order,
+        /// followed by any cluster bone paths not listed in the skeleton document.
         /// </summary>
-        public List<string> GetNeededBonePathsInArmatureOrder(ArmatureDocument armature)
+        public List<string> GetNeededBonePathsInSkeletonOrder(SkeletonDocument skeleton)
         {
             var needed = new HashSet<string>(StringComparer.Ordinal);
             if (Clusters != null)
@@ -73,7 +72,7 @@ namespace Triturbo.BlendShare.Model.Features
                         continue;
                     }
 
-                    string normalized = ArmatureDocument.NormalizeBonePath(cluster.BonePath);
+                    string normalized = SkeletonDocument.NormalizeBonePath(cluster.BonePath);
                     if (!string.IsNullOrEmpty(normalized))
                     {
                         needed.Add(normalized);
@@ -82,14 +81,14 @@ namespace Triturbo.BlendShare.Model.Features
             }
 
             var ordered = new List<string>(needed.Count);
-            if (armature != null)
+            if (skeleton != null)
             {
-                var armaturePaths = armature.GetBonePathsInHierarchyOrder();
-                for (int i = 0; i < armaturePaths.Count; i++)
+                var skeletonPaths = skeleton.GetBonePathsInHierarchyOrder();
+                for (int i = 0; i < skeletonPaths.Count; i++)
                 {
-                    if (needed.Remove(armaturePaths[i]))
+                    if (needed.Remove(skeletonPaths[i]))
                     {
-                        ordered.Add(armaturePaths[i]);
+                        ordered.Add(skeletonPaths[i]);
                     }
                 }
             }
@@ -104,7 +103,7 @@ namespace Triturbo.BlendShare.Model.Features
                         continue;
                     }
 
-                    string normalized = ArmatureDocument.NormalizeBonePath(cluster.BonePath);
+                    string normalized = SkeletonDocument.NormalizeBonePath(cluster.BonePath);
                     if (!string.IsNullOrEmpty(normalized) && needed.Remove(normalized))
                     {
                         ordered.Add(normalized);
@@ -118,7 +117,7 @@ namespace Triturbo.BlendShare.Model.Features
         public bool TryGetCluster(string bonePath, out SkinWeightClusterEntry cluster)
         {
             cluster = null;
-            string normalized = ArmatureDocument.NormalizeBonePath(bonePath);
+            string normalized = SkeletonDocument.NormalizeBonePath(bonePath);
             if (string.IsNullOrEmpty(normalized) || Clusters == null)
             {
                 return false;
@@ -128,7 +127,7 @@ namespace Triturbo.BlendShare.Model.Features
             {
                 var candidate = Clusters[i];
                 if (candidate != null &&
-                    string.Equals(ArmatureDocument.NormalizeBonePath(candidate.BonePath), normalized, StringComparison.Ordinal))
+                    string.Equals(SkeletonDocument.NormalizeBonePath(candidate.BonePath), normalized, StringComparison.Ordinal))
                 {
                     cluster = candidate;
                     return true;

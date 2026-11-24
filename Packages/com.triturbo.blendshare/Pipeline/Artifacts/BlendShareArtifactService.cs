@@ -73,6 +73,7 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
                     var bindRes = BindingService.Shared.Resolve(new BindingResolveRequest
                     {
                         MeshHeader = meshDoc,
+                        SpaceProvenance = doc.SpaceProvenance,
                         TargetUnityMesh = entry.Mesh,
                         TargetFbxAsset = targetFbx,
                         PayloadSource = BlendShareSourceRepository.Shared.PayloadStore
@@ -94,8 +95,9 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
                     {
                         PatchId = doc.PatchId,
                         MeshId = meshDoc.MeshId,
+                        SpaceProvenance = doc.SpaceProvenance,
                         MeshHeader = meshDoc,
-                        Armatures = doc.Armatures,
+                        Skeleton = doc.Skeleton,
                         EffectiveSettings = settings,
                         PayloadSource = BlendShareSourceRepository.Shared.PayloadStore,
                         VertexBinding = bindRes.Binding,
@@ -258,13 +260,13 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
         private static bool ApplyArtifactToHierarchy(BlendShareGeneratedArtifact artifact, Transform root, bool recordUndo)
         {
             bool anyApplied = false;
-            var armatureBonesByPath = new Dictionary<string, GeneratedArmatureBoneRecord>(StringComparer.Ordinal);
-            var createdArmatureBones = new List<Transform>();
-            var createdArmatureSet = new HashSet<Transform>();
+            var skeletonBonesByPath = new Dictionary<string, GeneratedSkeletonBoneRecord>(StringComparer.Ordinal);
+            var createdSkeletonBones = new List<Transform>();
+            var createdSkeletonSet = new HashSet<Transform>();
 
-            if (artifact.ArmatureBones != null && artifact.ArmatureBones.Count > 0)
+            if (artifact.SkeletonBones != null && artifact.SkeletonBones.Count > 0)
             {
-                var orderedBones = artifact.ArmatureBones
+                var orderedBones = artifact.SkeletonBones
                     .Where(b => b != null && !string.IsNullOrWhiteSpace(b.Path))
                     .OrderBy(b => CountPathDepth(FbxNameUtility.NormalizePath(b.Path)))
                     .ThenBy(b => FbxNameUtility.NormalizePath(b.Path), StringComparer.Ordinal)
@@ -275,12 +277,12 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
                     var boneRecord = orderedBones[i];
                     string normPath = FbxNameUtility.NormalizePath(boneRecord.Path);
                     if (string.IsNullOrEmpty(normPath)) continue;
-                    armatureBonesByPath[normPath] = boneRecord;
+                    skeletonBonesByPath[normPath] = boneRecord;
 
                     var existing = root.Find(normPath);
                     if (existing != null)
                     {
-                        if (recordUndo) Undo.RecordObject(existing, "Apply BlendShare Armature Bone Transform");
+                        if (recordUndo) Undo.RecordObject(existing, "Apply BlendShare Skeleton Bone Transform");
                         boneRecord.ApplyLocalTransform(existing);
                         EditorUtility.SetDirty(existing);
                         anyApplied = true;
@@ -292,10 +294,10 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
                         continue;
                     }
 
-                    var created = CreateMissingBonePath(root, normPath, recordUndo, createdArmatureBones, createdArmatureSet);
+                    var created = CreateMissingBonePath(root, normPath, recordUndo, createdSkeletonBones, createdSkeletonSet);
                     if (created != null)
                     {
-                        if (recordUndo) Undo.RecordObject(created, "Apply BlendShare Armature Bone Transform");
+                        if (recordUndo) Undo.RecordObject(created, "Apply BlendShare Skeleton Bone Transform");
                         boneRecord.ApplyLocalTransform(created);
                         EditorUtility.SetDirty(created);
                         anyApplied = true;
@@ -347,13 +349,13 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
                             var found = FindTransformByPath(root, normBonePath);
                             if (found == null)
                             {
-                                bool canCreate = !armatureBonesByPath.TryGetValue(normBonePath, out var armBone) || armBone.CreateIfMissing;
+                                bool canCreate = !skeletonBonesByPath.TryGetValue(normBonePath, out var skelBone) || skelBone.CreateIfMissing;
                                 if (canCreate)
                                 {
                                     found = CreateMissingBonePath(root, normBonePath, recordUndo, createdBones, createdSet);
-                                    if (found != null && armBone != null)
+                                    if (found != null && skelBone != null)
                                     {
-                                        armBone.ApplyLocalTransform(found);
+                                        skelBone.ApplyLocalTransform(found);
                                     }
                                 }
                             }
@@ -362,7 +364,7 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
                         }
 
                         var fallbackCreated = createdBones
-                            .Where(t => t != null && !armatureBonesByPath.ContainsKey(GetRelativeTransformPath(t, root)))
+                            .Where(t => t != null && !skeletonBonesByPath.ContainsKey(GetRelativeTransformPath(t, root)))
                             .ToList();
                         if (fallbackCreated.Count > 0)
                         {
@@ -380,11 +382,11 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
                         }
 
                         var allGenerated = new List<Transform>(createdBones);
-                        for (int k = 0; k < createdArmatureBones.Count; k++)
+                        for (int k = 0; k < createdSkeletonBones.Count; k++)
                         {
-                            if (createdArmatureBones[k] != null && resolvedBones.Contains(createdArmatureBones[k]) && !allGenerated.Contains(createdArmatureBones[k]))
+                            if (createdSkeletonBones[k] != null && resolvedBones.Contains(createdSkeletonBones[k]) && !allGenerated.Contains(createdSkeletonBones[k]))
                             {
-                                allGenerated.Add(createdArmatureBones[k]);
+                                allGenerated.Add(createdSkeletonBones[k]);
                             }
                         }
 

@@ -512,30 +512,25 @@ namespace Triturbo.BlendShare.FbxExport
                     FileAccess.Read,
                     FileShare.Read);
 
-                var armaturesResult = m_ContainerReader.ReadArmatures(patchStream, patchItem.Toc);
-                if (!armaturesResult.Success)
+                var skeletonResult = m_ContainerReader.ReadSkeleton(patchStream, patchItem.Toc);
+                if (!skeletonResult.Success)
                 {
                     diagnostics.Add(new FbxExportDiagnostic(
                         FbxExportDiagnosticSeverity.Error,
                         "FBX_EXPORT_CONTAINER_READ_FAILED",
-                        $"Failed reading armatures from patch '{patchItem.PatchId}': {armaturesResult.Message}",
+                        $"Failed reading skeleton from patch '{patchItem.PatchId}': {skeletonResult.Message}",
                         patchId: patchItem.PatchId));
                     hasErrors = true;
                     continue;
                 }
 
-                IReadOnlyList<ArmatureDocument> armatures = armaturesResult.Value ?? new List<ArmatureDocument>();
+                SkeletonDocument skeleton = skeletonResult.Value;
 
-                var armatureSpaces = new Dictionary<ArmatureDocument, FbxExportSpace>();
-                foreach (var armature in armatures)
+                if (!FbxExportSpace.TryCreate(patchItem.Toc.SpaceProvenance, target, out var patchSpace))
                 {
-                    if (!FbxExportSpace.TryCreate(armature.SpaceProvenance, target, out var space))
-                    {
-                        diagnostics.Add(new FbxExportDiagnostic(FbxExportDiagnosticSeverity.Error, "FBX_EXPORT_ARMATURE_SPACE",
-                            $"Invalid stored frame, axes or unit for armature '{armature.ArmatureId}'.", patchId: patchItem.PatchId));
-                        return false;
-                    }
-                    armatureSpaces.Add(armature, space);
+                    diagnostics.Add(new FbxExportDiagnostic(FbxExportDiagnosticSeverity.Error, "FBX_EXPORT_PATCH_SPACE",
+                        $"Invalid stored frame, axes or unit for patch '{patchItem.PatchId}'.", patchId: patchItem.PatchId));
+                    return false;
                 }
 
                 for (int m = 0; m < patchItem.Toc.Meshes.Count; m++)
@@ -555,12 +550,6 @@ namespace Triturbo.BlendShare.FbxExport
                     }
 
                     MeshDocument meshHeader = meshHeaderRes.Value;
-                    if (!FbxExportSpace.TryCreate(meshHeader.SpaceProvenance, target, out var meshSpace))
-                    {
-                        diagnostics.Add(new FbxExportDiagnostic(FbxExportDiagnosticSeverity.Error, "FBX_EXPORT_MESH_SPACE",
-                            $"Invalid stored frame, axes or unit for mesh '{meshHeader.MeshId}'.", patchId: patchItem.PatchId, meshId: meshHeader.MeshId));
-                        return false;
-                    }
 
                     string targetNodePath = ResolveTargetNodePath(patchItem, meshHeader);
 
@@ -744,15 +733,14 @@ namespace Triturbo.BlendShare.FbxExport
                             }
                         }
 
-                        var skin = featureData as SkinWeightFeature;
-                        var armature = skin == null ? null : SkinWeightFbxWriter.FindArmature(armatures, skin.ArmatureId);
                         var input = new FbxFeatureWriteInput(
                             patchItem,
                             meshHeader,
-                            armatures,
+                            skeleton,
                             featureData,
                             payloadStore,
-                            targetNodePath, meshSpace, armature == null ? null : armatureSpaces[armature]);
+                            targetNodePath,
+                            patchSpace);
                         meshPlan.AddInput(typeId, input);
                     }
                 }

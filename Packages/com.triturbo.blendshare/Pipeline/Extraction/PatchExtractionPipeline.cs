@@ -116,22 +116,16 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             var optionsSet = request.FeatureOptions ?? new ExtractionOptionsSet();
             var seenMeshIds = new HashSet<string>(StringComparer.Ordinal);
             var extractedMeshes = new List<MeshDocument>(request.Meshes.Count);
-            var armatureAccumulators = new Dictionary<string, ArmatureAccumulator>(StringComparer.Ordinal);
-            var armatureOrder = new List<string>();
+            var skeletonNodesByPath = new Dictionary<string, SkeletonNodeCandidate>(StringComparer.Ordinal);
             bool hasError = false;
+            var sharedProvenance = PatchSpaceProvenance.FromMetadata(originAxes, originUnitMeters);
 
-            // Collect armature bone registrations across ALL meshes first, then finalize ArmatureDocuments
-            // deterministically in parent-before-child hierarchy order (matching 007f7f0 BuildSelectedArmature).
-            Action<string, IReadOnlyList<ArmatureBoneRegistration>, FbxAffineSpaceTransform> registerArmature =
-                (armId, boneRegistrations, worldToStored) =>
+            // Collect unique skeleton bone registrations across ALL meshes first, then finalize the single
+            // shared SkeletonDocument deterministically in parent-before-child hierarchy order.
+            Action<IReadOnlyList<SkeletonBoneRegistration>, FbxAffineSpaceTransform> registerSkeleton =
+                (boneRegistrations, worldToStored) =>
                 {
-                    if (string.IsNullOrWhiteSpace(armId) || boneRegistrations == null || boneRegistrations.Count == 0) return;
-                    if (!armatureAccumulators.TryGetValue(armId, out var acc))
-                    {
-                        acc = new ArmatureAccumulator(armId);
-                        armatureAccumulators.Add(armId, acc);
-                        armatureOrder.Add(armId);
-                    }
+                    if (boneRegistrations == null || boneRegistrations.Count == 0) return;
 
                     for (int i = 0; i < boneRegistrations.Count; i++)
                     {
@@ -146,17 +140,17 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                             : GetParentPath(path);
                         int depth = CountPathDepth(path);
 
-                        if (acc.NodesByPath.TryGetValue(path, out var existing))
+                        if (skeletonNodesByPath.TryGetValue(path, out var existing))
                         {
                             if (reg.CreateIfMissing && !existing.CreateIfMissing)
                             {
-                                acc.NodesByPath[path] = new ArmatureNodeCandidate(
+                                skeletonNodesByPath[path] = new SkeletonNodeCandidate(
                                     path, parentPath, depth, existing.Node, existing.WorldToStored, createIfMissing: true);
                             }
                         }
                         else
                         {
-                            acc.NodesByPath.Add(path, new ArmatureNodeCandidate(
+                            skeletonNodesByPath.Add(path, new SkeletonNodeCandidate(
                                 path, parentPath, depth, node, worldToStored, reg.CreateIfMissing));
                         }
                     }
@@ -269,8 +263,6 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                 var normalizedOriginMesh = SourceMeshNormalizer.Normalize(rawOriginMesh, FbxAffineSpaceTransform.Identity, weldGroups: null);
                 var normalizedSourceMesh = SourceMeshNormalizer.Normalize(rawSourceMesh, sourceMeshToStored, weldGroups);
 
-                var provenance = MeshSpaceProvenance.FromMetadata(originAxes, originUnitMeters);
-
                 var context = new MeshExtractionContext(
                     meshReq.MeshId,
                     meshReq.NodePath,
@@ -282,9 +274,9 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                     normalizedSourceMesh,
                     normalizedOriginMesh,
                     compatibility,
-                    provenance,
+                    sharedProvenance,
                     request.EncodeOptions,
-                    registerArmature,
+                    registerSkeleton,
                     sourceWorldToStored,
                     sourceMeshToStored);
 
@@ -299,8 +291,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                         ControlPointCount = compatibility.OriginDigest.ControlPointCount,
                         FaceCount = compatibility.OriginDigest.FaceCount,
                         IsValid = compatibility.OriginDigest.IsValid
-                    },
-                    SpaceProvenance = provenance
+                    }
                 };
 
                 if (request.OriginBindingBuilder != null)
@@ -401,60 +392,41 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                 }
             }
 
-            // Finalize ArmatureDocuments deterministically in parent-before-child hierarchy order.
-            var finalizedArmatures = new List<ArmatureDocument>(armatureOrder.Count);
-            armatureOrder.Sort(StringComparer.Ordinal);
-            for (int a = 0; a < armatureOrder.Count; a++)
+            // Finalize the single shared SkeletonDocument deterministically in parent-before-child hierarchy order.
+            var finalizedSkeleton = new SkeletonDocument();
+            var candidates = new List<SkeletonNodeCandidate>(skeletonNodesByPath.Values);
+            candidates.Sort((x, y) =>
             {
-                var acc = armatureAccumulators[armatureOrder[a]];
-                var armDoc = new ArmatureDocument
+                int cmp = x.Depth.CompareTo(y.Depth);
+                return cmp != 0 ? cmp : string.CompareOrdinal(x.Path, y.Path);
+            });
+
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                var cand = candidates[i];
+                FbxMatrix4x4 localStored = cand.WorldToStored.IsIdentity
+                    ? cand.Node.NodeToParentMatrix
+                    : cand.WorldToStored.InverseOffset * cand.Node.NodeToParentMatrix * cand.WorldToStored.Offset;
+                FbxMatrix4x4 globalStored = cand.WorldToStored.IsIdentity
+                    ? cand.Node.NodeToWorldMatrix
+                    : cand.WorldToStored.InverseOffset * cand.Node.NodeToWorldMatrix * cand.WorldToStored.Offset;
+
+                var record = new SkeletonBoneRecord
                 {
-                    ArmatureId = acc.ArmatureId,
-                    Name = acc.ArmatureId,
-                    RootBonePath = string.Empty,
-                    SpaceProvenance = MeshSpaceProvenance.FromMetadata(originAxes, originUnitMeters)
+                    Path = cand.Path,
+                    ParentPath = cand.ParentPath,
+                    LocalBindMatrix = localStored,
+                    GlobalBindMatrix = globalStored,
+                    CreateIfMissing = cand.CreateIfMissing,
+                    HasTransformData = true
                 };
 
-                var candidates = new List<ArmatureNodeCandidate>(acc.NodesByPath.Values);
-                candidates.Sort((x, y) =>
+                if (cand.WorldToStored.IsIdentity && !cand.Node.RawTransform.LclScaling.IsZero())
                 {
-                    int cmp = x.Depth.CompareTo(y.Depth);
-                    return cmp != 0 ? cmp : string.CompareOrdinal(x.Path, y.Path);
-                });
-
-                var bonePaths = new List<string>(candidates.Count);
-                for (int i = 0; i < candidates.Count; i++)
-                {
-                    var cand = candidates[i];
-                    FbxMatrix4x4 localStored = cand.WorldToStored.IsIdentity
-                        ? cand.Node.NodeToParentMatrix
-                        : cand.WorldToStored.InverseOffset * cand.Node.NodeToParentMatrix * cand.WorldToStored.Offset;
-                    FbxMatrix4x4 globalStored = cand.WorldToStored.IsIdentity
-                        ? cand.Node.NodeToWorldMatrix
-                        : cand.WorldToStored.InverseOffset * cand.Node.NodeToWorldMatrix * cand.WorldToStored.Offset;
-
-                    var record = new ArmatureBoneRecord
-                    {
-                        Path = cand.Path,
-                        ParentPath = cand.ParentPath,
-                        LocalBindMatrix = localStored,
-                        GlobalBindMatrix = globalStored,
-                        CreateIfMissing = cand.CreateIfMissing,
-                        HasTransformData = true
-                    };
-
-                    if (cand.WorldToStored.IsIdentity && !cand.Node.RawTransform.LclScaling.IsZero())
-                    {
-                        record.CopyRawTransformFrom(cand.Node.RawTransform);
-                    }
-
-                    armDoc.Bones.Add(record);
-                    bonePaths.Add(cand.Path);
+                    record.CopyRawTransformFrom(cand.Node.RawTransform);
                 }
 
-                bonePaths.Sort(StringComparer.Ordinal);
-                armDoc.RootBonePath = SkinWeightFeatureExtractor.ComputeLowestCommonAncestorPath(bonePaths);
-                finalizedArmatures.Add(armDoc);
+                finalizedSkeleton.Bones.Add(record);
             }
 
             if (hasError)
@@ -474,16 +446,13 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             string patchId = string.IsNullOrWhiteSpace(request.PatchId)
                 ? Guid.NewGuid().ToString("N")
                 : request.PatchId.Trim();
-            string displayName = string.IsNullOrWhiteSpace(request.DisplayName)
-                ? patchId
-                : request.DisplayName.Trim();
 
             var doc = new PatchDocument
             {
                 PatchId = patchId,
-                DisplayName = displayName,
-                Meshes = extractedMeshes,
-                Armatures = finalizedArmatures
+                SpaceProvenance = sharedProvenance,
+                Skeleton = finalizedSkeleton,
+                Meshes = extractedMeshes
             };
 
             return new PatchExtractionResult(true, doc, diagnostics);
@@ -573,7 +542,6 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             ExtractionOptionsSet featureOptions,
             PayloadEncodeOptions encodeOptions,
             string patchId = null,
-            string displayName = null,
             Func<IFbxMesh, IReadOnlyList<int[]>> weldGroupResolver = null,
             bool embedOriginBinding = true)
         {
@@ -606,7 +574,6 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                     return Extract(new PatchExtractionRequest
                     {
                         PatchId = patchId ?? string.Empty,
-                        DisplayName = displayName ?? (sourceFbx != null ? sourceFbx.name : string.Empty),
                         SourceScene = sourceScene,
                         OriginScene = originScene,
                         Meshes = meshes,
@@ -631,7 +598,6 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             string outputFilePath,
             out ContainerToc writtenToc,
             string patchId = null,
-            string displayName = null,
             Func<IFbxMesh, IReadOnlyList<int[]>> weldGroupResolver = null,
             bool importUnityAsset = true,
             bool embedOriginBinding = true)
@@ -667,7 +633,6 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                         new PatchExtractionRequest
                         {
                             PatchId = patchId ?? string.Empty,
-                            DisplayName = displayName ?? (sourceFbx != null ? sourceFbx.name : string.Empty),
                             SourceScene = sourceScene,
                             OriginScene = originScene,
                             Meshes = meshes,
@@ -836,19 +801,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             }
         }
 
-        private sealed class ArmatureAccumulator
-        {
-            public string ArmatureId { get; }
-            public Dictionary<string, ArmatureNodeCandidate> NodesByPath { get; } =
-                new Dictionary<string, ArmatureNodeCandidate>(StringComparer.Ordinal);
-
-            public ArmatureAccumulator(string armatureId)
-            {
-                ArmatureId = armatureId;
-            }
-        }
-
-        private readonly struct ArmatureNodeCandidate
+        private readonly struct SkeletonNodeCandidate
         {
             public string Path { get; }
             public string ParentPath { get; }
@@ -857,7 +810,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             public FbxAffineSpaceTransform WorldToStored { get; }
             public bool CreateIfMissing { get; }
 
-            public ArmatureNodeCandidate(
+            public SkeletonNodeCandidate(
                 string path,
                 string parentPath,
                 int depth,

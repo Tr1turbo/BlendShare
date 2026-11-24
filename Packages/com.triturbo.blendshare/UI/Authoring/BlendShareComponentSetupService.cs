@@ -172,14 +172,14 @@ namespace Triturbo.BlendShare.UI.Authoring
             var existingProxies = targetRoot.GetComponentsInChildren<BlendShareBoneProxy>(true)
                 .Where(proxy => proxy != null)
                 .ToList();
-            var existingBindingsBySource = new Dictionary<(BlendShareArmatureKey, string), ResolvedBinding>();
+            var existingBindingsBySource = new Dictionary<(BlendShareAsset, string), ResolvedBinding>();
             bool proxyResolutionFailed = false;
-            foreach (var armature in appliers
-                         .Select(GetArmatureKey)
-                         .Where(key => key.IsValid)
+            foreach (var patch in appliers
+                         .Select(applier => applier.ResolvedPatch)
+                         .Where(patch => patch != null)
                          .Distinct())
             {
-                var resolution = BlendShareBoneProxyResolver.Resolve(armature, existingProxies);
+                var resolution = BlendShareBoneProxyResolver.Resolve(patch, existingProxies);
                 if (!resolution.Success)
                 {
                     proxyResolutionFailed = true;
@@ -192,7 +192,7 @@ namespace Triturbo.BlendShare.UI.Authoring
 
                 foreach (var pair in resolution.BindingsByPath)
                 {
-                    existingBindingsBySource[(armature, pair.Key)] =
+                    existingBindingsBySource[(patch, pair.Key)] =
                         new ResolvedBinding(pair.Value.Proxy, pair.Value.Binding);
                 }
             }
@@ -202,7 +202,7 @@ namespace Triturbo.BlendShare.UI.Authoring
             }
 
             var usedProxies = new HashSet<BlendShareBoneProxy>();
-            var proxiesByBonePath = new Dictionary<(BlendShareArmatureKey, string), ResolvedBinding>();
+            var proxiesByBonePath = new Dictionary<(BlendShareAsset, string), ResolvedBinding>();
             var boneProxyPlacementParent = placementParent != null ? placementParent : targetRoot;
             Transform boneProxyContainer = FindBoneProxyContainer(boneProxyPlacementParent);
             MoveBoneProxyContainerFirst(boneProxyContainer);
@@ -216,23 +216,28 @@ namespace Triturbo.BlendShare.UI.Authoring
                 }
 
                 var skin = GetSkin(meshApplier);
-                if (skin?.Armature == null)
+                if (skin?.Skeleton == null)
                 {
                     continue;
                 }
 
-                var key = GetArmatureKey(meshApplier);
+                var patch = meshApplier.ResolvedPatch;
+                if (patch == null)
+                {
+                    continue;
+                }
+
                 ResolvedVertexBinding mapping = null;
 
                 foreach (string bonePath in skin.BonePaths)
                 {
-                    var bone = skin.Armature.Bones.Find(item => item.Path == bonePath);
+                    var bone = skin.Skeleton.Bones.Find(item => item.Path == bonePath);
                     if (bone == null || !bone.CreateIfMissing || !meshApplier.CreateMissingBones || transformsByPath.ContainsKey(bonePath))
                     {
                         continue;
                     }
 
-                    var parent = ResolveProxyParent(bone, skin.Armature, key, targetRoot, transformsByPath, proxiesByBonePath);
+                    var parent = ResolveProxyParent(bone, skin.Skeleton, patch, targetRoot, transformsByPath, proxiesByBonePath);
                     bool useHierarchyParent = parent != null && proxiesByBonePath.Values.Any(candidate =>
                         candidate.FinalTransform == parent);
                     if (mapping == null && !TryResolveMeshApplierMappingReference(meshApplier, out mapping, true))
@@ -253,7 +258,7 @@ namespace Triturbo.BlendShare.UI.Authoring
                     var localPosition = localTransform.Position;
                     var localEulerRotation = localTransform.Rotation.eulerAngles;
                     var localScale = localTransform.Scale;
-                    var sourceKey = (key, bonePath);
+                    var sourceKey = (patch, bonePath);
                     bool createdProxy = false;
                     BlendShareBoneProxy proxy;
                     BlendShareBoneProxyBinding binding;
@@ -273,7 +278,7 @@ namespace Triturbo.BlendShare.UI.Authoring
                                 boneProxyPlacementParent));
                         proxy = CreateBoneProxy(
                             authoringParent,
-                            key,
+                            patch,
                             bonePath,
                             useHierarchyParent ? null : parent);
                         binding = proxy.Bindings[0];
@@ -294,8 +299,7 @@ namespace Triturbo.BlendShare.UI.Authoring
                     {
                         Undo.SetTransformParent(finalTransform, parent, "Rebuild BlendShare Bone Proxy Hierarchy");
                     }
-                    proxy.Patch = key.Patch;
-                    proxy.ArmatureId = key.ArmatureId;
+                    proxy.Patch = patch;
                     proxy.UpdateBinding(binding, bonePath, finalTransform);
                     if (proxy.IsRootBinding(binding))
                     {
@@ -335,12 +339,12 @@ namespace Triturbo.BlendShare.UI.Authoring
             var bindings = (resolvedBindings ?? Array.Empty<ResolvedBinding>())
                 .Where(resolved => resolved.Component != null && resolved.Binding != null && resolved.FinalTransform != null)
                 .ToArray();
-            foreach (var armatureGroup in bindings.GroupBy(resolved => resolved.Component.ArmatureKey))
+            foreach (var patchGroup in bindings.GroupBy(resolved => resolved.Component.Patch))
             {
-                var finalTransforms = armatureGroup.Select(resolved => resolved.FinalTransform).ToHashSet();
-                foreach (var root in armatureGroup.Where(resolved => !finalTransforms.Contains(resolved.FinalTransform.parent)))
+                var finalTransforms = patchGroup.Select(resolved => resolved.FinalTransform).ToHashSet();
+                foreach (var root in patchGroup.Where(resolved => !finalTransforms.Contains(resolved.FinalTransform.parent)))
                 {
-                    var subtree = armatureGroup
+                    var subtree = patchGroup
                         .Where(resolved => resolved.FinalTransform == root.FinalTransform ||
                                            resolved.FinalTransform.IsChildOf(root.FinalTransform))
                         .OrderBy(resolved => GetHierarchyOrder(resolved.FinalTransform), StringComparer.Ordinal)
@@ -410,21 +414,15 @@ namespace Triturbo.BlendShare.UI.Authoring
         private static MeshDocument GetMesh(BlendShareMesh mesh) =>
             mesh ? ReadDocument(mesh.ResolvedPatch)?.Meshes.Find(item => item.MeshId == mesh.ResolvedMeshId) : null;
 
-        internal static ArmatureDocument GetArmature(BlendShareBoneProxy proxy) =>
-            proxy ? ReadDocument(proxy.Patch)?.Armatures.Find(item => item.ArmatureId == proxy.ArmatureId) : null;
-
-        internal static BlendShareArmatureKey GetArmatureKey(BlendShareMesh mesh)
-        {
-            var feature = GetMesh(mesh)?.Features.OfType<SkinWeightFeature>().FirstOrDefault();
-            return feature == null ? default : new BlendShareArmatureKey(mesh.ResolvedPatch, feature.ArmatureId);
-        }
+        internal static SkeletonDocument GetSkeleton(BlendShareBoneProxy proxy) =>
+            proxy ? ReadDocument(proxy.Patch)?.Skeleton : null;
 
         internal static SkinHeaders GetSkin(BlendShareMesh mesh)
         {
             var feature = GetMesh(mesh)?.Features.OfType<SkinWeightFeature>().FirstOrDefault();
             if (feature == null) return null;
-            var armature = ReadDocument(mesh.ResolvedPatch).Armatures.Find(item => item.ArmatureId == feature.ArmatureId);
-            return armature == null ? null : new SkinHeaders(feature, armature);
+            var skeleton = ReadDocument(mesh.ResolvedPatch)?.Skeleton;
+            return skeleton == null ? null : new SkinHeaders(feature, skeleton);
         }
 
         internal static bool SyncActiveBlendShapeWeights(this BlendShareMesh mesh) =>
@@ -450,7 +448,7 @@ namespace Triturbo.BlendShare.UI.Authoring
         internal static void RefreshBoneProxyCaches(IEnumerable<BlendShareMesh> meshes, Transform targetRoot,
             IEnumerable<BlendShareBoneProxy> proxies)
         {
-            foreach (var group in meshes.GroupBy(GetArmatureKey))
+            foreach (var group in meshes.GroupBy(mesh => mesh != null ? mesh.ResolvedPatch : null))
             {
                 var resolution = BlendShareBoneProxyResolver.Resolve(group.Key, proxies);
                 foreach (var mesh in group) mesh.SetBoneCache(resolution.BindingsByPath);
@@ -512,12 +510,13 @@ namespace Triturbo.BlendShare.UI.Authoring
                 // Passive display can use the FBX mapping path, but must not open an OriginBinding payload.
                 var input = allowPayloadRead ? header : new MeshDocument
                 {
-                    MeshId = header.MeshId, NodePath = header.NodePath, Topology = header.Topology,
-                    SpaceProvenance = header.SpaceProvenance
+                    MeshId = header.MeshId, NodePath = header.NodePath, Topology = header.Topology
                 };
                 var result = BindingService.Shared.Resolve(new BindingResolveRequest
                 {
-                    MeshHeader = input, TargetUnityMesh = target, ReferenceUnityMesh = mesh.ReferenceMesh,
+                    MeshHeader = input,
+                    SpaceProvenance = BlendShareAssetTocMapper.GetSpaceProvenance(mesh.ResolvedPatch),
+                    TargetUnityMesh = target, ReferenceUnityMesh = mesh.ReferenceMesh,
                     TargetFbxAsset = fbx, PayloadSource = BlendShareSourceRepository.Shared.PayloadStore
                 });
                 cache.Binding = result.Binding;
@@ -576,7 +575,7 @@ namespace Triturbo.BlendShare.UI.Authoring
 
         private static BlendShareBoneProxy CreateBoneProxy(
             Transform placementParent,
-            BlendShareArmatureKey sourceArmature,
+            BlendShareAsset sourcePatch,
             string sourceBonePath,
             Transform parent)
         {
@@ -585,18 +584,17 @@ namespace Triturbo.BlendShare.UI.Authoring
             Undo.RegisterCreatedObjectUndo(host, "Create BlendShare Bone Proxy");
             host.transform.SetParent(placementParent, false);
             var proxy = Undo.AddComponent<BlendShareBoneProxy>(host);
-            InitializeSingleBindingProxy(proxy, sourceArmature, sourceBonePath);
+            InitializeSingleBindingProxy(proxy, sourcePatch, sourceBonePath);
             proxy.TargetParent = parent;
             return proxy;
         }
 
         private static void InitializeSingleBindingProxy(
             BlendShareBoneProxy proxy,
-            BlendShareArmatureKey sourceArmature,
+            BlendShareAsset sourcePatch,
             string sourceBonePath)
         {
-            proxy.Patch = sourceArmature.Patch;
-            proxy.ArmatureId = sourceArmature.ArmatureId;
+            proxy.Patch = sourcePatch;
             proxy.SetBindings(new[]
             {
                 new BlendShareBoneProxyBinding(sourceBonePath, proxy.transform)
@@ -681,19 +679,19 @@ namespace Triturbo.BlendShare.UI.Authoring
         }
 
         private static Transform ResolveProxyParent(
-            ArmatureBoneRecord bone,
-            ArmatureDocument armature,
-            BlendShareArmatureKey key,
+            SkeletonBoneRecord bone,
+            SkeletonDocument skeleton,
+            BlendShareAsset patch,
             Transform targetRoot,
             IReadOnlyDictionary<string, Transform> transformsByPath,
-            IReadOnlyDictionary<(BlendShareArmatureKey, string), ResolvedBinding> proxiesByBonePath)
+            IReadOnlyDictionary<(BlendShareAsset, string), ResolvedBinding> proxiesByBonePath)
         {
             string parentPath = bone?.ParentPath ?? MeshNodePath.Root;
             var visited = new HashSet<string>();
             while (!string.IsNullOrEmpty(parentPath) && parentPath != MeshNodePath.Root && visited.Add(parentPath))
             {
                 if (proxiesByBonePath.TryGetValue(
-                        (key, parentPath),
+                        (patch, parentPath),
                         out var proxyParent) && proxyParent.FinalTransform != null)
                 {
                     return proxyParent.FinalTransform;
@@ -704,7 +702,7 @@ namespace Triturbo.BlendShare.UI.Authoring
                     return parent;
                 }
 
-                var parentBone = armature.Bones.Find(item => item.Path == parentPath);
+                var parentBone = skeleton.Bones.Find(item => item.Path == parentPath);
                 if (parentBone == null)
                 {
                     break;
@@ -793,15 +791,15 @@ namespace Triturbo.BlendShare.UI.Authoring
 
     internal sealed class SkinHeaders
     {
-        internal ArmatureDocument Armature { get; }
+        internal SkeletonDocument Skeleton { get; }
         internal string[] BonePaths { get; }
 
-        internal SkinHeaders(SkinWeightFeature feature, ArmatureDocument armature)
+        internal SkinHeaders(SkinWeightFeature feature, SkeletonDocument skeleton)
         {
-            Armature = armature;
+            Skeleton = skeleton;
             var weighted = feature.Clusters.Select(cluster => cluster.BonePath).Distinct().ToArray();
             var needed = new HashSet<string>(weighted, StringComparer.Ordinal);
-            foreach (var bone in armature.Bones)
+            foreach (var bone in skeleton.Bones)
             {
                 if (bone != null && bone.CreateIfMissing && !string.IsNullOrEmpty(bone.Path))
                 {
@@ -809,7 +807,7 @@ namespace Triturbo.BlendShare.UI.Authoring
                 }
             }
 
-            BonePaths = armature.Bones.OrderBy(bone => bone.Path.Count(character => character == '/'))
+            BonePaths = skeleton.Bones.OrderBy(bone => bone.Path.Count(character => character == '/'))
                 .Select(bone => bone.Path).Where(needed.Remove).Concat(weighted.Where(needed.Contains)).ToArray();
         }
     }

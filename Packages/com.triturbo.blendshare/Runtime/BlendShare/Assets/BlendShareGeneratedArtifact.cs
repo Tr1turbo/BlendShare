@@ -8,7 +8,6 @@ namespace Triturbo.BlendShare.Runtime.Assets
     public sealed class GeneratedBoneBindingRecord
     {
         [SerializeField] private string m_PatchId = string.Empty;
-        [SerializeField] private string m_ArmatureId = string.Empty;
         [SerializeField] private string m_SourceBonePath = string.Empty;
         [SerializeField] private string m_TargetBonePath = string.Empty;
         [SerializeField] private Matrix4x4 m_BindPose = Matrix4x4.identity;
@@ -16,7 +15,6 @@ namespace Triturbo.BlendShare.Runtime.Assets
         [SerializeField] private bool m_IsNewBone;
 
         public string PatchId => m_PatchId;
-        public string ArmatureId => m_ArmatureId;
         public string SourceBonePath => m_SourceBonePath;
         public string TargetBonePath => m_TargetBonePath;
         public Matrix4x4 BindPose => m_BindPose;
@@ -29,7 +27,6 @@ namespace Triturbo.BlendShare.Runtime.Assets
 
         public GeneratedBoneBindingRecord(
             string patchId,
-            string armatureId,
             string sourceBonePath,
             string targetBonePath,
             Matrix4x4 bindPose,
@@ -37,7 +34,6 @@ namespace Triturbo.BlendShare.Runtime.Assets
             bool isNewBone)
         {
             m_PatchId = patchId ?? string.Empty;
-            m_ArmatureId = armatureId ?? string.Empty;
             m_SourceBonePath = sourceBonePath ?? string.Empty;
             m_TargetBonePath = targetBonePath ?? string.Empty;
             m_BindPose = bindPose;
@@ -47,7 +43,7 @@ namespace Triturbo.BlendShare.Runtime.Assets
     }
 
     [Serializable]
-    public sealed class GeneratedArmatureBoneRecord
+    public sealed class GeneratedSkeletonBoneRecord
     {
         [SerializeField] private string m_Path = string.Empty;
         [SerializeField] private Vector3 m_LocalPosition = Vector3.zero;
@@ -89,11 +85,11 @@ namespace Triturbo.BlendShare.Runtime.Assets
             }
         }
 
-        public GeneratedArmatureBoneRecord()
+        public GeneratedSkeletonBoneRecord()
         {
         }
 
-        public GeneratedArmatureBoneRecord(
+        public GeneratedSkeletonBoneRecord(
             string path,
             Vector3 localPosition,
             Quaternion localRotation,
@@ -119,7 +115,7 @@ namespace Triturbo.BlendShare.Runtime.Assets
             target.localScale = m_LocalScale == Vector3.zero ? Vector3.one : m_LocalScale;
         }
 
-        public bool ApproximatelyMatches(GeneratedArmatureBoneRecord other, float tolerance = 1e-4f)
+        public bool ApproximatelyMatches(GeneratedSkeletonBoneRecord other, float tolerance = 1e-4f)
         {
             if (other == null)
             {
@@ -183,7 +179,7 @@ namespace Triturbo.BlendShare.Runtime.Assets
     }
 
     /// <summary>
-    /// BlendShare 2.0 generated mesh artifact receiving generated meshes, inline armature bone transforms,
+    /// BlendShare 2.0 generated mesh artifact receiving generated meshes, inline skeleton bone transforms,
     /// and exact applied bone-bindings directly from the shared Unity generation pipeline. Zero Editor or FBX dependencies.
     /// </summary>
     [PreferBinarySerialization]
@@ -192,23 +188,23 @@ namespace Triturbo.BlendShare.Runtime.Assets
         [SerializeField] private UnityEngine.Object m_TargetSource;
         [SerializeField] private string[] m_AppliedPatchIds = Array.Empty<string>();
         [SerializeField] private GeneratedMeshEntry[] m_Meshes = Array.Empty<GeneratedMeshEntry>();
-        [SerializeField] private GeneratedArmatureBoneRecord[] m_ArmatureBones = Array.Empty<GeneratedArmatureBoneRecord>();
+        [SerializeField] private GeneratedSkeletonBoneRecord[] m_SkeletonBones = Array.Empty<GeneratedSkeletonBoneRecord>();
 
         public UnityEngine.Object TargetSource => m_TargetSource;
         public IReadOnlyList<string> AppliedPatchIds => m_AppliedPatchIds ?? Array.Empty<string>();
         public IReadOnlyList<GeneratedMeshEntry> Meshes => m_Meshes ?? Array.Empty<GeneratedMeshEntry>();
-        public IReadOnlyList<GeneratedArmatureBoneRecord> ArmatureBones => m_ArmatureBones ?? Array.Empty<GeneratedArmatureBoneRecord>();
+        public IReadOnlyList<GeneratedSkeletonBoneRecord> SkeletonBones => m_SkeletonBones ?? Array.Empty<GeneratedSkeletonBoneRecord>();
 
         public void Initialize(
             UnityEngine.Object targetSource,
             string[] appliedPatchIds,
             GeneratedMeshEntry[] meshes,
-            GeneratedArmatureBoneRecord[] armatureBones = null)
+            GeneratedSkeletonBoneRecord[] skeletonBones = null)
         {
             m_TargetSource = targetSource;
             m_AppliedPatchIds = appliedPatchIds ?? Array.Empty<string>();
             m_Meshes = meshes ?? Array.Empty<GeneratedMeshEntry>();
-            m_ArmatureBones = armatureBones ?? Array.Empty<GeneratedArmatureBoneRecord>();
+            m_SkeletonBones = skeletonBones ?? Array.Empty<GeneratedSkeletonBoneRecord>();
         }
     }
 }

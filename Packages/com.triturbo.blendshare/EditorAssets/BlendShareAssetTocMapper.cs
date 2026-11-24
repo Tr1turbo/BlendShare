@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using Triturbo.BlendShare.Container.Format;
+using Triturbo.BlendShare.Fbx;
+using Triturbo.BlendShare.Model.Documents;
 using Triturbo.BlendShare.Primitives;
 using Triturbo.BlendShare.Runtime.Assets;
 
@@ -13,6 +15,22 @@ namespace Triturbo.BlendShare.EditorAssets
     /// </summary>
     public static class BlendShareAssetTocMapper
     {
+        public static PatchSpaceProvenance GetSpaceProvenance(BlendShareAsset asset)
+        {
+            if (asset == null)
+            {
+                return null;
+            }
+
+            return new PatchSpaceProvenance
+            {
+                OriginRawMetersPerUnit = asset.OriginRawMetersPerUnit,
+                OriginRightAxis = (FbxCoordinateAxis)asset.OriginRightAxis,
+                OriginUpAxis = (FbxCoordinateAxis)asset.OriginUpAxis,
+                OriginFrontAxis = (FbxCoordinateAxis)asset.OriginFrontAxis
+            };
+        }
+
         public static void PopulateAsset(BlendShareAsset asset, ContainerToc toc, IReadOnlyDictionary<string, string> meshNamesById)
         {
             if (asset == null) throw new ArgumentNullException(nameof(asset));
@@ -63,13 +81,16 @@ namespace Triturbo.BlendShare.EditorAssets
             asset.InitializeToc(
                 toc.FormatVersion,
                 toc.PatchId,
-                toc.DisplayName,
                 toc.SourceRevision,
+                toc.SpaceProvenance.OriginRawMetersPerUnit,
+                (byte)toc.SpaceProvenance.OriginRightAxis,
+                (byte)toc.SpaceProvenance.OriginUpAxis,
+                (byte)toc.SpaceProvenance.OriginFrontAxis,
                 toc.TotalFileLength,
                 ToByteRange(toc.ManifestSlice),
                 ToByteRange(toc.IndexTableSlice),
                 ToByteRange(toc.PayloadSectionSlice),
-                toc.ArmaturesEntry != null ? toc.ArmaturesEntry.EntryIndex : -1,
+                toc.SkeletonEntry != null ? toc.SkeletonEntry.EntryIndex : -1,
                 meshes,
                 tocEntries);
         }
@@ -101,7 +122,7 @@ namespace Triturbo.BlendShare.EditorAssets
 
             return ContainerToc.FromCachedEntries(
                 asset.PatchId,
-                asset.DisplayName,
+                GetSpaceProvenance(asset),
                 revisionBytes,
                 ToByteSlice(asset.ManifestSlice),
                 ToByteSlice(asset.IndexTableSlice),

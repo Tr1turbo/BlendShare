@@ -164,7 +164,6 @@ namespace Triturbo.BlendShare.UI.Extraction
                 fullOutputPath,
                 out _,
                 patchId: patchId,
-                displayName: m_DefaultName,
                 importUnityAsset: true,
                 embedOriginBinding: true);
 
