@@ -136,6 +136,14 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                 return BindingResolveResult.Fail("BIND_NO_MESH_HEADER", "MeshDocument header is required.");
             }
 
+            var stored = request.MeshHeader.SpaceProvenance;
+            if (stored != null && !MeshSpaceProvenance.IsSupportedFrameVersion(stored.FrameVersion))
+                return BindingResolveResult.Fail("BIND_UNSUPPORTED_FRAME", $"Unsupported stored frame version {stored.FrameVersion}.");
+
+            if (stored?.FrameVersion == MeshSpaceProvenance.OriginRawLocalV2 &&
+                (!CanonicalMeshSpace.IsValidAxes(stored.OriginAxes) || !CanonicalMeshSpace.IsValidUnitMeters(stored.OriginRawMetersPerUnit)))
+                return BindingResolveResult.Fail("BIND_INVALID_STORED_SPACE", "Invalid origin raw axes or unit scale.");
+
             UnityMeshSnapshot snapshot = request.TargetSnapshotOverride;
             if (snapshot == null)
             {
@@ -259,7 +267,7 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                 refRes.Binding.CsrBlobId,
                 refDig.CombinedGeometryKey,
                 targetDig.CombinedGeometryKey,
-                request.ComposePolicy);
+                request.ComposePolicy, request.MeshHeader.SpaceProvenance);
 
             if (request.AllowDiskCache &&
                 m_CacheStore.TryLoadResolution(composedKey, out var cachedIdx, out var cachedCsr))
@@ -348,7 +356,7 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
             string referenceCsrBlobId,
             string referenceGeometryKey,
             string targetGeometryKey,
-            VertexMapComposePolicy policy)
+            VertexMapComposePolicy policy, MeshSpaceProvenance stored)
         {
             using (var sha = SHA256.Create())
             using (var cs = new CryptoStream(Stream.Null, sha, CryptoStreamMode.Write))
@@ -359,6 +367,7 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                 bw.Write(referenceGeometryKey ?? string.Empty);
                 bw.Write(targetGeometryKey ?? string.Empty);
                 bw.Write((int)policy);
+                BindingCacheStore.WriteSpaceKey(bw, stored);
                 bw.Flush();
                 cs.FlushFinalBlock();
                 return ToLowerHex(sha.Hash);
@@ -393,7 +402,8 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                 ? request.MeshHeader.Topology.ControlPointCount
                 : -1;
 
-            var verify = OriginBindingCodec.Verify(doc, targetSnapshot, expectedCpCount);
+            var verify = OriginBindingCodec.Verify(doc, targetSnapshot, expectedCpCount,
+                request.MeshHeader.SpaceProvenance?.FrameVersion ?? MeshSpaceProvenance.CanonicalMeshLocalV1);
             if (!verify.Succeeded)
             {
                 return BindingResolveResult.Fail($"BIND_ORIGIN_{verify.Status}", verify.Diagnostic);
@@ -508,12 +518,14 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                     targetGeometry.CombinedGeometryKey,
                     fbxIdentity,
                     nodePath,
-                    importSettings);
+                    importSettings, request.MeshHeader.SpaceProvenance);
 
                 if (request.AllowDiskCache &&
                     m_CacheStore.TryLoadResolution(resolutionKey, out var cachedIdx, out var cachedCsr))
                 {
-                    var cachedSpace = BuildPerUseSpaceContract(
+                    var cachedSpace = OriginBindingCodec.BuildSpaceContract(
+                        request.MeshHeader.SpaceProvenance?.FrameVersion ?? MeshSpaceProvenance.CanonicalMeshLocalV1,
+                        request.MeshHeader.SpaceProvenance,
                         scene.Metadata,
                         cachedIdx.MatchedScale,
                         cachedIdx.MatchedBakeAxisConversion,
@@ -555,6 +567,14 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                     IndexDomain.UnityVertex,
                     IndexDomain.ControlPoint);
 
+                var spaceContract = OriginBindingCodec.BuildSpaceContract(
+                    request.MeshHeader.SpaceProvenance?.FrameVersion ?? MeshSpaceProvenance.CanonicalMeshLocalV1,
+                    request.MeshHeader.SpaceProvenance,
+                    scene.Metadata,
+                    mapped.MatchedScale,
+                    mapped.MatchedBakeAxisConversion,
+                    nodePath);
+
                 bool usedBlendShapeTieBreaker = trackedShapes != null && trackedShapes.WasConsulted;
                 string blobId = usedBlendShapeTieBreaker
                     ? CsrVertexMapFactory.ComputeCsrBlobId(csr)
@@ -565,12 +585,6 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                         mapped.MatchedBakeAxisConversion,
                         writeToDisk: request.AllowDiskCache);
 
-                var spaceContract = BuildPerUseSpaceContract(
-                    scene.Metadata,
-                    mapped.MatchedScale,
-                    mapped.MatchedBakeAxisConversion,
-                    nodePath);
-
                 return BindingResolveResult.Success(new ResolvedVertexBinding(
                     csr,
                     spaceContract,
@@ -579,31 +593,14 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                     cacheHit: false,
                     diagnostic: mapped.Diagnostic));
             }
+            catch (ArgumentException ex)
+            {
+                return BindingResolveResult.Fail("BIND_FBX_INVALID_CONTRACT", ex.Message);
+            }
             finally
             {
                 ownedScene?.Dispose();
             }
-        }
-
-        private static OriginSpaceContract BuildPerUseSpaceContract(
-            FbxSceneMetadata targetSceneMetadata,
-            float matchedScale,
-            bool matchedBakeAxisConversion,
-            string targetIdentity)
-        {
-            var canonicalToUnity = UnitySpaceContractMath.BuildCanonicalToUnityMatrix(
-                targetSceneMetadata,
-                matchedScale,
-                matchedBakeAxisConversion,
-                out _);
-
-            return new OriginSpaceContract
-            {
-                FrameVersion = MeshSpaceProvenance.CanonicalMeshLocalV1,
-                BindingSpaceVersion = 1,
-                TargetIdentity = targetIdentity ?? string.Empty,
-                CanonicalToUnityMeshLocal = canonicalToUnity
-            };
         }
 
         private static int[][] FilterControlPointGroups(int[][] groups, int maxControlPointCount)
@@ -660,13 +657,14 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
             string targetMeshGeometryKey,
             string targetFbxIdentity,
             string nodePath,
-            FbxUnityImportSettings importSettings)
+            FbxUnityImportSettings importSettings, MeshSpaceProvenance stored)
         {
             using (var sha = SHA256.Create())
             using (var cs = new CryptoStream(Stream.Null, sha, CryptoStreamMode.Write))
             using (var bw = new BinaryWriter(cs, Encoding.UTF8, leaveOpen: true))
             {
                 bw.Write(k_ResolutionKeyDomain);
+                BindingCacheStore.WriteSpaceKey(bw, stored);
                 bw.Write(patchTopologyHash ?? string.Empty);
                 bw.Write(patchControlPointCount);
                 bw.Write(targetMeshGeometryKey ?? string.Empty);

@@ -204,8 +204,15 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
         public string DisplayName { get; }
 
         /// <summary>
-        /// Optional affine alignment offset applied AFTER converting Source raw space into CanonicalMeshLocalV1.
-        /// Defaults to Identity.
+        /// Optional affine alignment offset applied in <c>OriginRawLocalV2</c> space AFTER converting Source raw space
+        /// into Origin raw space (<c>L = W * SourceToOriginRawOffset</c>). Defaults to Identity.
+        /// </summary>
+        public FbxMatrix4x4 SourceToOriginRawOffset { get; }
+
+        /// <summary>
+        /// Legacy optional affine alignment offset expressed in <c>CanonicalMeshLocalV1</c> (meters, +X/+Y/+Z).
+        /// Converted into <c>OriginRawLocalV2</c> via <c>R_src * SourceToOriginCanonicalOffset * R_orig^-1</c>.
+        /// Cannot be combined with a non-identity <see cref="SourceToOriginRawOffset"/>.
         /// </summary>
         public FbxMatrix4x4 SourceToOriginCanonicalOffset { get; }
 
@@ -219,7 +226,8 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             string meshId = null,
             string displayName = null,
             FbxMatrix4x4? sourceToOriginCanonicalOffset = null,
-            IReadOnlyList<int[]> weldGroupsOverride = null)
+            IReadOnlyList<int[]> weldGroupsOverride = null,
+            FbxMatrix4x4? sourceToOriginRawOffset = null)
         {
             string normalizedPath = FbxNameUtility.NormalizePath(nodePath);
             if (string.IsNullOrEmpty(normalizedPath))
@@ -227,10 +235,21 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                 throw new ArgumentException("Mesh node path must be non-empty.", nameof(nodePath));
             }
 
+            var rawOffset = sourceToOriginRawOffset ?? FbxMatrix4x4.Identity;
+            var canonOffset = sourceToOriginCanonicalOffset ?? FbxMatrix4x4.Identity;
+            if (!FbxAffineSpaceTransform.IsExactIdentity(rawOffset) &&
+                !FbxAffineSpaceTransform.IsExactIdentity(canonOffset))
+            {
+                throw new ArgumentException(
+                    "Specify either sourceToOriginRawOffset or sourceToOriginCanonicalOffset, not both.",
+                    nameof(sourceToOriginRawOffset));
+            }
+
             NodePath = normalizedPath;
             MeshId = string.IsNullOrWhiteSpace(meshId) ? normalizedPath : meshId.Trim();
             DisplayName = string.IsNullOrWhiteSpace(displayName) ? ExtractLeafName(normalizedPath) : displayName.Trim();
-            SourceToOriginCanonicalOffset = sourceToOriginCanonicalOffset ?? FbxMatrix4x4.Identity;
+            SourceToOriginRawOffset = rawOffset;
+            SourceToOriginCanonicalOffset = canonOffset;
             WeldGroupsOverride = weldGroupsOverride;
         }
 
@@ -289,7 +308,9 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
     }
 
     /// <summary>
-    /// Per-mesh extraction context providing Origin and Source meshes already normalized into <c>CanonicalMeshLocalV1</c>.
+    /// Per-mesh extraction context providing Origin and Source meshes aligned into the patch's stored mesh frame
+    /// (<see cref="MeshSpaceProvenance.OriginRawLocalV2"/>), keeping scene/world basis conversion (<c>W</c>)
+    /// explicitly separated from per-mesh local alignment (<c>L</c>).
     /// </summary>
     public sealed class MeshExtractionContext
     {
@@ -302,14 +323,27 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
         public IFbxMesh RawOriginMesh { get; }
 
         /// <summary>
-        /// Lazily normalized Source mesh in <c>CanonicalMeshLocalV1</c> (with optional canonical offset and welding applied).
+        /// Lazily normalized Source mesh aligned into the stored mesh frame via per-mesh transform <c>L</c>
+        /// (with optional mesh-local alignment offset and welding applied).
         /// </summary>
         public IFbxMeshGeometry NormalizedSourceMesh { get; }
 
         /// <summary>
-        /// Lazily normalized Origin mesh in <c>CanonicalMeshLocalV1</c>.
+        /// Lazily normalized Origin mesh in the stored mesh frame (<c>Identity</c> in <c>OriginRawLocalV2</c>).
         /// </summary>
         public IFbxMeshGeometry NormalizedOriginMesh { get; }
+
+        /// <summary>
+        /// Scene/world coordinate basis and unit conversion <c>W</c> from Source world space into Stored world space.
+        /// Used for skin/armature bone bind conjugation (<c>W^-1 * M_bone * W</c>) and mesh bind right factor
+        /// (<c>L^-1 * M_meshBind * W</c>), strictly independent of per-mesh local offset <c>O</c>.
+        /// </summary>
+        public FbxAffineSpaceTransform SourceWorldToStoredSpace { get; }
+
+        /// <summary>
+        /// Per-mesh local alignment transform <c>L</c> from Source mesh-local space into Stored mesh-local space.
+        /// </summary>
+        public FbxAffineSpaceTransform SourceMeshToStoredSpace { get; }
 
         public FbxTopologyCompatibilityResult TopologyCompatibility { get; }
         public MeshSpaceProvenance SpaceProvenance { get; }
@@ -329,7 +363,9 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             FbxTopologyCompatibilityResult topologyCompatibility,
             MeshSpaceProvenance spaceProvenance,
             PayloadEncodeOptions encodeOptions,
-            Action<string, string, IReadOnlyList<IFbxNode>, IReadOnlyDictionary<string, FbxMatrix4x4>, FbxAffineSpaceTransform> armatureRegistrar = null)
+            Action<string, string, IReadOnlyList<IFbxNode>, IReadOnlyDictionary<string, FbxMatrix4x4>, FbxAffineSpaceTransform> armatureRegistrar = null,
+            FbxAffineSpaceTransform? sourceWorldToStoredSpace = null,
+            FbxAffineSpaceTransform? sourceMeshToStoredSpace = null)
         {
             MeshId = meshId ?? string.Empty;
             NodePath = nodePath ?? string.Empty;
@@ -344,22 +380,24 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             SpaceProvenance = spaceProvenance;
             EncodeOptions = encodeOptions;
             m_ArmatureRegistrar = armatureRegistrar;
+            SourceWorldToStoredSpace = sourceWorldToStoredSpace ?? default;
+            SourceMeshToStoredSpace = sourceMeshToStoredSpace ?? default;
         }
 
         public void RegisterArmatureBones(
             string armatureId,
             string rootBonePath,
             IReadOnlyList<IFbxNode> boneNodes,
-            IReadOnlyDictionary<string, FbxMatrix4x4> canonicalClusterBindWorldByPath,
-            FbxAffineSpaceTransform worldToCanonical)
+            IReadOnlyDictionary<string, FbxMatrix4x4> storedClusterBindWorldByPath,
+            FbxAffineSpaceTransform sourceWorldToStored)
         {
-            m_ArmatureRegistrar?.Invoke(armatureId, rootBonePath, boneNodes, canonicalClusterBindWorldByPath, worldToCanonical);
+            m_ArmatureRegistrar?.Invoke(armatureId, rootBonePath, boneNodes, storedClusterBindWorldByPath, sourceWorldToStored);
         }
     }
 
     /// <summary>
     /// Capability Registry #4: per-feature extractor producing a <see cref="BlendShareFeatureData"/>
-    /// in <c>CanonicalMeshLocalV1</c> from a <see cref="MeshExtractionContext"/>.
+    /// in the context's stored mesh coordinate frame from a <see cref="MeshExtractionContext"/>.
     /// </summary>
     public interface IFeatureExtractor
     {

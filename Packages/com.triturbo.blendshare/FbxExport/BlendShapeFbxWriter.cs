@@ -267,13 +267,13 @@ namespace Triturbo.BlendShare.FbxExport
                         {
                             int cp = posBuf.Indices[k];
                             var p = baseControlPoints[cp];
-                            var d = context.CanonicalToTargetRaw.TransformVector(posBuf.Values[k]);
+                            var d = input.MeshSpace.PositionDeltaToRaw(posBuf.Values[k]);
                             shape.SetControlPointAt(new FbxVector4(p.X + d.x, p.Y + d.y, p.Z + d.z, p.W), cp);
                         }
 
                         if (payload.DeltaNormals != null && payload.DeltaNormals.Count > 0)
                         {
-                            if (!TryWriteNormals(context, shape, payload.DeltaNormals, out string normalError))
+                            if (!TryWriteNormals(context, input.MeshSpace, shape, payload.DeltaNormals, out string normalError))
                             {
                                 return Fail(
                                     "FBX_EXPORT_NORMAL_WRITE_FAILED",
@@ -302,6 +302,7 @@ namespace Triturbo.BlendShare.FbxExport
 
         private static bool TryWriteNormals(
             FbxExportMeshContext context,
+            FbxExportSpace space,
             FbxShape shape,
             IndexedBuffer<Vector3d> deltas,
             out string error)
@@ -335,15 +336,14 @@ namespace Triturbo.BlendShare.FbxExport
             void Append(int cp, FbxVector4 normal)
             {
                 var raw = new Vector3d(normal.X, normal.Y, normal.Z);
-                var deltaCanon = denseDeltas[cp];
-                if (deltaCanon.sqrMagnitude <= 0d)
+                var storedDelta = denseDeltas[cp];
+                if (storedDelta.sqrMagnitude <= 0d)
                 {
                     array.Add(normal);
                     return;
                 }
 
-                var canonical = context.TargetRawToCanonical.TransformNormal(raw);
-                var deltaRaw = context.CanonicalToTargetRaw.TransformNormalDelta(canonical, deltaCanon);
+                var deltaRaw = space.NormalDeltaToRaw(storedDelta);
                 array.Add(new FbxVector4(raw.x + deltaRaw.x, raw.y + deltaRaw.y, raw.z + deltaRaw.z, 0d));
             }
 
@@ -389,7 +389,6 @@ namespace Triturbo.BlendShare.FbxExport
             var channels = context.VerifiedMesh.BlendDeformers
                 .SelectMany(d => d.Channels)
                 .ToLookup(c => c.Name, StringComparer.Ordinal);
-            Vector3d[] baseNormals = null;
 
             var winners = ResolveWinners(inputs);
             for (int w = 0; w < winners.Count; w++)
@@ -439,19 +438,6 @@ namespace Triturbo.BlendShare.FbxExport
                             input.MeshHeader.MeshId);
                     }
 
-                    if (verifyNormals && baseNormals == null)
-                    {
-                        baseNormals = new Vector3d[count];
-                        if (!context.OriginalReaderMesh.TryCopyFirstCornerNormals(baseNormals, out int n) || n != count)
-                        {
-                            return Fail(
-                                "FBX_EXPORT_VERIFY_NORMAL_MISMATCH",
-                                $"Could not copy base normals for verifying '{entry.Name}'.",
-                                input.PatchItem.PatchId,
-                                input.MeshHeader.MeshId);
-                        }
-                    }
-
                     var indices = new int[shape.OffsetCount];
                     var positions = new Vector3d[indices.Length];
                     var normals = verifyNormals ? new Vector3d[indices.Length] : Array.Empty<Vector3d>();
@@ -465,8 +451,18 @@ namespace Triturbo.BlendShare.FbxExport
                             input.MeshHeader.MeshId);
                     }
 
-                    var expected = payload.DeltaPositions.ToDenseArray();
-                    var expectedNormals = verifyNormals ? payload.DeltaNormals.ToDenseArray() : null;
+                    var expected = new Vector3d[count];
+                    var sourcePositions = payload.DeltaPositions;
+                    for (int j = 0; j < sourcePositions.Count; j++)
+                        expected[sourcePositions.Indices[j]] = input.MeshSpace.PositionDeltaToRaw(sourcePositions.Values[j]);
+
+                    var expectedNormals = verifyNormals ? new Vector3d[count] : null;
+                    if (verifyNormals)
+                    {
+                        var sourceNormals = payload.DeltaNormals;
+                        for (int j = 0; j < sourceNormals.Count; j++)
+                            expectedNormals[sourceNormals.Indices[j]] = input.MeshSpace.NormalDeltaToRaw(sourceNormals.Values[j]);
+                    }
                     for (int j = 0; j < indices.Length; j++)
                     {
                         int cp = indices[j];
@@ -479,20 +475,21 @@ namespace Triturbo.BlendShare.FbxExport
                                 input.MeshHeader.MeshId);
                         }
 
-                        expected[cp] -= context.TargetRawToCanonical.TransformVector(positions[j]);
+                        expected[cp] -= positions[j];
                         if (verifyNormals)
                         {
-                            expectedNormals[cp] -= context.TargetRawToCanonical.TransformNormalDelta(baseNormals[cp], normals[j]);
+                            expectedNormals[cp] -= normals[j];
                         }
                     }
 
                     for (int cp = 0; cp < count; cp++)
                     {
-                        if (!(expected[cp].magnitude <= context.NumericVerificationToleranceMeters))
+                        double errorMeters = expected[cp].magnitude * context.OriginalReaderScene.Metadata.UnitMeters;
+                        if (!(errorMeters <= context.NumericVerificationToleranceMeters))
                         {
                             return Fail(
                                 "FBX_EXPORT_VERIFY_POSITION_MISMATCH",
-                                $"Position delta mismatch on '{entry.Name}' CP {cp}: err={expected[cp].magnitude:E3}m > tol={context.NumericVerificationToleranceMeters:E3}m.",
+                                $"Position delta mismatch on '{entry.Name}' CP {cp}: err={errorMeters:E3}m > tol={context.NumericVerificationToleranceMeters:E3}m.",
                                 input.PatchItem.PatchId,
                                 input.MeshHeader.MeshId);
                         }
@@ -500,7 +497,7 @@ namespace Triturbo.BlendShare.FbxExport
 
                     if (verifyNormals)
                     {
-                        double normalTol = Math.Max(2e-3d, context.NumericVerificationToleranceMeters * 20d);
+                        const double normalTol = 2e-3d;
                         for (int cp = 0; cp < count; cp++)
                         {
                             if (!(expectedNormals[cp].magnitude <= normalTol))

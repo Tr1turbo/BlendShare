@@ -45,6 +45,55 @@ namespace Triturbo.BlendShare.FbxExport
             new FbxFeatureWriteResult(FbxFeatureWriteStatus.Failed, false, diagnostics);
     }
 
+    public sealed class FbxExportSpace
+    {
+        public FbxMatrix4x4 StoredToTargetRaw { get; }
+        public FbxMatrix4x4 TargetRawToStored { get; }
+        public FbxMatrix4x4 StoredToCanonical { get; }
+        public bool IsExactIdentity { get; }
+        private readonly FbxMatrix4x4 m_NormalToTargetRaw;
+
+        private FbxExportSpace(FbxMatrix4x4 forward, FbxMatrix4x4 inverse, FbxMatrix4x4 canonical,
+            FbxMatrix4x4 normalToTargetRaw, bool identity)
+        {
+            StoredToTargetRaw = forward;
+            TargetRawToStored = inverse;
+            StoredToCanonical = canonical;
+            m_NormalToTargetRaw = normalToTargetRaw;
+            IsExactIdentity = identity;
+        }
+
+        public static bool TryCreate(MeshSpaceProvenance stored, FbxSceneMetadata target, out FbxExportSpace space)
+        {
+            space = null;
+            int frame = stored?.FrameVersion ?? MeshSpaceProvenance.CanonicalMeshLocalV1;
+            var axes = stored?.OriginAxes ?? CanonicalMeshSpace.CanonicalAxes;
+            double unit = stored?.OriginRawMetersPerUnit ?? 1d;
+            if ((frame == MeshSpaceProvenance.OriginRawLocalV2 &&
+                 (!CanonicalMeshSpace.IsValidAxes(axes) || !CanonicalMeshSpace.IsValidUnitMeters(unit))) ||
+                !CanonicalMeshSpace.TryBuildStoredToRaw(frame, axes, unit, target.Axes, target.UnitMeters, out var forward, out bool identity) ||
+                !CanonicalMeshSpace.TryBuildStoredToCanonical(frame, axes, unit, out var canonical, out _) ||
+                !CanonicalMeshSpace.TryBuildStoredToRaw(frame, axes, 1d, target.Axes, 1d, out var normal, out _) ||
+                !FbxAffineSpaceTransform.TryCreate(forward, out var transform))
+                return false;
+
+            space = new FbxExportSpace(forward, transform.InverseOffset, canonical, normal, identity);
+            return true;
+        }
+
+        public Vector3d PositionDeltaToRaw(Vector3d value) =>
+            IsExactIdentity ? value : StoredToTargetRaw.TransformVector(value);
+
+        // Signed axis permutations rotate/reflect a normal delta without changing its length.
+        public Vector3d NormalDeltaToRaw(Vector3d value) =>
+            IsExactIdentity ? value : m_NormalToTargetRaw.TransformVector(value);
+
+        // Mesh binds map stored mesh-local to stored world. Bone binds map bone-local to world.
+        // Both change basis on the input and output sides of the row-vector matrix.
+        public FbxMatrix4x4 BindMatrixToRaw(FbxMatrix4x4 value) =>
+            IsExactIdentity ? value : TargetRawToStored * value * StoredToTargetRaw;
+    }
+
     public sealed class FbxFeatureWriteInput
     {
         public FbxPatchExportItem PatchItem { get; }
@@ -54,14 +103,19 @@ namespace Triturbo.BlendShare.FbxExport
         public ILazyPayloadSource PayloadSource { get; }
         public string TargetNodePath { get; }
 
+        public FbxExportSpace MeshSpace { get; }
+        public FbxExportSpace ArmatureSpace { get; }
+
         public FbxFeatureWriteInput(
             FbxPatchExportItem patchItem,
             MeshDocument meshHeader,
             IReadOnlyList<ArmatureDocument> armatures,
             BlendShareFeatureData feature,
             ILazyPayloadSource payloadSource,
-            string targetNodePath)
+            string targetNodePath, FbxExportSpace meshSpace, FbxExportSpace armatureSpace)
         {
+            MeshSpace = meshSpace ?? throw new ArgumentNullException(nameof(meshSpace));
+            ArmatureSpace = armatureSpace;
             PatchItem = patchItem ?? throw new ArgumentNullException(nameof(patchItem));
             MeshHeader = meshHeader ?? throw new ArgumentNullException(nameof(meshHeader));
             Armatures = armatures ?? Array.Empty<ArmatureDocument>();

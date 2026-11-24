@@ -43,8 +43,8 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
         public List<string> SelectedShapeNames { get; } = new List<string>();
 
         /// <summary>
-        /// Exact sparsity threshold (meters in CanonicalMeshLocalV1) applied BEFORE quantization.
-        /// Default 0 keeps every non-zero finite delta.
+        /// Exact sparsity threshold (in physical meters) applied BEFORE quantization; scaled into the mesh's
+        /// stored coordinate units when extracting <c>OriginRawLocalV2</c>. Default 0 keeps every non-zero finite delta.
         /// </summary>
         public double PositionDeltaEpsilon { get; set; } = 0d;
 
@@ -252,8 +252,17 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                 }
             }
 
-            double posEpsSq = bsOptions.PositionDeltaEpsilon > 0d
-                ? bsOptions.PositionDeltaEpsilon * bsOptions.PositionDeltaEpsilon
+            double posEpsUnits = bsOptions.PositionDeltaEpsilon;
+            if (posEpsUnits > 0d &&
+                context.SpaceProvenance != null &&
+                context.SpaceProvenance.FrameVersion == Model.Documents.MeshSpaceProvenance.OriginRawLocalV2 &&
+                CanonicalMeshSpace.IsValidUnitMeters(context.SpaceProvenance.OriginRawMetersPerUnit))
+            {
+                posEpsUnits /= context.SpaceProvenance.OriginRawMetersPerUnit;
+            }
+
+            double posEpsSq = posEpsUnits > 0d
+                ? posEpsUnits * posEpsUnits
                 : 0d;
             double nrmEpsSq = bsOptions.NormalDeltaEpsilon > 0d
                 ? bsOptions.NormalDeltaEpsilon * bsOptions.NormalDeltaEpsilon

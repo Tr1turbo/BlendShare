@@ -42,10 +42,26 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     var feature = (SkinWeightFeature)input.Feature;
                     var binding = input.VertexBinding;
                     var map = binding.VertexMap;
-                    var space = binding.SpaceContract.CanonicalToUnityMeshLocal;
+                    var space = binding.SpaceContract.StoredToUnityMeshLocal;
                     if (map.SourceDomain != IndexDomain.UnityVertex || map.TargetDomain != IndexDomain.ControlPoint ||
-                        map.SourceCount != mesh.vertexCount || binding.SpaceContract.FrameVersion != MeshSpaceProvenance.CanonicalMeshLocalV1 ||
+                        map.SourceCount != mesh.vertexCount || !MeshSpaceProvenance.IsSupportedFrameVersion(binding.SpaceContract.FrameVersion) ||
+                        (input.MeshHeader != null && (input.MeshHeader.SpaceProvenance?.FrameVersion ?? MeshSpaceProvenance.CanonicalMeshLocalV1) != binding.SpaceContract.FrameVersion) ||
                         !FbxAffineSpaceTransform.TryCreate(space, out _)) throw new InvalidOperationException("Invalid skin vertex binding.");
+
+                    var armature = input.Armatures?.FirstOrDefault(a => a?.ArmatureId == feature.ArmatureId);
+                    if (armature != null)
+                    {
+                        var meshSpace = input.MeshHeader?.SpaceProvenance;
+                        var armatureSpace = armature.SpaceProvenance;
+                        int armatureFrame = armatureSpace?.FrameVersion ?? MeshSpaceProvenance.CanonicalMeshLocalV1;
+                        if (armatureFrame != binding.SpaceContract.FrameVersion ||
+                            (armatureFrame == MeshSpaceProvenance.OriginRawLocalV2 &&
+                             (meshSpace == null || !CanonicalMeshSpace.IsValidAxes(meshSpace.OriginAxes) ||
+                              !CanonicalMeshSpace.IsValidUnitMeters(meshSpace.OriginRawMetersPerUnit) ||
+                              !armatureSpace.OriginAxes.Equals(meshSpace.OriginAxes) ||
+                              armatureSpace.OriginRawMetersPerUnit != meshSpace.OriginRawMetersPerUnit)))
+                            throw new InvalidOperationException($"Armature '{feature.ArmatureId}' and mesh use incompatible stored spaces.");
+                    }
 
                     var buffers = new List<IndexedBuffer<double>>();
                     foreach (var cluster in feature.Clusters)
@@ -73,7 +89,6 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                             bone = bones.FirstOrDefault(b => b && AnimationUtility.CalculateTransformPath(b, root) == path);
                         if (!bone && context.CreateMissingBones && input.CreateMissingBones)
                         {
-                            var armature = input.Armatures?.FirstOrDefault(a => a.ArmatureId == feature.ArmatureId);
                             var firstMissing = path;
                             while (firstMissing.Contains("/"))
                             {

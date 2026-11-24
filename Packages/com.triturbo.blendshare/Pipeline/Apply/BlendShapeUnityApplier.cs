@@ -61,9 +61,10 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     current = input;
                     var binding = input.VertexBinding;
                     var map = binding.VertexMap;
-                    var matrix = binding.SpaceContract.CanonicalToUnityMeshLocal;
+                    var matrix = binding.SpaceContract.StoredToUnityMeshLocal;
                     if (map.SourceDomain != IndexDomain.UnityVertex || map.TargetDomain != IndexDomain.ControlPoint ||
-                        map.SourceCount != mesh.vertexCount || binding.SpaceContract.FrameVersion != MeshSpaceProvenance.CanonicalMeshLocalV1 ||
+                        map.SourceCount != mesh.vertexCount || !MeshSpaceProvenance.IsSupportedFrameVersion(binding.SpaceContract.FrameVersion) ||
+                        (input.MeshHeader != null && (input.MeshHeader.SpaceProvenance?.FrameVersion ?? MeshSpaceProvenance.CanonicalMeshLocalV1) != binding.SpaceContract.FrameVersion) ||
                         !UnitySpaceContractMath.TryBuildNormalDeltaMatrix(matrix, out var normalMatrix))
                         throw new InvalidOperationException("Invalid vertex map or space contract.");
 
@@ -137,7 +138,14 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     current = input;
                     var binding = input.VertexBinding;
                     var map = binding.VertexMap;
-                    var matrix = binding.SpaceContract.CanonicalToUnityMeshLocal;
+                    var matrix = binding.SpaceContract.StoredToUnityMeshLocal;
+                    double storedUnitMeters = input.MeshHeader?.SpaceProvenance != null &&
+                                              input.MeshHeader.SpaceProvenance.FrameVersion == MeshSpaceProvenance.OriginRawLocalV2 &&
+                                              CanonicalMeshSpace.IsValidUnitMeters(input.MeshHeader.SpaceProvenance.OriginRawMetersPerUnit)
+                        ? input.MeshHeader.SpaceProvenance.OriginRawMetersPerUnit
+                        : 1d;
+                    double weldTolUnits = 1e-4d / storedUnitMeters;
+                    double weldTolSq = weldTolUnits * weldTolUnits;
                     bool divergent = false;
 
                     foreach (var source in shape.Frames)
@@ -164,7 +172,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                                         var delta = positions[row[j]];
                                         position += delta;
                                         for (int k = 0; !divergent && k < j; k++)
-                                            divergent = (delta - positions[row[k]]).sqrMagnitude > 1e-8;
+                                            divergent = (delta - positions[row[k]]).sqrMagnitude > weldTolSq;
                                     }
                                     if (normals != null) normal += normals[row[j]];
                                 }

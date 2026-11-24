@@ -17,8 +17,9 @@ using UnityEngine;
 namespace Triturbo.BlendShare.Pipeline.Extraction
 {
     /// <summary>
-    /// Coordinates BlendShare 2.0 feature extraction into a <see cref="PatchDocument"/> in <c>CanonicalMeshLocalV1</c>
-    /// and optional atomic <c>BLSHARE1</c> v5 file writing. Zero <c>Autodesk.Fbx</c> dependency.
+    /// Coordinates BlendShare 2.0 feature extraction into a <see cref="PatchDocument"/> in <c>OriginRawLocalV2</c>
+    /// (preserving Origin FBX native axes and unit scale) and optional atomic <c>BLSHARE1</c> v5 file writing.
+    /// Zero <c>Autodesk.Fbx</c> dependency.
     /// </summary>
     public sealed class PatchExtractionPipeline
     {
@@ -70,21 +71,10 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                     "Origin FBX scene had invalid/unknown coordinate axes or unit scale; fell back to CanonicalMeshLocalV1 defaults."));
             }
 
-            FbxMatrix4x4 originRawToCanonical = CanonicalMeshSpace.BuildRawToCanonical(
-                originAxes,
-                originUnitMeters,
-                out _);
-            if (!FbxAffineSpaceTransform.TryCreate(originRawToCanonical, out var originSpaceTransform))
-            {
-                diagnostics.Add(new ExtractionDiagnostic(
-                    ExtractionDiagnosticSeverity.Error,
-                    "PIPE_EXT_SINGULAR_ORIGIN_SPACE",
-                    "Origin FBX raw-to-canonical space transform is singular."));
-                return new PatchExtractionResult(false, null, diagnostics);
-            }
-
-            FbxMatrix4x4 sourceRawToCanonical = CanonicalMeshSpace.BuildRawToCanonical(
+            CanonicalMeshSpace.SanitizeMetadata(
                 request.SourceScene.Metadata,
+                out var sourceAxes,
+                out double sourceUnitMeters,
                 out bool sourceSpaceFallback);
             if (sourceSpaceFallback)
             {
@@ -94,37 +84,60 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                     "Source FBX scene had invalid/unknown coordinate axes or unit scale; fell back to CanonicalMeshLocalV1 defaults."));
             }
 
+            FbxMatrix4x4 originRawToCanonical = CanonicalMeshSpace.BuildRawToCanonical(
+                originAxes,
+                originUnitMeters,
+                out _);
+            FbxMatrix4x4 originCanonicalToRaw = CanonicalMeshSpace.BuildCanonicalToRaw(
+                originAxes,
+                originUnitMeters,
+                out _);
+            FbxMatrix4x4 sourceRawToCanonical = CanonicalMeshSpace.BuildRawToCanonical(
+                sourceAxes,
+                sourceUnitMeters,
+                out _);
+
+            // Scene/world basis transform W: Source raw world -> Origin raw world (OriginRawLocalV2).
+            // Kept strictly separate from per-mesh alignment offsets so shared armatures stay coherent across meshes.
+            FbxMatrix4x4 sourceWorldToOriginRaw = CanonicalMeshSpace.BuildSpaceToSpace(
+                sourceAxes,
+                sourceUnitMeters,
+                originAxes,
+                originUnitMeters,
+                out _,
+                out bool isExactSameSpace);
+            if (!FbxAffineSpaceTransform.TryCreate(sourceWorldToOriginRaw, out var sourceWorldToStored))
+            {
+                diagnostics.Add(new ExtractionDiagnostic(
+                    ExtractionDiagnosticSeverity.Error,
+                    "PIPE_EXT_SINGULAR_SOURCE_SPACE",
+                    "Source-to-origin coordinate space transform is singular."));
+                return new PatchExtractionResult(false, null, diagnostics);
+            }
+
             var extractors = FeatureExtractorRegistry.GetAllOrdered();
             var optionsSet = request.FeatureOptions ?? new ExtractionOptionsSet();
             var seenMeshIds = new HashSet<string>(StringComparer.Ordinal);
             var extractedMeshes = new List<MeshDocument>(request.Meshes.Count);
-            var armaturesById = new Dictionary<string, ArmatureDocument>(StringComparer.Ordinal);
-            var armatureBonesByPath = new Dictionary<string, Dictionary<string, ArmatureBoneRecord>>(StringComparer.Ordinal);
-            var armatureWeightedPaths = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            var armatureAccumulators = new Dictionary<string, ArmatureAccumulator>(StringComparer.Ordinal);
+            var armatureOrder = new List<string>();
             bool hasError = false;
+            double translationBindTolerance = 1e-4d / originUnitMeters;
 
+            // Collect armature bone references and authoritative cluster binds across ALL meshes first,
+            // then finalize ArmatureDocuments deterministically after the mesh loop so mesh order never affects
+            // bone bind selection or local/global consistency.
             Action<string, string, IReadOnlyList<IFbxNode>, IReadOnlyDictionary<string, FbxMatrix4x4>, FbxAffineSpaceTransform> registerArmature =
-                (armId, rootPath, boneNodes, clusterBindWorldByPath, worldToCanon) =>
+                (armId, rootPath, boneNodes, clusterBindWorldByPath, worldToStored) =>
                 {
-                    if (string.IsNullOrWhiteSpace(armId)) return;
-                    if (!armaturesById.TryGetValue(armId, out var armDoc))
+                    if (string.IsNullOrWhiteSpace(armId) || boneNodes == null) return;
+                    if (!armatureAccumulators.TryGetValue(armId, out var acc))
                     {
-                        armDoc = new ArmatureDocument
-                        {
-                            ArmatureId = armId,
-                            Name = armId,
-                            RootBonePath = string.Empty
-                        };
-                        armaturesById.Add(armId, armDoc);
-                        armatureBonesByPath.Add(armId, new Dictionary<string, ArmatureBoneRecord>(StringComparer.Ordinal));
-                        armatureWeightedPaths.Add(armId, new List<string>());
+                        acc = new ArmatureAccumulator(armId);
+                        armatureAccumulators.Add(armId, acc);
+                        armatureOrder.Add(armId);
                     }
 
-                    var boneMap = armatureBonesByPath[armId];
-                    var weightedList = armatureWeightedPaths[armId];
-                    if (boneNodes == null) return;
-
-                    // Collect bones and their ancestor chains in parent-before-child order.
                     var chain = new List<IFbxNode>();
                     for (int i = 0; i < boneNodes.Count; i++)
                     {
@@ -145,55 +158,39 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                             string parentPath = node.Parent != null && !node.Parent.IsRoot
                                 ? FbxNameUtility.NormalizePath(node.Parent.Path)
                                 : string.Empty;
+                            int depth = chain.Count - 1 - k;
 
-                            FbxMatrix4x4 clusterGlobal = default;
-                            bool fromCluster = clusterBindWorldByPath != null &&
-                                               clusterBindWorldByPath.TryGetValue(path, out clusterGlobal);
-                            if (fromCluster) weightedList.Add(path);
-
-                            FbxMatrix4x4 globalCanon = fromCluster
-                                ? clusterGlobal
-                                : worldToCanon.InverseOffset * node.NodeToWorldMatrix * worldToCanon.Offset;
-
-                            // Derive local bind relative to the recorded parent's global bind so skin cluster bind poses stay self-consistent.
-                            FbxMatrix4x4 localCanon;
-                            if (!string.IsNullOrEmpty(parentPath) &&
-                                boneMap.TryGetValue(parentPath, out var parentRecord) &&
-                                parentRecord.GlobalBindMatrix.TryInverse(out var parentInv))
+                            if (!acc.NodesByPath.ContainsKey(path))
                             {
-                                localCanon = globalCanon * parentInv;
-                            }
-                            else
-                            {
-                                localCanon = worldToCanon.InverseOffset * node.NodeToParentMatrix * worldToCanon.Offset;
+                                acc.NodesByPath.Add(path, new ArmatureNodeCandidate(path, parentPath, depth, node, worldToStored));
                             }
 
-                            if (boneMap.TryGetValue(path, out var existing))
+                            if (clusterBindWorldByPath != null &&
+                                clusterBindWorldByPath.TryGetValue(path, out var clusterGlobal))
                             {
-                                if (fromCluster && !existing.GlobalBindMatrix.Approximately(globalCanon, 1e-4d))
+                                acc.WeightedPaths.Add(path);
+                                if (acc.ClusterBindByPath.TryGetValue(path, out var existingClusterBind))
                                 {
-                                    diagnostics.Add(new ExtractionDiagnostic(
-                                        ExtractionDiagnosticSeverity.Warning,
-                                        "PIPE_EXT_ARMATURE_BIND_MISMATCH",
-                                        $"Conflicting skin bind pose for bone '{path}' in armature '{armId}'; keeping first recorded bind pose."));
+                                    if (!MatricesApproximatelyEqual(
+                                            existingClusterBind,
+                                            clusterGlobal,
+                                            linearTolerance: 1e-4d,
+                                            translationTolerance: translationBindTolerance))
+                                    {
+                                        diagnostics.Add(new ExtractionDiagnostic(
+                                            ExtractionDiagnosticSeverity.Error,
+                                            "PIPE_EXT_ARMATURE_BIND_MISMATCH",
+                                            $"Conflicting authoritative skin cluster bind poses for bone '{path}' in armature '{armId}'."));
+                                        hasError = true;
+                                    }
                                 }
-                                continue;
+                                else
+                                {
+                                    acc.ClusterBindByPath.Add(path, clusterGlobal);
+                                }
                             }
-
-                            var record = new ArmatureBoneRecord
-                            {
-                                Path = path,
-                                ParentPath = parentPath,
-                                LocalBindMatrix = localCanon,
-                                GlobalBindMatrix = globalCanon
-                            };
-                            boneMap.Add(path, record);
-                            armDoc.Bones.Add(record);
                         }
                     }
-
-                    // Recompute armature RootBonePath deterministically as the lowest common ancestor of all weighted bones.
-                    armDoc.RootBonePath = SkinWeightFeatureExtractor.ComputeLowestCommonAncestorPath(weightedList);
                 };
 
             for (int m = 0; m < request.Meshes.Count; m++)
@@ -260,13 +257,52 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                         meshReq.MeshId));
                 }
 
-                FbxMatrix4x4 sourceTotalMatrix = sourceRawToCanonical * meshReq.SourceToOriginCanonicalOffset;
-                if (!FbxAffineSpaceTransform.TryCreate(sourceTotalMatrix, out var sourceSpaceTransform))
+                // Per-mesh local alignment transform L: Source mesh-local -> Origin raw mesh-local (OriginRawLocalV2).
+                // Use exact IEEE-754 identity checks so tiny non-zero offsets and NaN matrices are never dropped.
+                FbxMatrix4x4 sourceMeshTotalMatrix;
+                if (!FbxAffineSpaceTransform.IsExactIdentity(meshReq.SourceToOriginRawOffset))
+                {
+                    if (!FbxAffineSpaceTransform.TryCreate(meshReq.SourceToOriginRawOffset, out _))
+                    {
+                        diagnostics.Add(new ExtractionDiagnostic(
+                            ExtractionDiagnosticSeverity.Error,
+                            "PIPE_EXT_SINGULAR_SOURCE_OFFSET",
+                            $"Source-to-origin raw alignment offset for mesh '{meshReq.NodePath}' is singular, non-finite, or non-affine.",
+                            meshReq.MeshId));
+                        hasError = true;
+                        continue;
+                    }
+
+                    sourceMeshTotalMatrix = isExactSameSpace
+                        ? meshReq.SourceToOriginRawOffset
+                        : sourceWorldToOriginRaw * meshReq.SourceToOriginRawOffset;
+                }
+                else if (!FbxAffineSpaceTransform.IsExactIdentity(meshReq.SourceToOriginCanonicalOffset))
+                {
+                    if (!FbxAffineSpaceTransform.TryCreate(meshReq.SourceToOriginCanonicalOffset, out _))
+                    {
+                        diagnostics.Add(new ExtractionDiagnostic(
+                            ExtractionDiagnosticSeverity.Error,
+                            "PIPE_EXT_SINGULAR_SOURCE_OFFSET",
+                            $"Source-to-origin canonical alignment offset for mesh '{meshReq.NodePath}' is singular, non-finite, or non-affine.",
+                            meshReq.MeshId));
+                        hasError = true;
+                        continue;
+                    }
+
+                    sourceMeshTotalMatrix = sourceRawToCanonical * meshReq.SourceToOriginCanonicalOffset * originCanonicalToRaw;
+                }
+                else
+                {
+                    sourceMeshTotalMatrix = sourceWorldToOriginRaw;
+                }
+
+                if (!FbxAffineSpaceTransform.TryCreate(sourceMeshTotalMatrix, out var sourceMeshToStored))
                 {
                     diagnostics.Add(new ExtractionDiagnostic(
                         ExtractionDiagnosticSeverity.Error,
                         "PIPE_EXT_SINGULAR_SOURCE_OFFSET",
-                        $"Source-to-canonical alignment transform for mesh '{meshReq.NodePath}' is singular or non-affine.",
+                        $"Source-to-origin alignment transform for mesh '{meshReq.NodePath}' is singular or non-affine.",
                         meshReq.MeshId));
                     hasError = true;
                     continue;
@@ -275,12 +311,13 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                 IReadOnlyList<int[]> weldGroups = meshReq.WeldGroupsOverride ??
                                                   (request.WeldGroupResolver != null ? request.WeldGroupResolver(rawOriginMesh) : null);
 
-                var normalizedOriginMesh = SourceMeshNormalizer.Normalize(rawOriginMesh, originSpaceTransform, weldGroups: null);
-                var normalizedSourceMesh = SourceMeshNormalizer.Normalize(rawSourceMesh, sourceSpaceTransform, weldGroups);
+                // In OriginRawLocalV2, Origin mesh stays natively untouched (Identity transform).
+                var normalizedOriginMesh = SourceMeshNormalizer.Normalize(rawOriginMesh, FbxAffineSpaceTransform.Identity, weldGroups: null);
+                var normalizedSourceMesh = SourceMeshNormalizer.Normalize(rawSourceMesh, sourceMeshToStored, weldGroups);
 
                 var provenance = new MeshSpaceProvenance
                 {
-                    FrameVersion = MeshSpaceProvenance.CanonicalMeshLocalV1,
+                    FrameVersion = MeshSpaceProvenance.OriginRawLocalV2,
                     OriginRawMetersPerUnit = originUnitMeters,
                     OriginRightAxis = originAxes.Right,
                     OriginUpAxis = originAxes.Up,
@@ -301,7 +338,9 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                     compatibility,
                     provenance,
                     request.EncodeOptions,
-                    registerArmature);
+                    registerArmature,
+                    sourceWorldToStored,
+                    sourceMeshToStored);
 
                 var meshDoc = new MeshDocument
                 {
@@ -416,6 +455,104 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                 }
             }
 
+            // Finalize ArmatureDocuments deterministically after all meshes have contributed their cluster binds.
+            var finalizedArmatures = new List<ArmatureDocument>(armatureOrder.Count);
+            armatureOrder.Sort(StringComparer.Ordinal);
+            for (int a = 0; a < armatureOrder.Count; a++)
+            {
+                var acc = armatureAccumulators[armatureOrder[a]];
+                var armDoc = new ArmatureDocument
+                {
+                    ArmatureId = acc.ArmatureId,
+                    Name = acc.ArmatureId,
+                    RootBonePath = string.Empty,
+                    SpaceProvenance = new MeshSpaceProvenance
+                    {
+                        FrameVersion = MeshSpaceProvenance.OriginRawLocalV2,
+                        OriginRawMetersPerUnit = originUnitMeters,
+                        OriginRightAxis = originAxes.Right,
+                        OriginUpAxis = originAxes.Up,
+                        OriginFrontAxis = originAxes.Front,
+                        OriginRawToCanonical = originRawToCanonical
+                    }
+                };
+
+                var candidates = new List<ArmatureNodeCandidate>(acc.NodesByPath.Values);
+                candidates.Sort((x, y) =>
+                {
+                    int cmp = x.Depth.CompareTo(y.Depth);
+                    return cmp != 0 ? cmp : string.CompareOrdinal(x.Path, y.Path);
+                });
+
+                var boneMap = new Dictionary<string, ArmatureBoneRecord>(candidates.Count, StringComparer.Ordinal);
+                for (int i = 0; i < candidates.Count; i++)
+                {
+                    var cand = candidates[i];
+                    FbxMatrix4x4 globalStored;
+                    if (acc.ClusterBindByPath.TryGetValue(cand.Path, out var clusterGlobal))
+                    {
+                        globalStored = clusterGlobal;
+                    }
+                    else
+                    {
+                        globalStored = cand.WorldToStored.IsIdentity
+                            ? cand.Node.NodeToWorldMatrix
+                            : cand.WorldToStored.InverseOffset * cand.Node.NodeToWorldMatrix * cand.WorldToStored.Offset;
+                    }
+
+                    FbxMatrix4x4 localStored;
+                    if (!string.IsNullOrEmpty(cand.ParentPath) &&
+                        boneMap.TryGetValue(cand.ParentPath, out var parentRecord))
+                    {
+                        if (!parentRecord.GlobalBindMatrix.TryInverse(out var parentInv))
+                        {
+                            diagnostics.Add(new ExtractionDiagnostic(
+                                ExtractionDiagnosticSeverity.Error,
+                                "PIPE_EXT_ARMATURE_SINGULAR_PARENT_BIND",
+                                $"Parent bone '{cand.ParentPath}' in armature '{acc.ArmatureId}' has a singular global bind matrix."));
+                            hasError = true;
+                            continue;
+                        }
+
+                        localStored = globalStored * parentInv;
+                        if (!MatricesApproximatelyEqual(
+                                localStored * parentRecord.GlobalBindMatrix,
+                                globalStored,
+                                linearTolerance: 1e-4d,
+                                translationTolerance: translationBindTolerance))
+                        {
+                            diagnostics.Add(new ExtractionDiagnostic(
+                                ExtractionDiagnosticSeverity.Error,
+                                "PIPE_EXT_ARMATURE_LOCAL_INCONSISTENT",
+                                $"Derived local bind matrix for bone '{cand.Path}' in armature '{acc.ArmatureId}' is not consistent with parent '{cand.ParentPath}'."));
+                            hasError = true;
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        // Top-level bone in the serialized armature has no serialized parent (scene root is identity),
+                        // so its local bind matrix equals its global bind matrix.
+                        localStored = globalStored;
+                    }
+
+                    var record = new ArmatureBoneRecord
+                    {
+                        Path = cand.Path,
+                        ParentPath = cand.ParentPath,
+                        LocalBindMatrix = localStored,
+                        GlobalBindMatrix = globalStored
+                    };
+                    boneMap.Add(cand.Path, record);
+                    armDoc.Bones.Add(record);
+                }
+
+                var weightedList = new List<string>(acc.WeightedPaths);
+                weightedList.Sort(StringComparer.Ordinal);
+                armDoc.RootBonePath = SkinWeightFeatureExtractor.ComputeLowestCommonAncestorPath(weightedList);
+                finalizedArmatures.Add(armDoc);
+            }
+
             if (hasError)
             {
                 return new PatchExtractionResult(false, null, diagnostics);
@@ -442,7 +579,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                 PatchId = patchId,
                 DisplayName = displayName,
                 Meshes = extractedMeshes,
-                Armatures = new List<ArmatureDocument>(armaturesById.Values)
+                Armatures = finalizedArmatures
             };
 
             return new PatchExtractionResult(true, doc, diagnostics);
@@ -793,6 +930,66 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             {
                 return false;
             }
+        }
+
+        private sealed class ArmatureAccumulator
+        {
+            public string ArmatureId { get; }
+            public Dictionary<string, ArmatureNodeCandidate> NodesByPath { get; } =
+                new Dictionary<string, ArmatureNodeCandidate>(StringComparer.Ordinal);
+            public Dictionary<string, FbxMatrix4x4> ClusterBindByPath { get; } =
+                new Dictionary<string, FbxMatrix4x4>(StringComparer.Ordinal);
+            public HashSet<string> WeightedPaths { get; } =
+                new HashSet<string>(StringComparer.Ordinal);
+
+            public ArmatureAccumulator(string armatureId)
+            {
+                ArmatureId = armatureId;
+            }
+        }
+
+        private readonly struct ArmatureNodeCandidate
+        {
+            public string Path { get; }
+            public string ParentPath { get; }
+            public int Depth { get; }
+            public IFbxNode Node { get; }
+            public FbxAffineSpaceTransform WorldToStored { get; }
+
+            public ArmatureNodeCandidate(
+                string path,
+                string parentPath,
+                int depth,
+                IFbxNode node,
+                FbxAffineSpaceTransform worldToStored)
+            {
+                Path = path;
+                ParentPath = parentPath;
+                Depth = depth;
+                Node = node;
+                WorldToStored = worldToStored;
+            }
+        }
+
+        private static bool MatricesApproximatelyEqual(
+            FbxMatrix4x4 a,
+            FbxMatrix4x4 b,
+            double linearTolerance,
+            double translationTolerance)
+        {
+            for (int r = 0; r < 4; r++)
+            {
+                for (int c = 0; c < 4; c++)
+                {
+                    double tol = (r == 3 && c < 3) ? translationTolerance : linearTolerance;
+                    if (Math.Abs(a[r, c] - b[r, c]) > tol)
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
         }
 
         private static void TryDeleteQuietly(string path)

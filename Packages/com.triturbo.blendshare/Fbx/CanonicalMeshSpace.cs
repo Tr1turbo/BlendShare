@@ -10,12 +10,18 @@ namespace Triturbo.BlendShare.Fbx
     public static class CanonicalMeshSpace
     {
         public const int CanonicalMeshLocalV1 = 1;
+        public const int OriginRawLocalV2 = 2;
         public const double CanonicalUnitMeters = 1d;
 
         public static readonly FbxCoordinateAxes CanonicalAxes = new FbxCoordinateAxes(
             FbxCoordinateAxis.PositiveX,
             FbxCoordinateAxis.PositiveY,
             FbxCoordinateAxis.PositiveZ);
+
+        public static bool IsSupportedFrameVersion(int frameVersion)
+        {
+            return frameVersion == CanonicalMeshLocalV1 || frameVersion == OriginRawLocalV2;
+        }
 
         /// <summary>
         /// Returns true when the three axes are known and span three distinct orthogonal dimensions (X, Y, Z).
@@ -136,6 +142,120 @@ namespace Triturbo.BlendShare.Fbx
         }
 
         /// <summary>
+        /// Builds the row-vector change-of-basis and unit-scale matrix transforming points/vectors
+        /// directly from a source FBX coordinate space into a target FBX coordinate space.
+        /// Returns exact <see cref="FbxMatrix4x4.Identity"/> with <paramref name="isExactIdentity"/> = true
+        /// when effective axes and unit scale match, avoiding intermediate canonical rounding.
+        /// </summary>
+        public static FbxMatrix4x4 BuildSpaceToSpace(
+            FbxCoordinateAxes sourceAxes,
+            double sourceUnitMeters,
+            FbxCoordinateAxes targetAxes,
+            double targetUnitMeters,
+            out bool usedFallback,
+            out bool isExactIdentity)
+        {
+            SanitizeSpace(sourceAxes, sourceUnitMeters, out var effSrcAxes, out double effSrcUnit, out bool srcFallback);
+            SanitizeSpace(targetAxes, targetUnitMeters, out var effDstAxes, out double effDstUnit, out bool dstFallback);
+            usedFallback = srcFallback || dstFallback;
+            if (!TryBuildSanitizedSpaceToSpace(effSrcAxes, effSrcUnit, effDstAxes, effDstUnit, out var matrix, out isExactIdentity))
+            {
+                // Unit ratio overflowed to Infinity or underflowed to 0; fall back to unitless basis conversion.
+                usedFallback = true;
+                TryBuildSanitizedSpaceToSpace(effSrcAxes, 1d, effDstAxes, 1d, out matrix, out isExactIdentity);
+            }
+
+            return matrix;
+        }
+
+        /// <summary>
+        /// Strict variant of <see cref="BuildSpaceToSpace"/> that fails closed (returns false)
+        /// when either source or target axes/unit metadata are invalid, unknown, or produce a
+        /// non-finite / zero unit scale ratio.
+        /// </summary>
+        public static bool TryBuildSpaceToSpace(
+            FbxCoordinateAxes sourceAxes,
+            double sourceUnitMeters,
+            FbxCoordinateAxes targetAxes,
+            double targetUnitMeters,
+            out FbxMatrix4x4 matrix,
+            out bool isExactIdentity)
+        {
+            if (!IsValidAxes(sourceAxes) || !IsValidUnitMeters(sourceUnitMeters) ||
+                !IsValidAxes(targetAxes) || !IsValidUnitMeters(targetUnitMeters))
+            {
+                matrix = FbxMatrix4x4.Identity;
+                isExactIdentity = false;
+                return false;
+            }
+
+            return TryBuildSanitizedSpaceToSpace(sourceAxes, sourceUnitMeters, targetAxes, targetUnitMeters, out matrix, out isExactIdentity);
+        }
+
+        /// <summary>
+        /// Builds the row-vector matrix transforming points/vectors from a stored patch mesh frame
+        /// (<see cref="CanonicalMeshLocalV1"/> or <see cref="OriginRawLocalV2"/>) into a target FBX raw space.
+        /// Fails closed (returns false) for unsupported frame versions or invalid metadata.
+        /// </summary>
+        public static bool TryBuildStoredToRaw(
+            int storedFrameVersion,
+            FbxCoordinateAxes storedAxes,
+            double storedUnitMeters,
+            FbxCoordinateAxes targetAxes,
+            double targetUnitMeters,
+            out FbxMatrix4x4 matrix,
+            out bool isExactIdentity)
+        {
+            if (storedFrameVersion == CanonicalMeshLocalV1)
+            {
+                return TryBuildSpaceToSpace(
+                    CanonicalAxes,
+                    CanonicalUnitMeters,
+                    targetAxes,
+                    targetUnitMeters,
+                    out matrix,
+                    out isExactIdentity);
+            }
+
+            if (storedFrameVersion == OriginRawLocalV2)
+            {
+                return TryBuildSpaceToSpace(
+                    storedAxes,
+                    storedUnitMeters,
+                    targetAxes,
+                    targetUnitMeters,
+                    out matrix,
+                    out isExactIdentity);
+            }
+
+            matrix = FbxMatrix4x4.Identity;
+            isExactIdentity = false;
+            return false;
+        }
+
+        /// <summary>
+        /// Builds the row-vector matrix transforming points/vectors from a stored patch mesh frame
+        /// into <see cref="CanonicalMeshLocalV1"/> (meters, +X/+Y/+Z).
+        /// Fails closed (returns false) for unsupported frame versions or invalid stored metadata.
+        /// </summary>
+        public static bool TryBuildStoredToCanonical(
+            int storedFrameVersion,
+            FbxCoordinateAxes storedAxes,
+            double storedUnitMeters,
+            out FbxMatrix4x4 matrix,
+            out bool isExactIdentity)
+        {
+            return TryBuildStoredToRaw(
+                storedFrameVersion,
+                storedAxes,
+                storedUnitMeters,
+                CanonicalAxes,
+                CanonicalUnitMeters,
+                out matrix,
+                out isExactIdentity);
+        }
+
+        /// <summary>
         /// Builds the raw-to-canonical matrix from <see cref="FbxSceneMetadata"/>.
         /// </summary>
         public static FbxMatrix4x4 BuildRawToCanonical(FbxSceneMetadata metadata, out bool usedFallback)
@@ -152,20 +272,80 @@ namespace Triturbo.BlendShare.Fbx
             out double effectiveUnitMeters,
             out bool usedFallback)
         {
+            SanitizeSpace(metadata.Axes, metadata.UnitMeters, out effectiveAxes, out effectiveUnitMeters, out usedFallback);
+        }
+
+        private static void SanitizeSpace(
+            FbxCoordinateAxes axes,
+            double unitMeters,
+            out FbxCoordinateAxes effectiveAxes,
+            out double effectiveUnitMeters,
+            out bool usedFallback)
+        {
             usedFallback = false;
-            effectiveAxes = metadata.Axes;
+            effectiveAxes = axes;
             if (!IsValidAxes(effectiveAxes))
             {
                 effectiveAxes = CanonicalAxes;
                 usedFallback = true;
             }
 
-            effectiveUnitMeters = metadata.UnitMeters;
+            effectiveUnitMeters = unitMeters;
             if (!IsValidUnitMeters(effectiveUnitMeters))
             {
                 effectiveUnitMeters = CanonicalUnitMeters;
                 usedFallback = true;
             }
+        }
+
+        private static bool TryBuildSanitizedSpaceToSpace(
+            FbxCoordinateAxes srcAxes,
+            double srcUnitMeters,
+            FbxCoordinateAxes dstAxes,
+            double dstUnitMeters,
+            out FbxMatrix4x4 matrix,
+            out bool isExactIdentity)
+        {
+            bool sameAxes = srcAxes.Equals(dstAxes);
+            bool sameUnit = srcUnitMeters == dstUnitMeters;
+            if (sameAxes && sameUnit)
+            {
+                isExactIdentity = true;
+                matrix = FbxMatrix4x4.Identity;
+                return true;
+            }
+
+            isExactIdentity = false;
+            double scale = sameUnit ? 1d : srcUnitMeters / dstUnitMeters;
+            if (!IsValidUnitMeters(scale))
+            {
+                matrix = FbxMatrix4x4.Identity;
+                return false;
+            }
+
+            if (sameAxes)
+            {
+                matrix = FbxMatrix4x4.Scale(new Vector3d(scale, scale, scale));
+                return true;
+            }
+
+            // Unit-length basis matrices have exact integer entries in {-1, 0, 1}, so multiplying them
+            // before applying (srcUnit / dstUnit) avoids round-trip unit*(1/unit) precision loss.
+            FbxMatrix4x4 srcBasis = BuildRawToCanonical(srcAxes, 1d, out _);
+            FbxMatrix4x4 dstBasisInv = BuildCanonicalToRaw(dstAxes, 1d, out _);
+            FbxMatrix4x4 permutation = srcBasis * dstBasisInv;
+            if (scale == 1d)
+            {
+                matrix = permutation;
+                return true;
+            }
+
+            matrix = new FbxMatrix4x4(
+                permutation[0, 0] * scale, permutation[0, 1] * scale, permutation[0, 2] * scale, 0d,
+                permutation[1, 0] * scale, permutation[1, 1] * scale, permutation[1, 2] * scale, 0d,
+                permutation[2, 0] * scale, permutation[2, 1] * scale, permutation[2, 2] * scale, 0d,
+                0d, 0d, 0d, 1d);
+            return true;
         }
 
         private static Vector3d AxisToUnitVector(FbxCoordinateAxis axis)

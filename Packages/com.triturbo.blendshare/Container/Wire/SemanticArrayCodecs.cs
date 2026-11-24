@@ -549,10 +549,12 @@ namespace Triturbo.BlendShare.Container.Wire
                     : VectorEncodingKind.SymmetricQuant16;
 
                 int maxQ = candidate == VectorEncodingKind.SymmetricQuant12 ? 2047 : 32767;
+                double budgetErr = options.EffectiveMaxPositionQuantizationErrorUnits;
                 if (options.MaxPositionQuantizationErrorMeters > 0d)
                 {
-                    // Measure actual maximum per-axis reconstruction error (so exact rigid shifts never spuriously fall back).
-                    double budgetErr = options.MaxPositionQuantizationErrorMeters;
+                    // Measure actual maximum per-axis reconstruction error in stored coordinate units
+                    // (scaled from physical meters via PositionUnitMeters so cm/mm/m achieve equal physical precision).
+                    bool quantExceedsBudget = false;
                     for (int i = 0; i < values.Length; i++)
                     {
                         var v = values[i];
@@ -560,9 +562,10 @@ namespace Triturbo.BlendShare.Container.Wire
                         {
                             short qx = QuantizeSymmetric(v.x, maxAbsX, maxQ);
                             double rx = DequantizeSymmetric(qx, maxAbsX, maxQ);
-                            if (Math.Abs(v.x - rx) >= budgetErr)
+                            if (Math.Abs(v.x - rx) > budgetErr)
                             {
-                                return allFloat32Finite ? VectorEncodingKind.Float32 : VectorEncodingKind.Float64;
+                                quantExceedsBudget = true;
+                                break;
                             }
                         }
 
@@ -570,9 +573,10 @@ namespace Triturbo.BlendShare.Container.Wire
                         {
                             short qy = QuantizeSymmetric(v.y, maxAbsY, maxQ);
                             double ry = DequantizeSymmetric(qy, maxAbsY, maxQ);
-                            if (Math.Abs(v.y - ry) >= budgetErr)
+                            if (Math.Abs(v.y - ry) > budgetErr)
                             {
-                                return allFloat32Finite ? VectorEncodingKind.Float32 : VectorEncodingKind.Float64;
+                                quantExceedsBudget = true;
+                                break;
                             }
                         }
 
@@ -580,11 +584,34 @@ namespace Triturbo.BlendShare.Container.Wire
                         {
                             short qz = QuantizeSymmetric(v.z, maxAbsZ, maxQ);
                             double rz = DequantizeSymmetric(qz, maxAbsZ, maxQ);
-                            if (Math.Abs(v.z - rz) >= budgetErr)
+                            if (Math.Abs(v.z - rz) > budgetErr)
                             {
-                                return allFloat32Finite ? VectorEncodingKind.Float32 : VectorEncodingKind.Float64;
+                                quantExceedsBudget = true;
+                                break;
                             }
                         }
+                    }
+
+                    if (quantExceedsBudget)
+                    {
+                        if (!allFloat32Finite)
+                        {
+                            return VectorEncodingKind.Float64;
+                        }
+
+                        // Verify Float32 reconstruction also satisfies the hard physical error budget; otherwise promote to Float64.
+                        for (int i = 0; i < values.Length; i++)
+                        {
+                            var v = values[i];
+                            if (Math.Abs(v.x - (float)v.x) > budgetErr ||
+                                Math.Abs(v.y - (float)v.y) > budgetErr ||
+                                Math.Abs(v.z - (float)v.z) > budgetErr)
+                            {
+                                return VectorEncodingKind.Float64;
+                            }
+                        }
+
+                        return VectorEncodingKind.Float32;
                     }
                 }
 

@@ -85,8 +85,9 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
     /// <summary>
     /// Built-in <see cref="IFeatureExtractor"/> for <see cref="SkinWeightFeature"/>.
     /// Extracts normalized per-cluster sparse control-point weights (<c>DataSemantic.NormalizedWeight</c>)
-    /// and canonical binary64 bind matrices (similarity-conjugated via <c>C^-1 * M * C</c> so non-uniform
-    /// bind transforms remain exact), and records shared <see cref="ArmatureDocument"/> bone hierarchies.
+    /// and binary64 bind matrices in the mesh's stored frame (<c>OriginRawLocalV2</c> or <c>CanonicalMeshLocalV1</c>),
+    /// keeping mesh-local alignment <c>L</c> strictly separated from scene/world basis transform <c>W</c>:
+    /// <c>TransformMatrix = L^-1 * M_meshBind * W</c>, <c>TransformLinkMatrix = W^-1 * M_boneBind * W</c>.
     /// </summary>
     public sealed class SkinWeightFeatureExtractor : IFeatureExtractor
     {
@@ -155,15 +156,36 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                 }
             }
 
-            // Compute source raw -> canonical basis matrix for conjugating world-space bind matrices into CanonicalMeshLocalV1.
-            var sourceRawToCanonical = CanonicalMeshSpace.BuildRawToCanonical(context.SourceScene.Metadata, out _);
-            if (!FbxAffineSpaceTransform.TryCreate(sourceRawToCanonical, out var worldToCanon))
+            // Use scene/world basis transform W (Source world -> Stored world), strictly separated from per-mesh
+            // alignment L (already left-multiplied into cluster.MeshBindWorld by SourceMeshNormalizer as L^-1 * M_meshBind).
+            FbxAffineSpaceTransform worldToStored = context.SourceWorldToStoredSpace;
+            if (!worldToStored.IsValid)
             {
-                return FeatureExtractionResult.Failed(
-                    "SW_EXT_SINGULAR_SPACE",
-                    "Source scene raw-to-canonical transform is singular.",
-                    context.MeshId,
-                    FeatureTypeId);
+                FbxMatrix4x4 fallbackMatrix;
+                if (context.SpaceProvenance != null &&
+                    context.SpaceProvenance.FrameVersion == MeshSpaceProvenance.OriginRawLocalV2)
+                {
+                    fallbackMatrix = CanonicalMeshSpace.BuildSpaceToSpace(
+                        context.SourceScene.Metadata.Axes,
+                        context.SourceScene.Metadata.UnitMeters,
+                        context.SpaceProvenance.OriginAxes,
+                        context.SpaceProvenance.OriginRawMetersPerUnit,
+                        out _,
+                        out _);
+                }
+                else
+                {
+                    fallbackMatrix = CanonicalMeshSpace.BuildRawToCanonical(context.SourceScene.Metadata, out _);
+                }
+
+                if (!FbxAffineSpaceTransform.TryCreate(fallbackMatrix, out worldToStored))
+                {
+                    return FeatureExtractionResult.Failed(
+                        "SW_EXT_SINGULAR_SPACE",
+                        "Source scene world-to-stored transform is singular.",
+                        context.MeshId,
+                        FeatureTypeId);
+                }
             }
 
             var diagnostics = new List<ExtractionDiagnostic>();
@@ -304,15 +326,21 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                     cpWeights.Add(normalized);
                 }
 
-                FbxMatrix4x4 canonMeshBindWorld = cluster.MeshBindWorld * worldToCanon.Offset;
-                FbxMatrix4x4 canonBoneBindWorld = worldToCanon.InverseOffset * cluster.BindToWorld * worldToCanon.Offset;
+                // cluster.MeshBindWorld already holds L^-1 * M_meshBind_src from SourceMeshNormalizer.
+                // Right-multiplying by W yields L^-1 * M_meshBind_src * W; bone bind conjugates strictly by W: W^-1 * M_boneBind_src * W.
+                FbxMatrix4x4 storedMeshBindWorld = worldToStored.IsIdentity
+                    ? cluster.MeshBindWorld
+                    : cluster.MeshBindWorld * worldToStored.Offset;
+                FbxMatrix4x4 storedBoneBindWorld = worldToStored.IsIdentity
+                    ? cluster.BindToWorld
+                    : worldToStored.InverseOffset * cluster.BindToWorld * worldToStored.Offset;
 
                 if (cluster.BoneNode != null)
                 {
                     referencedBoneNodes.Add(cluster.BoneNode);
                 }
 
-                clusterBindWorldByPath[bonePath] = canonBoneBindWorld;
+                clusterBindWorldByPath[bonePath] = storedBoneBindWorld;
 
                 rawBuffers.Add(new IndexedBuffer<double>(
                     IndexDomain.ControlPoint,
@@ -325,8 +353,8 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                 {
                     BonePath = bonePath,
                     HasClusterMatrices = swOptions.IncludeClusterBindMatrices,
-                    TransformMatrix = swOptions.IncludeClusterBindMatrices ? canonMeshBindWorld : FbxMatrix4x4.Identity,
-                    TransformLinkMatrix = swOptions.IncludeClusterBindMatrices ? canonBoneBindWorld : FbxMatrix4x4.Identity
+                    TransformMatrix = swOptions.IncludeClusterBindMatrices ? storedMeshBindWorld : FbxMatrix4x4.Identity,
+                    TransformLinkMatrix = swOptions.IncludeClusterBindMatrices ? storedBoneBindWorld : FbxMatrix4x4.Identity
                 });
             }
 
@@ -355,7 +383,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
 
             string armatureId = string.IsNullOrWhiteSpace(swOptions.ArmatureId) ? "armature-0" : swOptions.ArmatureId.Trim();
             string rootBonePath = ResolveCommonRootBonePath(referencedBoneNodes, clusterEntries);
-            context.RegisterArmatureBones(armatureId, rootBonePath, referencedBoneNodes, clusterBindWorldByPath, worldToCanon);
+            context.RegisterArmatureBones(armatureId, rootBonePath, referencedBoneNodes, clusterBindWorldByPath, worldToStored);
 
             var feature = new SkinWeightFeature
             {

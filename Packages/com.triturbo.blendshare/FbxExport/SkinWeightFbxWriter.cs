@@ -12,7 +12,7 @@ namespace Triturbo.BlendShare.FbxExport
 {
     /// <summary>
     /// Autodesk FBX SDK writer and ufbx round-trip verifier for <see cref="SkinWeightFeature"/>.
-    /// Converts canonical cluster bind matrices and armature bone transforms into Target FBX raw space,
+    /// Converts stored cluster bind matrices and armature bone transforms into Target FBX raw space,
     /// preserves untouched base weights for partial-bone selections, creates missing skeleton nodes
     /// deterministically, and verifies raw weights, cluster bind matrices, and created bone transforms.
     /// </summary>
@@ -92,7 +92,7 @@ namespace Triturbo.BlendShare.FbxExport
                     if (!RegisterAndValidateArmatureBones(
                             armature,
                             input.PatchItem.PatchId,
-                            context.CanonicalToTargetRaw,
+                            input.ArmatureSpace, context.ReaderScene.Metadata.UnitMeters, context.NumericVerificationToleranceMeters,
                             boneRegistry,
                             diagnostics))
                     {
@@ -128,7 +128,7 @@ namespace Triturbo.BlendShare.FbxExport
                                 context.RootNode,
                                 armature,
                                 bonePath,
-                                context.CanonicalToTargetRaw,
+                                input.ArmatureSpace,
                                 out string boneError))
                         {
                             diagnostics.Add(new FbxExportDiagnostic(
@@ -144,12 +144,8 @@ namespace Triturbo.BlendShare.FbxExport
 
                     if (cluster.HasClusterMatrices)
                     {
-                        var rawMeshMat = FbxSdkNodeUtility.ConvertCanonicalMatrixToTargetRaw(
-                            cluster.TransformMatrix,
-                            context.CanonicalToTargetRaw);
-                        var rawLinkMat = FbxSdkNodeUtility.ConvertCanonicalMatrixToTargetRaw(
-                            cluster.TransformLinkMatrix,
-                            context.CanonicalToTargetRaw);
+                        var rawMeshMat = input.MeshSpace.BindMatrixToRaw(cluster.TransformMatrix);
+                        var rawLinkMat = input.MeshSpace.BindMatrixToRaw(cluster.TransformLinkMatrix);
                         if (!FbxAffineSpaceTransform.TryCreate(rawMeshMat, out _) ||
                             !FbxAffineSpaceTransform.TryCreate(rawLinkMat, out _))
                         {
@@ -217,7 +213,6 @@ namespace Triturbo.BlendShare.FbxExport
             var state = BuildExpectedSkinState(
                 context.ReaderMesh,
                 inputs,
-                context.CanonicalToTargetRaw,
                 out bool anyFeatureApplied,
                 out string stateError);
             if (state == null)
@@ -247,7 +242,6 @@ namespace Triturbo.BlendShare.FbxExport
                             context.RootNode,
                             state.BoneArmatureLookup,
                             bonePath,
-                            context.CanonicalToTargetRaw,
                             new HashSet<string>(StringComparer.Ordinal),
                             out boneNode,
                             out string createError))
@@ -333,7 +327,6 @@ namespace Triturbo.BlendShare.FbxExport
             var expected = BuildExpectedSkinState(
                 context.OriginalReaderMesh,
                 inputs,
-                context.CanonicalToTargetRaw,
                 out bool anyFeatureApplied,
                 out string stateError);
             if (expected == null)
@@ -411,10 +404,8 @@ namespace Triturbo.BlendShare.FbxExport
                     !originalNodeMap.ContainsKey(bonePath) &&
                     expected.BoneArmatureLookup.TryGetValue(bonePath, out var boneRecord))
                 {
-                    var expectedLocalRaw = FbxSdkNodeUtility.ConvertCanonicalMatrixToTargetRaw(
-                        boneRecord.LocalBindMatrix,
-                        context.CanonicalToTargetRaw);
-                    if (!verifiedBoneNode.NodeToParentMatrix.Approximately(expectedLocalRaw, k_BindMatrixCompareTolerance))
+                    var expectedLocalRaw = boneRecord.LocalBindMatrix;
+                    if (!MatricesMatch(verifiedBoneNode.NodeToParentMatrix, expectedLocalRaw, context.OriginalReaderScene.Metadata.UnitMeters, context.NumericVerificationToleranceMeters))
                     {
                         diagnostics.Add(new FbxExportDiagnostic(
                             FbxExportDiagnosticSeverity.Error,
@@ -446,7 +437,7 @@ namespace Triturbo.BlendShare.FbxExport
                 return FbxFeatureWriteResult.Failed(diagnostics.ToArray());
             }
 
-            double weightTol = Math.Max(1e-3d, context.NumericVerificationToleranceMeters * 10d);
+            const double weightTol = 1e-3d;
             double maxDiff = 0d;
             int worstCp = -1;
             string worstBone = string.Empty;
@@ -519,8 +510,8 @@ namespace Triturbo.BlendShare.FbxExport
                     continue;
                 }
 
-                if (!verifiedCluster.MeshBindWorld.Approximately(kv.Value.TransformMatrix, k_BindMatrixCompareTolerance) ||
-                    !verifiedCluster.BindToWorld.Approximately(kv.Value.TransformLinkMatrix, k_BindMatrixCompareTolerance))
+                if (!MatricesMatch(verifiedCluster.MeshBindWorld, kv.Value.TransformMatrix, context.OriginalReaderScene.Metadata.UnitMeters, context.NumericVerificationToleranceMeters) ||
+                    !MatricesMatch(verifiedCluster.BindToWorld, kv.Value.TransformLinkMatrix, context.OriginalReaderScene.Metadata.UnitMeters, context.NumericVerificationToleranceMeters))
                 {
                     diagnostics.Add(new FbxExportDiagnostic(
                         FbxExportDiagnosticSeverity.Error,
@@ -535,10 +526,20 @@ namespace Triturbo.BlendShare.FbxExport
             return FbxFeatureWriteResult.Succeeded(modifiedMesh: false, diagnostics.ToArray());
         }
 
+        private static bool MatricesMatch(FbxMatrix4x4 actual, FbxMatrix4x4 expected, double unitMeters, double toleranceMeters)
+        {
+            for (int row = 0; row < 4; row++)
+            for (int column = 0; column < 4; column++)
+            {
+                double tolerance = row == 3 && column < 3 ? toleranceMeters / unitMeters : k_BindMatrixCompareTolerance;
+                if (!(Math.Abs(actual[row, column] - expected[row, column]) <= tolerance)) return false;
+            }
+            return true;
+        }
+
         private static SkinBuildState BuildExpectedSkinState(
             IFbxMesh readerMesh,
             IReadOnlyList<FbxFeatureWriteInput> inputs,
-            FbxAffineSpaceTransform canonicalToTargetRaw,
             out bool anyFeatureApplied,
             out string error)
         {
@@ -604,7 +605,7 @@ namespace Triturbo.BlendShare.FbxExport
                 var armature = FindArmature(input.Armatures, feature.ArmatureId);
                 if (armature != null)
                 {
-                    state.RegisterArmature(armature);
+                    state.RegisterArmature(armature, input.ArmatureSpace);
                 }
 
                 var featureBoneSet = new HashSet<string>(StringComparer.Ordinal);
@@ -619,12 +620,8 @@ namespace Triturbo.BlendShare.FbxExport
 
                     if (cl.HasClusterMatrices)
                     {
-                        var rawMeshMat = FbxSdkNodeUtility.ConvertCanonicalMatrixToTargetRaw(
-                            cl.TransformMatrix,
-                            canonicalToTargetRaw);
-                        var rawLinkMat = FbxSdkNodeUtility.ConvertCanonicalMatrixToTargetRaw(
-                            cl.TransformLinkMatrix,
-                            canonicalToTargetRaw);
+                        var rawMeshMat = input.MeshSpace.BindMatrixToRaw(cl.TransformMatrix);
+                        var rawLinkMat = input.MeshSpace.BindMatrixToRaw(cl.TransformLinkMatrix);
                         state.RawClusterMatricesByBone[bonePath] = new RawClusterMatrices(rawMeshMat, rawLinkMat);
                     }
 
@@ -930,7 +927,7 @@ namespace Triturbo.BlendShare.FbxExport
             return map;
         }
 
-        private static ArmatureDocument FindArmature(IReadOnlyList<ArmatureDocument> armatures, string armatureId)
+        internal static ArmatureDocument FindArmature(IReadOnlyList<ArmatureDocument> armatures, string armatureId)
         {
             if (armatures == null || armatures.Count == 0)
             {
@@ -974,7 +971,7 @@ namespace Triturbo.BlendShare.FbxExport
             FbxNode rootNode,
             ArmatureDocument armature,
             string bonePath,
-            FbxAffineSpaceTransform canonicalToTargetRaw,
+            FbxExportSpace space,
             out string error)
         {
             error = null;
@@ -1001,9 +998,7 @@ namespace Triturbo.BlendShare.FbxExport
                     return false;
                 }
 
-                var rawLocal = FbxSdkNodeUtility.ConvertCanonicalMatrixToTargetRaw(
-                    record.LocalBindMatrix,
-                    canonicalToTargetRaw);
+                var rawLocal = space.BindMatrixToRaw(record.LocalBindMatrix);
                 if (!FbxAffineSpaceTransform.TryCreate(rawLocal, out _))
                 {
                     error = $"Armature bone '{current}' has a singular or non-finite local bind matrix.";
@@ -1024,7 +1019,6 @@ namespace Triturbo.BlendShare.FbxExport
             FbxNode rootNode,
             Dictionary<string, ArmatureBoneRecord> boneRecords,
             string bonePath,
-            FbxAffineSpaceTransform canonicalToTargetRaw,
             HashSet<string> resolving,
             out FbxNode node,
             out string error)
@@ -1064,7 +1058,6 @@ namespace Triturbo.BlendShare.FbxExport
                          rootNode,
                          boneRecords,
                          parentPath,
-                         canonicalToTargetRaw,
                          resolving,
                          out parentNode,
                          out error))
@@ -1083,9 +1076,7 @@ namespace Triturbo.BlendShare.FbxExport
                 : FbxSkeleton.EType.eLimbNode);
             created.SetNodeAttribute(skeleton);
 
-            var rawLocal = FbxSdkNodeUtility.ConvertCanonicalMatrixToTargetRaw(
-                record.LocalBindMatrix,
-                canonicalToTargetRaw);
+            var rawLocal = record.LocalBindMatrix;
             if (!FbxSdkNodeUtility.TryApplyRawLocalMatrixToNode(created, rawLocal, out error))
             {
                 created.Destroy();
@@ -1114,7 +1105,7 @@ namespace Triturbo.BlendShare.FbxExport
         private static bool RegisterAndValidateArmatureBones(
             ArmatureDocument armature,
             string patchId,
-            FbxAffineSpaceTransform canonicalToTargetRaw,
+            FbxExportSpace space, double unitMeters, double toleranceMeters,
             Dictionary<string, (string PatchId, FbxMatrix4x4 LocalBind)> registry,
             List<FbxExportDiagnostic> diagnostics)
         {
@@ -1133,13 +1124,11 @@ namespace Triturbo.BlendShare.FbxExport
                 }
 
                 string path = FbxNameUtility.NormalizePath(bone.Path);
-                var rawLocal = FbxSdkNodeUtility.ConvertCanonicalMatrixToTargetRaw(
-                    bone.LocalBindMatrix,
-                    canonicalToTargetRaw);
+                var rawLocal = space.BindMatrixToRaw(bone.LocalBindMatrix);
 
                 if (registry.TryGetValue(path, out var existing))
                 {
-                    if (!existing.LocalBind.Approximately(rawLocal, k_BindMatrixCompareTolerance))
+                    if (!MatricesMatch(existing.LocalBind, rawLocal, unitMeters, toleranceMeters))
                     {
                         diagnostics.Add(new FbxExportDiagnostic(
                             FbxExportDiagnosticSeverity.Error,
@@ -1208,7 +1197,7 @@ namespace Triturbo.BlendShare.FbxExport
                 }
             }
 
-            public void RegisterArmature(ArmatureDocument armature)
+            public void RegisterArmature(ArmatureDocument armature, FbxExportSpace space)
             {
                 if (armature?.Bones == null)
                 {
@@ -1226,7 +1215,13 @@ namespace Triturbo.BlendShare.FbxExport
                     string path = FbxNameUtility.NormalizePath(b.Path);
                     if (!BoneArmatureLookup.ContainsKey(path))
                     {
-                        BoneArmatureLookup[path] = b;
+                        BoneArmatureLookup[path] = new ArmatureBoneRecord
+                        {
+                            Path = b.Path,
+                            ParentPath = b.ParentPath,
+                            LocalBindMatrix = space.BindMatrixToRaw(b.LocalBindMatrix),
+                            GlobalBindMatrix = space.BindMatrixToRaw(b.GlobalBindMatrix)
+                        };
                     }
                 }
             }

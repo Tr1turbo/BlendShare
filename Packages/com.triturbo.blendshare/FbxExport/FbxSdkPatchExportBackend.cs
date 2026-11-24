@@ -461,28 +461,16 @@ namespace Triturbo.BlendShare.FbxExport
         {
             plan = null;
 
-            CanonicalMeshSpace.SanitizeMetadata(
-                readerScene.Metadata,
-                out var targetAxes,
-                out double targetUnitMeters,
-                out bool spaceFallback);
-            if (spaceFallback)
-            {
-                diagnostics.Add(new FbxExportDiagnostic(
-                    FbxExportDiagnosticSeverity.Warning,
-                    "FBX_EXPORT_TARGET_SPACE_FALLBACK",
-                    "Target FBX had invalid/unknown coordinate axes or unit scale; fell back to CanonicalMeshLocalV1 defaults."));
-            }
-
-            FbxMatrix4x4 canonToRawMat = CanonicalMeshSpace.BuildCanonicalToRaw(targetAxes, targetUnitMeters, out _);
-            FbxMatrix4x4 rawToCanonMat = CanonicalMeshSpace.BuildRawToCanonical(targetAxes, targetUnitMeters, out _);
-            if (!FbxAffineSpaceTransform.TryCreate(canonToRawMat, out var canonicalToTargetRaw) ||
-                !FbxAffineSpaceTransform.TryCreate(rawToCanonMat, out var targetRawToCanonical))
+            var target = readerScene.Metadata;
+            if (!CanonicalMeshSpace.TryBuildSpaceToSpace(target.Axes, target.UnitMeters,
+                    CanonicalMeshSpace.CanonicalAxes, 1d, out var rawToCanonical, out _) ||
+                !FbxAffineSpaceTransform.TryCreate(rawToCanonical, out var targetRawToCanonical) ||
+                !FbxAffineSpaceTransform.TryCreate(targetRawToCanonical.InverseOffset, out var canonicalToTargetRaw))
             {
                 diagnostics.Add(new FbxExportDiagnostic(
                     FbxExportDiagnosticSeverity.Error,
                     "FBX_EXPORT_SINGULAR_TARGET_SPACE",
-                    "Target FBX coordinate-space transform is singular."));
+                    "Invalid target FBX axes, unit scale, or coordinate-space transform."));
                 return false;
             }
 
@@ -538,6 +526,18 @@ namespace Triturbo.BlendShare.FbxExport
 
                 IReadOnlyList<ArmatureDocument> armatures = armaturesResult.Value ?? new List<ArmatureDocument>();
 
+                var armatureSpaces = new Dictionary<ArmatureDocument, FbxExportSpace>();
+                foreach (var armature in armatures)
+                {
+                    if (!FbxExportSpace.TryCreate(armature.SpaceProvenance, target, out var space))
+                    {
+                        diagnostics.Add(new FbxExportDiagnostic(FbxExportDiagnosticSeverity.Error, "FBX_EXPORT_ARMATURE_SPACE",
+                            $"Invalid stored frame, axes or unit for armature '{armature.ArmatureId}'.", patchId: patchItem.PatchId));
+                        return false;
+                    }
+                    armatureSpaces.Add(armature, space);
+                }
+
                 for (int m = 0; m < patchItem.Toc.Meshes.Count; m++)
                 {
                     var meshToc = patchItem.Toc.Meshes[m];
@@ -555,6 +555,13 @@ namespace Triturbo.BlendShare.FbxExport
                     }
 
                     MeshDocument meshHeader = meshHeaderRes.Value;
+                    if (!FbxExportSpace.TryCreate(meshHeader.SpaceProvenance, target, out var meshSpace))
+                    {
+                        diagnostics.Add(new FbxExportDiagnostic(FbxExportDiagnosticSeverity.Error, "FBX_EXPORT_MESH_SPACE",
+                            $"Invalid stored frame, axes or unit for mesh '{meshHeader.MeshId}'.", patchId: patchItem.PatchId, meshId: meshHeader.MeshId));
+                        return false;
+                    }
+
                     string targetNodePath = ResolveTargetNodePath(patchItem, meshHeader);
 
                     // Resolve target node in both SDK scene and ufbx reader scene.
@@ -737,13 +744,15 @@ namespace Triturbo.BlendShare.FbxExport
                             }
                         }
 
+                        var skin = featureData as SkinWeightFeature;
+                        var armature = skin == null ? null : SkinWeightFbxWriter.FindArmature(armatures, skin.ArmatureId);
                         var input = new FbxFeatureWriteInput(
                             patchItem,
                             meshHeader,
                             armatures,
                             featureData,
                             payloadStore,
-                            targetNodePath);
+                            targetNodePath, meshSpace, armature == null ? null : armatureSpaces[armature]);
                         meshPlan.AddInput(typeId, input);
                     }
                 }
@@ -820,6 +829,13 @@ namespace Triturbo.BlendShare.FbxExport
             }
 
             using var verifiedScene = loadRes.Value;
+            if (!verifiedScene.Metadata.Axes.Equals(originalReaderScene.Metadata.Axes) ||
+                verifiedScene.Metadata.UnitMeters != originalReaderScene.Metadata.UnitMeters)
+            {
+                diagnostics.Add(new FbxExportDiagnostic(FbxExportDiagnosticSeverity.Error, "FBX_EXPORT_VERIFY_SPACE_MISMATCH",
+                    "Export changed the target FBX axes or unit scale."));
+                return false;
+            }
             var writers = m_WriterRegistry.GetAllOrdered();
 
             for (int m = 0; m < plan.MeshPlans.Count; m++)

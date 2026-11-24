@@ -29,9 +29,12 @@ namespace Triturbo.BlendShare.Container.Format
         {
             if (stream == null || !stream.CanSeek || !stream.CanWrite)
                 throw new ArgumentException("A seekable writable stream is required.", nameof(stream));
-            Validate(document, payloadSource ?? (rawCopySource as ILazyPayloadSource));
+            var effectivePayloadSource = payloadSource ?? (rawCopySource as ILazyPayloadSource);
+            Validate(document, effectivePayloadSource);
+            // Only allow byte-preserving Ref-to-Ref raw copy when caller did NOT explicitly request custom transcode options.
+            bool effectiveAllowRawCopy = allowRawCopy && !options.HasValue;
             var encoding = options ?? PayloadEncodeOptions.Default;
-            var sink = new PayloadSink(m_Serializer, allowRawCopy ? rawCopySource : null, payloadSource);
+            var sink = new PayloadSink(m_Serializer, effectiveAllowRawCopy ? rawCopySource : null, effectivePayloadSource);
             using var manifest = new MemoryStream();
             var writer = new WireWriter(manifest);
             writer.WriteString(document.PatchId);
@@ -51,14 +54,15 @@ namespace Triturbo.BlendShare.Container.Format
                 new ArmatureTable { Armatures = document.Armatures }, sink, encoding));
             foreach (var mesh in document.Meshes)
             {
+                var meshEncoding = ResolveMeshEncodeOptions(encoding, mesh.SpaceProvenance);
                 var header = new MeshDocument
                 {
                     MeshId = mesh.MeshId, Name = mesh.Name, NodePath = mesh.NodePath, Topology = mesh.Topology,
                     SpaceProvenance = mesh.SpaceProvenance, OriginBinding = mesh.OriginBinding
                 };
-                AddRecord(ContainerSectionKind.MeshHeader, m_Serializer.SerializeRecord(header, sink, encoding, mesh.MeshId), mesh.MeshId);
+                AddRecord(ContainerSectionKind.MeshHeader, m_Serializer.SerializeRecord(header, sink, meshEncoding, mesh.MeshId), mesh.MeshId);
                 foreach (var feature in mesh.Features)
-                    AddRecord(ContainerSectionKind.Feature, m_Serializer.SerializeFeature(feature, sink, encoding, mesh.MeshId), mesh.MeshId, feature);
+                    AddRecord(ContainerSectionKind.Feature, m_Serializer.SerializeFeature(feature, sink, meshEncoding, mesh.MeshId), mesh.MeshId, feature);
             }
 
             var manifestSlice = new ByteSlice(FixedHeaderSize, manifest.Length);
@@ -90,6 +94,29 @@ namespace Triturbo.BlendShare.Container.Format
             foreach (var bytes in sink.Blobs) stream.Write(bytes, 0, bytes.Length);
             if (stream.Length != toc.TotalFileLength) stream.SetLength(toc.TotalFileLength);
             return toc;
+        }
+
+        private static PayloadEncodeOptions ResolveMeshEncodeOptions(PayloadEncodeOptions baseOptions, MeshSpaceProvenance provenance)
+        {
+            if (provenance == null)
+            {
+                return baseOptions;
+            }
+
+            if (provenance.FrameVersion == MeshSpaceProvenance.CanonicalMeshLocalV1)
+            {
+                return baseOptions.WithPositionUnitMeters(1d);
+            }
+
+            if (provenance.FrameVersion == MeshSpaceProvenance.OriginRawLocalV2)
+            {
+                double unitMeters = provenance.OriginRawMetersPerUnit;
+                FormatIO.Check(!double.IsNaN(unitMeters) && !double.IsInfinity(unitMeters) && unitMeters > 0d,
+                    "OriginRawLocalV2 mesh provenance requires a finite strictly positive OriginRawMetersPerUnit.");
+                return baseOptions.WithPositionUnitMeters(unitMeters);
+            }
+
+            throw new InvalidDataException($"Unsupported MeshSpaceProvenance.FrameVersion '{provenance.FrameVersion}'.");
         }
 
         private void Validate(PatchDocument document, ILazyPayloadSource payloadSource)

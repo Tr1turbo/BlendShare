@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Triturbo.BlendShare.Fbx;
+using Triturbo.BlendShare.Model.Documents;
 using System.Security.Cryptography;
 using System.Text;
 using Triturbo.BlendShare.Mapping;
@@ -39,7 +41,7 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
     }
 
     /// <summary>
-    /// On-disk + in-memory 2-layer geometry binding cache under <c>Library/BlendShare/Bindings/v1/</c>.
+    /// On-disk + in-memory 2-layer geometry binding cache under <c>Library/BlendShare/Bindings/v2/</c>.
     /// Layer 1: Content-addressed CSR blobs (<c>blobs/&lt;csrBlobId&gt;.bin</c>) with strict SHA-256 and CSR bounds checks.
     /// Layer 2: Conservative resolution index (<c>index/&lt;resolutionKeyHash&gt;.bin</c>).
     /// Layer 3 (<c>OriginSpaceContract</c>) is NEVER cached in the CSR blob and is computed per resolution use.
@@ -47,11 +49,24 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
     /// </summary>
     public sealed class BindingCacheStore
     {
-        public const string DefaultRelativeRoot = "Library/BlendShare/Bindings/v1";
+        public const string DefaultRelativeRoot = "Library/BlendShare/Bindings/v2";
+
+        private const int k_BindingSpaceAlgoRevision = 2;
+
+        internal static void WriteSpaceKey(BinaryWriter writer, MeshSpaceProvenance stored)
+        {
+            var axes = stored?.OriginAxes ?? CanonicalMeshSpace.CanonicalAxes;
+            writer.Write(k_BindingSpaceAlgoRevision);
+            writer.Write(stored?.FrameVersion ?? MeshSpaceProvenance.CanonicalMeshLocalV1);
+            writer.Write((int)axes.Right);
+            writer.Write((int)axes.Up);
+            writer.Write((int)axes.Front);
+            writer.Write(stored?.OriginRawMetersPerUnit ?? 1d);
+        }
 
         private static readonly byte[] s_BlobMagic = Encoding.ASCII.GetBytes("BSCSR001");
         private static readonly byte[] s_IndexMagic = Encoding.ASCII.GetBytes("BSIDX001");
-        private const int k_FormatVersion = 1;
+        private const int k_FormatVersion = 2;
         private const int k_MaxCachedMemoryEntries = 256;
 
         private readonly object m_Lock = new object();

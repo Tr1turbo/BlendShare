@@ -54,22 +54,27 @@ namespace Triturbo.BlendShare.Model.Serialization
             CompressionAlgorithm.Deflate,
             enableAdaptiveVectorPalette: true,
             maxPositionQuantizationErrorMeters: 5e-5,
-            weightZeroThreshold: 1e-5);
+            weightZeroThreshold: 1e-5,
+            positionUnitMeters: 1d);
 
         public static readonly PayloadEncodeOptions Lossless = new PayloadEncodeOptions(
             QuantizationMode.LosslessFloat64,
             CompressionAlgorithm.Deflate,
             enableAdaptiveVectorPalette: true,
             maxPositionQuantizationErrorMeters: 0d,
-            weightZeroThreshold: 0d);
+            weightZeroThreshold: 0d,
+            positionUnitMeters: 1d);
+
+        private readonly double m_PositionUnitMeters;
 
         public QuantizationMode Quantization { get; }
         public CompressionAlgorithm Compression { get; }
         public bool EnableAdaptiveVectorPalette { get; }
 
         /// <summary>
-        /// Maximum acceptable per-axis absolute error (meters in CanonicalMeshLocalV1) for quantized PositionDelta.
-        /// If exceeded due to outliers, encoder automatically falls back to FullFloat32.
+        /// Maximum acceptable per-axis physical error (in meters) for quantized PositionDelta.
+        /// Scaled to stored coordinate units via <see cref="PositionUnitMeters"/>; if exceeded, encoder
+        /// falls back to FullFloat32 (and promotes to LosslessFloat64 if Float32 also exceeds the budget).
         /// </summary>
         public double MaxPositionQuantizationErrorMeters { get; }
 
@@ -78,12 +83,28 @@ namespace Triturbo.BlendShare.Model.Serialization
         /// </summary>
         public double WeightZeroThreshold { get; }
 
+        /// <summary>
+        /// Physical length in meters of 1.0 coordinate unit in the payload's stored mesh space
+        /// (e.g., <c>1.0</c> for meters / <c>CanonicalMeshLocalV1</c>, <c>0.01</c> for centimeters in <c>OriginRawLocalV2</c>).
+        /// </summary>
+        public double PositionUnitMeters => m_PositionUnitMeters > 0d ? m_PositionUnitMeters : 1d;
+
+        /// <summary>
+        /// Maximum acceptable per-axis absolute error expressed in the payload's stored coordinate units:
+        /// <c>MaxPositionQuantizationErrorMeters / PositionUnitMeters</c>.
+        /// </summary>
+        public double EffectiveMaxPositionQuantizationErrorUnits =>
+            MaxPositionQuantizationErrorMeters <= 0d
+                ? 0d
+                : MaxPositionQuantizationErrorMeters / PositionUnitMeters;
+
         public PayloadEncodeOptions(
             QuantizationMode quantization,
             CompressionAlgorithm compression = CompressionAlgorithm.Deflate,
             bool enableAdaptiveVectorPalette = true,
             double maxPositionQuantizationErrorMeters = 1e-4,
-            double weightZeroThreshold = 1e-5)
+            double weightZeroThreshold = 1e-5,
+            double positionUnitMeters = 1d)
         {
             if (double.IsNaN(maxPositionQuantizationErrorMeters) || double.IsInfinity(maxPositionQuantizationErrorMeters) || maxPositionQuantizationErrorMeters < 0d)
             {
@@ -95,11 +116,28 @@ namespace Triturbo.BlendShare.Model.Serialization
                 throw new ArgumentOutOfRangeException(nameof(weightZeroThreshold));
             }
 
+            if (double.IsNaN(positionUnitMeters) || double.IsInfinity(positionUnitMeters) || positionUnitMeters <= 0d)
+            {
+                throw new ArgumentOutOfRangeException(nameof(positionUnitMeters));
+            }
+
             Quantization = quantization;
             Compression = compression;
             EnableAdaptiveVectorPalette = enableAdaptiveVectorPalette;
             MaxPositionQuantizationErrorMeters = maxPositionQuantizationErrorMeters;
             WeightZeroThreshold = weightZeroThreshold;
+            m_PositionUnitMeters = positionUnitMeters;
+        }
+
+        public PayloadEncodeOptions WithPositionUnitMeters(double positionUnitMeters)
+        {
+            return new PayloadEncodeOptions(
+                Quantization,
+                Compression,
+                EnableAdaptiveVectorPalette,
+                MaxPositionQuantizationErrorMeters,
+                WeightZeroThreshold,
+                positionUnitMeters);
         }
 
         public bool Equals(PayloadEncodeOptions other) =>
@@ -107,10 +145,11 @@ namespace Triturbo.BlendShare.Model.Serialization
             Compression == other.Compression &&
             EnableAdaptiveVectorPalette == other.EnableAdaptiveVectorPalette &&
             MaxPositionQuantizationErrorMeters.Equals(other.MaxPositionQuantizationErrorMeters) &&
-            WeightZeroThreshold.Equals(other.WeightZeroThreshold);
+            WeightZeroThreshold.Equals(other.WeightZeroThreshold) &&
+            PositionUnitMeters.Equals(other.PositionUnitMeters);
 
         public override bool Equals(object obj) => obj is PayloadEncodeOptions other && Equals(other);
-        public override int GetHashCode() => HashCode.Combine(Quantization, Compression, EnableAdaptiveVectorPalette, MaxPositionQuantizationErrorMeters, WeightZeroThreshold);
+        public override int GetHashCode() => HashCode.Combine(Quantization, Compression, EnableAdaptiveVectorPalette, MaxPositionQuantizationErrorMeters, WeightZeroThreshold, PositionUnitMeters);
         public static bool operator ==(PayloadEncodeOptions left, PayloadEncodeOptions right) => left.Equals(right);
         public static bool operator !=(PayloadEncodeOptions left, PayloadEncodeOptions right) => !left.Equals(right);
     }

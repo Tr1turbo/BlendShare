@@ -39,7 +39,7 @@ namespace Triturbo.BlendShare.Fbx
                 return false;
             }
 
-            if (offset.IsIdentity)
+            if (IsExactIdentity(offset))
             {
                 transform = Identity;
                 return true;
@@ -121,6 +121,26 @@ namespace Triturbo.BlendShare.Fbx
         public FbxMatrix4x4 TransformMeshBindWorld(FbxMatrix4x4 meshBindWorld)
         {
             return IsIdentity ? meshBindWorld : InverseOffset * meshBindWorld;
+        }
+
+        /// <summary>
+        /// Exact IEEE-754 identity test (zero tolerance; returns false for any non-zero perturbation or NaN).
+        /// </summary>
+        public static bool IsExactIdentity(FbxMatrix4x4 matrix)
+        {
+            for (int r = 0; r < 4; r++)
+            {
+                for (int c = 0; c < 4; c++)
+                {
+                    double expected = r == c ? 1d : 0d;
+                    if (!(matrix[r, c] == expected))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
         }
 
         private static bool IsAffineRowVectorMatrix(FbxMatrix4x4 matrix)

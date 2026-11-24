@@ -5,7 +5,9 @@ using Triturbo.BlendShare.Model.Serialization;
 namespace Triturbo.BlendShare.Model.Documents
 {
     /// <summary>
-    /// Explicit per-use affine coordinate contract from CanonicalMeshLocalV1 to UnityMeshLocal.
+    /// Explicit per-use affine coordinate contract from stored patch mesh-local space
+    /// (<see cref="MeshSpaceProvenance.CanonicalMeshLocalV1"/> or <see cref="MeshSpaceProvenance.OriginRawLocalV2"/>)
+    /// to <c>UnityMeshLocal</c>.
     /// </summary>
     [BlendShareRecord(SchemaVersion = 1)]
     public sealed class OriginSpaceContract
@@ -14,6 +16,16 @@ namespace Triturbo.BlendShare.Model.Documents
         [BlendShareField(2)] public int BindingSpaceVersion = 1;
         [BlendShareField(3)] public string TargetIdentity = string.Empty;
         [BlendShareField(4)] public FbxMatrix4x4 CanonicalToUnityMeshLocal = FbxMatrix4x4.Identity;
+
+        /// <summary>
+        /// Semantic alias for field 4 (<see cref="CanonicalToUnityMeshLocal"/>): transforms coordinates from
+        /// the patch's stored mesh-local frame (<see cref="FrameVersion"/>) into <c>UnityMeshLocal</c>.
+        /// </summary>
+        public FbxMatrix4x4 StoredToUnityMeshLocal
+        {
+            get => CanonicalToUnityMeshLocal;
+            set => CanonicalToUnityMeshLocal = value;
+        }
     }
 
     /// <summary>

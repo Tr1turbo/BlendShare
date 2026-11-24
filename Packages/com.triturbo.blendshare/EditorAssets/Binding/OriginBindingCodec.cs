@@ -55,7 +55,8 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
             MeshCornerMappingResult inverseMapping,
             int originControlPointCount,
             FbxSceneMetadata originSceneMetadata,
-            string targetIdentity = null)
+            string targetIdentity = null,
+            MeshSpaceProvenance storedSpace = null)
         {
             if (originSnapshot == null)
             {
@@ -79,11 +80,8 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                 IndexDomain.ControlPoint);
 
             var digests = UnityMeshGeometryDigests.Compute(originSnapshot);
-            var canonicalToUnity = UnitySpaceContractMath.BuildCanonicalToUnityMatrix(
-                originSceneMetadata,
-                inverseMapping.MatchedScale,
-                inverseMapping.MatchedBakeAxisConversion,
-                out _);
+            var contract = BuildSpaceContract(storedSpace?.FrameVersion ?? MeshSpaceProvenance.OriginRawLocalV2,
+                storedSpace, originSceneMetadata, inverseMapping.MatchedScale, inverseMapping.MatchedBakeAxisConversion, targetIdentity);
 
             var coincidentClasses = UnityMeshGeometryDigests.FindCoincidentPositionClasses(originSnapshot);
             var proofs = new List<OriginCoincidentClassProof>(coincidentClasses.Count);
@@ -113,21 +111,37 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                 FaceCornerIndices = inverseMapping.FirstFbxCorners != null && inverseMapping.FirstFbxCorners.Length > 0
                     ? (int[])inverseMapping.FirstFbxCorners.Clone()
                     : null,
-                SpaceContract = new OriginSpaceContract
-                {
-                    FrameVersion = MeshSpaceProvenance.CanonicalMeshLocalV1,
-                    BindingSpaceVersion = 1,
-                    TargetIdentity = targetIdentity ?? string.Empty,
-                    CanonicalToUnityMeshLocal = canonicalToUnity
-                },
+                SpaceContract = contract,
                 CoincidentClasses = proofs
+            };
+        }
+
+        internal static OriginSpaceContract BuildSpaceContract(int frameVersion, MeshSpaceProvenance storedSpace,
+            FbxSceneMetadata target, float scale, bool bakeAxes, string targetIdentity)
+        {
+            if (frameVersion == MeshSpaceProvenance.OriginRawLocalV2 && storedSpace != null &&
+                (!CanonicalMeshSpace.IsValidAxes(storedSpace.OriginAxes) || !CanonicalMeshSpace.IsValidUnitMeters(storedSpace.OriginRawMetersPerUnit)))
+                throw new ArgumentException("OriginRawLocalV2 stored space requires valid axes and strictly positive unit scale.");
+
+            if (!UnitySpaceContractMath.TryBuildStoredToUnityMatrix(frameVersion, storedSpace?.OriginAxes ?? target.Axes,
+                    storedSpace?.OriginRawMetersPerUnit ?? target.UnitMeters, target, scale, bakeAxes, out var matrix, out _) ||
+                !FbxAffineSpaceTransform.TryCreate(matrix, out _))
+                throw new ArgumentException($"Unsupported or singular binding for stored frame {frameVersion}.");
+
+            return new OriginSpaceContract
+            {
+                FrameVersion = frameVersion,
+                BindingSpaceVersion = frameVersion == MeshSpaceProvenance.CanonicalMeshLocalV1 ? 1 : 2,
+                StoredToUnityMeshLocal = matrix,
+                TargetIdentity = targetIdentity ?? string.Empty
             };
         }
 
         public static OriginBindingVerificationResult Verify(
             OriginBindingDocument binding,
             UnityMeshSnapshot targetSnapshot,
-            int expectedOriginControlPointCount = -1)
+            int expectedOriginControlPointCount = -1,
+            int expectedFrameVersion = 0)
         {
             if (binding == null)
             {
@@ -148,8 +162,9 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
             }
 
             if (binding.SpaceContract == null ||
-                binding.SpaceContract.FrameVersion != MeshSpaceProvenance.CanonicalMeshLocalV1 ||
-                !FbxAffineSpaceTransform.TryCreate(binding.SpaceContract.CanonicalToUnityMeshLocal, out _))
+                !MeshSpaceProvenance.IsSupportedFrameVersion(binding.SpaceContract.FrameVersion) ||
+                (expectedFrameVersion != 0 && binding.SpaceContract.FrameVersion != expectedFrameVersion) ||
+                !FbxAffineSpaceTransform.TryCreate(binding.SpaceContract.StoredToUnityMeshLocal, out _))
             {
                 return new OriginBindingVerificationResult(
                     OriginBindingVerificationStatus.InvalidSpaceContract,

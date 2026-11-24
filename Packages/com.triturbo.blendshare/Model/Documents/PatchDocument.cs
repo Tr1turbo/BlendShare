@@ -30,12 +30,15 @@ namespace Triturbo.BlendShare.Model.Documents
     }
 
     /// <summary>
-    /// Records the origin raw space provenance and transform into CanonicalMeshLocalV1.
+    /// Records the stored mesh coordinate frame, origin raw axes/unit scale, and provenance transform.
+    /// FrameVersion 1 = CanonicalMeshLocalV1 (meters, +X/+Y/+Z);
+    /// FrameVersion 2 = OriginRawLocalV2 (native Origin FBX local coordinates &amp; units).
     /// </summary>
     [BlendShareRecord(SchemaVersion = 1)]
     public sealed class MeshSpaceProvenance
     {
         public const int CanonicalMeshLocalV1 = 1;
+        public const int OriginRawLocalV2 = 2;
 
         [BlendShareField(1)] public int FrameVersion = CanonicalMeshLocalV1;
         [BlendShareField(2)] public double OriginRawMetersPerUnit = 1d;
@@ -43,6 +46,11 @@ namespace Triturbo.BlendShare.Model.Documents
         [BlendShareField(4)] public FbxCoordinateAxis OriginUpAxis = FbxCoordinateAxis.PositiveY;
         [BlendShareField(5)] public FbxCoordinateAxis OriginFrontAxis = FbxCoordinateAxis.PositiveZ;
         [BlendShareField(6)] public FbxMatrix4x4 OriginRawToCanonical = FbxMatrix4x4.Identity;
+
+        public FbxCoordinateAxes OriginAxes => new FbxCoordinateAxes(OriginRightAxis, OriginUpAxis, OriginFrontAxis);
+
+        public static bool IsSupportedFrameVersion(int frameVersion) =>
+            frameVersion == CanonicalMeshLocalV1 || frameVersion == OriginRawLocalV2;
     }
 
     /// <summary>
