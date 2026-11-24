@@ -25,6 +25,16 @@ namespace Triturbo.BlendShare.Container.Format
             Value = value;
             Message = message;
         }
+
+        public static ContainerReadResult<T> Fail(ContainerReadStatus status, string message)
+        {
+            if (status == ContainerReadStatus.Success)
+            {
+                throw new ArgumentException("Fail status cannot be Success.", nameof(status));
+            }
+
+            return new ContainerReadResult<T>(status, default, message ?? string.Empty);
+        }
     }
 
     public sealed class ContainerIndexEntry
@@ -58,6 +68,40 @@ namespace Triturbo.BlendShare.Container.Format
             Slice = slice;
             UncompressedBytes = size;
             m_Hash = (byte[])hash.Clone();
+        }
+
+        public static ContainerIndexEntry Create(
+            int index,
+            ContainerSectionKind kind,
+            string ownerMeshId,
+            string featureId,
+            string typeId,
+            int schemaVersion,
+            bool required,
+            string codecId,
+            int codecVersion,
+            ByteSlice slice,
+            long uncompressedBytes,
+            byte[] sha256)
+        {
+            if (sha256 == null || sha256.Length != 32)
+            {
+                throw new ArgumentException("SHA-256 digest must be exactly 32 bytes.", nameof(sha256));
+            }
+
+            return new ContainerIndexEntry(
+                index,
+                kind,
+                ownerMeshId ?? string.Empty,
+                featureId ?? string.Empty,
+                typeId ?? string.Empty,
+                schemaVersion,
+                required,
+                codecId ?? string.Empty,
+                codecVersion,
+                slice,
+                uncompressedBytes,
+                sha256);
         }
 
         internal ContainerIndexEntry Relocate(int index, long baseOffset) =>
@@ -148,6 +192,30 @@ namespace Triturbo.BlendShare.Container.Format
                     m_FeaturePayloadBytes[key] = checked(total + e.UncompressedBytes);
                 }
             }
+        }
+
+        public static ContainerToc FromCachedEntries(
+            string patchId,
+            string displayName,
+            byte[] sourceRevisionBytes,
+            ByteSlice manifestSlice,
+            ByteSlice indexTableSlice,
+            ByteSlice payloadSectionSlice,
+            IEnumerable<ContainerIndexEntry> entries)
+        {
+            if (sourceRevisionBytes == null || sourceRevisionBytes.Length != 32)
+            {
+                throw new ArgumentException("SourceRevision must be 32 bytes.", nameof(sourceRevisionBytes));
+            }
+
+            return new ContainerToc(
+                patchId ?? string.Empty,
+                displayName ?? string.Empty,
+                sourceRevisionBytes,
+                manifestSlice,
+                indexTableSlice,
+                payloadSectionSlice,
+                entries ?? Array.Empty<ContainerIndexEntry>());
         }
 
         internal long FeaturePayloadBytes(ContainerIndexEntry entry) =>

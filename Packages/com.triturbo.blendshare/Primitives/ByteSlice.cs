@@ -1,19 +1,24 @@
 using System;
+using UnityEngine;
 
 namespace Triturbo.BlendShare.Primitives
 {
     /// <summary>
     /// Represents a validated byte range within a BlendShare container stream.
+    /// Uses private [SerializeField] backing fields so Unity serializes ByteSlice cleanly inside ScriptableObjects
+    /// while remaining immutable to callers.
     /// </summary>
     [Serializable]
-    public readonly struct ByteSlice : IEquatable<ByteSlice>
+    public struct ByteSlice : IEquatable<ByteSlice>
     {
         public static readonly ByteSlice Empty = new ByteSlice(0L, 0L);
 
-        public readonly long Offset;
-        public readonly long Length;
+        [SerializeField] private long m_Offset;
+        [SerializeField] private long m_Length;
 
-        public bool IsEmpty => Length == 0L;
+        public long Offset => m_Offset;
+        public long Length => m_Length;
+        public bool IsEmpty => m_Length == 0L;
 
         public ByteSlice(long offset, long length)
         {
@@ -27,33 +32,32 @@ namespace Triturbo.BlendShare.Primitives
                 throw new ArgumentOutOfRangeException(nameof(length), "ByteSlice length must be non-negative.");
             }
 
-            // Verify offset + length does not overflow Int64.
             if (offset > long.MaxValue - length)
             {
                 throw new OverflowException("ByteSlice end offset overflows Int64.");
             }
 
-            Offset = offset;
-            Length = length;
+            m_Offset = offset;
+            m_Length = length;
         }
 
-        public long End => checked(Offset + Length);
+        public long End => checked(m_Offset + m_Length);
 
         public bool IsWithin(long totalLength)
         {
-            return totalLength >= 0L && Offset <= totalLength && Length <= totalLength - Offset;
+            return totalLength >= 0L && m_Offset <= totalLength && m_Length <= totalLength - m_Offset;
         }
 
         public bool IsWithin(ByteSlice container)
         {
-            return Offset >= container.Offset && End <= container.End;
+            return m_Offset >= container.m_Offset && End <= container.End;
         }
 
-        public bool Equals(ByteSlice other) => Offset == other.Offset && Length == other.Length;
+        public bool Equals(ByteSlice other) => m_Offset == other.m_Offset && m_Length == other.m_Length;
         public override bool Equals(object obj) => obj is ByteSlice other && Equals(other);
-        public override int GetHashCode() => HashCode.Combine(Offset, Length);
+        public override int GetHashCode() => HashCode.Combine(m_Offset, m_Length);
         public static bool operator ==(ByteSlice left, ByteSlice right) => left.Equals(right);
         public static bool operator !=(ByteSlice left, ByteSlice right) => !left.Equals(right);
-        public override string ToString() => $"ByteSlice(Offset={Offset}, Length={Length})";
+        public override string ToString() => $"ByteSlice(Offset={m_Offset}, Length={m_Length})";
     }
 }

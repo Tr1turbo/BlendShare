@@ -177,6 +177,18 @@ namespace Triturbo.BlendShare.Container.Format
             }
         }
 
+        /// <summary>
+        /// Clears a prior invalidation mark when an identical content-addressed revision is re-registered (e.g. asset restored or reimported).
+        /// </summary>
+        public void AllowRevision(string sourceRevision)
+        {
+            if (string.IsNullOrEmpty(sourceRevision)) return;
+            lock (m_Gate)
+            {
+                m_Invalidated.Remove(sourceRevision);
+            }
+        }
+
         public void Dispose()
         {
             lock (m_Gate)
