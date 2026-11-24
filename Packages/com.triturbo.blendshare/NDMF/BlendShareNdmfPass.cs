@@ -1,13 +1,15 @@
 using System.Collections.Generic;
 using System.Linq;
 using nadena.dev.ndmf;
+using nadena.dev.ndmf.animator;
 using Triturbo.BlendShare.Pipeline.Apply;
-using Triturbo.BlendShare.Runtime.Components;
+using Triturbo.BlendShare.Components;
 using UnityEngine;
 using UnityEngine.UIElements;
 
 namespace Triturbo.BlendShare.NDMF
 {
+    [DependsOnContext(typeof(AnimatorServicesContext))]
     internal sealed class BlendShareNdmfPass : Pass<BlendShareNdmfPass>
     {
         public override string QualifiedName => "com.triturbo.blendshare.apply";
@@ -16,17 +18,23 @@ namespace Triturbo.BlendShare.NDMF
         protected override void Execute(BuildContext context)
         {
             var root = context.AvatarRootObject;
-            var components = root.GetComponentsInChildren<BlendSharePatchMesh>().Where(c => c.isActiveAndEnabled).ToArray();
-            var proxies = root.GetComponentsInChildren<BlendSharePatchBoneProxy>().Where(c => c.isActiveAndEnabled).ToArray();
-            var mapped = new HashSet<Transform>(proxies.SelectMany(p => p.Bindings).Where(b => b != null).Select(b => b.TargetTransform));
+            var allMeshes = root.GetComponentsInChildren<BlendShareMesh>(true);
+            var allProxies = root.GetComponentsInChildren<BlendShareBoneProxy>(true);
+            if (allMeshes.Length == 0 && allProxies.Length == 0) return;
+            var components = SelectMeshComponents(allMeshes.Where(c => c.isActiveAndEnabled));
+            var proxies = allProxies.Where(c => c.isActiveAndEnabled).ToArray();
+            var animator = context.Extension<AnimatorServicesContext>();
+            var mergeResolver = new BlendShareBoneBindingMergeResolver(context, animator);
+            var uses = new List<AvatarBoneBindingUse>();
+            var capturedWeights = BlendShareBlendShapeWeightService.CaptureExistingRendererWeights(components);
             bool succeeded = true;
             foreach (var group in components.GroupBy(c => c.TargetRenderer))
             {
                 var renderer = group.Key;
-                if (!renderer)
+                if (!renderer || !renderer.transform.IsChildOf(root.transform))
                 {
                     foreach (var component in group)
-                        ErrorReport.ReportError(new ApplyError($"Missing target renderer on {component.name}."));
+                        ErrorReport.ReportError(new ApplyError($"Missing avatar target renderer on {component.name}."));
                     succeeded = false;
                     continue;
                 }
@@ -46,36 +54,69 @@ namespace Triturbo.BlendShare.NDMF
                 }
 
                 var output = result.MeshResult.OutputMesh;
-                var weights = result.ResolvedBlendShapeWeights.ToList();
-                for (int i = 0; i < incoming.blendShapeCount; i++)
-                    weights.Add(new KeyValuePair<string, float>(incoming.GetBlendShapeName(i), renderer.GetBlendShapeWeight(i)));
+                uses.AddRange(result.BoneBindingUses);
                 ObjectRegistry.RegisterReplacedObject(incoming, output);
                 context.AssetSaver.SaveAsset(output);
                 renderer.sharedMesh = output;
                 var bones = result.MeshResult.OutputBones;
                 if (bones != null && bones.Length > 0)
-                {
                     renderer.bones = bones;
-                    mapped.UnionWith(bones);
-                }
-                foreach (var weight in weights)
-                {
-                    int index = output.GetBlendShapeIndex(weight.Key);
-                    if (index >= 0) renderer.SetBlendShapeWeight(index, weight.Value);
-                }
+                foreach (var applier in group)
+                    BlendShareBlendShapeWeightService.ApplyWeightsToRenderer(applier, renderer);
+                BlendShareBlendShapeWeightService.ApplyCapturedRendererWeights(capturedWeights, renderer);
             }
             if (!succeeded) return;
-            var allAuthoring = root.GetComponentsInChildren<BlendSharePatchMesh>(true).Cast<Component>()
-                .Concat(root.GetComponentsInChildren<BlendSharePatchBoneProxy>(true))
-                .ToArray();
+            BlendShareBlendShapeWeightService.RetargetRendererBlendShapeCurves(components, animator);
+            if (!mergeResolver.Prepare(uses, out var diagnostic) || !mergeResolver.Cleanup(out diagnostic))
+            {
+                ErrorReport.ReportError(new ApplyError(diagnostic));
+                return;
+            }
+
+            context.GetState<RendererWeightState>().Weights =
+                BlendShareBlendShapeWeightService.CaptureExistingRendererWeights(components);
+            var mapped = new HashSet<Transform>(root.GetComponentsInChildren<SkinnedMeshRenderer>(true)
+                .SelectMany(renderer => renderer.bones.Append(renderer.rootBone)));
+            mapped.UnionWith(proxies.Where(proxy => proxy).SelectMany(proxy => proxy.Bindings)
+                .Where(binding => binding != null).Select(binding => binding.Transform));
+            var allAuthoring = allMeshes.Cast<Component>().Concat(allProxies);
             foreach (var component in allAuthoring)
             {
                 if (!component) continue;
                 var host = component.gameObject;
                 bool dedicated = host != root && host.transform.childCount == 0 && !mapped.Contains(host.transform)
-                    && host.GetComponents<Component>().Length == 2;
+                    && host.GetComponents<Component>().Length == 2 && mergeResolver.CanRemoveHost(host.transform);
                 Object.DestroyImmediate(dedicated ? (Object)host : component);
             }
+        }
+
+        // A newer instance of a logical patch replaces the older asset at its original
+        // hierarchy slot. Within that asset the last setup for a renderer and mesh wins.
+        internal static BlendShareMesh[] SelectMeshComponents(IEnumerable<BlendShareMesh> candidates)
+        {
+            var ordered = candidates.ToArray();
+            var patches = ordered.Select(c => c.ResolvedPatch).Where(patch => patch)
+                .GroupBy(patch => (patch.PatchId, AnonymousPatch: string.IsNullOrEmpty(patch.PatchId) ? patch : null))
+                .Select((group, slot) => (Patch: group.Last(), Slot: slot))
+                .ToDictionary(pair => pair.Patch, pair => pair.Slot);
+            var winners = ordered.Where(c => c.ResolvedPatch && patches.ContainsKey(c.ResolvedPatch))
+                .GroupBy(c => (c.ResolvedPatch, c.ResolvedMeshId, c.TargetRenderer))
+                .Select(group => group.Last()).ToHashSet();
+            return ordered.Where(c => !c.ResolvedPatch || winners.Contains(c))
+                .OrderBy(c => c.ResolvedPatch ? patches[c.ResolvedPatch] : int.MaxValue).ToArray();
+        }
+
+        private sealed class RendererWeightState
+        {
+            public IReadOnlyDictionary<SkinnedMeshRenderer, IReadOnlyDictionary<string, float>> Weights { get; set; }
+        }
+
+        internal static void RestoreRendererWeights(BuildContext context)
+        {
+            var weights = context.GetState<RendererWeightState>().Weights;
+            if (weights == null) return;
+            foreach (var renderer in weights.Keys)
+                BlendShareBlendShapeWeightService.ApplyCapturedRendererWeights(weights, renderer);
         }
 
         private sealed class ApplyError : IError

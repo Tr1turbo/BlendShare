@@ -11,7 +11,7 @@ using Triturbo.BlendShare.Model.Features;
 using Triturbo.BlendShare.Model.Serialization;
 using Triturbo.BlendShare.Model.Validation;
 using Triturbo.BlendShare.Runtime.Assets;
-using Triturbo.BlendShare.Runtime.Components;
+using Triturbo.BlendShare.Components;
 using UnityEditor;
 using UnityEngine;
 
@@ -41,16 +41,16 @@ namespace Triturbo.BlendShare.Pipeline.Apply
         public Transform RendererTransform { get; set; }
 
         /// <summary>
-        /// Ordered authoring <see cref="BlendSharePatchMesh"/> components targeting this renderer.
+        /// Ordered authoring <see cref="BlendShareMesh"/> components targeting this renderer.
         /// Later entries win same-name blendshape and weight collisions.
         /// </summary>
-        public IReadOnlyList<BlendSharePatchMesh> Components { get; set; } = Array.Empty<BlendSharePatchMesh>();
+        public IReadOnlyList<BlendShareMesh> Components { get; set; } = Array.Empty<BlendShareMesh>();
 
         /// <summary>
-        /// Active <see cref="BlendSharePatchBoneProxy"/> components in avatar scope, matched strictly by
+        /// Active <see cref="BlendShareBoneProxy"/> components in avatar scope, matched strictly by
         /// <c>(BlendShareAsset, ArmatureId)</c> identity.
         /// </summary>
-        public IReadOnlyList<BlendSharePatchBoneProxy> BoneProxies { get; set; } = Array.Empty<BlendSharePatchBoneProxy>();
+        public IReadOnlyList<BlendShareBoneProxy> BoneProxies { get; set; } = Array.Empty<BlendShareBoneProxy>();
 
         /// <summary>
         /// Whether missing bones may be instantiated under <see cref="TargetRootTransform"/>.
@@ -78,8 +78,24 @@ namespace Triturbo.BlendShare.Pipeline.Apply
         public FeatureUnityApplierRegistry ApplierRegistry { get; set; }
     }
 
+    /// <summary>A proxy binding that actually supplied a bone slot on the generated renderer.</summary>
+    public readonly struct AvatarBoneBindingUse
+    {
+        public BlendShareResolvedBone Bone { get; }
+        public Matrix4x4 BindPose { get; }
+        public Transform Renderer { get; }
+
+        internal AvatarBoneBindingUse(BlendShareResolvedBone bone, Matrix4x4 bindPose, Transform renderer)
+        {
+            Bone = bone;
+            BindPose = bindPose;
+            Renderer = renderer;
+        }
+    }
+
     public sealed class AvatarRendererApplyResult
     {
+        public IReadOnlyList<AvatarBoneBindingUse> BoneBindingUses { get; }
         public bool Succeeded { get; }
         public UnityMeshApplyResult MeshResult { get; }
         public IReadOnlyList<ApplyDiagnostic> Diagnostics { get; }
@@ -91,8 +107,10 @@ namespace Triturbo.BlendShare.Pipeline.Apply
             UnityMeshApplyResult meshResult,
             IReadOnlyList<ApplyDiagnostic> diagnostics,
             IReadOnlyList<KeyValuePair<string, float>> resolvedBlendShapeWeights,
-            IReadOnlyDictionary<string, long> observedSettingsRevisions)
+            IReadOnlyDictionary<string, long> observedSettingsRevisions,
+            IReadOnlyList<AvatarBoneBindingUse> boneBindingUses = null)
         {
+            BoneBindingUses = boneBindingUses ?? Array.Empty<AvatarBoneBindingUse>();
             Succeeded = succeeded;
             MeshResult = meshResult;
             Diagnostics = diagnostics ?? Array.Empty<ApplyDiagnostic>();
@@ -129,7 +147,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                 diagnostics.Add(new ApplyDiagnostic(
                     ApplyDiagnosticSeverity.Info,
                     "AVATAR_APPLY_NO_COMPONENTS",
-                    "No BlendSharePatchMesh components were provided."));
+                    "No BlendShareMesh components were provided."));
                 return new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
             }
 
@@ -143,7 +161,8 @@ namespace Triturbo.BlendShare.Pipeline.Apply
             var weightOverrides = new Dictionary<string, float>(StringComparer.Ordinal);
             var weightOrder = new List<string>();
             var committedGuids = new HashSet<string>(StringComparer.Ordinal);
-            var collectedProxyPatches = new HashSet<string>(StringComparer.Ordinal);
+            var resolutions = new Dictionary<BlendShareArmatureKey, BlendShareArmatureBoneProxyResolution>();
+            var clusterOwners = new Dictionary<BoneOverrideKey, Queue<BlendShareMesh>>();
 
             for (int c = 0; c < request.Components.Count; c++)
             {
@@ -160,7 +179,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     diagnostics.Add(new ApplyDiagnostic(
                         ApplyDiagnosticSeverity.Error,
                         "AVATAR_APPLY_PATCH_MESH_MISMATCH",
-                        $"BlendSharePatchMesh on '{comp.name}' references Patch '{comp.Patch.name}' but MeshAsset '{comp.MeshAsset.name}' belongs to '{comp.MeshAsset.Root.name}'.",
+                        $"BlendShareMesh on '{comp.name}' references Patch '{comp.Patch.name}' but MeshAsset '{comp.MeshAsset.name}' belongs to '{comp.MeshAsset.Root.name}'.",
                         patchId: comp.Patch.PatchId,
                         meshId: comp.ResolvedMeshId));
                     return new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
@@ -173,7 +192,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     diagnostics.Add(new ApplyDiagnostic(
                         ApplyDiagnosticSeverity.Error,
                         "AVATAR_APPLY_MISSING_PATCH",
-                        $"BlendSharePatchMesh on '{comp.name}' has no BlendShareAsset assigned."));
+                        $"BlendShareMesh on '{comp.name}' has no BlendShareAsset assigned."));
                     return new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
                 }
 
@@ -182,7 +201,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     diagnostics.Add(new ApplyDiagnostic(
                         ApplyDiagnosticSeverity.Error,
                         "AVATAR_APPLY_MISSING_MESH_ID",
-                        $"BlendSharePatchMesh on '{comp.name}' has no MeshId assigned.",
+                        $"BlendShareMesh on '{comp.name}' has no MeshId assigned.",
                         patchId: patch.PatchId));
                     return new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
                 }
@@ -360,10 +379,45 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     return new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
                 }
 
-                // Collect bone proxy overrides and armature root overrides once per patch, scoped strictly by (BlendShareAsset, ArmatureId).
-                if (collectedProxyPatches.Add(patchScopeKey))
+                foreach (var skin in features.OfType<SkinWeightFeature>())
                 {
-                    CollectBoneOverridesForPatch(patch, patchScopeKey, request.BoneProxies, boneOverrides, armatureRootOverrides, diagnostics);
+                    var armature = new BlendShareArmatureKey(patch, skin.ArmatureId);
+                    if (!resolutions.TryGetValue(armature, out var resolution))
+                    {
+                        resolution = BlendShareBoneProxyResolver.Resolve(armature, request.BoneProxies);
+                        if (!resolution.Success)
+                        {
+                            diagnostics.Add(new ApplyDiagnostic(ApplyDiagnosticSeverity.Error,
+                                "AVATAR_APPLY_INVALID_ARMATURE", string.Join("\n", resolution.Diagnostics)));
+                            return new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
+                        }
+                        resolutions.Add(armature, resolution);
+                        foreach (var proxy in resolution.SelectedProxies)
+                        foreach (var binding in proxy.Bindings.Where(b => resolution.IsEffective(proxy, b)))
+                        {
+                            var parent = proxy.GetEffectiveParent(binding);
+                            var root = request.TargetRootTransform;
+                            if (root && (!binding.Transform.IsChildOf(root) || binding.Transform == root ||
+                                (parent && (!parent.IsChildOf(root) || parent.IsChildOf(binding.Transform)))))
+                            {
+                                diagnostics.Add(new ApplyDiagnostic(ApplyDiagnosticSeverity.Error,
+                                    "AVATAR_APPLY_INVALID_PROXY_HIERARCHY", $"Invalid parent or bone on proxy '{proxy.name}'."));
+                                return new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
+                            }
+                            var key = new BoneOverrideKey(patchScopeKey, skin.ArmatureId,
+                                FbxNameUtility.NormalizePath(binding.SourceBonePath));
+                            boneOverrides[key] = binding.Transform;
+                            if (parent && proxy.IsRootBinding(binding))
+                                armatureRootOverrides[(patchScopeKey, skin.ArmatureId)] = parent;
+                        }
+                    }
+                    foreach (var cluster in skin.Clusters)
+                    {
+                        var key = new BoneOverrideKey(patchScopeKey, skin.ArmatureId, FbxNameUtility.NormalizePath(cluster.BonePath));
+                        if (!clusterOwners.TryGetValue(key, out var owners))
+                            clusterOwners.Add(key, owners = new Queue<BlendShareMesh>());
+                        owners.Enqueue(comp);
+                    }
                 }
 
                 // Collect blendshape weight overrides (later component wins collisions).
@@ -427,6 +481,31 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                 diagnostics.AddRange(meshApplyRes.Diagnostics);
             }
 
+            var uses = new List<AvatarBoneBindingUse>();
+            if (meshApplyRes.Succeeded && meshApplyRes.AppliedBoneBindings.Count > 0)
+            {
+                // Skin application emits a record per cluster in component order. A later
+                // cluster can reuse a slot, so its pose must also win when it has no override.
+                var poses = meshApplyRes.OutputMesh.bindposes;
+                var records = meshApplyRes.AppliedBoneBindings.ToArray();
+                for (int i = 0; i < records.Length; i++)
+                {
+                    var record = records[i];
+                    var key = new BoneOverrideKey(record.PatchId, record.ArmatureId, record.SourceBonePath);
+                    if (!clusterOwners.TryGetValue(key, out var owners) || owners.Count == 0) continue;
+                    var owner = owners.Dequeue();
+                    var pose = owner.TryGetBindPoseOverride(record.SourceBonePath, out var authored) ? authored : record.BindPose;
+                    poses[record.BoneIndex] = pose;
+                    records[i] = new AppliedBoneBinding(record.PatchId, record.ArmatureId, record.SourceBonePath,
+                        record.TargetBonePath, record.TargetTransform, pose, record.BoneIndex, record.IsNewBone);
+                    var resolution = resolutions[new BlendShareArmatureKey(owner.ResolvedPatch, record.ArmatureId)];
+                    if (resolution.TryGetBinding(record.SourceBonePath, out var bone))
+                        uses.Add(new AvatarBoneBindingUse(bone, pose, request.RendererTransform));
+                }
+                meshApplyRes.OutputMesh.bindposes = poses;
+                meshApplyRes.AppliedBoneBindings = records;
+            }
+
             var resolvedWeights = new List<KeyValuePair<string, float>>(weightOrder.Count);
             for (int i = 0; i < weightOrder.Count; i++)
             {
@@ -439,7 +518,8 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                 meshApplyRes,
                 diagnostics,
                 resolvedWeights,
-                observedRevisions);
+                observedRevisions,
+                uses);
         }
 
         /// <summary>
@@ -465,64 +545,6 @@ namespace Triturbo.BlendShare.Pipeline.Apply
             }
 
             return $"inst:{patch.GetInstanceID()}";
-        }
-
-        private static void CollectBoneOverridesForPatch(
-            BlendShareAsset patch,
-            string patchScopeKey,
-            IReadOnlyList<BlendSharePatchBoneProxy> boneProxies,
-            Dictionary<BoneOverrideKey, Transform> target,
-            Dictionary<(string PatchId, string ArmatureId), Transform> armatureRootOverrides,
-            List<ApplyDiagnostic> diagnostics)
-        {
-            if (patch == null || boneProxies == null || boneProxies.Count == 0)
-            {
-                return;
-            }
-
-            for (int p = 0; p < boneProxies.Count; p++)
-            {
-                var proxy = boneProxies[p];
-                if (proxy == null || !ReferenceEquals(proxy.Patch, patch))
-                {
-                    continue;
-                }
-
-                string armatureId = proxy.ArmatureId ?? string.Empty;
-                Transform effectiveParent = proxy.UseHierarchyParent ? proxy.transform.parent : proxy.TargetParent;
-                if (effectiveParent != null)
-                {
-                    armatureRootOverrides[(patchScopeKey, armatureId)] = effectiveParent;
-                }
-
-                var bindings = proxy.Bindings;
-                for (int b = 0; b < bindings.Count; b++)
-                {
-                    var binding = bindings[b];
-                    if (binding == null || !binding.IsConfigured)
-                    {
-                        continue;
-                    }
-
-                    string normalizedBonePath = FbxNameUtility.NormalizePath(binding.SourceBonePath);
-                    if (string.IsNullOrEmpty(normalizedBonePath))
-                    {
-                        continue;
-                    }
-
-                    var key = new BoneOverrideKey(patchScopeKey, armatureId, normalizedBonePath);
-                    if (target.TryGetValue(key, out var existing) && existing != null && existing != binding.TargetTransform)
-                    {
-                        diagnostics.Add(new ApplyDiagnostic(
-                            ApplyDiagnosticSeverity.Warning,
-                            "AVATAR_APPLY_BONE_PROXY_CONFLICT",
-                            $"Conflicting bone proxy bindings for patch '{patch.name}' armature '{armatureId}' bone '{normalizedBonePath}'; later proxy '{proxy.name}' overrides '{existing.name}' with '{binding.TargetTransform.name}'.",
-                            patchId: patch.PatchId));
-                    }
-
-                    target[key] = binding.TargetTransform;
-                }
-            }
         }
     }
 }

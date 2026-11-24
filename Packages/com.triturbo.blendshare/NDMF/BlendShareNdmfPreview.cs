@@ -6,7 +6,7 @@ using nadena.dev.ndmf.preview;
 using Triturbo.BlendShare.EditorAssets.Settings;
 using Triturbo.BlendShare.Pipeline.Apply;
 using Triturbo.BlendShare.Runtime.Assets;
-using Triturbo.BlendShare.Runtime.Components;
+using Triturbo.BlendShare.Components;
 using UnityEditor;
 using UnityEngine;
 
@@ -53,17 +53,32 @@ namespace Triturbo.BlendShare.NDMF
 
         public ImmutableList<RenderGroup> GetTargetGroups(ComputeContext context)
         {
-            var targets = new HashSet<SkinnedMeshRenderer>();
-            foreach (var component in context.GetComponentsByType<BlendSharePatchMesh>())
-            {
-                var target = context.Observe(component, c => c.TargetRenderer);
-                var patch = context.Observe(component, c => c.ResolvedPatch);
-                var meshId = context.Observe(component, c => c.ResolvedMeshId);
-                var root = context.GetAvatarRoot(component.gameObject);
-                if (context.ActiveAndEnabled(component) && root && target && patch && !string.IsNullOrWhiteSpace(meshId))
-                    targets.Add(target);
-            }
+            var targets = context.GetComponentsByType<BlendShareMesh>()
+                .Where(component => context.ActiveAndEnabled(component))
+                .GroupBy(component => context.GetAvatarRoot(component.gameObject))
+                .Where(group => group.Key)
+                .SelectMany(group => SelectMeshComponents(group, context).Where(c => c.TargetRenderer &&
+                    context.GetAvatarRoot(c.TargetRenderer.gameObject) == group.Key))
+                .Select(component => component.TargetRenderer)
+                .Distinct();
             return targets.Select(t => RenderGroup.For(t)).ToImmutableList();
+        }
+
+        private static BlendShareMesh[] SelectMeshComponents(IEnumerable<BlendShareMesh> candidates, ComputeContext context)
+        {
+            var ordered = candidates.ToArray();
+            foreach (var component in ordered)
+            {
+                ObserveTransform(context, component.transform, observePose: false);
+                var patch = context.Observe(component, c => c.ResolvedPatch);
+                if (patch) context.Observe(patch, p => p.PatchId);
+                var meshAsset = context.Observe(component, c => c.MeshAsset);
+                if (meshAsset) context.Observe(meshAsset, asset => asset.MeshId);
+                context.Observe(component, c => c.ResolvedMeshId);
+                context.Observe(component, c => c.TargetRenderer);
+            }
+            return BlendShareNdmfPass.SelectMeshComponents(ordered)
+                .Where(c => c.ResolvedPatch && !string.IsNullOrWhiteSpace(c.ResolvedMeshId)).ToArray();
         }
 
         public Task<IRenderFilterNode> Instantiate(RenderGroup group, IEnumerable<(Renderer, Renderer)> pairs, ComputeContext context)
@@ -73,39 +88,43 @@ namespace Triturbo.BlendShare.NDMF
             var proxySmr = (SkinnedMeshRenderer)proxy;
             var root = context.GetAvatarRoot(originalSmr.gameObject);
             if (!root) return Task.FromResult<IRenderFilterNode>(new Node());
-            var components = new List<BlendSharePatchMesh>();
-            foreach (var component in context.GetComponentsInChildren<BlendSharePatchMesh>(root, true))
+            var components = new List<BlendShareMesh>();
+            var activeMeshes = context.GetComponentsInChildren<BlendShareMesh>(root, true)
+                .Where(c => context.ActiveAndEnabled(c) && context.GetAvatarRoot(c.gameObject) == root);
+            foreach (var component in SelectMeshComponents(activeMeshes, context))
             {
-                if (context.Observe(component, c => c.TargetRenderer) != originalSmr) continue;
-                context.Observe(component, c => c.ResolvedMeshId);
-                var meshAsset = context.Observe(component, c => c.MeshAsset);
-                if (meshAsset) context.Observe(meshAsset);
+                if (component.TargetRenderer != originalSmr) continue;
                 var reference = context.Observe(component, c => c.ReferenceMesh);
                 if (reference) context.Observe(reference);
                 context.Observe(component, c => c.TargetFbxOverride);
                 context.Observe(component, c => c.CreateMissingBones);
+                context.Observe(component, c => c.BindPoseOverrides.Where(b => b != null)
+                    .Select(b => (b.SourceBonePath, b.BindPose)).ToArray(), (a, b) => a.SequenceEqual(b));
                 context.Observe(component, c => c.BlendShapeWeights.Where(w => w != null)
-                    .Select(w => (w.ShapeName, w.Weight)).ToArray(), (a, b) => a.SequenceEqual(b));
-                context.ObservePath(component.transform).ToArray();
+                    .Select(w => (w, w.ShapeName)).ToArray(), (a, b) => a.SequenceEqual(b));
                 var patch = context.Observe(component, c => c.ResolvedPatch);
                 ObservePatchSettingsRevision(context, patch);
-                if (context.ActiveAndEnabled(component)) components.Add(component);
+                components.Add(component);
             }
-            var proxies = new List<BlendSharePatchBoneProxy>();
-            foreach (var proxyComponent in context.GetComponentsInChildren<BlendSharePatchBoneProxy>(root, true))
+            var proxies = new List<BlendShareBoneProxy>();
+            foreach (var proxyComponent in context.GetComponentsInChildren<BlendShareBoneProxy>(root, true))
             {
+                if (!context.ActiveAndEnabled(proxyComponent) || context.GetAvatarRoot(proxyComponent.gameObject) != root) continue;
                 context.Observe(proxyComponent);
-                context.ObservePath(proxyComponent.transform).ToArray();
+                ObserveTransform(context, proxyComponent.transform);
+                context.Observe(proxyComponent, p => p.UseHierarchyParent);
+                ObserveTransform(context, context.Observe(proxyComponent, p => p.TargetParent));
                 ObservePatchSettingsRevision(context, context.Observe(proxyComponent, p => p.Patch));
                 context.Observe(proxyComponent, p => p.ArmatureId);
                 var bindings = context.Observe(proxyComponent, p => p.Bindings.Select(b =>
-                    (b?.SourceBonePath, b?.TargetTransform)).ToArray(), (a, b) => a.SequenceEqual(b));
+                    (b?.SourceBonePath, b?.Transform)).ToArray(), (a, b) => a.SequenceEqual(b));
                 foreach (var (_, target) in bindings)
-                    if (target) context.ObservePath(target).ToArray();
-                if (context.ActiveAndEnabled(proxyComponent)) proxies.Add(proxyComponent);
+                    ObserveTransform(context, target);
+                proxies.Add(proxyComponent);
             }
             if (components.Count == 0 || !proxySmr || !proxySmr.sharedMesh)
                 return Task.FromResult<IRenderFilterNode>(new Node());
+            ObserveTransform(context, originalSmr.transform);
             var incomingBones = proxySmr.bones;
             var result = BlendShareAvatarApplyService.ApplyToRenderer(new AvatarRendererApplyRequest
             {
@@ -113,24 +132,37 @@ namespace Triturbo.BlendShare.NDMF
                 TargetRootTransform = root.transform, Components = components, BoneProxies = proxies,
                 CreateMissingBones = false, FlushDirtySettings = false
             });
-            return Task.FromResult<IRenderFilterNode>(result.Succeeded ? new Node(result, proxySmr, incomingBones) : new Node());
+            return Task.FromResult<IRenderFilterNode>(result.Succeeded ? new Node(result, proxySmr, incomingBones, components) : new Node());
+        }
+
+        private static void ObserveTransform(ComputeContext context, Transform target, bool observePose = true)
+        {
+            if (!target) return;
+            foreach (var ancestor in context.ObservePath(target))
+            {
+                context.Observe(ancestor, t => t.GetSiblingIndex());
+                if (observePose) context.Observe(ancestor, t => (t.localPosition, t.localRotation, t.localScale));
+                context.Observe(ancestor.gameObject, go => go.name);
+            }
         }
 
         private sealed class Node : IRenderFilterNode
         {
             private readonly Mesh m_OwnedMesh;
             private readonly Transform[] m_OutputBones;
-            private readonly (int Index, float Weight)[] m_Weights;
+            private readonly (int Index, BlendShareProxyBlendShapeWeight Control)[] m_Weights;
             private readonly (int Input, int Output)[] m_Inherited;
             private readonly float[] m_FrameWeights;
             public RenderAspects WhatChanged => m_OwnedMesh ? (RenderAspects.Mesh | RenderAspects.Shapes) : 0;
             public Node() { }
-            public Node(AvatarRendererApplyResult result, SkinnedMeshRenderer proxy, Transform[] incomingBones)
+            public Node(AvatarRendererApplyResult result, SkinnedMeshRenderer proxy, Transform[] incomingBones, IEnumerable<BlendShareMesh> components)
             {
                 m_OwnedMesh = result.MeshResult.OutputMesh;
                 var bones = result.MeshResult.OutputBones;
                 if (bones != null && !bones.SequenceEqual(incomingBones)) m_OutputBones = bones;
-                m_Weights = result.ResolvedBlendShapeWeights.Select(w => (Index: m_OwnedMesh.GetBlendShapeIndex(w.Key), w.Value))
+                m_Weights = components.SelectMany(c => c.BlendShapeWeights)
+                    .Where(w => w != null && !string.IsNullOrWhiteSpace(w.ShapeName))
+                    .Select(w => (Index: m_OwnedMesh.GetBlendShapeIndex(w.ShapeName), Control: w))
                     .Where(w => w.Index >= 0).ToArray();
                 var incoming = proxy.sharedMesh;
                 m_Inherited = Enumerable.Range(0, incoming.blendShapeCount)
@@ -155,7 +187,7 @@ namespace Triturbo.BlendShare.NDMF
                 }
                 smr.sharedMesh = m_OwnedMesh;
                 if (m_OutputBones != null) smr.bones = m_OutputBones;
-                foreach (var (index, weight) in m_Weights) smr.SetBlendShapeWeight(index, weight);
+                foreach (var (index, control) in m_Weights) smr.SetBlendShapeWeight(index, control.Weight);
                 for (int i = 0; i < m_Inherited.Length; i++) smr.SetBlendShapeWeight(m_Inherited[i].Output, m_FrameWeights[i]);
             }
 
