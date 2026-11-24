@@ -1,0 +1,1744 @@
+msgid ""
+msgstr ""
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: ja-JP\n"
+
+msgid "locale:ja-JP"
+msgstr "日本語"
+
+msgid "blendshape_selection.blendshape_names"
+msgstr "シェイプキー名"
+
+msgid "blendshape_selection.mesh_name"
+msgstr "メッシュ名"
+
+msgid "blendshape_selection.name"
+msgstr "名前"
+
+msgid "blendshape_selection.title"
+msgstr "シェイプキー選択"
+
+msgid "data.apply_blendshapes"
+msgstr "シェイプキーを適用"
+
+msgid "data.apply_blendshapes_as_new_fbx"
+msgstr "新しい FBX としてシェイプキーを適用"
+
+msgid "data.apply_blendshapes_as_new_fbx.tooltip"
+msgstr "元の FBX を複製し、そのコピーにシェイプキーを適用します。"
+
+msgid "data.apply_blendshapes.tooltip"
+msgstr "リスト内のシェイプキーを元の FBX に追加します。"
+
+msgid "data.apply_blendshapes.tooltip_locked_message"
+msgstr ""
+"\n"
+"（現在このボタンは無効です。すでにシェイプキーを FBX に適用済みです。「編集」をクリックして強制的に有効化できます）"
+
+msgid "data.blendshape_count_summary"
+msgstr "シェイプキー: {0}/{1} 有効"
+
+msgid "data.blendshape_filter"
+msgstr "フィルター"
+
+msgid "data.blendshape_filter_no_results"
+msgstr "現在のフィルターに一致するシェイプキーはありません。"
+
+msgid "data.blendshape_filter.tooltip"
+msgstr "名前でシェイプキーをフィルターします。一括操作は現在表示されている行にのみ適用されます。"
+
+msgid "data.blendshape_readonly_count_summary"
+msgstr "シェイプキー: {0}"
+
+msgid "data.blendshape_selection.active"
+msgstr "アクティブな選択"
+
+msgid "data.blendshape_selection.all"
+msgstr "すべてのシェイプキー"
+
+msgid "data.blendshape_selection.delete"
+msgstr "削除"
+
+msgid "data.blendshape_selection.delete_message"
+msgstr "選択「{0}」を削除しますか？現在有効なシェイプキーのリストは変更されません。"
+
+msgid "data.blendshape_selection.delete_title"
+msgstr "シェイプキー選択を削除"
+
+msgid "data.blendshape_selection.delete.tooltip"
+msgstr "現在保存されている選択を削除します。現在有効なシェイプキーのリストは変更されません。"
+
+msgid "data.blendshape_selection.issue_warning"
+msgstr "選択されたメッシュ選択には、見つからない、または重複したシェイプキー名が含まれています。使用時に無効な名前はスキップされます。"
+
+msgid "data.blendshape_selection.name_prompt"
+msgstr "選択名"
+
+msgid "data.blendshape_selection.revert_changes"
+msgstr "変更を元に戻す"
+
+msgid "data.blendshape_selection.save_as_new"
+msgstr "新規として保存..."
+
+msgid "data.blendshape_selection.save_changes"
+msgstr "変更を保存"
+
+msgid "data.blendshape_selection.save_title"
+msgstr "シェイプキー選択を保存"
+
+msgid "data.blendshape_selection.title"
+msgstr "シェイプキー選択"
+
+msgid "data.blendshape_selection.unsaved_working_set"
+msgstr "未保存の作業セット"
+
+msgid "data.blendshape_selection.unsaved_working_set.message"
+msgstr "メッシュ「{0}」の現在の作業セットには未保存の変更があります。別の選択を読み込む前に保存しますか？"
+
+msgid "data.blendshape_status"
+msgstr "{1} 件中 {0} 件が有効（{2} 件表示）"
+
+msgid "data.create_artifact"
+msgstr "メッシュアセットを作成"
+
+msgid "data.create_artifact.tooltip"
+msgstr "生成メッシュとスキンバインド情報を含むメッシュアセットを作成します。"
+
+msgid "data.created_by"
+msgstr "Triturbo が作成した Blendshapes 共有ツール"
+
+msgid "patch.created_by"
+msgstr "Triturbo が作成した FBX パッチツール"
+
+msgid "data.dialog.apply_blendshapes.message"
+msgstr "リストにあるシェイプキーを元の GameObject に追加します。続行しますか？"
+
+msgid "data.dialog.apply_blendshapes.title"
+msgstr "シェイプキーの適用"
+
+msgid "data.dialog.cancel"
+msgstr "キャンセル"
+
+msgid "data.dialog.delete"
+msgstr "削除"
+
+msgid "data.dialog.discard"
+msgstr "破棄"
+
+msgid "data.dialog.fbx_missing.message"
+msgstr "元の FBX ファイルが見つかりません。アセットをインポートするか、「元の FBX」に FBX を割り当ててください。"
+
+msgid "data.dialog.fbx_missing.title"
+msgstr "元の FBX が見つかりません。"
+
+msgid "data.dialog.mesh_vertices_not_match.message"
+msgstr "頂点が一致しないため、メッシュを作成できません。FBX SDK をインポートして FBX ファイルを作成してください。"
+
+msgid "data.dialog.mesh_vertices_not_match.title"
+msgstr "Unity メッシュの頂点が一致しません"
+
+msgid "data.dialog.ok"
+msgstr "OK"
+
+msgid "data.dialog.remove_blendshapes.message"
+msgstr "リストにあるシェイプキーを元の GameObject から削除します。続行しますか？"
+
+msgid "data.dialog.remove_blendshapes.title"
+msgstr "シェイプキーの削除"
+
+msgid "data.dialog.save"
+msgstr "保存"
+
+msgid "data.edit"
+msgstr " 編集 "
+
+msgid "data.edit_mode"
+msgstr "編集モード"
+
+msgid "data.edit_mode.bulk_toggle"
+msgstr "切り替え"
+
+msgid "data.edit_mode.order_adjust"
+msgstr "並べ替え"
+
+msgid "data.edit_mode.tooltip"
+msgstr "手動の順序編集と一括シェイプキー切り替えを切り替えます。"
+
+msgid "data.enable_all_blendshapes"
+msgstr "すべて有効化"
+
+msgid "data.enable_all_blendshapes.tooltip"
+msgstr "このメッシュのすべてのシェイプキーを有効にします。"
+
+msgid "data.enable_visible_blendshapes"
+msgstr "表示中を有効化"
+
+msgid "data.enable_visible_blendshapes.tooltip"
+msgstr "現在表示されているすべてのシェイプキーを有効にします。"
+
+msgid "data.fbx_sdk_missing"
+msgstr "Autodesk FBX® SDK が見つかりません。FBX 操作機能は無効になります。"
+
+msgid "data.hidden_settings"
+msgstr "隠し設定"
+
+msgid "data.hidden_settings.applied"
+msgstr "適用済み"
+
+msgid "data.hidden_settings.applied.tooltip"
+msgstr "ユーザーがシェイプキーを FBX に適用したかどうかを示します。"
+
+msgid "data.hidden_settings.default_asset_name"
+msgstr "デフォルトのアセット名"
+
+msgid "data.hidden_settings.default_asset_name.tooltip"
+msgstr "生成されるアセットのデフォルト名です。"
+
+msgid "data.hidden_settings.deformer_id"
+msgstr "デフォーマー ID"
+
+msgid "data.hidden_settings.patch_id"
+msgstr "パッチ ID"
+
+msgid "data.lock"
+msgstr "ロック"
+
+msgid "data.mute_all_blendshapes"
+msgstr "すべてミュート"
+
+msgid "data.mute_all_blendshapes.tooltip"
+msgstr "このメッシュのすべてのシェイプキーをミュートします。"
+
+msgid "data.mute_blendshape"
+msgstr "ミュート"
+
+msgid "data.mute_visible_blendshapes"
+msgstr "表示中をミュート"
+
+msgid "data.mute_visible_blendshapes.tooltip"
+msgstr "現在表示されているすべてのシェイプキーをミュートします。"
+
+msgid "data.open_advanced_generator"
+msgstr "高度なメッシュ作成を開く"
+
+msgid "data.open_advanced_generator.tooltip"
+msgstr "複数の BlendShare アセットからメッシュを生成する高度なメッシュ作成を開きます。"
+
+msgid "data.original_fbx"
+msgstr "オリジナル FBX"
+
+msgid "data.original_fbx.tooltip"
+msgstr "メッシュ生成に使用される元の FBX の GameObject アセットです。"
+
+msgid "data.remove_blendshapes"
+msgstr "シェイプキーを削除"
+
+msgid "data.remove_blendshapes.tooltip"
+msgstr "リスト内のシェイプキーを元の FBX から削除します。"
+
+msgid "data.remove_blendshapes.tooltip_locked_message"
+msgstr ""
+"\n"
+"（現在このボタンは無効です。まだシェイプキーを FBX に適用していません。「編集」をクリックして強制的に有効化できます）"
+
+msgid "data.reset_blendshapes"
+msgstr "シェイプキーをリセット"
+
+msgid "data.reset_blendshapes.tooltip"
+msgstr "シェイプキーリストを元の状態にリセットします。"
+
+msgid "data.save_artifact.title"
+msgstr "メッシュアセットを保存"
+
+msgid "data.save_fbx.title"
+msgstr "FBX を保存"
+
+msgid "data.save_file.message"
+msgstr "ファイル名を入力してください"
+
+msgid "data.skin_weights.bone_count"
+msgstr "クラスター"
+
+msgid "data.skin_weights.root_bone"
+msgstr "ルートボーン"
+
+msgid "data.skin_weights.title"
+msgstr "スキンウェイト"
+
+msgid "data.skin_weights.weighted_control_points"
+msgstr "ウェイト付き FBX 頂点"
+
+msgid "mesh_asset.applied_blendshapes"
+msgstr "適用済み BlendShapes"
+
+msgid "mesh_asset.assign_meshes"
+msgstr "メッシュを割り当て"
+
+msgid "mesh_asset.assign_meshes.dialog.is_fbx.message"
+msgstr ""
+"選択されたオブジェクトは FBX アセットです。\n"
+"FBX アセットは読み取り専用のため、直接編集できません。\n"
+"変更を行う場合は、FBX をシーンにインスタンス化してください。"
+
+msgid "mesh_asset.assign_meshes.dialog.is_fbx.title"
+msgstr "FBX アセットが選択されました"
+
+msgid "mesh_asset.assign_meshes.is_prefab"
+msgstr ""
+"選択されたオブジェクトはプレハブです。\n"
+"このオブジェクトを編集すると、プレハブ自体が変更され、シーンインスタンスには影響しません。\n"
+"プレハブアセットを直接編集しますか？"
+
+msgid "mesh_asset.assign_meshes.target_go"
+msgstr "対象の GameObject"
+
+msgid "mesh_asset.assign_meshes.to_go_btn"
+msgstr "メッシュを対象の GameObject に割り当て"
+
+msgid "mesh_asset.assign_meshes.to_prefab_btn"
+msgstr "メッシュを対象のプレハブに割り当て"
+
+msgid "mesh_asset.fbx_edited"
+msgstr ""
+"このメッシュが生成された後に FBX アセットが変更されています。\n"
+"FBX の変更により、再生成や新しいシェイプキーの適用時に予期しない結果が発生する可能性があります。"
+
+msgid "mesh_asset.read_only"
+msgstr "これらのフィールドは読み取り専用です。「編集」を押すとメタデータを変更できます。"
+
+msgid "updater.dialog_cancel"
+msgstr "キャンセル"
+
+msgid "updater.dialog_view_release"
+msgstr "リリースを見る"
+
+msgid "updater.dialog_yes_update"
+msgstr "はい、アップデートします"
+
+msgid "updater.latest_version"
+msgstr "すでに最新バージョン ({0}) を使用しています。"
+
+msgid "updater.release_parse_failed"
+msgstr "GitHub リリース情報を解析できませんでした。"
+
+msgid "updater.update_available_body"
+msgstr ""
+"新しいバージョンが利用可能です！\n"
+"\n"
+"現在のバージョン: {0}\n"
+"最新のバージョン: {1}\n"
+"\n"
+"ダウンロードしてインポートしますか？"
+
+msgid "updater.update_available_title"
+msgstr "BlendShare のアップデートがあります"
+
+msgid "updater.update_check_failed"
+msgstr ""
+"アップデートの確認に失敗しました:\n"
+"{0}"
+
+msgid "updater.update_error"
+msgstr ""
+"エラーが発生しました:\n"
+"{0}"
+
+msgid "updater.update_no_unitypackage"
+msgstr "最新リリースに .unitypackage が見つかりません。"
+
+msgid "updater.update_title"
+msgstr "BlendShare アップデート"
+
+msgid "common.language"
+msgstr "言語"
+
+msgid "common.original_fbx"
+msgstr "オリジナル FBX"
+
+msgid "common.original_fbx.tooltip"
+msgstr "変更されていない元の FBX ファイルです。"
+
+msgid "common.source_fbx"
+msgstr "ソース FBX"
+
+msgid "common.source_fbx.tooltip"
+msgstr "パッチデータのソースとして使用される FBX ファイルです。"
+
+msgid "common.target_fbx"
+msgstr "ターゲット FBX"
+
+msgid "common.target_fbx.tooltip"
+msgstr "パッチデータの適用または検証先となる FBX アセットです。"
+
+msgid "common.default_asset_name"
+msgstr "デフォルトアセット名"
+
+msgid "common.patch_id"
+msgstr "パッチ ID"
+
+msgid "common.fbx_sdk_missing"
+msgstr "Autodesk FBX® SDK が見つかりません。FBX 編集機能は無効になります。"
+
+msgid "common.github"
+msgstr "GitHub"
+
+msgid "common.github.tooltip"
+msgstr "GitHub で BlendShare リポジトリを開く"
+
+msgid "common.x"
+msgstr "X"
+
+msgid "common.x.tooltip"
+msgstr "X で @TR1TURBO をフォローする"
+
+msgid "common.booth"
+msgstr "BOOTH"
+
+msgid "common.booth.tooltip"
+msgstr "Triturbo の BOOTH ショップを開く"
+
+msgid "common.ok"
+msgstr "OK"
+
+msgid "common.cancel"
+msgstr "キャンセル"
+
+msgid "common.save"
+msgstr "保存"
+
+msgid "common.delete"
+msgstr "削除"
+
+msgid "common.meshes"
+msgstr "メッシュ"
+
+msgid "common.mesh_path"
+msgstr "メッシュパス"
+
+msgid "common.status"
+msgstr "ステータス"
+
+msgid "common.use"
+msgstr "使用"
+
+msgid "common.enable_all"
+msgstr "すべて有効化"
+
+msgid "common.disable_all"
+msgstr "すべて無効化"
+
+msgid "common.select_all"
+msgstr "すべて選択"
+
+msgid "common.clear_all"
+msgstr "すべて解除"
+
+msgid "common.auto"
+msgstr "自動"
+
+msgid "common.disable_diff"
+msgstr "差分を無効化"
+
+msgid "features.blend-shapes.name"
+msgstr "シェイプキー"
+
+msgid "features.blend-shapes.table.name"
+msgstr "シェイプキー"
+
+msgid "features.skin-weights.name"
+msgstr "スキンウェイト"
+
+msgid "features.skin-weights.bones"
+msgstr "ボーン"
+
+msgid "features.skin-weights.no_differences"
+msgstr "スキンウェイトの差分は見つかりませんでした。"
+
+msgid "features.skin-weights.create_bone"
+msgstr "ボーンを作成"
+
+msgid "features.skin-weights.create_bone_required_parent"
+msgstr "ボーンを作成（必須の親）"
+
+msgid "features.skin-weights.bone_transform"
+msgstr "ボーントランスフォーム"
+
+msgid "features.skin-weights.pose"
+msgstr "ポーズ"
+
+msgid "features.skin-weights.local_trs"
+msgstr "ローカル移動 / 回転 / スケール"
+
+msgid "features.skin-weights.weights"
+msgstr "ウェイト"
+
+msgid "features.skin-weights.bindposes"
+msgstr "バインドポーズ"
+
+msgid "features.skin-weights.mesh"
+msgstr "メッシュ"
+
+msgid "patch_creator.title"
+msgstr "BlendShare パッチ作成"
+
+msgid "patch_creator.window_title"
+msgstr "BlendShare パッチ作成"
+
+msgid "patch_creator.preview.scale_linked_tooltip"
+msgstr "スケールの比率を固定"
+
+msgid "patch_creator.preview.scale_unlinked_tooltip"
+msgstr "スケールの比率を個別に変更"
+
+msgid "patch_creator.preview.auto_align_all"
+msgstr "すべて自動整列"
+
+msgid "patch_creator.preview.auto_align_all_tooltip"
+msgstr "トポロジーが一致する各メッシュペアのソース抽出オフセットを個別に計算します。"
+
+msgid "patch_creator.preview.auto_align_all_failed"
+msgstr "トポロジーが一致するメッシュペアから有効な整列変換を計算できませんでした。"
+
+msgid "patch_creator.preview.auto_align_all_applied"
+msgstr "{0} 個のメッシュを {1} 個の対応頂点で個別に自動整列しました。"
+
+msgid "patch_creator.preview.source_extraction_offset"
+msgstr "ソース抽出オフセット"
+
+msgid "patch_creator.preview.show"
+msgstr "表示"
+
+msgid "patch_creator.preview.shown"
+msgstr "表示中"
+
+msgid "patch_creator.preview.topology_compatibility"
+msgstr "トポロジー"
+
+msgid "patch_creator.preview.no_shared_meshes"
+msgstr "Original と Source の間に共通する Raw FBX メッシュパスがありません。"
+
+msgid "patch_creator.preview.wireframe"
+msgstr "ワイヤーフレーム"
+
+msgid "patch_creator.preview.frame"
+msgstr "全体表示"
+
+msgid "patch_creator.preview.reload"
+msgstr "再読み込み"
+
+msgid "patch_creator.preview.raw_fbx_preview"
+msgstr "Raw FBX プレビュー"
+
+msgid "patch_creator.preview.missing"
+msgstr "なし"
+
+msgid "patch_creator.preview.mesh_summary"
+msgstr "コントロールポイント {0}、面 {1}"
+
+msgid "patch_creator.preview.transparent"
+msgstr "半透明"
+
+msgid "patch_creator.preview.shaded"
+msgstr "シェーディング"
+
+msgid "patch_creator.preview.position"
+msgstr "位置"
+
+msgid "patch_creator.preview.rotation"
+msgstr "回転"
+
+msgid "patch_creator.preview.scale"
+msgstr "スケール"
+
+msgid "patch_creator.preview.reset_offset"
+msgstr "オフセットをリセット"
+
+msgid "patch_creator.preview.reset_all_offsets"
+msgstr "全オフセットをリセット"
+
+msgid "patch_creator.preview.calculate_error"
+msgstr "誤差を計算"
+
+msgid "patch_creator.preview.auto_offset"
+msgstr "自動オフセット"
+
+msgid "patch_creator.preview.index_aligned_error"
+msgstr "インデックス整列誤差（{0} 頂点{1}）"
+
+msgid "patch_creator.preview.auto_offset_failed"
+msgstr "有効な変換を算出できませんでした。"
+
+msgid "patch_creator.preview.auto_offset_applied"
+msgstr "自動オフセットを適用しました（{0} 頂点{1}、スケール {2}）"
+
+msgid "patch_creator.preview.alignment_requires_compatible_topology"
+msgstr "整列する前に Original と Source のトポロジーが互換である必要があります。"
+
+msgid "patch_creator.preview.no_vertices"
+msgstr "Original または Source のプレビューメッシュに頂点がありません。"
+
+msgid "patch_creator.preview.extra_control_points_note"
+msgstr "、Source の余分なコントロールポイント {0} 個を無視"
+
+msgid "patch_creator.preview.error_metrics"
+msgstr "{0}: RMS {1}、最大 {2}（頂点 {3}）、相対 RMS {4}、相対最大 {5}。"
+
+msgid "patch_creator.preview.no_preview_mesh"
+msgstr "プレビューメッシュがありません"
+
+msgid "patch_creator.preview.comparison_summary"
+msgstr "Original: {0}    Source: {1}"
+
+msgid "patch_creator.preview.build_null_mesh"
+msgstr "FBX メッシュが null です。"
+
+msgid "patch_creator.preview.build_no_vertices"
+msgstr "FBX メッシュに頂点がありません。"
+
+msgid "patch_creator.preview.build_no_faces"
+msgstr "FBX メッシュに面データがありません。"
+
+msgid "patch_creator.preview.build_no_valid_triangles"
+msgstr "FBX メッシュから有効な三角形を生成できませんでした。"
+
+msgid "patch_creator.preview.assign_fbx_asset"
+msgstr "FBX アセットを指定してください。"
+
+msgid "patch_creator.preview.no_raw_meshes"
+msgstr "Raw メッシュが見つかりません。"
+
+msgid "patch_creator.global_tab"
+msgstr "グローバル"
+
+msgid "patch_creator.global_settings"
+msgstr "グローバル設定"
+
+msgid "patch_creator.global_help"
+msgstr "オリジナル FBX とソース FBX を選択し、インポーター設定を比較してメッシュを更新してから、パッチデータを選択します。"
+
+msgid "patch_creator.assign_fbx_hint"
+msgstr "パッチデータを選択するには、オリジナル FBX とソース FBX の両方を指定してください。"
+
+msgid "patch_creator.refresh_meshes"
+msgstr "メッシュを更新"
+
+msgid "patch_creator.save_patch"
+msgstr "BlendShare パッチを保存"
+
+msgid "patch_creator.save_title"
+msgstr "BlendShare パッチを保存"
+
+msgid "patch_creator.no_contents.title"
+msgstr "データが選択されていません"
+
+msgid "patch_creator.no_contents.message"
+msgstr "保存する前に少なくとも 1 つの項目を選択してください。"
+
+msgid "patch_creator.failed.title"
+msgstr "パッチ作成に失敗しました"
+
+msgid "patch_creator.failed.message"
+msgstr "BlendShare パッチの作成に失敗しました。"
+
+msgid "patch_creator.no_meshes"
+msgstr "一致する Skinned Mesh が見つかりません。"
+
+msgid "patch_creator.missing_original_mesh"
+msgstr "「{0}」に一致するオリジナルメッシュが見つかりません。"
+
+msgid "patch_creator.invalid_mapping.title"
+msgstr "Unity 頂点が一致しません"
+
+msgid "patch_creator.invalid_mapping.message"
+msgstr "Unity BlendShape 生成ではキャッシュされたフォールバックを使用する可能性があります。FBX BlendShape は保存されています。"
+
+msgid "patch_creator.importer_comparison.title"
+msgstr "インポーター設定の比較"
+
+msgid "patch_creator.importer_comparison.assign_hint"
+msgstr "インポーター設定を比較するには、オリジナル FBX とソース FBX を指定してください。"
+
+msgid "patch_creator.importer_comparison.match"
+msgstr "ジオメトリのインポーター設定は一致しています。"
+
+msgid "patch_creator.importer_comparison.different"
+msgstr "ジオメトリのインポーター設定が異なります。"
+
+msgid "patch_creator.importer_comparison.global_scale"
+msgstr "グローバルスケール"
+
+msgid "patch_creator.importer_comparison.bake_axis_conversion"
+msgstr "軸変換をベイク"
+
+msgid "patch_creator.importer_comparison.original_value"
+msgstr "オリジナル: {0}"
+
+msgid "patch_creator.importer_comparison.source_value"
+msgstr "ソース: {0}"
+
+msgid "patch_creator.importer_comparison.copy_to_source"
+msgstr "ソースをオリジナルに合わせる"
+
+msgid "patch.inspector.title"
+msgstr "BlendShare パッチ"
+
+msgid "patch.target_missing"
+msgstr "このパッチを適用または検証する前にターゲット FBX を指定してください。"
+
+msgid "patch.mapping.create"
+msgstr "Unity 頂点マッピングを作成"
+
+msgid "patch.mapping.saving"
+msgstr "マッピングを保存中..."
+
+msgid "advanced_mesh_creator.generate_fbx"
+msgstr "新しい FBX アセットを生成"
+
+msgid "advanced_mesh_creator.mesh_generation_disable"
+msgstr "このアセットは頂点順序が正しくないため、メッシュアセットの生成に使用できません。代わりに FBX ファイルを使用してください。"
+
+msgid "advanced_mesh_creator.target_mesh_container"
+msgstr "ターゲットモデル"
+
+msgid "advanced_mesh_creator.target_mesh_container.tooltip"
+msgstr "選択したパッチを適用するベースモデルです。FBX モデル、BlendShare メッシュアセット、または Unity メッシュを使用できます。"
+
+msgid "advanced_mesh_creator.blendshare_data_list"
+msgstr "BlendShare パッチリスト"
+
+msgid "advanced_mesh_creator.blendshare_data_list.tooltip"
+msgstr "リスト内のすべてのパッチが統合され、単一のモデルに適用されます。"
+
+msgid "advanced_mesh_creator.duplicate_patch_ids"
+msgstr "同じパッチ ID のパッチが複数あります。生成時は各 ID の最後のパッチのみ使用されます。"
+
+msgid "advanced_mesh_creator.generate_mesh_assets"
+msgstr "メッシュアセットを生成"
+
+msgid "advanced_mesh_creator.save_mesh_assets.title"
+msgstr "メッシュアセットを保存"
+
+msgid "advanced_mesh_creator.title"
+msgstr "高度なメッシュ作成"
+
+msgid "asset.assign_meshes"
+msgstr "メッシュを割り当て"
+
+msgid "asset.assign_meshes.dialog.is_fbx.message"
+msgstr ""
+"選択されたオブジェクトは FBX アセットです。\n"
+"FBX アセットは読み取り専用で、直接編集できません。\n"
+"変更するには FBX をシーンにインスタンス化してください。"
+
+msgid "asset.assign_meshes.dialog.is_fbx.title"
+msgstr "FBX アセットが選択されています"
+
+msgid "asset.assign_meshes.is_prefab"
+msgstr ""
+"選択されたオブジェクトは Prefab です。\n"
+"このオブジェクトを編集すると、シーンインスタンスではなく Prefab 自体が変更されます。\n"
+"Prefab アセットを直接編集しますか？"
+
+msgid "asset.assign_meshes.target_go"
+msgstr "ターゲット GameObject"
+
+msgid "asset.assign_meshes.to_go_btn"
+msgstr "ターゲット GameObject にメッシュを割り当て"
+
+msgid "asset.assign_meshes.to_prefab_btn"
+msgstr "ターゲット Prefab にメッシュを割り当て"
+
+msgid "asset.create"
+msgstr "メッシュアセットを生成"
+
+msgid "asset.create.tooltip"
+msgstr "スキンバインド情報を含むメッシュアセットを生成します。"
+
+msgid "asset.mapping.invalid"
+msgstr "メッシュアセットを生成する前に、{0} 件のメッシュに有効な Unity マッピングが必要です。"
+
+msgid "asset.mapping.mesh_missing"
+msgstr "{0} 件の BlendShare メッシュパスがターゲット FBX に見つかりません。"
+
+msgid "asset.mapping.target_missing"
+msgstr "メッシュアセットを生成する前にターゲット FBX を選択してください。"
+
+msgid "asset.mapping.target_unreadable"
+msgstr "ターゲット FBX のメッシュを読み取れません。"
+
+msgid "asset.save_title"
+msgstr "メッシュアセットを保存"
+
+msgid "features.blend-shapes.toggle"
+msgstr "シェイプキー"
+
+msgid "features.skin-weights.toggle"
+msgstr "スキンウェイト"
+
+msgid "patch.apply"
+msgstr "BlendShare パッチを適用"
+
+msgid "patch.create_fbx"
+msgstr "BlendShare パッチを新しい FBX として適用"
+
+msgid "patch.fbx_missing.message"
+msgstr "ターゲット FBX ファイルが見つかりません。アセットをインポートするか、「ターゲット FBX」に FBX を指定してください。"
+
+msgid "patch.fbx_missing.title"
+msgstr "ターゲット FBX が見つかりません。"
+
+msgid "patch.mapping.create.failed.title"
+msgstr "マッピング作成に失敗しました"
+
+msgid "patch.mapping.create.success.title"
+msgstr "マッピングを作成しました"
+
+msgid "patch.mapping.create.success.message"
+msgstr "{0} 件の Unity 頂点マッピングを作成しました。"
+
+msgid "patch_creator.blend_shapes.apply_rotation"
+msgstr "回転を適用"
+
+msgid "patch_creator.blend_shapes.apply_scale"
+msgstr "スケールを適用"
+
+msgid "patch_creator.blend_shapes.apply_transform"
+msgstr "トランスフォームを適用"
+
+msgid "patch_creator.blend_shapes.apply_transform.tooltip"
+msgstr "BlendShape のオフセット計算前にオブジェクトのトランスフォームをメッシュへ適用します。BlendShape の向きに問題がある場合は、回転を適用してみてください。"
+
+msgid "patch_creator.blend_shapes.apply_translate"
+msgstr "移動を適用"
+
+msgid "patch_creator.blend_shapes.base_mesh"
+msgstr "ベースメッシュ"
+
+msgid "patch_creator.blend_shapes.base_mesh.tooltip"
+msgstr "BlendShape のオフセット頂点を計算するためのベースメッシュです。"
+
+msgid "common.status.diff"
+msgstr "差分"
+
+msgid "common.status.missing_source"
+msgstr "ソースなし"
+
+msgid "common.status.new"
+msgstr "新規"
+
+msgid "common.status.same"
+msgstr "同一"
+
+msgid "common.status.unavailable"
+msgstr "利用不可"
+
+msgid "common.status.unknown"
+msgstr "不明"
+
+msgid "features.skin-weights.status.changed_bindpose"
+msgstr "Bindpose 変更"
+
+msgid "features.skin-weights.status.changed_bindpose_pose"
+msgstr "Bindpose + ポーズ変更"
+
+msgid "features.skin-weights.status.changed_pose"
+msgstr "ポーズ変更"
+
+msgid "features.skin-weights.status.changed_weights"
+msgstr "ウェイト変更"
+
+msgid "features.skin-weights.status.changed_weights_bindpose"
+msgstr "ウェイト + Bindpose 変更"
+
+msgid "features.skin-weights.status.changed_weights_bindpose_pose"
+msgstr "ウェイト + Bindpose + ポーズ変更"
+
+msgid "features.skin-weights.status.changed_weights_pose"
+msgstr "ウェイト + ポーズ変更"
+
+msgid "features.skin-weights.status.new_bone"
+msgstr "新規ボーン"
+
+msgid "common.advanced"
+msgstr "詳細"
+
+msgid "common.apply"
+msgstr "適用"
+
+msgid "common.collapse"
+msgstr "クリックして折りたたむ"
+
+msgid "common.expand"
+msgstr "クリックして展開"
+
+msgid "common.fbx_asset.object_reference_only"
+msgstr "オブジェクト参照を持つ FbxAsset を使用してください。"
+
+msgid "common.game_object"
+msgstr "ゲームオブジェクト"
+
+msgid "common.generate"
+msgstr "生成"
+
+msgid "common.no"
+msgstr "いいえ"
+
+msgid "common.none"
+msgstr "なし"
+
+msgid "common.path"
+msgstr "パス"
+
+msgid "common.restore"
+msgstr "復元"
+
+msgid "applied_renderer.state"
+msgstr "適用状態"
+
+msgid "applied_renderer.purpose.message"
+msgstr "このマーカーは生成メッシュの適用時に BlendShare が自動的に作成します。変更を元に戻せるよう、元のメッシュとボーンを記録しています。手動で追加・削除しないでください。"
+
+msgid "applied_renderer.original_bones"
+msgstr "元のボーン"
+
+msgid "applied_renderer.generated_bones"
+msgstr "生成されたボーン"
+
+msgid "applied_renderer.bones_count"
+msgstr "{0} 個のボーン"
+
+msgid "applied_renderer.generated_bones_with_missing"
+msgstr "{0} 個のボーン（{1} 個が欠落）"
+
+msgid "applied_renderer.remove_marker"
+msgstr "マーカーを削除"
+
+msgid "applied_renderer.revert_confirm.title"
+msgstr "BlendShare の適用を元に戻す"
+
+msgid "applied_renderer.revert_confirm.message"
+msgstr "元のメッシュとボーンを復元し、BlendShare が作成した生成ボーンを破棄します。続行しますか？"
+
+msgid "applied_renderer.remove_confirm.title"
+msgstr "BlendShare マーカーを削除"
+
+msgid "applied_renderer.remove_confirm.message"
+msgstr "元のメッシュを復元せずに BlendShare マーカーを削除します。続行しますか？"
+
+msgid "applied_renderer.renderer_missing.message"
+msgstr "このマーカーが参照するスキンメッシュレンダラーがありません。"
+
+msgid "applied_renderer.no_baseline.message"
+msgstr "このマーカーには基準の記録がないため、元に戻す対象がありません。削除して整理できます。"
+
+msgid "applied_renderer.stale.message"
+msgstr "レンダラーは元のメッシュに戻っていますが、マーカーが残っています。削除して整理できます。"
+
+msgid "applied_renderer.incomplete.message"
+msgstr "記録された基準が不完全なため、元に戻してもメッシュが部分的にしか復元されない場合があります。"
+
+msgid "applied_renderer.missing_bones.message"
+msgstr "このマーカーが記録した生成ボーンの一部が破棄されています。元に戻す際はそれらをスキップします。"
+
+msgid "common.revert"
+msgstr "元に戻す"
+
+msgid "common.select"
+msgstr "選択"
+
+msgid "common.skinned_mesh_renderer"
+msgstr "スキンメッシュレンダラー"
+
+msgid "common.status.active"
+msgstr "アクティブ"
+
+msgid "common.status.checking"
+msgstr "確認中"
+
+msgid "common.status.incompatible"
+msgstr "非互換"
+
+msgid "common.status.invalid"
+msgstr "無効"
+
+msgid "common.status.missing"
+msgstr "不足"
+
+msgid "common.status.missing_target"
+msgstr "ターゲットなし"
+
+msgid "common.status.missing_target_mesh"
+msgstr "ターゲットメッシュなし"
+
+msgid "common.status.not_found"
+msgstr "見つかりません"
+
+msgid "common.status.ready"
+msgstr "準備完了"
+
+msgid "common.status.valid"
+msgstr "有効"
+
+msgid "common.status.verified"
+msgstr "検証済み"
+
+msgid "common.yes"
+msgstr "はい"
+
+msgid "features.blend-shapes.no_feature_for_mesh"
+msgstr "このメッシュには BlendShape データがありません。"
+
+msgid "legacy.blendshape_data.legacy_notice"
+msgstr "これはレガシーの BlendShapeDataSO アセットです。新しいワークフローでは新しい BlendShareObject 形式を使用してください。"
+
+msgid "legacy.blendshape_data.upgrade"
+msgstr "BlendShareObject にアップグレード"
+
+msgid "legacy.generated_mesh_asset.applied_patches"
+msgstr "適用済み BlendShare オブジェクト"
+
+msgid "legacy.generated_mesh_asset.current"
+msgstr "現在"
+
+msgid "legacy.generated_mesh_asset.description"
+msgstr "メッシュアセットコンテナー"
+
+msgid "legacy.generated_mesh_asset.metadata"
+msgstr "メタデータ"
+
+msgid "legacy.generated_mesh_asset.original"
+msgstr "元"
+
+msgid "patch.actions.title"
+msgstr "操作"
+
+msgid "patch.advanced"
+msgstr "詳細"
+
+msgid "patch.apply.confirm.message"
+msgstr "このパッチ ID はすでに FBX で有効です。再度適用すると、同じ ID のパッチを置き換え、BlendShare のベースラインから FBX を再構築します。"
+
+msgid "patch.apply.confirm.title"
+msgstr "BlendShare パッチを適用"
+
+msgid "patch.apply.failed"
+msgstr "BlendShare パッチの適用に失敗しました。"
+
+msgid "patch.apply.locked_conflict"
+msgstr "ターゲット FBX には同じパッチ ID がすでにあります。ロックを解除すると、このパッチで置き換えます。"
+
+msgid "patch.apply.locked_exact"
+msgstr "このパッチはターゲット FBX ですでに有効です。ロックを解除すると、ベースラインから再構築して置き換えます。"
+
+msgid "patch.compatibility.all_verified"
+msgstr "この FBX のすべてのメッシュを検証しました。"
+
+msgid "patch.compatibility.control_points_fewer"
+msgstr "ターゲットメッシュの FBX 頂点数 ({0}) が、保存されたソースメッシュ ({1}) より少なくなっています。"
+
+msgid "patch.compatibility.has_incompatible"
+msgstr "この FBX と互換性のないメッシュがあります。"
+
+msgid "patch.compatibility.missing_paths"
+msgstr "この FBX に存在しないメッシュパスがあります。"
+
+msgid "patch.compatibility.pending"
+msgstr "FBX トポロジーを確認中..."
+
+msgid "patch.compatibility.signature_mismatch"
+msgstr "ターゲットメッシュが保存済みのソーストポロジー情報と一致しません。"
+
+msgid "patch.compatibility.signature_missing"
+msgstr "保存済みのトポロジー情報がありません。このパッチを作成し直してください。"
+
+msgid "patch.compatibility.signature_unavailable"
+msgstr "ターゲットのトポロジーを確認できませんでした。"
+
+msgid "patch.compatibility.unknown_checks"
+msgstr "不明なメッシュ互換性チェックがあります。"
+
+msgid "patch.compatibility.verified"
+msgstr "ターゲット FBX のトポロジーは保存済みのメッシュ情報と一致します。"
+
+msgid "patch.contents.no_mesh_data"
+msgstr "このパッチにはメッシュデータが含まれていません。"
+
+msgid "patch.create_fbx.confirm.message"
+msgstr "このパッチ ID はターゲット FBX に記録済みです。新しい FBX はその履歴を引き継ぐため、再度適用すると変更が累積する可能性があります。"
+
+msgid "patch.create_fbx.confirm.title"
+msgstr "BlendShare パッチを新しい FBX として適用"
+
+msgid "patch.create_fbx.failed"
+msgstr "FBX の作成に失敗しました。"
+
+msgid "patch.mapping.bake_axis_conversion"
+msgstr "軸変換をベイク"
+
+msgid "patch.mapping.display_name"
+msgstr "Unity マッピング"
+
+msgid "patch.mapping.fbx_to_unity_scale"
+msgstr "FBX から Unity へのスケール"
+
+msgid "patch.mapping.generation_failed"
+msgstr "マッピング生成に失敗しました。"
+
+msgid "patch.mapping.grouped_entries"
+msgstr "グループ化エントリ"
+
+msgid "patch.mapping.index_entries"
+msgstr "インデックスエントリ"
+
+msgid "patch.mapping.missing"
+msgstr "Unity マッピングデータがありません。"
+
+msgid "patch.mapping.no_editor"
+msgstr "このマッピング用のカスタム埋め込みエディターは登録されていません。"
+
+msgid "patch.mapping.no_mapping"
+msgstr "このメッシュには Unity マッピングがありません。"
+
+msgid "patch.mapping.no_stored_match"
+msgstr "保存済みのマッピングがこの Unity メッシュと一致しません。"
+
+msgid "patch.mapping.not_resolved"
+msgstr "現在の FBX から解決されていません"
+
+msgid "patch.mapping.progress"
+msgstr "{0} のマッピングを作成中..."
+
+msgid "patch.mapping.target_missing"
+msgstr "ターゲット FBX が割り当てられていません。"
+
+msgid "patch.mapping.target_unreadable"
+msgstr "Unity メッシュを読み取れません。"
+
+msgid "patch.mapping.title"
+msgstr "Unity マッピング"
+
+msgid "patch.mapping.unity_mesh"
+msgstr "Unity メッシュ"
+
+msgid "patch.mapping.unity_vertices"
+msgstr "Unity 頂点"
+
+msgid "patch.mapping.valid"
+msgstr "マッピング有効"
+
+msgid "patch.mapping.verified"
+msgstr "{0} のマッピングを確認しました。ハッシュ: {1}"
+
+msgid "patch.mapping.vertex_hash"
+msgstr "頂点ハッシュ"
+
+msgid "patch.mesh_data.control_points"
+msgstr "FBX 頂点"
+
+msgid "patch.mesh_data.data_id"
+msgstr "データ ID"
+
+msgid "patch.mesh_data.display_name"
+msgstr "メッシュデータ"
+
+msgid "patch.mesh_data.faces"
+msgstr "面"
+
+msgid "patch.mesh_data.fbx_control_points"
+msgstr "FBX 頂点"
+
+msgid "patch.mesh_data.fbx_topology_hash"
+msgstr "FBX トポロジーハッシュ"
+
+msgid "patch.mesh_data.hash"
+msgstr "ハッシュ"
+
+msgid "patch.mesh_data.missing"
+msgstr "メッシュデータがありません。"
+
+msgid "patch.mesh_data.no_data"
+msgstr "このメッシュには抽出済みデータが含まれていません。"
+
+msgid "patch.mesh_data.no_data_editor"
+msgstr "このデータ用のカスタムデータエディターは登録されていません。"
+
+msgid "patch.mesh_data.no_embedded_editor"
+msgstr "このメッシュ用のカスタム埋め込みエディターは登録されていません。"
+
+msgid "patch.mesh_data.parent_patch"
+msgstr "親パッチ"
+
+msgid "patch.mesh_data.summary"
+msgstr "メッシュ概要"
+
+msgid "patch.mesh_data.topology_fingerprint"
+msgstr "トポロジーフィンガープリント"
+
+msgid "patch.metadata.applied_patches"
+msgstr "適用済みパッチ"
+
+msgid "patch.restore.failed"
+msgstr "元の FBX の復元に失敗しました。"
+
+msgid "patch.restore.message"
+msgstr "FBX ベースラインバックアップを復元し、すべての BlendShare パッチメタデータを削除します。続行しますか？"
+
+msgid "patch.restore.title"
+msgstr "元に復元"
+
+msgid "patch.restore_to_original"
+msgstr "元に復元"
+
+msgid "patch.revert.failed"
+msgstr "BlendShare パッチの取り消しに失敗しました。"
+
+msgid "patch.revert.message"
+msgstr "FBX ベースラインバックアップを復元し、その後ほかの記録済み BlendShare パッチをすべて再適用します。続行しますか？"
+
+msgid "patch.revert.missing_record"
+msgstr "記録済みパッチが見つからないため、このパッチを取り消せません。元の状態には戻せます。"
+
+msgid "patch.revert.title"
+msgstr "BlendShare パッチを取り消す"
+
+msgid "patch.revert_this"
+msgstr "このパッチを取り消す"
+
+msgid "common.filter"
+msgstr "フィルター"
+
+msgid "common.lock"
+msgstr "ロック"
+
+msgid "common.name"
+msgstr "名前"
+
+msgid "common.save_as"
+msgstr "別名で保存"
+
+msgid "common.unlock"
+msgstr "ロック解除"
+
+msgid "features.blend-shapes.enable_action"
+msgstr "有効化"
+
+msgid "features.blend-shapes.enable_all"
+msgstr "すべて有効化"
+
+msgid "features.blend-shapes.enable_visible"
+msgstr "表示中を有効化"
+
+msgid "features.blend-shapes.fallback_name"
+msgstr "BlendShape {0}"
+
+msgid "features.blend-shapes.lock_tooltip"
+msgstr "BlendShape 編集をロック"
+
+msgid "features.blend-shapes.missing_data"
+msgstr "BlendShape データがありません。"
+
+msgid "features.blend-shapes.mute"
+msgstr "ミュート"
+
+msgid "features.blend-shapes.mute_visible"
+msgstr "表示中をミュート"
+
+msgid "features.blend-shapes.selection.active_header"
+msgstr "アクティブな BlendShape"
+
+msgid "features.blend-shapes.selection.active_header_filtered"
+msgstr "アクティブな BlendShape（フィルター中、並べ替え無効）"
+
+msgid "features.blend-shapes.selection.default"
+msgstr "デフォルト"
+
+msgid "features.blend-shapes.selection.default_name"
+msgstr "選択セット"
+
+msgid "features.blend-shapes.selection.delete_message"
+msgstr "「{0}」を削除しますか？"
+
+msgid "features.blend-shapes.selection.delete_title"
+msgstr "選択セットを削除"
+
+msgid "features.blend-shapes.selection.disabled_header"
+msgstr "無効な BlendShape"
+
+msgid "features.blend-shapes.selection.name_prompt"
+msgstr "選択セット名"
+
+msgid "features.blend-shapes.selection.selected_action"
+msgstr "選択中 {1} 件を {0}"
+
+msgid "features.blend-shapes.selection.unsaved"
+msgstr "未保存"
+
+msgid "features.blend-shapes.selection_set"
+msgstr "選択セット"
+
+msgid "features.blend-shapes.status.compact"
+msgstr "BlendShape {0}/{1}"
+
+msgid "features.blend-shapes.status.editing"
+msgstr "{0} 有効 / {1} 合計 / 表示中有効 {2} / 表示中利用可能 {3} / {4}"
+
+msgid "features.blend-shapes.status.locked"
+msgstr "{0} 有効 / {1} 合計"
+
+msgid "features.blend-shapes.unlock_tooltip"
+msgstr "BlendShape 編集のロックを解除"
+
+msgid "features.skin-weights.armature.missing"
+msgstr "アーマチュアデータがありません。"
+
+msgid "features.skin-weights.armature.no_bones"
+msgstr "このアーマチュアにはボーンが保存されていません。"
+
+msgid "features.skin-weights.armature.position"
+msgstr "位置"
+
+msgid "features.skin-weights.armature.rotation"
+msgstr "回転"
+
+msgid "features.skin-weights.armature.scale"
+msgstr "スケール"
+
+msgid "features.skin-weights.armature.status.new"
+msgstr "新規"
+
+msgid "features.skin-weights.armature.status.new.tooltip"
+msgstr "対象 FBX に存在しない場合、このボーンを作成します。"
+
+msgid "features.skin-weights.armature.status.transform"
+msgstr "トランスフォーム"
+
+msgid "features.skin-weights.armature.status.transform.tooltip"
+msgstr "既存のボーンに保存済みのローカルトランスフォームを適用します。"
+
+msgid "features.skin-weights.affected_bones"
+msgstr "影響するボーン"
+
+msgid "features.skin-weights.affected_vertices"
+msgstr "影響する FBX 頂点"
+
+msgid "features.skin-weights.affected_vertices_value"
+msgstr "{0} / {1}"
+
+msgid "features.skin-weights.missing_data"
+msgstr "スキンウェイトデータがありません。"
+
+msgid "features.skin-weights.root_bone"
+msgstr "ルートボーン"
+
+msgid "features.skin-weights.shared_armature"
+msgstr "共有アーマチュア"
+
+msgid "common.patches"
+msgstr "パッチ"
+
+msgid "common.enabled"
+msgstr "有効"
+
+msgid "common.disabled"
+msgstr "無効"
+
+msgid "backup.source_fbx"
+msgstr "ソース FBX"
+
+msgid "backup.metadata_version"
+msgstr "メタデータバージョン"
+
+msgid "backup.source_fbx_hash"
+msgstr "ソース FBX ハッシュ"
+
+msgid "backup.created_at_utc"
+msgstr "作成日時 (UTC)"
+
+msgid "backup.original_file_name"
+msgstr "元のファイル名"
+
+msgid "backup.path"
+msgstr "バックアップパス"
+
+msgid "backup.hash"
+msgstr "バックアップハッシュ"
+
+msgid "backup.size_bytes"
+msgstr "バックアップサイズ (バイト)"
+
+msgid "backup.derived_fbxs"
+msgstr "派生 FBX"
+
+msgid "backup.derived_fbx"
+msgstr "FBX {0}"
+
+msgid "backup.restore.title"
+msgstr "FBX を元に復元"
+
+msgid "backup.restore.message"
+msgstr "この BlendShare バックアップから「{0}」を復元し、アクティブな BlendShare パッチメタデータを消去します。派生 FBX から参照されなくなると、このバックアップは削除されます。"
+
+msgid "backup.restore.failed"
+msgstr "復元に失敗しました"
+
+msgid "ndmf.mesh.target_renderer"
+msgstr "ターゲットレンダラー"
+
+msgid "ndmf.mesh.skin_weights_over_four_limit"
+msgstr "一部の頂点に5本以上のボーンがあります。BlendShare は最も強い4つを超えるウェイトを削除します。"
+
+msgid "ndmf.mesh.skin_weights_over_255"
+msgstr "一部の頂点に256本以上のボーンがあります。BlendShare は最も強い255個を超えるウェイトを削除します。"
+
+msgid "ndmf.mesh.missing_renderer"
+msgstr "<レンダラーなし>"
+
+msgid "ndmf.mesh.bone_proxies"
+msgstr "ボーンプロキシ"
+
+msgid "ndmf.mesh.bone_proxy"
+msgstr "ボーンプロキシ"
+
+msgid "ndmf.mesh.bones"
+msgstr "ボーン"
+
+msgid "ndmf.mesh.armature"
+msgstr "アーマチュア"
+
+msgid "ndmf.mesh.restore_bindposes"
+msgstr "バインディングを戻す"
+
+msgid "ndmf.mesh.restore_bindposes_tooltip"
+msgstr "このプロキシが提供するボーンのカスタムバインドポーズを削除し、このメッシュをソースバインディングに戻します。"
+
+msgid "ndmf.mesh.bone"
+msgstr "ボーン"
+
+msgid "ndmf.mesh.bind_pose"
+msgstr "バインディング"
+
+msgid "ndmf.mesh.bind_pose_source"
+msgstr "ソース"
+
+msgid "ndmf.mesh.bind_pose_custom"
+msgstr "カスタム"
+
+msgid "ndmf.mesh.bind_pose_unavailable"
+msgstr "利用不可"
+
+msgid "ndmf.mesh.rebind"
+msgstr "バインディングを更新"
+
+msgid "ndmf.mesh.restore"
+msgstr "戻す"
+
+msgid "ndmf.mesh.bone_transform_tooltip"
+msgstr "このメッシュの最終ボーンとして使用される Transform です。"
+
+msgid "ndmf.mesh.bone_proxy_tooltip"
+msgstr "このボーンを提供する BlendShare ボーンプロキシのバインディングです。"
+
+msgid "ndmf.mesh.rebind_tooltip"
+msgstr "このボーンの現在の Transform からバインドポーズを更新します。"
+
+msgid "ndmf.mesh.restore_tooltip"
+msgstr "このボーンのカスタムバインドポーズを削除し、ソースバインディングに戻します。"
+
+msgid "ndmf.mesh.bone_status_existing"
+msgstr "既存"
+
+msgid "ndmf.mesh.bone_status_proxy"
+msgstr "プロキシ"
+
+msgid "ndmf.mesh.bone_status_missing"
+msgstr "不足"
+
+msgid "ndmf.mesh.bone_status_override"
+msgstr "上書き"
+
+msgid "ndmf.mesh.create_missing_bones"
+msgstr "不足しているボーンを作成"
+
+msgid "ndmf.mesh.animation.add_key"
+msgstr "キーを追加"
+
+msgid "ndmf.mesh.animation.remove_key"
+msgstr "キーを削除"
+
+msgid "ndmf.mesh.animation.remove_all_keys"
+msgstr "すべてのキーを削除"
+
+msgid "ndmf.bone_proxy.source_armature"
+msgstr "ソースアーマチュア"
+
+msgid "ndmf.bone_proxy.source_bone_path"
+msgstr "ソースボーンパス"
+
+msgid "ndmf.bone_proxy.target_parent"
+msgstr "ターゲット親"
+
+msgid "ndmf.bone_proxy.source_and_bindings"
+msgstr "ソースとバインディング"
+
+msgid "ndmf.bone_proxy.parenting"
+msgstr "親子関係"
+
+msgid "ndmf.bone_proxy.parenting_mode"
+msgstr "モード"
+
+msgid "ndmf.bone_proxy.parenting_retarget"
+msgstr "リターゲット"
+
+msgid "ndmf.bone_proxy.parenting_existing"
+msgstr "既存の親を使用"
+
+msgid "ndmf.bone_proxy.parenting_retarget_description"
+msgstr "プレビューおよびビルド時に、ルートバインディングを選択した親へリターゲットします。"
+
+msgid "ndmf.bone_proxy.parenting_existing_description"
+msgstr "リターゲットや別の親への追従を行わず、ルートバインディングの現在の Transform 親を維持します。"
+
+msgid "ndmf.bone_proxy.bind_pose_actions"
+msgstr "バインディング"
+
+msgid "ndmf.bone_proxy.bind_pose_actions_description"
+msgstr "このプロキシを使用するすべての有効な BlendShare Mesh コンポーネントに影響します。"
+
+msgid "ndmf.bone_proxy.bindings"
+msgstr "ボーンバインディング"
+
+msgid "ndmf.bone_proxy.duplicate_bindings"
+msgstr "重複したソースパスでは後のバインディングが使用されます: {0}"
+
+msgid "ndmf.bone_proxy.null_final_transform"
+msgstr "最終 Transform が未設定のボーンバインディングがあります。"
+
+msgid "ndmf.bone_proxy.final_transform_outside_avatar"
+msgstr "最終 Transform がアバター階層の外にあります。"
+
+msgid "ndmf.bone_proxy.retarget_cycle"
+msgstr "バインディングの親が自身または子孫を参照しています。"
+
+msgid "ndmf.bone_proxy.reset_chain_from_source"
+msgstr "ソースからチェーンをリセット"
+
+msgid "ndmf.bone_proxy.rebind_bones"
+msgstr "バインディングを更新"
+
+msgid "ndmf.bone_proxy.rebind_bones_tooltip"
+msgstr "現在のボーン Transform から、このプロキシを使用するすべてのメッシュのバインドポーズを更新します。"
+
+msgid "ndmf.bone_proxy.restore"
+msgstr "バインディングを戻す"
+
+msgid "ndmf.bone_proxy.restore_tooltip"
+msgstr "カスタムバインドポーズを削除し、ボーンと対象メッシュをソースバインディングに戻します。"
+
+msgid "ndmf.bone_proxy.final_path"
+msgstr "最終パス"
+
+msgid "ndmf.bone_proxy.status_source"
+msgstr "ソース"
+
+msgid "ndmf.bone_proxy.status_source_tooltip"
+msgstr "対象となるすべてのメッシュがソースバインディングを使用しています。"
+
+msgid "ndmf.bone_proxy.status_override"
+msgstr "カスタム"
+
+msgid "ndmf.bone_proxy.status_override_tooltip"
+msgstr "少なくとも 1 つの対象メッシュが、このボーンの Transform から取得したカスタムバインディングを使用しています。"
+
+msgid "ndmf.bone_proxy.status_modified"
+msgstr "変更済み"
+
+msgid "ndmf.bone_proxy.status_modified_tooltip"
+msgstr "現在の Transform は、有効なソースまたはカスタムバインディングと異なります。"
+
+msgid "ndmf.bone_proxy.final_parent"
+msgstr "最終親"
+
+msgid "ndmf.bone_proxy.final_bone_name"
+msgstr "最終ボーン名"
+
+msgid "ndmf.bone_proxy.binding_local_position"
+msgstr "バインド時のローカル位置"
+
+msgid "ndmf.bone_proxy.binding_local_rotation"
+msgstr "バインド時のローカル回転"
+
+msgid "ndmf.bone_proxy.binding_local_scale"
+msgstr "バインド時のローカルスケール"
+
+msgid "ndmf.bone_proxy.parenting_local_position"
+msgstr "親子付け後のローカル位置"
+
+msgid "ndmf.bone_proxy.parenting_local_rotation"
+msgstr "親子付け後のローカル回転"
+
+msgid "ndmf.bone_proxy.parenting_local_scale"
+msgstr "親子付け後のローカルスケール"
+
+msgid "ndmf.bone_proxy.bind_world_position"
+msgstr "バインドワールド位置"
+
+msgid "ndmf.bone_proxy.update_bindpose"
+msgstr "バインディングを更新"
+
+msgid "ndmf.bone_proxy.restore_from_source"
+msgstr "バインディングを戻す"
+
+msgid "ndmf.bone_proxy.reset_to_bind_pose"
+msgstr "トランスフォームをバインドポーズにリセット"
+
+msgid "ndmf.bone_proxy.bindings_overridden"
+msgstr "後順位のボーンプロキシが次のバインディングを上書きします: {0}"
+
+msgid "ndmf.bone_proxy.no_owner"
+msgstr "所有する BlendShare 適用コンポーネントが見つかりません。"
+
+msgid "ndmf.bone_proxy.no_source_binding"
+msgstr "このプロキシのソースボーンバインディングが見つかりません。"
+
+msgid "ndmf.bone_proxy.revert_mapping_missing"
+msgstr "有効な Unity マッピングが見つからないため、バインディングを戻せません。"
+
+msgid "ndmf.bone_proxy.revert_source_unavailable"
+msgstr "ソース Transform を使用できないため、バインディング「{0}」を戻せません。"
+
+msgid "ndmf.bone_proxy.shared_different_transforms"
+msgstr "このプロキシは、バインディングトランスフォームが異なる複数のソースボーンで共有されています。"
+
+msgid "patch_creator.alignment_tab"
+msgstr "整列"
+
+msgid "patch_creator.alignment.original"
+msgstr "オリジナル"
+
+msgid "patch_creator.alignment.source"
+msgstr "ソース"
+
+msgid "patch_creator.alignment.topology_exact"
+msgstr "互換性のあるトポロジー"
+
+msgid "patch_creator.alignment.compatible"
+msgstr "互換"
+
+msgid "patch_creator.alignment.compatibility_warning"
+msgstr "トポロジー互換性の警告：{0}"
+
+msgid "patch_creator.alignment.incompatible"
+msgstr "非互換"
+
+msgid "patch_creator.alignment.compatibility_unavailable"
+msgstr "判定不可"
+
+msgid "patch_creator.alignment.source_extra_control_points"
+msgstr "Source は {0} 個、Original は {1} 個のコントロールポイントを持ちます。Source の余分なポイントは無視されます。"
+
+msgid "patch_creator.alignment.source_fewer_control_points"
+msgstr "Source は {0} 個のコントロールポイントしかありません。Original には {1} 個必要なため抽出できません。"
+
+msgid "patch_creator.alignment.topology_mismatch"
+msgstr "Source のコントロールポイント接頭部が Original のトポロジーと一致しません。"
+
+msgid "patch_creator.alignment.blocking_topology"
+msgstr "保存する前に整列ページのトポロジーエラーを解決してください。"
+
+msgid "patch_creator.alignment.blendshape_basis"
+msgstr "ブレンドシェイプ基準"
+
+msgid "patch_creator.alignment.basis_source_relative"
+msgstr "Source 基準の相対値"
+
+msgid "patch_creator.alignment.basis_rebase_original"
+msgstr "Original に再基準化"
+
+msgid "features.blend-shapes.base_mode"
+msgstr "ブレンドシェイプ基準"
+
+msgid "features.blend-shapes.override_base_mode"
+msgstr "基準を上書き"
+
+msgid "patch_creator.alignment.topology_changed_order_match"
+msgstr "トポロジーは変更されていますが、整列後のコントロールポイント順序は一致しています。注意して抽出できます。"
+
+msgid "patch_creator.alignment.topology_changed_order_match_extra"
+msgstr "トポロジーが変更され、Source は {0} 個、Original は {1} 個のコントロールポイントを持ちますが、Original 範囲の整列済みポイント順序は一致しています。余分な Source ポイントは無視されます。"
+
+msgid "patch_creator.alignment.topology_extra_edges"
+msgstr "Source は Original のすべての有向エッジに加えて追加エッジを含みます。追加エッジはトポロジー互換性チェックでは無視されます。"
+
+msgid "features.blend-shapes.delta_comparison_tolerance"
+msgstr "デルタ比較の許容値"
+
+msgid "features.blend-shapes.delta_comparison_tolerance_tooltip"
+msgstr "位置および法線のブレンドシェイプデルタを Same と判定する軸ごとの差の上限。位置デルタには FBX 座標単位を使用します。"
+
+msgid "patch_creator.preview.show_all"
+msgstr "すべて表示"
+
+msgid "patch_creator.preview.all_shown"
+msgstr "すべて表示中"
+
+msgid "patch_creator.preview.all_meshes"
+msgstr "すべてのメッシュ"
+
+msgid "ndmf.bone_proxy.effective_transform"
+msgstr "有効なトランスフォーム"
+
+msgid "ndmf.bone_proxy.effective_final_path"
+msgstr "有効な最終パス"
+
+msgid "ndmf.bone_proxy.status_shadowed"
+msgstr "上書き済み"
+
+msgid "ndmf.bone_proxy.status_shadowed_tooltip"
+msgstr "このアーマチュアボーンパスには別のプロキシコンポーネントが選択されています。プレビューとビルドでは下に表示された有効なトランスフォームを使用します。"
+
+msgid "features.skin-weights.armature"
+msgstr "アーマチュア"
+
+msgid "features.skin-weights.mode"
+msgstr "選択モード"
+
+msgid "features.skin-weights.mode.simple"
+msgstr "シンプル"
+
+msgid "features.skin-weights.mode.advanced"
+msgstr "詳細"
+
+msgid "features.skin-weights.mode.expand.title"
+msgstr "スキンウェイト選択を展開"
+
+msgid "features.skin-weights.mode.expand.message"
+msgstr "シンプルモードでは、選択したすべてのメッシュに選択したすべてのボーンを適用します。切り替えると、メッシュとボーンの組み合わせが {0} 件追加で有効になります。続行しますか？"
+
+msgid "features.skin-weights.mode.expand.confirm"
+msgstr "選択を展開"
+
+msgid "features.skin-weights.search_meshes.tooltip"
+msgstr "パスでメッシュを絞り込みます。"
+
+msgid "features.skin-weights.search_bones.tooltip"
+msgstr "名前またはパスでボーンを絞り込みます。"
+
+msgid "features.skin-weights.show_all_bones"
+msgstr "すべてのボーンを表示"
+
+msgid "features.skin-weights.summary.changed_bones"
+msgstr "{0}/{1} ボーンに差分"
+
+msgid "features.skin-weights.summary.changed_meshes"
+msgstr "{0}/{1} メッシュに差分"
+
+msgid "features.skin-weights.transforms"
+msgstr "ボーントランスフォーム"
+
+msgid "features.skin-weights.transform_forced.tooltip"
+msgstr "選択されたウェイトまたはバインドポーズで必要なため、このトランスフォームは解除できません。"
+
+msgid "features.skin-weights.group_toggle.tooltip"
+msgstr "このセクションのすべての項目を有効または無効にします。"
