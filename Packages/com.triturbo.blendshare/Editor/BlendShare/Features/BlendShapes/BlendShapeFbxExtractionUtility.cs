@@ -1,4 +1,5 @@
 using System;
+using Triturbo.BlendShare.Core;
 using Triturbo.BlendShare.Fbx;
 using FbxReaderMatrix = Triturbo.BlendShare.Fbx.FbxMatrix4x4;
 using Vector3d = Triturbo.BlendShare.Fbx.Vector3d;
@@ -15,7 +16,23 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             IFbxMeshGeometry baseMesh = null,
             int controlPointLimit = -1)
         {
-            if (source == null || sourceMesh == null)
+            if (!FbxSourceSpaceTransform.TryCreate(transformMatrix, out var spaceTransform))
+            {
+                return null;
+            }
+
+            return GetFbxBlendShapeData(source, sourceMesh, spaceTransform, baseMesh, controlPointLimit);
+        }
+
+        /// <summary>Extracts dense blendshape position and normal deltas from an FBX blend channel.</summary>
+        public static FbxBlendShapeData GetFbxBlendShapeData(
+            IFbxBlendChannel source,
+            IFbxMeshGeometry sourceMesh,
+            FbxSourceSpaceTransform spaceTransform,
+            IFbxMeshGeometry baseMesh = null,
+            int controlPointLimit = -1)
+        {
+            if (source == null || sourceMesh == null || !spaceTransform.IsValid)
             {
                 return null;
             }
@@ -42,14 +59,25 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             int shapeCount = source.Keyframes.Count;
             var frames = new FbxBlendShapeFrame[shapeCount];
             bool preserveSourceRelative = ReferenceEquals(baseMesh, sourceMesh);
+            Vector3d[] sourceBaseNormals = null;
+            bool sourceBaseNormalsLoaded = false;
 
             for (int shapeIndex = 0; shapeIndex < shapeCount; shapeIndex++)
             {
                 var sourceKeyframe = source.Keyframes[shapeIndex];
                 frames[shapeIndex] = new FbxBlendShapeFrame(sourceKeyframe?.TargetWeight ?? 100.0);
-                var sourceDeltas = BuildDenseFbxDeltas(sourceKeyframe?.Shape, controlPointCount, out var sourceNormalDeltas);
+                var shape = sourceKeyframe?.Shape;
+                var sourceDeltas = BuildDenseFbxDeltas(shape, controlPointCount, out var sourceNormalDeltas);
                 var deltas = new Vector3d[controlPointCount];
                 var normalDeltas = new Vector3d[controlPointCount];
+
+                if (!spaceTransform.IsIdentity && shape?.HasNormalOffsets == true && !sourceBaseNormalsLoaded)
+                {
+                    sourceBaseNormals = sourceMesh.GetFirstCornerNormals();
+                    sourceBaseNormalsLoaded = true;
+                }
+
+                int baseNormalLength = sourceBaseNormals?.Length ?? 0;
 
                 for (int pointIndex = 0; pointIndex < controlPointCount; pointIndex++)
                 {
@@ -58,9 +86,19 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                     var baseControlPoint = GetControlPoint(baseControlPoints, pointIndex);
 
                     deltas[pointIndex] = preserveSourceRelative
-                        ? transformMatrix.TransformPoint(sourceDelta)
-                        : transformMatrix.TransformPoint(sourceControlPoint + sourceDelta) - baseControlPoint;
-                    normalDeltas[pointIndex] = transformMatrix.TransformDirectionPreservingMagnitude(sourceNormalDeltas[pointIndex]);
+                        ? spaceTransform.TransformVector(sourceDelta)
+                        : spaceTransform.TransformPoint(sourceControlPoint + sourceDelta) - baseControlPoint;
+
+                    var rawNormalDelta = sourceNormalDeltas[pointIndex];
+                    if (spaceTransform.IsIdentity || rawNormalDelta.IsZero())
+                    {
+                        normalDeltas[pointIndex] = rawNormalDelta;
+                    }
+                    else
+                    {
+                        var baseNormal = pointIndex < baseNormalLength ? sourceBaseNormals[pointIndex] : Vector3d.zero;
+                        normalDeltas[pointIndex] = spaceTransform.TransformNormalDelta(baseNormal, rawNormalDelta);
+                    }
                 }
 
                 for (int index = 0; index < deltas.Length; index++)

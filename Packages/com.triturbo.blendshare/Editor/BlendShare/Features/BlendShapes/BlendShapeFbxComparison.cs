@@ -250,13 +250,18 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                 return source == null && origin == null;
             }
 
+            if (!FbxSourceSpaceTransform.TryCreate(sourceOffset, out var sourceSpaceTransform))
+            {
+                return false;
+            }
+
             if (Math.Abs(source.TargetWeight - origin.TargetWeight) > FrameWeightComparisonTolerance)
             {
                 return false;
             }
 
             Vector3d[] sourceBaseNormals = null;
-            if (!sourceOffset.IsIdentity && source.Shape?.HasNormalOffsets == true)
+            if (!sourceSpaceTransform.IsIdentity && source.Shape?.HasNormalOffsets == true)
             {
                 if (!sourceBaseNormalsLoaded)
                 {
@@ -269,8 +274,8 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                 sourceBaseNormals = cachedSourceBaseNormals;
             }
 
-            var sourceDeltas = CopyDeltas(source.Shape, sourceOffset, controlPointCount, sourceBaseNormals);
-            var originDeltas = CopyDeltas(origin.Shape, FbxMatrix4x4.Identity, controlPointCount, null);
+            var sourceDeltas = CopyDeltas(source.Shape, sourceSpaceTransform, controlPointCount, sourceBaseNormals);
+            var originDeltas = CopyDeltas(origin.Shape, FbxSourceSpaceTransform.Identity, controlPointCount, null);
             foreach (var pair in sourceDeltas)
             {
                 originDeltas.TryGetValue(pair.Key, out var originDelta);
@@ -294,7 +299,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
 
         private static Dictionary<int, BlendShapeDelta> CopyDeltas(
             IFbxBlendShape frame,
-            FbxMatrix4x4 transform,
+            FbxSourceSpaceTransform spaceTransform,
             int controlPointCount,
             Vector3d[] baseNormals)
         {
@@ -314,12 +319,7 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                 return result;
             }
 
-            bool isIdentity = transform.IsIdentity;
-            FbxMatrix4x4 inverseTransform = FbxMatrix4x4.Identity;
-            if (!isIdentity)
-            {
-                transform.TryInverse(out inverseTransform);
-            }
+            bool isIdentity = spaceTransform.IsIdentity;
 
             int safeCount = Math.Min(count, Math.Min(indices.Length, deltas.Length));
             int baseNormalLength = baseNormals?.Length ?? 0;
@@ -331,12 +331,11 @@ namespace Triturbo.BlendShare.Features.BlendShapes
                     continue;
                 }
 
-                Vector3d positionDelta = isIdentity ? deltas[i] : transform.TransformVector(deltas[i]);
+                Vector3d positionDelta = isIdentity ? deltas[i] : spaceTransform.TransformVector(deltas[i]);
                 Vector3d rawNormalDelta = i < normalDeltas.Length ? normalDeltas[i] : Vector3d.zero;
                 Vector3d normalDelta = isIdentity
                     ? rawNormalDelta
-                    : TransformNormalDelta(
-                        inverseTransform,
+                    : spaceTransform.TransformNormalDelta(
                         cp < baseNormalLength ? baseNormals[cp] : Vector3d.zero,
                         rawNormalDelta);
                 result[cp] = new BlendShapeDelta(positionDelta, normalDelta);
@@ -359,20 +358,6 @@ namespace Triturbo.BlendShare.Features.BlendShapes
             return Math.Abs(left.x - right.x) <= tolerance &&
                    Math.Abs(left.y - right.y) <= tolerance &&
                    Math.Abs(left.z - right.z) <= tolerance;
-        }
-
-        private static Vector3d TransformNormalDelta(
-            FbxMatrix4x4 inverseMatrix,
-            Vector3d baseNormal,
-            Vector3d normalDelta)
-        {
-            if (baseNormal.sqrMagnitude <= Vector3d.Epsilon)
-            {
-                return inverseMatrix.TransformNormalWithInverse(normalDelta);
-            }
-
-            return inverseMatrix.TransformNormalWithInverse(baseNormal + normalDelta) -
-                   inverseMatrix.TransformNormalWithInverse(baseNormal);
         }
 
         private readonly struct BlendShapeDelta

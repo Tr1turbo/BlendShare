@@ -32,68 +32,47 @@ namespace Triturbo.BlendShare.Core
                 .Where(group => group.Length > 1)
                 .ToArray() ?? System.Array.Empty<int[]>();
         }
+        /// <summary>
+        /// Predicts Unity's pre-split control-point weld groups using default ModelImporter weld settings.
+        /// </summary>
         public static FbxControlPointWelding FromFbxMesh(IFbxMeshGeometry mesh)
         {
-            if (mesh == null || mesh.ControlPointCount == 0)
+            return FromFbxMesh(mesh, FbxUnityWeldOptions.Default);
+        }
+
+        /// <summary>
+        /// Predicts Unity's pre-split control-point weld groups using the given ModelImporter weld settings.
+        /// </summary>
+        public static FbxControlPointWelding FromFbxMesh(IFbxMeshGeometry mesh, FbxUnityWeldOptions options)
+        {
+            if (mesh == null || mesh.ControlPointCount == 0 || !options.WeldVertices)
             {
                 return Empty;
             }
 
             var stopwatch = Stopwatch.StartNew();
-            var controlPoints = mesh.GetControlPoints();
-            var controlPointPosition = new Dictionary<Vector3d, List<int>>();
-
-            for (int i = 0; i < controlPoints.Length; i++)
-            {
-                Vector3d position = controlPoints[i];
-                if (!controlPointPosition.TryGetValue(position, out var indices))
-                {
-                    indices = new List<int>();
-                    controlPointPosition[position] = indices;
-                }
-
-                indices.Add(i);
-            }
-
-            var groups = controlPointPosition
-                .Where(kv => kv.Value.Count > 1)
-                .Select(kv => kv.Value)
-                .ToList();
-
-            foreach (var deformer in mesh.BlendDeformers)
-            {
-                foreach (var channel in deformer.Channels)
-                {
-                    foreach (var keyframe in channel.Keyframes)
-                    {
-                        if (groups.Count == 0)
-                        {
-                            break;
-                        }
-
-                        groups = GroupWithShape(groups, controlPoints, keyframe.Shape);
-                    }
-
-                    if (groups.Count == 0)
-                    {
-                        break;
-                    }
-                }
-
-                if (groups.Count == 0)
-                {
-                    break;
-                }
-            }
-
+            var prediction = FbxUnityWeldPredictor.Predict(mesh, options);
             stopwatch.Stop();
-            Debug.Log($"[BlendShare] Build ufbx welding groups: {groups.Count} groups in {stopwatch.ElapsedMilliseconds} ms");
-            return groups.Count > 0 ? new FbxControlPointWelding(groups.Select(group => group.ToArray())) : Empty;
+            Debug.Log($"[BlendShare] Build ufbx welding groups: {prediction.MultiMemberGroups.Count} groups in {stopwatch.ElapsedMilliseconds} ms");
+            return prediction.HasMultiMemberGroups
+                ? new FbxControlPointWelding(prediction.MultiMemberGroups)
+                : Empty;
         }
 #if ENABLE_FBX_SDK
+        /// <summary>
+        /// Builds FBX control-point weld groups from an Autodesk FBX SDK mesh using default weld settings.
+        /// </summary>
         public static FbxControlPointWelding FromMesh(FbxMesh mesh)
         {
-            if (mesh == null)
+            return FromMesh(mesh, FbxUnityWeldOptions.Default);
+        }
+
+        /// <summary>
+        /// Builds FBX control-point weld groups from an Autodesk FBX SDK mesh respecting the given weld settings.
+        /// </summary>
+        public static FbxControlPointWelding FromMesh(FbxMesh mesh, FbxUnityWeldOptions options)
+        {
+            if (mesh == null || !options.WeldVertices)
             {
                 return Empty;
             }
@@ -119,15 +98,18 @@ namespace Triturbo.BlendShare.Core
                 .Select(kv => kv.Value)
                 .ToList();
 
-            for (int deformerIndex = 0; deformerIndex < mesh.GetDeformerCount(Autodesk.Fbx.FbxDeformer.EDeformerType.eBlendShape); deformerIndex++)
+            if (options.ImportBlendShapes)
             {
-                var deformer = mesh.GetBlendShapeDeformer(deformerIndex);
-                for (int channelIndex = 0; channelIndex < deformer.GetBlendShapeChannelCount(); channelIndex++)
+                for (int deformerIndex = 0; deformerIndex < mesh.GetDeformerCount(Autodesk.Fbx.FbxDeformer.EDeformerType.eBlendShape); deformerIndex++)
                 {
-                    var channel = deformer.GetBlendShapeChannel(channelIndex);
-                    for (int shapeIndex = 0; shapeIndex < channel.GetTargetShapeCount(); shapeIndex++)
+                    var deformer = mesh.GetBlendShapeDeformer(deformerIndex);
+                    for (int channelIndex = 0; channelIndex < deformer.GetBlendShapeChannelCount(); channelIndex++)
                     {
-                        groups = GroupWithShape(groups, channel.GetTargetShape(shapeIndex));
+                        var channel = deformer.GetBlendShapeChannel(channelIndex);
+                        for (int shapeIndex = 0; shapeIndex < channel.GetTargetShapeCount(); shapeIndex++)
+                        {
+                            groups = GroupWithShape(groups, channel.GetTargetShape(shapeIndex));
+                        }
                     }
                 }
             }
@@ -252,103 +234,6 @@ namespace Triturbo.BlendShare.Core
                 () => new Vector3dAccumulator(),
                 (accumulator, value) => accumulator.Add(value),
                 (accumulator, count) => accumulator.Average(count));
-        }
-        private static List<List<int>> GroupWithShape(
-            List<List<int>> groups,
-            IReadOnlyList<Vector3d> basePositions,
-            IFbxBlendShape shape)
-        {
-            if (groups == null || groups.Count == 0 || shape == null || shape.OffsetCount <= 0)
-            {
-                return groups;
-            }
-
-            var indices = new int[shape.OffsetCount];
-            var deltas = new Vector3d[shape.OffsetCount];
-            if (!shape.TryCopyOffsets(indices, deltas, System.Span<Vector3d>.Empty, System.Span<double>.Empty, out int written) || written != indices.Length)
-            {
-                return groups;
-            }
-
-            return GroupWithSparseShapeOffsets(
-                groups,
-                basePositions,
-                indices,
-                deltas);
-        }
-
-        internal static List<List<int>> GroupWithSparseShapeOffsets(
-            List<List<int>> groups,
-            IReadOnlyList<Vector3d> basePositions,
-            IReadOnlyList<int> indices,
-            IReadOnlyList<Vector3d> deltas)
-        {
-            if (groups == null)
-            {
-                return new List<List<int>>();
-            }
-
-            var deltaByControlPoint = BuildDeltaLookup(indices, deltas);
-            var newGroups = new List<List<int>>();
-            foreach (var group in groups)
-            {
-                if (group == null)
-                {
-                    continue;
-                }
-
-                var newGroup = new Dictionary<Vector3d, List<int>>();
-                foreach (int index in group)
-                {
-                    var vertex = GetTargetPosition(basePositions, deltaByControlPoint, index);
-                    if (!newGroup.TryGetValue(vertex, out var groupedIndices))
-                    {
-                        groupedIndices = new List<int>();
-                        newGroup[vertex] = groupedIndices;
-                    }
-
-                    groupedIndices.Add(index);
-                }
-
-                newGroups.AddRange(newGroup
-                    .Where(kv => kv.Value.Count > 1)
-                    .Select(kv => kv.Value)
-                    .ToList());
-            }
-
-            return newGroups;
-        }
-
-        private static Dictionary<int, Vector3d> BuildDeltaLookup(
-            IReadOnlyList<int> indices,
-            IReadOnlyList<Vector3d> deltas)
-        {
-            var result = new Dictionary<int, Vector3d>();
-            int count = System.Math.Min(indices?.Count ?? 0, deltas?.Count ?? 0);
-            for (int i = 0; i < count; i++)
-            {
-                int controlPointIndex = indices[i];
-                if (controlPointIndex >= 0)
-                {
-                    result[controlPointIndex] = deltas[i];
-                }
-            }
-
-            return result;
-        }
-
-        private static Vector3d GetTargetPosition(
-            IReadOnlyList<Vector3d> basePositions,
-            IReadOnlyDictionary<int, Vector3d> deltaByControlPoint,
-            int controlPointIndex)
-        {
-            var basePosition = controlPointIndex >= 0 && controlPointIndex < (basePositions?.Count ?? 0)
-                ? basePositions[controlPointIndex]
-                : Vector3d.zero;
-
-            return deltaByControlPoint != null && deltaByControlPoint.TryGetValue(controlPointIndex, out var delta)
-                ? basePosition + delta
-                : basePosition;
         }
 
 #if ENABLE_FBX_SDK

@@ -238,11 +238,19 @@ namespace Triturbo.BlendShare.Core
 
         private FbxControlPointWelding BuildFbxControlPointWelding(string path)
         {
+            var weldOptions = new FbxUnityWeldOptions(
+                FbxUnityAssetReader.GetWeldVertices(OriginFbxGo),
+                FbxUnityAssetReader.GetImportBlendShapes(OriginFbxGo));
+            if (!weldOptions.WeldVertices)
+            {
+                return FbxControlPointWelding.Empty;
+            }
+
             string fbxPath = MeshNodePath.ToFbxPath(path);
             var readerMesh = OriginScene?.FindMeshByNodePath(fbxPath);
             if (readerMesh != null && readerMesh.ControlPointCount > 0)
             {
-                return FbxControlPointWelding.FromFbxMesh(readerMesh);
+                return FbxControlPointWelding.FromFbxMesh(readerMesh, weldOptions);
             }
 
 #if ENABLE_FBX_SDK
@@ -259,7 +267,7 @@ namespace Triturbo.BlendShare.Core
             var originNode = originRootNode.FindMeshChildByPath(path);
             var originMesh = originNode?.GetMesh();
             return originMesh != null
-                ? FbxControlPointWelding.FromMesh(originMesh)
+                ? FbxControlPointWelding.FromMesh(originMesh, weldOptions)
                 : FbxControlPointWelding.Empty;
 #else
             return FbxControlPointWelding.Empty;

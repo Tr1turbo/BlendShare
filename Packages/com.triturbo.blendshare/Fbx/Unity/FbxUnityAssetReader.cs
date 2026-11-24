@@ -68,6 +68,32 @@ namespace Triturbo.BlendShare.Fbx.Unity
             return fbxGo != null && GetBakeAxisConversion(AssetDatabase.GetAssetPath(fbxGo));
         }
 
+        /// <summary>Reads <see cref="ModelImporter.weldVertices"/> for the asset at <paramref name="assetPath"/> (defaults to <c>true</c>).</summary>
+        public static bool GetWeldVertices(string assetPath)
+        {
+            var importer = AssetImporter.GetAtPath(assetPath) as ModelImporter;
+            return importer == null || importer.weldVertices;
+        }
+
+        /// <summary>Reads <see cref="ModelImporter.weldVertices"/> for the asset backing <paramref name="fbxGo"/> (defaults to <c>true</c>).</summary>
+        public static bool GetWeldVertices(GameObject fbxGo)
+        {
+            return fbxGo == null || GetWeldVertices(AssetDatabase.GetAssetPath(fbxGo));
+        }
+
+        /// <summary>Reads <see cref="ModelImporter.importBlendShapes"/> for the asset at <paramref name="assetPath"/> (defaults to <c>true</c>).</summary>
+        public static bool GetImportBlendShapes(string assetPath)
+        {
+            var importer = AssetImporter.GetAtPath(assetPath) as ModelImporter;
+            return importer == null || importer.importBlendShapes;
+        }
+
+        /// <summary>Reads <see cref="ModelImporter.importBlendShapes"/> for the asset backing <paramref name="fbxGo"/> (defaults to <c>true</c>).</summary>
+        public static bool GetImportBlendShapes(GameObject fbxGo)
+        {
+            return fbxGo == null || GetImportBlendShapes(AssetDatabase.GetAssetPath(fbxGo));
+        }
+
         /// <summary>Returns the FBX-to-Unity importer scale/axis matrix for the asset at <paramref name="assetPath"/>.</summary>
         public static Matrix4x4 GetImporterSpaceTransform(string assetPath)
         {

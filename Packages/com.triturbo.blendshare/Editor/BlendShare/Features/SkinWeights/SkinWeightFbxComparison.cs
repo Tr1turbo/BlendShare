@@ -201,11 +201,11 @@ namespace Triturbo.BlendShare.Features.SkinWeights
             var sourceBindPoses = BuildBindPosesByPath(sourceSkin, sourceBonesByIndex);
             var originBindPoses = BuildBindPosesByPath(originSkin, originBonesByIndex);
             var sourceOffset = options?.GetSourceOffset(normalizedMeshPath)?.ToFbxMatrix() ?? FbxMatrix4x4.Identity;
-            if (sourceOffset.TryInverse(out var inverseSourceOffset))
+            if (FbxSourceSpaceTransform.TryCreate(sourceOffset, out var sourceSpaceTransform) && !sourceSpaceTransform.IsIdentity)
             {
                 foreach (var bindPose in sourceBindPoses.Values)
                 {
-                    bindPose.m_FbxTransformMatrix = inverseSourceOffset * bindPose.m_FbxTransformMatrix;
+                    bindPose.m_FbxTransformMatrix = sourceSpaceTransform.TransformMeshBindWorld(bindPose.m_FbxTransformMatrix);
                 }
             }
             int controlPointCount = session.Origin?.GetMesh(normalizedMeshPath)?.ControlPointCount ?? 0;
