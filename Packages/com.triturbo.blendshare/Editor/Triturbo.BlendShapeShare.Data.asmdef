@@ -3,6 +3,7 @@
     "rootNamespace": "",
     "references": [
         "Unity.Collections",
+        "Triturbo.BlendShare.Primitives",
         "Triturbo.BlendShare.Runtime",
         "Triturbo.BlendShapeShare.Localization",
         "Triturbo.FBX",

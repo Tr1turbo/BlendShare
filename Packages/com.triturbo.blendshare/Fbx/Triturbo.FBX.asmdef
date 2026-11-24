@@ -1,7 +1,9 @@
 {
     "name": "Triturbo.FBX",
     "rootNamespace": "",
-    "references": [],
+    "references": [
+        "Triturbo.BlendShare.Primitives"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,

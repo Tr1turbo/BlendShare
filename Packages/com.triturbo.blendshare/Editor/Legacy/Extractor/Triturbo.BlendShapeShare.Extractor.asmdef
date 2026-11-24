@@ -2,6 +2,7 @@
     "name": "Triturbo.BlendShapeShare.Extractor.Editor",
     "rootNamespace": "",
     "references": [
+        "Triturbo.BlendShare.Primitives",
         "Triturbo.BlendShare.Runtime",
         "Triturbo.BlendShapeShare.Data.Editor",
         "Triturbo.BlendShapeShare.Localization",

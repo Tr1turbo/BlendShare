@@ -1,0 +1,19 @@
+{
+    "name": "Triturbo.BlendShare.Container.Editor",
+    "rootNamespace": "Triturbo.BlendShare.Container",
+    "references": [
+        "Triturbo.BlendShare.Primitives",
+        "Triturbo.BlendShare.Model.Editor"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
