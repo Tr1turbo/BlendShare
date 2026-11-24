@@ -7,6 +7,7 @@
         "Triturbo.BlendShare.Runtime",
         "Triturbo.BlendShapeShare.Localization",
         "Triturbo.FBX",
+        "Triturbo.BlendShare.Mapping.Editor",
         "Autodesk.Fbx"
     ],
     "includePlatforms": [

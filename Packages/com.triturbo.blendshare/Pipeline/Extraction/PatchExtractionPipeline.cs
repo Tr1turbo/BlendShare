@@ -3,9 +3,11 @@ using System.Collections.Generic;
 using System.IO;
 using Triturbo.BlendShare.Container.Format;
 using Triturbo.BlendShare.Container.Serialization;
+using Triturbo.BlendShare.EditorAssets.Binding;
 using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Fbx.Ufbx;
 using Triturbo.BlendShare.Fbx.Unity;
+using Triturbo.BlendShare.Mapping;
 using Triturbo.BlendShare.Model.Documents;
 using Triturbo.BlendShare.Model.Serialization;
 using Triturbo.BlendShare.Model.Validation;
@@ -219,6 +221,15 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                     SpaceProvenance = provenance
                 };
 
+                if (request.OriginBindingBuilder != null)
+                {
+                    var originBinding = request.OriginBindingBuilder(meshReq, rawOriginMesh, request.OriginScene.Metadata);
+                    if (originBinding != null)
+                    {
+                        meshDoc.OriginBinding = LazyPayload<OriginBindingDocument>.FromValue(originBinding);
+                    }
+                }
+
                 var seenFeatureIds = new HashSet<string>(StringComparer.Ordinal);
                 for (int e = 0; e < extractors.Count; e++)
                 {
@@ -413,6 +424,8 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
 
         /// <summary>
         /// Convenience entry point loading Unity FBX assets via <see cref="FbxUnityAssetReader"/> and extracting.
+        /// Defaults to <see cref="FbxUnityWeldPredictor"/> when <paramref name="weldGroupResolver"/> is null
+        /// and embeds <see cref="OriginBindingDocument"/> when <paramref name="embedOriginBinding"/> is true.
         /// </summary>
         public PatchExtractionResult ExtractFromFbxAssets(
             GameObject sourceFbx,
@@ -422,7 +435,8 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             PayloadEncodeOptions encodeOptions,
             string patchId = null,
             string displayName = null,
-            Func<IFbxMesh, IReadOnlyList<int[]>> weldGroupResolver = null)
+            Func<IFbxMesh, IReadOnlyList<int[]>> weldGroupResolver = null,
+            bool embedOriginBinding = true)
         {
             var diagnostics = new List<ExtractionDiagnostic>();
             var srcRead = FbxUnityAssetReader.ReadScene(sourceFbx, UfbxLoadOptions.Default);
@@ -449,6 +463,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
 
                 using (var originScene = orgRead.Value)
                 {
+                    var originImportSettings = FbxUnityAssetReader.GetImportSettings(originFbx);
                     return Extract(new PatchExtractionRequest
                     {
                         PatchId = patchId ?? string.Empty,
@@ -458,7 +473,8 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                         Meshes = meshes,
                         FeatureOptions = featureOptions,
                         EncodeOptions = encodeOptions,
-                        WeldGroupResolver = weldGroupResolver
+                        WeldGroupResolver = weldGroupResolver ?? BuildDefaultWeldGroupResolver(originImportSettings),
+                        OriginBindingBuilder = embedOriginBinding ? BuildDefaultOriginBindingBuilder(originFbx, originImportSettings) : null
                     });
                 }
             }
@@ -478,7 +494,8 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             string patchId = null,
             string displayName = null,
             Func<IFbxMesh, IReadOnlyList<int[]>> weldGroupResolver = null,
-            bool importUnityAsset = true)
+            bool importUnityAsset = true,
+            bool embedOriginBinding = true)
         {
             writtenToc = null;
             var diagnostics = new List<ExtractionDiagnostic>();
@@ -506,6 +523,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
 
                 using (var originScene = orgRead.Value)
                 {
+                    var originImportSettings = FbxUnityAssetReader.GetImportSettings(originFbx);
                     var result = ExtractAndWriteFile(
                         new PatchExtractionRequest
                         {
@@ -516,7 +534,8 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                             Meshes = meshes,
                             FeatureOptions = featureOptions,
                             EncodeOptions = encodeOptions,
-                            WeldGroupResolver = weldGroupResolver
+                            WeldGroupResolver = weldGroupResolver ?? BuildDefaultWeldGroupResolver(originImportSettings),
+                            OriginBindingBuilder = embedOriginBinding ? BuildDefaultOriginBindingBuilder(originFbx, originImportSettings) : null
                         },
                         outputFilePath,
                         out writtenToc);
@@ -529,6 +548,114 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                     return result;
                 }
             }
+        }
+
+        private static Func<IFbxMesh, IReadOnlyList<int[]>> BuildDefaultWeldGroupResolver(FbxUnityImportSettings settings)
+        {
+            var weldOptions = FbxUnityWeldOptions.FromImportSettings(settings);
+            if (!weldOptions.WeldVertices)
+            {
+                return null;
+            }
+
+            return rawOriginMesh =>
+            {
+                if (rawOriginMesh == null || rawOriginMesh.ControlPointCount <= 0)
+                {
+                    return null;
+                }
+
+                var prediction = FbxUnityWeldPredictor.Predict(rawOriginMesh, weldOptions);
+                return prediction.HasMultiMemberGroups ? prediction.MultiMemberGroups : null;
+            };
+        }
+
+        private static Func<MeshExtractionRequest, IFbxMesh, FbxSceneMetadata, OriginBindingDocument> BuildDefaultOriginBindingBuilder(
+            GameObject originFbx,
+            FbxUnityImportSettings importSettings)
+        {
+            if (originFbx == null)
+            {
+                return null;
+            }
+
+            var meshByPath = CollectUnityMeshesByPath(originFbx);
+            var hints = FbxInverseMapHints.FromImportSettings(importSettings);
+
+            return (meshReq, rawOriginMesh, originMetadata) =>
+            {
+                if (rawOriginMesh == null || !meshByPath.TryGetValue(meshReq.NodePath, out var unityMesh) || unityMesh == null)
+                {
+                    return null;
+                }
+
+                if (!UnityMeshReaderUtility.TryReadMeshSnapshot(unityMesh, out var snapshot))
+                {
+                    return null;
+                }
+
+                var mapped = FbxUnityInverseMapper.Map(rawOriginMesh, snapshot, hints);
+                if (!mapped.Succeeded)
+                {
+                    return null;
+                }
+
+                return OriginBindingCodec.Build(
+                    snapshot,
+                    mapped,
+                    rawOriginMesh.ControlPointCount,
+                    originMetadata,
+                    meshReq.NodePath);
+            };
+        }
+
+        private static Dictionary<string, Mesh> CollectUnityMeshesByPath(GameObject root)
+        {
+            var map = new Dictionary<string, Mesh>(StringComparer.Ordinal);
+            if (root == null)
+            {
+                return map;
+            }
+
+            var rootTransform = root.transform;
+            var skinned = root.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            for (int i = 0; i < skinned.Length; i++)
+            {
+                var smr = skinned[i];
+                if (smr == null || smr.sharedMesh == null) continue;
+                string path = GetRelativeTransformPath(smr.transform, rootTransform);
+                if (!map.ContainsKey(path)) map.Add(path, smr.sharedMesh);
+            }
+
+            var filters = root.GetComponentsInChildren<MeshFilter>(true);
+            for (int i = 0; i < filters.Length; i++)
+            {
+                var mf = filters[i];
+                if (mf == null || mf.sharedMesh == null) continue;
+                string path = GetRelativeTransformPath(mf.transform, rootTransform);
+                if (!map.ContainsKey(path)) map.Add(path, mf.sharedMesh);
+            }
+
+            return map;
+        }
+
+        private static string GetRelativeTransformPath(Transform target, Transform root)
+        {
+            if (target == null || target == root)
+            {
+                return string.Empty;
+            }
+
+            var parts = new List<string>();
+            var curr = target;
+            while (curr != null && curr != root)
+            {
+                parts.Add(curr.name);
+                curr = curr.parent;
+            }
+
+            parts.Reverse();
+            return FbxNameUtility.NormalizePath(string.Join("/", parts));
         }
 
         internal static bool TryToUnityAssetPath(string filePath, out string assetPath)

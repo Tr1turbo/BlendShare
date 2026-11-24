@@ -258,9 +258,14 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
 
         /// <summary>
         /// Optional callback resolving Unity WeldVertices control-point groups for each raw origin mesh.
-        /// Commit 4 wires FbxUnityWeldPredictor here; pure tests may pass null or a custom delegate.
         /// </summary>
         public Func<IFbxMesh, IReadOnlyList<int[]>> WeldGroupResolver { get; set; }
+
+        /// <summary>
+        /// Optional callback building an embedded <see cref="OriginBindingDocument"/> for each extracted mesh
+        /// so downstream consumers can bind without the base FBX.
+        /// </summary>
+        public Func<MeshExtractionRequest, IFbxMesh, FbxSceneMetadata, OriginBindingDocument> OriginBindingBuilder { get; set; }
     }
 
     /// <summary>

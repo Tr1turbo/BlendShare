@@ -6,6 +6,7 @@
         "Triturbo.BlendShare.Runtime",
         "Triturbo.BlendShare.Model.Editor",
         "Triturbo.FBX",
+        "Triturbo.BlendShare.Mapping.Editor",
         "Triturbo.BlendShare.Container.Editor",
         "Triturbo.BlendShare.EditorAssets.Editor"
     ],

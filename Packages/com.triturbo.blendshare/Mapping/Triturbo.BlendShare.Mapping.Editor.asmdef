@@ -1,0 +1,19 @@
+{
+    "name": "Triturbo.BlendShare.Mapping.Editor",
+    "rootNamespace": "Triturbo.BlendShare.Mapping",
+    "references": [
+        "Triturbo.BlendShare.Primitives",
+        "Triturbo.FBX"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
