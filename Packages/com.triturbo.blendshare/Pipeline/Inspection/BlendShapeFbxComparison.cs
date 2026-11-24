@@ -44,7 +44,7 @@ namespace Triturbo.BlendShare.Pipeline.Inspection
     }
 
     /// <summary>
-    /// Compares Source vs Original FBX blendshapes in <c>OriginRawLocalV2</c> space using the exact
+    /// Compares Source vs Original FBX blendshapes in Origin FBX native local space using the exact
     /// <c>L = W * SourceToOriginRawOffset</c> transform and unit-scaled physical-meter tolerances.
     /// </summary>
     public sealed class BlendShapeFbxComparison

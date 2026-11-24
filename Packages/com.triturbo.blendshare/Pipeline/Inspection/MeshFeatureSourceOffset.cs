@@ -6,7 +6,7 @@ using UnityEngine;
 namespace Triturbo.BlendShare.Pipeline.Inspection
 {
     /// <summary>
-    /// Editable per-mesh alignment offset expressed in <c>OriginRawLocalV2</c> space,
+    /// Editable per-mesh alignment offset expressed in Origin FBX native local space,
     /// applied AFTER automatic scene/world space conversion <c>W</c> (<c>L = W * Offset</c>).
     /// </summary>
     public sealed class MeshFeatureSourceOffset

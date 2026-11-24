@@ -44,22 +44,19 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     var map = binding.VertexMap;
                     var space = binding.SpaceContract.StoredToUnityMeshLocal;
                     if (map.SourceDomain != IndexDomain.UnityVertex || map.TargetDomain != IndexDomain.ControlPoint ||
-                        map.SourceCount != mesh.vertexCount || !MeshSpaceProvenance.IsSupportedFrameVersion(binding.SpaceContract.FrameVersion) ||
-                        (input.MeshHeader != null && (input.MeshHeader.SpaceProvenance?.FrameVersion ?? MeshSpaceProvenance.CanonicalMeshLocalV1) != binding.SpaceContract.FrameVersion) ||
+                        map.SourceCount != mesh.vertexCount ||
+                        binding.SpaceContract.StoredSpace == null || !binding.SpaceContract.StoredSpace.IsValid ||
+                        (input.MeshHeader?.SpaceProvenance != null && !binding.SpaceContract.StoredSpace.MatchesSpace(input.MeshHeader.SpaceProvenance)) ||
                         !FbxAffineSpaceTransform.TryCreate(space, out _)) throw new InvalidOperationException("Invalid skin vertex binding.");
 
                     var armature = input.Armatures?.FirstOrDefault(a => a?.ArmatureId == feature.ArmatureId);
                     if (armature != null)
                     {
-                        var meshSpace = input.MeshHeader?.SpaceProvenance;
+                        var expectedSpace = input.MeshHeader?.SpaceProvenance ?? binding.SpaceContract.StoredSpace;
                         var armatureSpace = armature.SpaceProvenance;
-                        int armatureFrame = armatureSpace?.FrameVersion ?? MeshSpaceProvenance.CanonicalMeshLocalV1;
-                        if (armatureFrame != binding.SpaceContract.FrameVersion ||
-                            (armatureFrame == MeshSpaceProvenance.OriginRawLocalV2 &&
-                             (meshSpace == null || !CanonicalMeshSpace.IsValidAxes(meshSpace.OriginAxes) ||
-                              !CanonicalMeshSpace.IsValidUnitMeters(meshSpace.OriginRawMetersPerUnit) ||
-                              !armatureSpace.OriginAxes.Equals(meshSpace.OriginAxes) ||
-                              armatureSpace.OriginRawMetersPerUnit != meshSpace.OriginRawMetersPerUnit)))
+                        if (armatureSpace == null || !armatureSpace.IsValid ||
+                            expectedSpace == null || !expectedSpace.IsValid ||
+                            !armatureSpace.MatchesSpace(expectedSpace))
                             throw new InvalidOperationException($"Armature '{feature.ArmatureId}' and mesh use incompatible stored spaces.");
                     }
 

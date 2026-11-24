@@ -11,7 +11,7 @@ namespace Triturbo.BlendShare.Pipeline.Inspection
 {
     /// <summary>
     /// Short-lived editor inspection session opening Source and Original FBX scenes via ufbx and sharing
-    /// the exact <c>OriginRawLocalV2</c> scene/world (<c>W</c>) and per-mesh (<c>L = W * O</c>) transform algebra
+    /// the exact Origin FBX raw scene/world (<c>W</c>) and per-mesh (<c>L = W * O</c>) transform algebra
     /// used by <see cref="Extraction.PatchExtractionPipeline"/>.
     /// </summary>
     public sealed class FbxInspectionSession : IDisposable

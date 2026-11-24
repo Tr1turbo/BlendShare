@@ -105,9 +105,9 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
 
     /// <summary>
     /// Single unified gateway for resolving <c>UnityVertex -> Origin ControlPoint</c> bindings and
-    /// per-use <c>CanonicalMeshLocalV1 -> UnityMeshLocal</c> space contracts.
+    /// per-use <c>OriginRaw -> UnityMeshLocal</c> space contracts.
     /// Supports non-readable Unity meshes, 2-stage <see cref="OriginBindingDocument"/> verification without FBX,
-    /// and 3-layer <c>Library/BlendShare/Bindings/v1/</c> cached FBX inverse mapping.
+    /// and 3-layer cached FBX inverse mapping.
     /// </summary>
     public sealed class BindingService
     {
@@ -137,11 +137,7 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
             }
 
             var stored = request.MeshHeader.SpaceProvenance;
-            if (stored != null && !MeshSpaceProvenance.IsSupportedFrameVersion(stored.FrameVersion))
-                return BindingResolveResult.Fail("BIND_UNSUPPORTED_FRAME", $"Unsupported stored frame version {stored.FrameVersion}.");
-
-            if (stored?.FrameVersion == MeshSpaceProvenance.OriginRawLocalV2 &&
-                (!CanonicalMeshSpace.IsValidAxes(stored.OriginAxes) || !CanonicalMeshSpace.IsValidUnitMeters(stored.OriginRawMetersPerUnit)))
+            if (stored != null && !stored.IsValid)
                 return BindingResolveResult.Fail("BIND_INVALID_STORED_SPACE", "Invalid origin raw axes or unit scale.");
 
             UnityMeshSnapshot snapshot = request.TargetSnapshotOverride;
@@ -403,7 +399,7 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                 : -1;
 
             var verify = OriginBindingCodec.Verify(doc, targetSnapshot, expectedCpCount,
-                request.MeshHeader.SpaceProvenance?.FrameVersion ?? MeshSpaceProvenance.CanonicalMeshLocalV1);
+                request.MeshHeader.SpaceProvenance);
             if (!verify.Succeeded)
             {
                 return BindingResolveResult.Fail($"BIND_ORIGIN_{verify.Status}", verify.Diagnostic);
@@ -524,7 +520,6 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                     m_CacheStore.TryLoadResolution(resolutionKey, out var cachedIdx, out var cachedCsr))
                 {
                     var cachedSpace = OriginBindingCodec.BuildSpaceContract(
-                        request.MeshHeader.SpaceProvenance?.FrameVersion ?? MeshSpaceProvenance.CanonicalMeshLocalV1,
                         request.MeshHeader.SpaceProvenance,
                         scene.Metadata,
                         cachedIdx.MatchedScale,
@@ -568,7 +563,6 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                     IndexDomain.ControlPoint);
 
                 var spaceContract = OriginBindingCodec.BuildSpaceContract(
-                    request.MeshHeader.SpaceProvenance?.FrameVersion ?? MeshSpaceProvenance.CanonicalMeshLocalV1,
                     request.MeshHeader.SpaceProvenance,
                     scene.Metadata,
                     mapped.MatchedScale,

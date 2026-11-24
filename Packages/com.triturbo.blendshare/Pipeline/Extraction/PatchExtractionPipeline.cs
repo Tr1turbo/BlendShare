@@ -17,8 +17,8 @@ using UnityEngine;
 namespace Triturbo.BlendShare.Pipeline.Extraction
 {
     /// <summary>
-    /// Coordinates BlendShare 2.0 feature extraction into a <see cref="PatchDocument"/> in <c>OriginRawLocalV2</c>
-    /// (preserving Origin FBX native axes and unit scale) and optional atomic <c>BLSHARE1</c> v5 file writing.
+    /// Coordinates BlendShare 2.0 feature extraction into a <see cref="PatchDocument"/> in native Origin FBX
+    /// local space (preserving Origin FBX axes and unit scale) and optional atomic <c>BLSHARE1</c> v5 file writing.
     /// Zero <c>Autodesk.Fbx</c> dependency.
     /// </summary>
     public sealed class PatchExtractionPipeline
@@ -68,7 +68,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                 diagnostics.Add(new ExtractionDiagnostic(
                     ExtractionDiagnosticSeverity.Warning,
                     "PIPE_EXT_ORIGIN_SPACE_FALLBACK",
-                    "Origin FBX scene had invalid/unknown coordinate axes or unit scale; fell back to CanonicalMeshLocalV1 defaults."));
+                    "Origin FBX scene had invalid/unknown coordinate axes or unit scale; fell back to default meter (+X/+Y/+Z) space."));
             }
 
             CanonicalMeshSpace.SanitizeMetadata(
@@ -81,23 +81,20 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                 diagnostics.Add(new ExtractionDiagnostic(
                     ExtractionDiagnosticSeverity.Warning,
                     "PIPE_EXT_SOURCE_SPACE_FALLBACK",
-                    "Source FBX scene had invalid/unknown coordinate axes or unit scale; fell back to CanonicalMeshLocalV1 defaults."));
+                    "Source FBX scene had invalid/unknown coordinate axes or unit scale; fell back to default meter (+X/+Y/+Z) space."));
             }
 
-            FbxMatrix4x4 originRawToCanonical = CanonicalMeshSpace.BuildRawToCanonical(
-                originAxes,
-                originUnitMeters,
-                out _);
-            FbxMatrix4x4 originCanonicalToRaw = CanonicalMeshSpace.BuildCanonicalToRaw(
-                originAxes,
-                originUnitMeters,
-                out _);
-            FbxMatrix4x4 sourceRawToCanonical = CanonicalMeshSpace.BuildRawToCanonical(
-                sourceAxes,
-                sourceUnitMeters,
-                out _);
+            FbxSceneMetadata effectiveOriginMetadata = originSpaceFallback
+                ? new FbxSceneMetadata(
+                    request.OriginScene.Metadata.FileVersion,
+                    originAxes.Up,
+                    originUnitMeters,
+                    request.OriginScene.Metadata.OriginalUnitMeters,
+                    request.OriginScene.Metadata.FramesPerSecond,
+                    originAxes)
+                : request.OriginScene.Metadata;
 
-            // Scene/world basis transform W: Source raw world -> Origin raw world (OriginRawLocalV2).
+            // Scene/world basis transform W: Source raw world -> Origin raw world.
             // Kept strictly separate from per-mesh alignment offsets so shared armatures stay coherent across meshes.
             FbxMatrix4x4 sourceWorldToOriginRaw = CanonicalMeshSpace.BuildSpaceToSpace(
                 sourceAxes,
@@ -257,7 +254,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                         meshReq.MeshId));
                 }
 
-                // Per-mesh local alignment transform L: Source mesh-local -> Origin raw mesh-local (OriginRawLocalV2).
+                // Per-mesh local alignment transform L: Source mesh-local -> Origin raw mesh-local.
                 // Use exact IEEE-754 identity checks so tiny non-zero offsets and NaN matrices are never dropped.
                 FbxMatrix4x4 sourceMeshTotalMatrix;
                 if (!FbxAffineSpaceTransform.IsExactIdentity(meshReq.SourceToOriginRawOffset))
@@ -276,21 +273,6 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                     sourceMeshTotalMatrix = isExactSameSpace
                         ? meshReq.SourceToOriginRawOffset
                         : sourceWorldToOriginRaw * meshReq.SourceToOriginRawOffset;
-                }
-                else if (!FbxAffineSpaceTransform.IsExactIdentity(meshReq.SourceToOriginCanonicalOffset))
-                {
-                    if (!FbxAffineSpaceTransform.TryCreate(meshReq.SourceToOriginCanonicalOffset, out _))
-                    {
-                        diagnostics.Add(new ExtractionDiagnostic(
-                            ExtractionDiagnosticSeverity.Error,
-                            "PIPE_EXT_SINGULAR_SOURCE_OFFSET",
-                            $"Source-to-origin canonical alignment offset for mesh '{meshReq.NodePath}' is singular, non-finite, or non-affine.",
-                            meshReq.MeshId));
-                        hasError = true;
-                        continue;
-                    }
-
-                    sourceMeshTotalMatrix = sourceRawToCanonical * meshReq.SourceToOriginCanonicalOffset * originCanonicalToRaw;
                 }
                 else
                 {
@@ -311,19 +293,11 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                 IReadOnlyList<int[]> weldGroups = meshReq.WeldGroupsOverride ??
                                                   (request.WeldGroupResolver != null ? request.WeldGroupResolver(rawOriginMesh) : null);
 
-                // In OriginRawLocalV2, Origin mesh stays natively untouched (Identity transform).
+                // Origin mesh stays natively untouched (Identity transform).
                 var normalizedOriginMesh = SourceMeshNormalizer.Normalize(rawOriginMesh, FbxAffineSpaceTransform.Identity, weldGroups: null);
                 var normalizedSourceMesh = SourceMeshNormalizer.Normalize(rawSourceMesh, sourceMeshToStored, weldGroups);
 
-                var provenance = new MeshSpaceProvenance
-                {
-                    FrameVersion = MeshSpaceProvenance.OriginRawLocalV2,
-                    OriginRawMetersPerUnit = originUnitMeters,
-                    OriginRightAxis = originAxes.Right,
-                    OriginUpAxis = originAxes.Up,
-                    OriginFrontAxis = originAxes.Front,
-                    OriginRawToCanonical = originRawToCanonical
-                };
+                var provenance = MeshSpaceProvenance.FromMetadata(originAxes, originUnitMeters);
 
                 var context = new MeshExtractionContext(
                     meshReq.MeshId,
@@ -359,7 +333,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
 
                 if (request.OriginBindingBuilder != null)
                 {
-                    var originBinding = request.OriginBindingBuilder(meshReq, rawOriginMesh, request.OriginScene.Metadata);
+                    var originBinding = request.OriginBindingBuilder(meshReq, rawOriginMesh, effectiveOriginMetadata);
                     if (originBinding != null)
                     {
                         meshDoc.OriginBinding = LazyPayload<OriginBindingDocument>.FromValue(originBinding);
@@ -466,15 +440,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                     ArmatureId = acc.ArmatureId,
                     Name = acc.ArmatureId,
                     RootBonePath = string.Empty,
-                    SpaceProvenance = new MeshSpaceProvenance
-                    {
-                        FrameVersion = MeshSpaceProvenance.OriginRawLocalV2,
-                        OriginRawMetersPerUnit = originUnitMeters,
-                        OriginRightAxis = originAxes.Right,
-                        OriginUpAxis = originAxes.Up,
-                        OriginFrontAxis = originAxes.Front,
-                        OriginRawToCanonical = originRawToCanonical
-                    }
+                    SpaceProvenance = MeshSpaceProvenance.FromMetadata(originAxes, originUnitMeters)
                 };
 
                 var candidates = new List<ArmatureNodeCandidate>(acc.NodesByPath.Values);

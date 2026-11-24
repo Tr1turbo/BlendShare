@@ -30,27 +30,36 @@ namespace Triturbo.BlendShare.Model.Documents
     }
 
     /// <summary>
-    /// Records the stored mesh coordinate frame, origin raw axes/unit scale, and provenance transform.
-    /// FrameVersion 1 = CanonicalMeshLocalV1 (meters, +X/+Y/+Z);
-    /// FrameVersion 2 = OriginRawLocalV2 (native Origin FBX local coordinates &amp; units).
+    /// Records the native Origin FBX local coordinate space (axes and meters-per-unit scale)
+    /// in which a mesh's deltas and armature bind matrices are stored.
     /// </summary>
     [BlendShareRecord(SchemaVersion = 1)]
     public sealed class MeshSpaceProvenance
     {
-        public const int CanonicalMeshLocalV1 = 1;
-        public const int OriginRawLocalV2 = 2;
-
-        [BlendShareField(1)] public int FrameVersion = CanonicalMeshLocalV1;
-        [BlendShareField(2)] public double OriginRawMetersPerUnit = 1d;
-        [BlendShareField(3)] public FbxCoordinateAxis OriginRightAxis = FbxCoordinateAxis.PositiveX;
-        [BlendShareField(4)] public FbxCoordinateAxis OriginUpAxis = FbxCoordinateAxis.PositiveY;
-        [BlendShareField(5)] public FbxCoordinateAxis OriginFrontAxis = FbxCoordinateAxis.PositiveZ;
-        [BlendShareField(6)] public FbxMatrix4x4 OriginRawToCanonical = FbxMatrix4x4.Identity;
+        [BlendShareField(1)] public double OriginRawMetersPerUnit = 1d;
+        [BlendShareField(2)] public FbxCoordinateAxis OriginRightAxis = FbxCoordinateAxis.PositiveX;
+        [BlendShareField(3)] public FbxCoordinateAxis OriginUpAxis = FbxCoordinateAxis.PositiveY;
+        [BlendShareField(4)] public FbxCoordinateAxis OriginFrontAxis = FbxCoordinateAxis.PositiveZ;
 
         public FbxCoordinateAxes OriginAxes => new FbxCoordinateAxes(OriginRightAxis, OriginUpAxis, OriginFrontAxis);
 
-        public static bool IsSupportedFrameVersion(int frameVersion) =>
-            frameVersion == CanonicalMeshLocalV1 || frameVersion == OriginRawLocalV2;
+        public bool IsValid =>
+            CanonicalMeshSpace.IsValidAxes(OriginAxes) &&
+            CanonicalMeshSpace.IsValidUnitMeters(OriginRawMetersPerUnit);
+
+        public bool MatchesSpace(MeshSpaceProvenance other) =>
+            other != null &&
+            OriginAxes.Equals(other.OriginAxes) &&
+            OriginRawMetersPerUnit.Equals(other.OriginRawMetersPerUnit);
+
+        public static MeshSpaceProvenance FromMetadata(FbxCoordinateAxes axes, double metersPerUnit) =>
+            new MeshSpaceProvenance
+            {
+                OriginRawMetersPerUnit = metersPerUnit,
+                OriginRightAxis = axes.Right,
+                OriginUpAxis = axes.Up,
+                OriginFrontAxis = axes.Front
+            };
     }
 
     /// <summary>

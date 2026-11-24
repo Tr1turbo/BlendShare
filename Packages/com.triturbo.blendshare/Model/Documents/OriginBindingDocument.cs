@@ -6,26 +6,14 @@ namespace Triturbo.BlendShare.Model.Documents
 {
     /// <summary>
     /// Explicit per-use affine coordinate contract from stored patch mesh-local space
-    /// (<see cref="MeshSpaceProvenance.CanonicalMeshLocalV1"/> or <see cref="MeshSpaceProvenance.OriginRawLocalV2"/>)
-    /// to <c>UnityMeshLocal</c>.
+    /// (Origin FBX native local space) to <c>UnityMeshLocal</c>.
     /// </summary>
     [BlendShareRecord(SchemaVersion = 1)]
     public sealed class OriginSpaceContract
     {
-        [BlendShareField(1)] public int FrameVersion = MeshSpaceProvenance.CanonicalMeshLocalV1;
-        [BlendShareField(2)] public int BindingSpaceVersion = 1;
-        [BlendShareField(3)] public string TargetIdentity = string.Empty;
-        [BlendShareField(4)] public FbxMatrix4x4 CanonicalToUnityMeshLocal = FbxMatrix4x4.Identity;
-
-        /// <summary>
-        /// Semantic alias for field 4 (<see cref="CanonicalToUnityMeshLocal"/>): transforms coordinates from
-        /// the patch's stored mesh-local frame (<see cref="FrameVersion"/>) into <c>UnityMeshLocal</c>.
-        /// </summary>
-        public FbxMatrix4x4 StoredToUnityMeshLocal
-        {
-            get => CanonicalToUnityMeshLocal;
-            set => CanonicalToUnityMeshLocal = value;
-        }
+        [BlendShareField(1)] public string TargetIdentity = string.Empty;
+        [BlendShareField(2)] public FbxMatrix4x4 StoredToUnityMeshLocal = FbxMatrix4x4.Identity;
+        [BlendShareField(3)] public MeshSpaceProvenance StoredSpace = new MeshSpaceProvenance();
     }
 
     /// <summary>
@@ -68,7 +56,7 @@ namespace Triturbo.BlendShare.Model.Documents
         /// <summary>Optional face-corner correspondence for corner-domain features such as UV.</summary>
         [BlendShareField(9)] public int[] FaceCornerIndices;
 
-        /// <summary>Explicit coordinate contract from CanonicalMeshLocalV1 to Origin UnityMeshLocal.</summary>
+        /// <summary>Explicit coordinate contract from stored Origin FBX local space to Origin UnityMeshLocal.</summary>
         [BlendShareField(10)] public OriginSpaceContract SpaceContract = new OriginSpaceContract();
 
         /// <summary>Coincident-vertex equivalence class proofs for UV0/SubMesh-altered fallback.</summary>

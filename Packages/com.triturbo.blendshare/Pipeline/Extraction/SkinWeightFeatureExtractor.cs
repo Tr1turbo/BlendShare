@@ -85,7 +85,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
     /// <summary>
     /// Built-in <see cref="IFeatureExtractor"/> for <see cref="SkinWeightFeature"/>.
     /// Extracts normalized per-cluster sparse control-point weights (<c>DataSemantic.NormalizedWeight</c>)
-    /// and binary64 bind matrices in the mesh's stored frame (<c>OriginRawLocalV2</c> or <c>CanonicalMeshLocalV1</c>),
+    /// and binary64 bind matrices in the mesh's stored Origin FBX local space,
     /// keeping mesh-local alignment <c>L</c> strictly separated from scene/world basis transform <c>W</c>:
     /// <c>TransformMatrix = L^-1 * M_meshBind * W</c>, <c>TransformLinkMatrix = W^-1 * M_boneBind * W</c>.
     /// </summary>
@@ -161,22 +161,15 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             FbxAffineSpaceTransform worldToStored = context.SourceWorldToStoredSpace;
             if (!worldToStored.IsValid)
             {
-                FbxMatrix4x4 fallbackMatrix;
-                if (context.SpaceProvenance != null &&
-                    context.SpaceProvenance.FrameVersion == MeshSpaceProvenance.OriginRawLocalV2)
-                {
-                    fallbackMatrix = CanonicalMeshSpace.BuildSpaceToSpace(
+                FbxMatrix4x4 fallbackMatrix = context.SpaceProvenance != null
+                    ? CanonicalMeshSpace.BuildSpaceToSpace(
                         context.SourceScene.Metadata.Axes,
                         context.SourceScene.Metadata.UnitMeters,
                         context.SpaceProvenance.OriginAxes,
                         context.SpaceProvenance.OriginRawMetersPerUnit,
                         out _,
-                        out _);
-                }
-                else
-                {
-                    fallbackMatrix = CanonicalMeshSpace.BuildRawToCanonical(context.SourceScene.Metadata, out _);
-                }
+                        out _)
+                    : CanonicalMeshSpace.BuildRawToCanonical(context.SourceScene.Metadata, out _);
 
                 if (!FbxAffineSpaceTransform.TryCreate(fallbackMatrix, out worldToStored))
                 {

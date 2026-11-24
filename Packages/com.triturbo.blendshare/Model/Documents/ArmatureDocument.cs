@@ -17,11 +17,9 @@ namespace Triturbo.BlendShare.Model.Documents
         [BlendShareField(4)] public List<ArmatureBoneRecord> Bones = new List<ArmatureBoneRecord>();
 
         /// <summary>
-        /// Coordinate frame provenance for this armature's bone bind matrices.
-        /// Populated with <see cref="MeshSpaceProvenance.OriginRawLocalV2"/> by BlendShare 2.0 extraction;
-        /// <c>null</c> indicates a legacy v1 armature whose matrices are stored in <see cref="MeshSpaceProvenance.CanonicalMeshLocalV1"/>.
+        /// Coordinate space provenance (Origin FBX axes and meters-per-unit scale) for this armature's bone bind matrices.
         /// </summary>
-        [BlendShareField(5)] public MeshSpaceProvenance SpaceProvenance;
+        [BlendShareField(5)] public MeshSpaceProvenance SpaceProvenance = new MeshSpaceProvenance();
     }
 
     [BlendShareRecord(SchemaVersion = 1)]

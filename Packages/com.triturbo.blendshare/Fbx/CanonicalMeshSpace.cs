@@ -3,25 +3,18 @@ using System;
 namespace Triturbo.BlendShare.Fbx
 {
     /// <summary>
-    /// Defines BlendShare's canonical mesh local coordinate frame (<c>CanonicalMeshLocalV1</c>):
-    /// right-handed Y-up in meters (<c>Right = +X</c>, <c>Up = +Y</c>, <c>Front = +Z</c>, <c>1 unit = 1 meter</c>),
+    /// Defines reference coordinate-space math (right-handed Y-up in meters: <c>Right = +X</c>, <c>Up = +Y</c>,
+    /// <c>Front = +Z</c>, <c>1 unit = 1 meter</c>) and direct space-to-space conversions between FBX coordinate frames,
     /// using binary64 row-vector right multiplication (<c>v' = v * M</c>).
     /// </summary>
     public static class CanonicalMeshSpace
     {
-        public const int CanonicalMeshLocalV1 = 1;
-        public const int OriginRawLocalV2 = 2;
         public const double CanonicalUnitMeters = 1d;
 
         public static readonly FbxCoordinateAxes CanonicalAxes = new FbxCoordinateAxes(
             FbxCoordinateAxis.PositiveX,
             FbxCoordinateAxis.PositiveY,
             FbxCoordinateAxis.PositiveZ);
-
-        public static bool IsSupportedFrameVersion(int frameVersion)
-        {
-            return frameVersion == CanonicalMeshLocalV1 || frameVersion == OriginRawLocalV2;
-        }
 
         /// <summary>
         /// Returns true when the three axes are known and span three distinct orthogonal dimensions (X, Y, Z).
@@ -54,7 +47,7 @@ namespace Triturbo.BlendShare.Fbx
 
         /// <summary>
         /// Builds the row-vector change-of-basis and unit-scale matrix transforming points/vectors
-        /// from an FBX scene's raw local space into <c>CanonicalMeshLocalV1</c> (meters, +X right, +Y up, +Z front).
+        /// from an FBX scene's raw local space into canonical meter space (+X right, +Y up, +Z front).
         /// </summary>
         public static FbxMatrix4x4 BuildRawToCanonical(
             FbxCoordinateAxes rawAxes,
@@ -98,7 +91,7 @@ namespace Triturbo.BlendShare.Fbx
         }
 
         /// <summary>
-        /// Builds the row-vector matrix transforming points/vectors from <c>CanonicalMeshLocalV1</c>
+        /// Builds the row-vector matrix transforming points/vectors from canonical meter space (+X right, +Y up, +Z front)
         /// back into the specified FBX raw local space.
         /// </summary>
         public static FbxMatrix4x4 BuildCanonicalToRaw(
@@ -190,69 +183,6 @@ namespace Triturbo.BlendShare.Fbx
             }
 
             return TryBuildSanitizedSpaceToSpace(sourceAxes, sourceUnitMeters, targetAxes, targetUnitMeters, out matrix, out isExactIdentity);
-        }
-
-        /// <summary>
-        /// Builds the row-vector matrix transforming points/vectors from a stored patch mesh frame
-        /// (<see cref="CanonicalMeshLocalV1"/> or <see cref="OriginRawLocalV2"/>) into a target FBX raw space.
-        /// Fails closed (returns false) for unsupported frame versions or invalid metadata.
-        /// </summary>
-        public static bool TryBuildStoredToRaw(
-            int storedFrameVersion,
-            FbxCoordinateAxes storedAxes,
-            double storedUnitMeters,
-            FbxCoordinateAxes targetAxes,
-            double targetUnitMeters,
-            out FbxMatrix4x4 matrix,
-            out bool isExactIdentity)
-        {
-            if (storedFrameVersion == CanonicalMeshLocalV1)
-            {
-                return TryBuildSpaceToSpace(
-                    CanonicalAxes,
-                    CanonicalUnitMeters,
-                    targetAxes,
-                    targetUnitMeters,
-                    out matrix,
-                    out isExactIdentity);
-            }
-
-            if (storedFrameVersion == OriginRawLocalV2)
-            {
-                return TryBuildSpaceToSpace(
-                    storedAxes,
-                    storedUnitMeters,
-                    targetAxes,
-                    targetUnitMeters,
-                    out matrix,
-                    out isExactIdentity);
-            }
-
-            matrix = FbxMatrix4x4.Identity;
-            isExactIdentity = false;
-            return false;
-        }
-
-        /// <summary>
-        /// Builds the row-vector matrix transforming points/vectors from a stored patch mesh frame
-        /// into <see cref="CanonicalMeshLocalV1"/> (meters, +X/+Y/+Z).
-        /// Fails closed (returns false) for unsupported frame versions or invalid stored metadata.
-        /// </summary>
-        public static bool TryBuildStoredToCanonical(
-            int storedFrameVersion,
-            FbxCoordinateAxes storedAxes,
-            double storedUnitMeters,
-            out FbxMatrix4x4 matrix,
-            out bool isExactIdentity)
-        {
-            return TryBuildStoredToRaw(
-                storedFrameVersion,
-                storedAxes,
-                storedUnitMeters,
-                CanonicalAxes,
-                CanonicalUnitMeters,
-                out matrix,
-                out isExactIdentity);
         }
 
         /// <summary>

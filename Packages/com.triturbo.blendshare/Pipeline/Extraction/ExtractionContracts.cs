@@ -204,17 +204,10 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
         public string DisplayName { get; }
 
         /// <summary>
-        /// Optional affine alignment offset applied in <c>OriginRawLocalV2</c> space AFTER converting Source raw space
+        /// Optional affine alignment offset applied in Origin FBX native local space AFTER converting Source raw space
         /// into Origin raw space (<c>L = W * SourceToOriginRawOffset</c>). Defaults to Identity.
         /// </summary>
         public FbxMatrix4x4 SourceToOriginRawOffset { get; }
-
-        /// <summary>
-        /// Legacy optional affine alignment offset expressed in <c>CanonicalMeshLocalV1</c> (meters, +X/+Y/+Z).
-        /// Converted into <c>OriginRawLocalV2</c> via <c>R_src * SourceToOriginCanonicalOffset * R_orig^-1</c>.
-        /// Cannot be combined with a non-identity <see cref="SourceToOriginRawOffset"/>.
-        /// </summary>
-        public FbxMatrix4x4 SourceToOriginCanonicalOffset { get; }
 
         /// <summary>
         /// Optional explicit control-point weld groups (in Origin control-point index space) overriding resolver output.
@@ -225,7 +218,6 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             string nodePath,
             string meshId = null,
             string displayName = null,
-            FbxMatrix4x4? sourceToOriginCanonicalOffset = null,
             IReadOnlyList<int[]> weldGroupsOverride = null,
             FbxMatrix4x4? sourceToOriginRawOffset = null)
         {
@@ -235,21 +227,10 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                 throw new ArgumentException("Mesh node path must be non-empty.", nameof(nodePath));
             }
 
-            var rawOffset = sourceToOriginRawOffset ?? FbxMatrix4x4.Identity;
-            var canonOffset = sourceToOriginCanonicalOffset ?? FbxMatrix4x4.Identity;
-            if (!FbxAffineSpaceTransform.IsExactIdentity(rawOffset) &&
-                !FbxAffineSpaceTransform.IsExactIdentity(canonOffset))
-            {
-                throw new ArgumentException(
-                    "Specify either sourceToOriginRawOffset or sourceToOriginCanonicalOffset, not both.",
-                    nameof(sourceToOriginRawOffset));
-            }
-
             NodePath = normalizedPath;
             MeshId = string.IsNullOrWhiteSpace(meshId) ? normalizedPath : meshId.Trim();
             DisplayName = string.IsNullOrWhiteSpace(displayName) ? ExtractLeafName(normalizedPath) : displayName.Trim();
-            SourceToOriginRawOffset = rawOffset;
-            SourceToOriginCanonicalOffset = canonOffset;
+            SourceToOriginRawOffset = sourceToOriginRawOffset ?? FbxMatrix4x4.Identity;
             WeldGroupsOverride = weldGroupsOverride;
         }
 
@@ -308,9 +289,8 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
     }
 
     /// <summary>
-    /// Per-mesh extraction context providing Origin and Source meshes aligned into the patch's stored mesh frame
-    /// (<see cref="MeshSpaceProvenance.OriginRawLocalV2"/>), keeping scene/world basis conversion (<c>W</c>)
-    /// explicitly separated from per-mesh local alignment (<c>L</c>).
+    /// Per-mesh extraction context providing Origin and Source meshes aligned into the patch's stored Origin FBX
+    /// local space, keeping scene/world basis conversion (<c>W</c>) explicitly separated from per-mesh local alignment (<c>L</c>).
     /// </summary>
     public sealed class MeshExtractionContext
     {
@@ -329,7 +309,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
         public IFbxMeshGeometry NormalizedSourceMesh { get; }
 
         /// <summary>
-        /// Lazily normalized Origin mesh in the stored mesh frame (<c>Identity</c> in <c>OriginRawLocalV2</c>).
+        /// Lazily normalized Origin mesh in its native Origin FBX local frame (<c>Identity</c> transform).
         /// </summary>
         public IFbxMeshGeometry NormalizedOriginMesh { get; }
 

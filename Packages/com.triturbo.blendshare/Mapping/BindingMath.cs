@@ -522,8 +522,8 @@ namespace Triturbo.BlendShare.Mapping
     }
 
     /// <summary>
-    /// Binary64 coordinate contract math between stored patch mesh-local space
-    /// (<c>CanonicalMeshLocalV1</c> or <c>OriginRawLocalV2</c>) and Unity <c>Mesh</c> local space.
+    /// Binary64 coordinate contract math between stored Origin FBX mesh-local space
+    /// and Unity <c>Mesh</c> local space.
     /// </summary>
     public static class UnitySpaceContractMath
     {
@@ -545,7 +545,7 @@ namespace Triturbo.BlendShare.Mapping
         }
 
         /// <summary>
-        /// Builds the exact binary64 row-vector matrix transforming <c>CanonicalMeshLocalV1</c> coordinates
+        /// Builds the exact binary64 row-vector matrix transforming meter (+X/+Y/+Z) canonical coordinates
         /// into Unity mesh local coordinates for a target FBX scene with the given matched import scale &amp; axis mode.
         /// </summary>
         public static FbxMatrix4x4 BuildCanonicalToUnityMatrix(
@@ -563,14 +563,12 @@ namespace Triturbo.BlendShare.Mapping
         }
 
         /// <summary>
-        /// Builds the binary64 row-vector matrix transforming a patch's stored mesh-local coordinates
-        /// (<see cref="CanonicalMeshSpace.CanonicalMeshLocalV1"/> or <see cref="CanonicalMeshSpace.OriginRawLocalV2"/>)
+        /// Builds the binary64 row-vector matrix transforming stored Origin FBX mesh-local coordinates
         /// into Unity mesh local coordinates. Uses an exact direct <see cref="BuildFbxRawToUnityMatrix"/> fast path
-        /// when <c>OriginRawLocalV2</c> matches the target FBX axes and unit scale.
-        /// Returns false for unsupported frame versions.
+        /// when the stored axes and unit scale match the target FBX.
+        /// Returns false when stored axes or unit metadata are invalid.
         /// </summary>
         public static bool TryBuildStoredToUnityMatrix(
-            int storedFrameVersion,
             FbxCoordinateAxes storedAxes,
             double storedUnitMeters,
             FbxSceneMetadata targetSceneMetadata,
@@ -579,41 +577,31 @@ namespace Triturbo.BlendShare.Mapping
             out FbxMatrix4x4 storedToUnity,
             out bool usedFallback)
         {
-            if (storedFrameVersion == CanonicalMeshSpace.CanonicalMeshLocalV1)
+            if (!CanonicalMeshSpace.IsValidAxes(storedAxes) || !CanonicalMeshSpace.IsValidUnitMeters(storedUnitMeters))
             {
-                storedToUnity = BuildCanonicalToUnityMatrix(
-                    targetSceneMetadata,
-                    matchedScale,
-                    bakeAxisConversion,
-                    out usedFallback);
-                return true;
+                storedToUnity = FbxMatrix4x4.Identity;
+                usedFallback = true;
+                return false;
             }
 
-            if (storedFrameVersion == CanonicalMeshSpace.OriginRawLocalV2)
-            {
-                FbxMatrix4x4 rawToUnity = BuildFbxRawToUnityMatrix(matchedScale, bakeAxisConversion);
-                FbxMatrix4x4 storedToTargetRaw = CanonicalMeshSpace.BuildSpaceToSpace(
-                    storedAxes,
-                    storedUnitMeters,
-                    targetSceneMetadata.Axes,
-                    targetSceneMetadata.UnitMeters,
-                    out usedFallback,
-                    out bool isExactIdentity);
-                storedToUnity = isExactIdentity ? rawToUnity : storedToTargetRaw * rawToUnity;
-                return true;
-            }
-
-            storedToUnity = FbxMatrix4x4.Identity;
-            usedFallback = true;
-            return false;
+            FbxMatrix4x4 rawToUnity = BuildFbxRawToUnityMatrix(matchedScale, bakeAxisConversion);
+            FbxMatrix4x4 storedToTargetRaw = CanonicalMeshSpace.BuildSpaceToSpace(
+                storedAxes,
+                storedUnitMeters,
+                targetSceneMetadata.Axes,
+                targetSceneMetadata.UnitMeters,
+                out usedFallback,
+                out bool isExactIdentity);
+            storedToUnity = isExactIdentity ? rawToUnity : storedToTargetRaw * rawToUnity;
+            return true;
         }
 
         /// <summary>
-        /// Transforms a position delta from <c>CanonicalMeshLocalV1</c> to Unity mesh local space.
+        /// Transforms a position delta from stored mesh-local space to Unity mesh local space.
         /// </summary>
-        public static Vector3 TransformPositionDelta(FbxMatrix4x4 canonicalToUnity, Vector3d canonicalDelta)
+        public static Vector3 TransformPositionDelta(FbxMatrix4x4 storedToUnity, Vector3d storedDelta)
         {
-            var transformed = canonicalToUnity.TransformVector(canonicalDelta);
+            var transformed = storedToUnity.TransformVector(storedDelta);
             return new Vector3((float)transformed.x, (float)transformed.y, (float)transformed.z);
         }
 

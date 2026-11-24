@@ -57,7 +57,6 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
         {
             var axes = stored?.OriginAxes ?? CanonicalMeshSpace.CanonicalAxes;
             writer.Write(k_BindingSpaceAlgoRevision);
-            writer.Write(stored?.FrameVersion ?? MeshSpaceProvenance.CanonicalMeshLocalV1);
             writer.Write((int)axes.Right);
             writer.Write((int)axes.Up);
             writer.Write((int)axes.Front);

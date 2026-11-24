@@ -63,8 +63,9 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     var map = binding.VertexMap;
                     var matrix = binding.SpaceContract.StoredToUnityMeshLocal;
                     if (map.SourceDomain != IndexDomain.UnityVertex || map.TargetDomain != IndexDomain.ControlPoint ||
-                        map.SourceCount != mesh.vertexCount || !MeshSpaceProvenance.IsSupportedFrameVersion(binding.SpaceContract.FrameVersion) ||
-                        (input.MeshHeader != null && (input.MeshHeader.SpaceProvenance?.FrameVersion ?? MeshSpaceProvenance.CanonicalMeshLocalV1) != binding.SpaceContract.FrameVersion) ||
+                        map.SourceCount != mesh.vertexCount ||
+                        binding.SpaceContract.StoredSpace == null || !binding.SpaceContract.StoredSpace.IsValid ||
+                        (input.MeshHeader?.SpaceProvenance != null && !binding.SpaceContract.StoredSpace.MatchesSpace(input.MeshHeader.SpaceProvenance)) ||
                         !UnitySpaceContractMath.TryBuildNormalDeltaMatrix(matrix, out var normalMatrix))
                         throw new InvalidOperationException("Invalid vertex map or space contract.");
 
@@ -139,10 +140,9 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     var binding = input.VertexBinding;
                     var map = binding.VertexMap;
                     var matrix = binding.SpaceContract.StoredToUnityMeshLocal;
-                    double storedUnitMeters = input.MeshHeader?.SpaceProvenance != null &&
-                                              input.MeshHeader.SpaceProvenance.FrameVersion == MeshSpaceProvenance.OriginRawLocalV2 &&
-                                              CanonicalMeshSpace.IsValidUnitMeters(input.MeshHeader.SpaceProvenance.OriginRawMetersPerUnit)
-                        ? input.MeshHeader.SpaceProvenance.OriginRawMetersPerUnit
+                    var unitSpace = input.MeshHeader?.SpaceProvenance ?? binding.SpaceContract.StoredSpace;
+                    double storedUnitMeters = unitSpace != null && CanonicalMeshSpace.IsValidUnitMeters(unitSpace.OriginRawMetersPerUnit)
+                        ? unitSpace.OriginRawMetersPerUnit
                         : 1d;
                     double weldTolUnits = 1e-4d / storedUnitMeters;
                     double weldTolSq = weldTolUnits * weldTolUnits;

@@ -217,18 +217,13 @@ namespace Triturbo.BlendShare.UI.ValueDrawers
         public VisualElement CreateView(object value, Type valueType, BlendShareValueDrawContext context)
         {
             var space = (MeshSpaceProvenance)value;
-            string version = space.FrameVersion switch
-            {
-                MeshSpaceProvenance.OriginRawLocalV2 => nameof(MeshSpaceProvenance.OriginRawLocalV2),
-                MeshSpaceProvenance.CanonicalMeshLocalV1 => nameof(MeshSpaceProvenance.CanonicalMeshLocalV1),
-                _ => $"Frame {space.FrameVersion}"
-            };
             string Axis(FbxCoordinateAxis axis) => axis.ToString().Replace("Positive", "+").Replace("Negative", "-");
             string axes = $"{Axis(space.OriginRightAxis)} / {Axis(space.OriginUpAxis)} / {Axis(space.OriginFrontAxis)}";
             var box = Ui.Box();
-            box.Add(Ui.LabeledRow(context.Label ?? "Mesh Space", Ui.BadgeRow(Ui.Badge(version),
+            box.Add(Ui.LabeledRow(context.Label ?? "Mesh Space", Ui.BadgeRow(
                 Ui.Badge(DrawerUi.Unit(space.OriginRawMetersPerUnit)), Ui.Badge(axes))));
-            box.Add(context.WithChild("Origin Raw To Canonical").Draw(space.OriginRawToCanonical, typeof(FbxMatrix4x4)));
+            var rawToCanonical = CanonicalMeshSpace.BuildRawToCanonical(space.OriginAxes, space.OriginRawMetersPerUnit, out _);
+            box.Add(context.WithChild("Origin Raw To Canonical").Draw(rawToCanonical, typeof(FbxMatrix4x4)));
             return box;
         }
     }
@@ -415,7 +410,7 @@ namespace Triturbo.BlendShare.UI.ValueDrawers
             }
             double unit = context.PositionUnitMeters;
             if (value is MeshDocument mesh)
-                unit = mesh.SpaceProvenance?.FrameVersion == MeshSpaceProvenance.OriginRawLocalV2
+                unit = mesh.SpaceProvenance != null && CanonicalMeshSpace.IsValidUnitMeters(mesh.SpaceProvenance.OriginRawMetersPerUnit)
                     ? mesh.SpaceProvenance.OriginRawMetersPerUnit : 1d;
             foreach (var (field, tag) in s_Fields.GetOrAdd(valueType, GetFields))
             {

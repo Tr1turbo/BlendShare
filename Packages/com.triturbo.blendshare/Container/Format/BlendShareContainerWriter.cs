@@ -103,20 +103,10 @@ namespace Triturbo.BlendShare.Container.Format
                 return baseOptions;
             }
 
-            if (provenance.FrameVersion == MeshSpaceProvenance.CanonicalMeshLocalV1)
-            {
-                return baseOptions.WithPositionUnitMeters(1d);
-            }
-
-            if (provenance.FrameVersion == MeshSpaceProvenance.OriginRawLocalV2)
-            {
-                double unitMeters = provenance.OriginRawMetersPerUnit;
-                FormatIO.Check(!double.IsNaN(unitMeters) && !double.IsInfinity(unitMeters) && unitMeters > 0d,
-                    "OriginRawLocalV2 mesh provenance requires a finite strictly positive OriginRawMetersPerUnit.");
-                return baseOptions.WithPositionUnitMeters(unitMeters);
-            }
-
-            throw new InvalidDataException($"Unsupported MeshSpaceProvenance.FrameVersion '{provenance.FrameVersion}'.");
+            double unitMeters = provenance.OriginRawMetersPerUnit;
+            FormatIO.Check(!double.IsNaN(unitMeters) && !double.IsInfinity(unitMeters) && unitMeters > 0d,
+                "Mesh provenance requires a finite strictly positive OriginRawMetersPerUnit.");
+            return baseOptions.WithPositionUnitMeters(unitMeters);
         }
 
         private void Validate(PatchDocument document, ILazyPayloadSource payloadSource)

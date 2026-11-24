@@ -6,7 +6,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
 {
     /// <summary>
     /// Lazily decorates an <see cref="IFbxMeshGeometry"/> with a binary64 space transform
-    /// (such as <c>Raw -> CanonicalMeshLocalV1</c>) and optional control-point weld-group averaging.
+    /// (such as <c>Source raw -> Origin raw</c>) and optional control-point weld-group averaging.
     /// Zero allocations for untouched deformers or unused channels.
     /// </summary>
     public static class SourceMeshNormalizer

@@ -10,7 +10,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
 {
     public enum BlendShapeBaseMode
     {
-        /// <summary>Preserves deltas relative to the source mesh's own base shape (in CanonicalMeshLocalV1).</summary>
+        /// <summary>Preserves deltas relative to the source mesh's own base shape (in stored Origin FBX local space).</summary>
         PreserveSourceRelative = 0,
 
         /// <summary>Rebases target shapes onto the origin mesh's base positions: (sourceBase + delta) - originBase.</summary>
@@ -44,7 +44,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
 
         /// <summary>
         /// Exact sparsity threshold (in physical meters) applied BEFORE quantization; scaled into the mesh's
-        /// stored coordinate units when extracting <c>OriginRawLocalV2</c>. Default 0 keeps every non-zero finite delta.
+        /// stored Origin FBX coordinate units. Default 0 keeps every non-zero finite delta.
         /// </summary>
         public double PositionDeltaEpsilon { get; set; } = 0d;
 
@@ -158,7 +158,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
 
     /// <summary>
     /// Built-in <see cref="IFeatureExtractor"/> for <see cref="BlendShapeFeature"/>.
-    /// Extracts sparse <c>ControlPoint</c>-domain deltas in <c>CanonicalMeshLocalV1</c> with sparsity
+    /// Extracts sparse <c>ControlPoint</c>-domain deltas in stored Origin FBX local space with sparsity
     /// determined prior to container quantization.
     /// </summary>
     public sealed class BlendShapeFeatureExtractor : IFeatureExtractor
@@ -255,7 +255,6 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             double posEpsUnits = bsOptions.PositionDeltaEpsilon;
             if (posEpsUnits > 0d &&
                 context.SpaceProvenance != null &&
-                context.SpaceProvenance.FrameVersion == Model.Documents.MeshSpaceProvenance.OriginRawLocalV2 &&
                 CanonicalMeshSpace.IsValidUnitMeters(context.SpaceProvenance.OriginRawMetersPerUnit))
             {
                 posEpsUnits /= context.SpaceProvenance.OriginRawMetersPerUnit;

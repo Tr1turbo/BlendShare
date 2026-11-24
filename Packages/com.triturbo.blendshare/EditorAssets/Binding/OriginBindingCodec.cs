@@ -80,7 +80,7 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
                 IndexDomain.ControlPoint);
 
             var digests = UnityMeshGeometryDigests.Compute(originSnapshot);
-            var contract = BuildSpaceContract(storedSpace?.FrameVersion ?? MeshSpaceProvenance.OriginRawLocalV2,
+            var contract = BuildSpaceContract(
                 storedSpace, originSceneMetadata, inverseMapping.MatchedScale, inverseMapping.MatchedBakeAxisConversion, targetIdentity);
 
             var coincidentClasses = UnityMeshGeometryDigests.FindCoincidentPositionClasses(originSnapshot);
@@ -116,23 +116,25 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
             };
         }
 
-        internal static OriginSpaceContract BuildSpaceContract(int frameVersion, MeshSpaceProvenance storedSpace,
+        internal static OriginSpaceContract BuildSpaceContract(MeshSpaceProvenance storedSpace,
             FbxSceneMetadata target, float scale, bool bakeAxes, string targetIdentity)
         {
-            if (frameVersion == MeshSpaceProvenance.OriginRawLocalV2 && storedSpace != null &&
-                (!CanonicalMeshSpace.IsValidAxes(storedSpace.OriginAxes) || !CanonicalMeshSpace.IsValidUnitMeters(storedSpace.OriginRawMetersPerUnit)))
-                throw new ArgumentException("OriginRawLocalV2 stored space requires valid axes and strictly positive unit scale.");
+            var effectiveSpace = storedSpace != null
+                ? MeshSpaceProvenance.FromMetadata(storedSpace.OriginAxes, storedSpace.OriginRawMetersPerUnit)
+                : MeshSpaceProvenance.FromMetadata(target.Axes, target.UnitMeters);
 
-            if (!UnitySpaceContractMath.TryBuildStoredToUnityMatrix(frameVersion, storedSpace?.OriginAxes ?? target.Axes,
-                    storedSpace?.OriginRawMetersPerUnit ?? target.UnitMeters, target, scale, bakeAxes, out var matrix, out _) ||
+            if (!effectiveSpace.IsValid)
+                throw new ArgumentException("Stored mesh space requires valid axes and a strictly positive unit scale.");
+
+            if (!UnitySpaceContractMath.TryBuildStoredToUnityMatrix(
+                    effectiveSpace.OriginAxes, effectiveSpace.OriginRawMetersPerUnit, target, scale, bakeAxes, out var matrix, out _) ||
                 !FbxAffineSpaceTransform.TryCreate(matrix, out _))
-                throw new ArgumentException($"Unsupported or singular binding for stored frame {frameVersion}.");
+                throw new ArgumentException("Unsupported or singular binding coordinate transform.");
 
             return new OriginSpaceContract
             {
-                FrameVersion = frameVersion,
-                BindingSpaceVersion = frameVersion == MeshSpaceProvenance.CanonicalMeshLocalV1 ? 1 : 2,
                 StoredToUnityMeshLocal = matrix,
+                StoredSpace = effectiveSpace,
                 TargetIdentity = targetIdentity ?? string.Empty
             };
         }
@@ -141,7 +143,7 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
             OriginBindingDocument binding,
             UnityMeshSnapshot targetSnapshot,
             int expectedOriginControlPointCount = -1,
-            int expectedFrameVersion = 0)
+            MeshSpaceProvenance expectedSpace = null)
         {
             if (binding == null)
             {
@@ -162,15 +164,16 @@ namespace Triturbo.BlendShare.EditorAssets.Binding
             }
 
             if (binding.SpaceContract == null ||
-                !MeshSpaceProvenance.IsSupportedFrameVersion(binding.SpaceContract.FrameVersion) ||
-                (expectedFrameVersion != 0 && binding.SpaceContract.FrameVersion != expectedFrameVersion) ||
+                binding.SpaceContract.StoredSpace == null ||
+                !binding.SpaceContract.StoredSpace.IsValid ||
+                (expectedSpace != null && !binding.SpaceContract.StoredSpace.MatchesSpace(expectedSpace)) ||
                 !FbxAffineSpaceTransform.TryCreate(binding.SpaceContract.StoredToUnityMeshLocal, out _))
             {
                 return new OriginBindingVerificationResult(
                     OriginBindingVerificationStatus.InvalidSpaceContract,
                     null,
                     null,
-                    "OriginBinding SpaceContract is missing, unsupported, or non-affine/singular.");
+                    "OriginBinding SpaceContract is missing, mismatched, or non-affine/singular.");
             }
 
             if (expectedOriginControlPointCount >= 0 &&

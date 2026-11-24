@@ -63,7 +63,7 @@ namespace Triturbo.BlendShare.Pipeline.Inspection
 
     /// <summary>
     /// Compares Source vs Original FBX skin weights, cluster bind matrices, and bone transforms
-    /// in <c>OriginRawLocalV2</c> using BlendShare 2.0's separated <c>L</c> (mesh-local alignment)
+    /// in Origin FBX native local space using BlendShare 2.0's separated <c>L</c> (mesh-local alignment)
     /// and <c>W</c> (scene/world basis conversion) algebra with unit-scaled physical-meter tolerances.
     /// </summary>
     public sealed class SkinWeightFbxComparison

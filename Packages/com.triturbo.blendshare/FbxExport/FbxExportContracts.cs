@@ -66,14 +66,10 @@ namespace Triturbo.BlendShare.FbxExport
         public static bool TryCreate(MeshSpaceProvenance stored, FbxSceneMetadata target, out FbxExportSpace space)
         {
             space = null;
-            int frame = stored?.FrameVersion ?? MeshSpaceProvenance.CanonicalMeshLocalV1;
-            var axes = stored?.OriginAxes ?? CanonicalMeshSpace.CanonicalAxes;
-            double unit = stored?.OriginRawMetersPerUnit ?? 1d;
-            if ((frame == MeshSpaceProvenance.OriginRawLocalV2 &&
-                 (!CanonicalMeshSpace.IsValidAxes(axes) || !CanonicalMeshSpace.IsValidUnitMeters(unit))) ||
-                !CanonicalMeshSpace.TryBuildStoredToRaw(frame, axes, unit, target.Axes, target.UnitMeters, out var forward, out bool identity) ||
-                !CanonicalMeshSpace.TryBuildStoredToCanonical(frame, axes, unit, out var canonical, out _) ||
-                !CanonicalMeshSpace.TryBuildStoredToRaw(frame, axes, 1d, target.Axes, 1d, out var normal, out _) ||
+            if (stored == null || !stored.IsValid ||
+                !CanonicalMeshSpace.TryBuildSpaceToSpace(stored.OriginAxes, stored.OriginRawMetersPerUnit, target.Axes, target.UnitMeters, out var forward, out bool identity) ||
+                !CanonicalMeshSpace.TryBuildSpaceToSpace(stored.OriginAxes, stored.OriginRawMetersPerUnit, CanonicalMeshSpace.CanonicalAxes, CanonicalMeshSpace.CanonicalUnitMeters, out var canonical, out _) ||
+                !CanonicalMeshSpace.TryBuildSpaceToSpace(stored.OriginAxes, 1d, target.Axes, 1d, out var normal, out _) ||
                 !FbxAffineSpaceTransform.TryCreate(forward, out var transform))
                 return false;
 
