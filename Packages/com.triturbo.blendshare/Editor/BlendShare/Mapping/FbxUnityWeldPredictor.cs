@@ -1,8 +1,9 @@
 using System;
 using System.Collections.Generic;
 using Triturbo.BlendShare.Fbx;
+using Triturbo.BlendShare.Fbx.Unity;
 
-namespace Triturbo.BlendShare.Core
+namespace Triturbo.BlendShare.Mapping
 {
     /// <summary>
     /// Unity ModelImporter settings that control the pre-split <c>WeldVertices</c> stage.
@@ -23,6 +24,12 @@ namespace Triturbo.BlendShare.Core
         {
             WeldVertices = weldVertices;
             ImportBlendShapes = importBlendShapes;
+        }
+
+        /// <summary>Creates weld options from a <see cref="FbxUnityImportSettings"/> snapshot.</summary>
+        public static FbxUnityWeldOptions FromImportSettings(FbxUnityImportSettings settings)
+        {
+            return new FbxUnityWeldOptions(settings.WeldVertices, settings.ImportBlendShapes);
         }
     }
 

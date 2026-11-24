@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Fbx.Unity;
+using Triturbo.BlendShare.Mapping;
 using UnityEngine;
 
 #if ENABLE_FBX_SDK
@@ -59,6 +60,7 @@ namespace Triturbo.BlendShare.Core
         public IReadOnlyList<MeshFeatureExtractionMeshRequest> Meshes { get; }
         public IFbxScene SourceScene { get; }
         public IFbxScene OriginScene { get; }
+        public FbxUnityImportSettings OriginImportSettings { get; }
         public bool RawFbxSdkAccessAllowed => rawFbxSdkAccessAllowed;
         public bool SourceFbxSdkLoaded
         {
@@ -112,6 +114,7 @@ namespace Triturbo.BlendShare.Core
                 .ToArray();
             requestedFbxPaths = new HashSet<string>(nodePaths, StringComparer.Ordinal);
             OriginScene = ReadScene(originFbxGo, "origin");
+            OriginImportSettings = FbxUnityAssetReader.GetImportSettings(originFbxGo);
             SourceScene = ReadScene(sourceFbxGo, "source");
             CacheTransformPaths(sourceFbxGo != null ? sourceFbxGo.transform : null, sourceTransformsByPath);
             CacheTransformPaths(originFbxGo != null ? originFbxGo.transform : null, originTransformsByPath);
@@ -238,9 +241,7 @@ namespace Triturbo.BlendShare.Core
 
         private FbxControlPointWelding BuildFbxControlPointWelding(string path)
         {
-            var weldOptions = new FbxUnityWeldOptions(
-                FbxUnityAssetReader.GetWeldVertices(OriginFbxGo),
-                FbxUnityAssetReader.GetImportBlendShapes(OriginFbxGo));
+            var weldOptions = FbxUnityWeldOptions.FromImportSettings(OriginImportSettings);
             if (!weldOptions.WeldVertices)
             {
                 return FbxControlPointWelding.Empty;
@@ -445,15 +446,6 @@ namespace Triturbo.BlendShare.Core
         {
             var node = GetOriginNode() ?? GetSourceNode();
             return MeshNodePath.Normalize(node?.Path ?? Path);
-        }
-
-        /// <summary>
-        /// Gets shared FBX control-point welding for this mesh path.
-        /// Feature extractors use this to normalize per-control-point values without owning welding details.
-        /// </summary>
-        public FbxControlPointWelding GetFbxControlPointWelding()
-        {
-            return Session.GetFbxControlPointWelding(Path);
         }
 
 #if ENABLE_FBX_SDK

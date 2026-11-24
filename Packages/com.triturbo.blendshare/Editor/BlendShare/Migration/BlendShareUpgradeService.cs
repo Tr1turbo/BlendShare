@@ -9,6 +9,7 @@ using UnityEngine;
 using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Fbx.Unity;
 using Triturbo.BlendShare.Hashing;
+using Triturbo.BlendShare.Mapping;
 using CurrentFbxBlendShapeData = Triturbo.BlendShare.Features.BlendShapes.FbxBlendShapeData;
 using CurrentFbxBlendShapeFrame = Triturbo.BlendShare.Features.BlendShapes.FbxBlendShapeFrame;
 using LegacyFbxBlendShapeData = Triturbo.BlendShapeShare.BlendShapeData.FbxBlendShapeData;
@@ -76,15 +77,13 @@ namespace Triturbo.BlendShare.Migration
 
             try
             {
-                float importScale = FbxUnityAssetReader.GetImportScale(legacyAsset.m_Original);
-                bool bakeAxisConversion = FbxUnityAssetReader.GetBakeAxisConversion(legacyAsset.m_Original);
-                Matrix4x4 importerSpaceTransform = FbxUnityAssetReader.GetImporterSpaceTransform(legacyAsset.m_Original);
+                var hints = FbxInverseMapHints.FromImportSettings(FbxUnityAssetReader.GetImportSettings(legacyAsset.m_Original));
                 var meshes = new List<MeshDataObject>();
                 foreach (var legacyMesh in legacyMeshes)
                 {
                     meshPaths.TryGetValue(legacyMesh, out string meshPath);
 
-                    var mesh = ConvertMesh(legacyMesh, meshPath, originalScene, importScale, bakeAxisConversion, importerSpaceTransform);
+                    var mesh = ConvertMesh(legacyMesh, meshPath, originalScene, hints);
                     if (mesh != null)
                     {
                         meshes.Add(mesh);
@@ -104,9 +103,7 @@ namespace Triturbo.BlendShare.Migration
             MeshData legacyMesh,
             string meshPath,
             IFbxScene originalScene,
-            float importScale,
-            bool bakeAxisConversion,
-            Matrix4x4 importerSpaceTransform)
+            FbxInverseMapHints hints)
         {
             if (legacyMesh == null)
             {
@@ -150,9 +147,7 @@ namespace Triturbo.BlendShare.Migration
                 mesh.m_Path,
                 legacyMesh.m_OriginMesh,
                 originalScene,
-                importScale,
-                bakeAxisConversion,
-                importerSpaceTransform,
+                hints,
                 out IFbxMesh fbxMesh);
 
             if (fbxMesh != null && fbxMesh.ControlPointCount > 0)

@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using Triturbo.BlendShare.Fbx;
+using Triturbo.BlendShare.Mapping;
 using Debug = UnityEngine.Debug;
 
 #if ENABLE_FBX_SDK
@@ -11,10 +12,9 @@ using Autodesk.Fbx;
 namespace Triturbo.BlendShare.Core
 {
     /// <summary>
-    /// Shared FBX control-point welding policy for feature extraction.
-    /// Feature extractors pass per-control-point values in and receive normalized values back.
+    /// Internal FBX control-point welding policy consumed exclusively by <see cref="UfbxSourceMeshNormalizer"/>.
     /// </summary>
-    public sealed class FbxControlPointWelding
+    internal sealed class FbxControlPointWelding
     {
         public static readonly FbxControlPointWelding Empty = new(System.Array.Empty<int[]>());
 

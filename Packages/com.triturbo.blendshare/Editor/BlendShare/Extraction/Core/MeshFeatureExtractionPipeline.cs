@@ -3,6 +3,7 @@ using System.Linq;
 using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Fbx.Unity;
 using Triturbo.BlendShare.Hashing;
+using Triturbo.BlendShare.Mapping;
 using UnityEngine;
 
 namespace Triturbo.BlendShare.Core
@@ -152,9 +153,7 @@ namespace Triturbo.BlendShare.Core
                 nodePath,
                 originMesh,
                 context.Session.OriginScene,
-                FbxUnityAssetReader.GetImportScale(context.Session.OriginFbxGo),
-                FbxUnityAssetReader.GetBakeAxisConversion(context.Session.OriginFbxGo),
-                FbxUnityAssetReader.GetImporterSpaceTransform(context.Session.OriginFbxGo),
+                FbxInverseMapHints.FromImportSettings(context.Session.OriginImportSettings),
                 out _);
 
             return mapping != null
