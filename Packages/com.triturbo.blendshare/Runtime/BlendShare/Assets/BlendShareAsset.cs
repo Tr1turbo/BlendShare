@@ -81,10 +81,10 @@ namespace Triturbo.BlendShare.Runtime.Assets
         [SerializeField] private int m_FormatVersion = 5;
         [SerializeField] private string m_PatchId = string.Empty;
         [SerializeField] private string m_SourceRevision = string.Empty;
-        [SerializeField] private double m_OriginRawMetersPerUnit = 1d;
-        [SerializeField] private byte m_OriginRightAxis = 0;
-        [SerializeField] private byte m_OriginUpAxis = 2;
-        [SerializeField] private byte m_OriginFrontAxis = 4;
+        [SerializeField] private double m_MetersPerUnit = 1d;
+        [SerializeField] private byte m_RightAxis = 0;
+        [SerializeField] private byte m_UpAxis = 2;
+        [SerializeField] private byte m_FrontAxis = 4;
         [SerializeField] private long m_TotalFileLength;
         [SerializeField] private BlendShareByteRange m_ManifestSlice;
         [SerializeField] private BlendShareByteRange m_IndexTableSlice;
@@ -96,10 +96,10 @@ namespace Triturbo.BlendShare.Runtime.Assets
         public int FormatVersion => m_FormatVersion;
         public string PatchId => m_PatchId ?? string.Empty;
         public string SourceRevision => m_SourceRevision ?? string.Empty;
-        public double OriginRawMetersPerUnit => m_OriginRawMetersPerUnit;
-        public byte OriginRightAxis => m_OriginRightAxis;
-        public byte OriginUpAxis => m_OriginUpAxis;
-        public byte OriginFrontAxis => m_OriginFrontAxis;
+        public double MetersPerUnit => m_MetersPerUnit;
+        public byte RightAxis => m_RightAxis;
+        public byte UpAxis => m_UpAxis;
+        public byte FrontAxis => m_FrontAxis;
         public long TotalFileLength => m_TotalFileLength;
         public BlendShareByteRange ManifestSlice => m_ManifestSlice;
         public BlendShareByteRange IndexTableSlice => m_IndexTableSlice;
@@ -112,10 +112,10 @@ namespace Triturbo.BlendShare.Runtime.Assets
             int formatVersion,
             string patchId,
             string sourceRevision,
-            double originRawMetersPerUnit,
-            byte originRightAxis,
-            byte originUpAxis,
-            byte originFrontAxis,
+            double metersPerUnit,
+            byte rightAxis,
+            byte upAxis,
+            byte frontAxis,
             long totalFileLength,
             BlendShareByteRange manifestSlice,
             BlendShareByteRange indexTableSlice,
@@ -127,10 +127,10 @@ namespace Triturbo.BlendShare.Runtime.Assets
             m_FormatVersion = formatVersion;
             m_PatchId = patchId ?? string.Empty;
             m_SourceRevision = sourceRevision ?? string.Empty;
-            m_OriginRawMetersPerUnit = originRawMetersPerUnit;
-            m_OriginRightAxis = originRightAxis;
-            m_OriginUpAxis = originUpAxis;
-            m_OriginFrontAxis = originFrontAxis;
+            m_MetersPerUnit = metersPerUnit;
+            m_RightAxis = rightAxis;
+            m_UpAxis = upAxis;
+            m_FrontAxis = frontAxis;
             m_TotalFileLength = totalFileLength;
             m_ManifestSlice = manifestSlice;
             m_IndexTableSlice = indexTableSlice;

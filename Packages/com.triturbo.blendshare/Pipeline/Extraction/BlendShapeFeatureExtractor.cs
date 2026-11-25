@@ -255,9 +255,9 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             double posEpsUnits = bsOptions.PositionDeltaEpsilon;
             if (posEpsUnits > 0d &&
                 context.SpaceProvenance != null &&
-                CanonicalMeshSpace.IsValidUnitMeters(context.SpaceProvenance.OriginRawMetersPerUnit))
+                CanonicalMeshSpace.IsValidUnitMeters(context.SpaceProvenance.MetersPerUnit))
             {
-                posEpsUnits /= context.SpaceProvenance.OriginRawMetersPerUnit;
+                posEpsUnits /= context.SpaceProvenance.MetersPerUnit;
             }
 
             double posEpsSq = posEpsUnits > 0d

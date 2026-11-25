@@ -288,8 +288,8 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                     ? CanonicalMeshSpace.BuildSpaceToSpace(
                         context.SourceScene.Metadata.Axes,
                         context.SourceScene.Metadata.UnitMeters,
-                        context.SpaceProvenance.OriginAxes,
-                        context.SpaceProvenance.OriginRawMetersPerUnit,
+                        context.SpaceProvenance.Axes,
+                        context.SpaceProvenance.MetersPerUnit,
                         out _,
                         out _)
                     : CanonicalMeshSpace.BuildRawToCanonical(context.SourceScene.Metadata, out _);

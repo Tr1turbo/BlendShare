@@ -165,7 +165,7 @@ namespace Triturbo.BlendShare.UI.Extraction
                 out _,
                 patchId: patchId,
                 importUnityAsset: true,
-                embedOriginBinding: true);
+                embedMapping: true);
 
             if (!result.Succeeded)
             {
@@ -1170,9 +1170,9 @@ namespace Triturbo.BlendShare.UI.Extraction
                 return;
             }
 
-            bool hasMissingOriginBinding = meshes.Any(mesh =>
-                mesh != null && (mesh.OriginBinding == null || !mesh.OriginBinding.HasPayload));
-            if (!hasMissingOriginBinding)
+            bool hasMissingMapping = meshes.Any(mesh =>
+                mesh != null && !mesh.HasEmbeddedMappings);
+            if (!hasMissingMapping)
             {
                 return;
             }

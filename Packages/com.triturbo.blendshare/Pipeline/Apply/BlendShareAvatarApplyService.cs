@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.Container.Serialization;
 using Triturbo.BlendShare.EditorAssets;
-using Triturbo.BlendShare.EditorAssets.Binding;
+using Triturbo.BlendShare.EditorAssets.Mapping;
 using Triturbo.BlendShare.EditorAssets.Settings;
 using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Model.Documents;
@@ -69,15 +69,15 @@ namespace Triturbo.BlendShare.Pipeline.Apply
         /// </summary>
         public bool FlushDirtySettings { get; set; }
 
-        public bool AllowDiskBindingCache { get; set; } = true;
+        public VertexMappingCacheMode VertexMappingCacheMode { get; set; } = VertexMappingCacheMode.PersistAssetsOnly;
         public bool PreserveExistingBlendShapes { get; set; } = true;
         public int MaxBonesPerVertex { get; set; } = 0;
 
         /// <summary>Optional repository override (defaults to <see cref="BlendShareSourceRepository.Shared"/>).</summary>
         public BlendShareSourceRepository Repository { get; set; }
 
-        /// <summary>Optional binding service override (defaults to <see cref="BindingService.Shared"/>).</summary>
-        public BindingService BindingServiceOverride { get; set; }
+        /// <summary>Optional vertex mapping service override (defaults to <see cref="VertexMappingService.Shared"/>).</summary>
+        public VertexMappingService VertexMappingServiceOverride { get; set; }
 
         /// <summary>Optional applier registry override (defaults to <see cref="FeatureUnityApplierRegistry.Default"/>).</summary>
         public FeatureUnityApplierRegistry ApplierRegistry { get; set; }
@@ -127,7 +127,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
     /// <summary>
     /// Single shared avatar mesh application gateway consumed by BOTH NDMF Build Pass and NDMF Preview Adapter.
     /// Guarantees Build/Preview parity by resolving incoming <c>sharedMesh</c>/bones, reading effective settings
-    /// from <see cref="EffectiveSettingsResolver"/>, resolving vertices through <see cref="BindingService"/>,
+    /// from <see cref="EffectiveSettingsResolver"/>, resolving vertices through <see cref="VertexMappingService"/>,
     /// scoping bone proxy overrides strictly by <see cref="BlendShareAsset"/> identity, and delegating mesh synthesis
     /// to <see cref="UnityMeshApplicationPipeline"/>.
     /// </summary>
@@ -157,7 +157,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
             }
 
             var repo = request.Repository ?? BlendShareSourceRepository.Shared;
-            var bindingService = request.BindingServiceOverride ?? BindingService.Shared;
+            var mappingService = request.VertexMappingServiceOverride ?? VertexMappingService.Shared;
             var applierRegistry = request.ApplierRegistry ?? FeatureUnityApplierRegistry.Default;
 
             var items = new List<PatchMeshApplicationItem>(request.Components.Count);
@@ -358,12 +358,12 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     features.Add(featRes.Value);
                 }
 
-                // Resolve vertex binding against the INCOMING mesh (supports OriginBinding, FBX inverse map, and ReferenceMesh).
+                // Resolve vertex mapping against the INCOMING mesh (supports embedded mappings, FBX inverse map, and ReferenceMesh).
                 GameObject targetFbx = comp.TargetFbxOverride != null
                     ? comp.TargetFbxOverride
                     : effectiveSnapshot.Settings?.DefaultTargetFbx;
 
-                var bindRes = bindingService.Resolve(new BindingResolveRequest
+                var mapRes = mappingService.Resolve(new VertexMappingResolveRequest
                 {
                     MeshHeader = meshHeader,
                     SpaceProvenance = toc.SpaceProvenance,
@@ -371,15 +371,15 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     ReferenceUnityMesh = comp.ReferenceMesh,
                     TargetFbxAsset = targetFbx,
                     PayloadSource = repo.PayloadStore,
-                    AllowDiskCache = request.AllowDiskBindingCache
+                    CacheMode = request.VertexMappingCacheMode
                 });
 
-                if (!bindRes.Succeeded)
+                if (!mapRes.Succeeded)
                 {
                     diagnostics.Add(new ApplyDiagnostic(
                         ApplyDiagnosticSeverity.Error,
-                        string.IsNullOrEmpty(bindRes.FailureCode) ? "AVATAR_APPLY_BINDING_FAILED" : bindRes.FailureCode,
-                        $"Failed binding patch '{patch.name}' mesh '{meshId}': {bindRes.Diagnostic}",
+                        string.IsNullOrEmpty(mapRes.FailureCode) ? "AVATAR_APPLY_MAPPING_FAILED" : mapRes.FailureCode,
+                        $"Failed mapping patch '{patch.name}' mesh '{meshId}': {mapRes.Diagnostic}",
                         patchId: patch.PatchId,
                         meshId: meshId));
                     return new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
@@ -457,7 +457,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     Skeleton = skeletonRes.Value,
                     EffectiveSettings = effectiveSnapshot.Settings,
                     PayloadSource = repo.PayloadStore,
-                    VertexBinding = bindRes.Binding,
+                    VertexMapping = mapRes.Mapping,
                     CreateMissingBones = request.CreateMissingBones && comp.CreateMissingBones,
                     BindPoseOverrides = itemBindPoseOverrides,
                     Features = features

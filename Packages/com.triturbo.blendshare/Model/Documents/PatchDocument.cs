@@ -33,31 +33,31 @@ namespace Triturbo.BlendShare.Model.Documents
     }
 
     /// <summary>
-    /// Records the single shared Origin FBX coordinate space (axes and meters-per-unit scale)
+    /// Records the single shared FBX coordinate space (axes and meters-per-unit scale)
     /// in which all mesh deltas, bind matrices, and skeleton bone transforms in a patch are stored.
     /// </summary>
     [BlendShareRecord(SchemaVersion = 1)]
     public sealed class PatchSpaceProvenance
     {
-        [BlendShareField(1)] public double OriginRawMetersPerUnit = 1d;
-        [BlendShareField(2)] public FbxCoordinateAxis OriginRightAxis = FbxCoordinateAxis.PositiveX;
-        [BlendShareField(3)] public FbxCoordinateAxis OriginUpAxis = FbxCoordinateAxis.PositiveY;
-        [BlendShareField(4)] public FbxCoordinateAxis OriginFrontAxis = FbxCoordinateAxis.PositiveZ;
+        [BlendShareField(1)] public double MetersPerUnit = 1d;
+        [BlendShareField(2)] public FbxCoordinateAxis RightAxis = FbxCoordinateAxis.PositiveX;
+        [BlendShareField(3)] public FbxCoordinateAxis UpAxis = FbxCoordinateAxis.PositiveY;
+        [BlendShareField(4)] public FbxCoordinateAxis FrontAxis = FbxCoordinateAxis.PositiveZ;
 
-        public FbxCoordinateAxes OriginAxes => new FbxCoordinateAxes(OriginRightAxis, OriginUpAxis, OriginFrontAxis);
+        public FbxCoordinateAxes Axes => new FbxCoordinateAxes(RightAxis, UpAxis, FrontAxis);
 
         public bool IsValid
         {
             get
             {
-                if (double.IsNaN(OriginRawMetersPerUnit) || double.IsInfinity(OriginRawMetersPerUnit) || OriginRawMetersPerUnit <= 0d)
+                if (double.IsNaN(MetersPerUnit) || double.IsInfinity(MetersPerUnit) || MetersPerUnit <= 0d)
                 {
                     return false;
                 }
 
-                int r = (int)OriginRightAxis;
-                int u = (int)OriginUpAxis;
-                int f = (int)OriginFrontAxis;
+                int r = (int)RightAxis;
+                int u = (int)UpAxis;
+                int f = (int)FrontAxis;
                 int unknown = (int)FbxCoordinateAxis.Unknown;
                 if (r < 0 || r >= unknown || u < 0 || u >= unknown || f < 0 || f >= unknown)
                 {
@@ -73,21 +73,21 @@ namespace Triturbo.BlendShare.Model.Documents
 
         public bool MatchesSpace(PatchSpaceProvenance other) =>
             other != null &&
-            OriginAxes.Equals(other.OriginAxes) &&
-            OriginRawMetersPerUnit.Equals(other.OriginRawMetersPerUnit);
+            Axes.Equals(other.Axes) &&
+            MetersPerUnit.Equals(other.MetersPerUnit);
 
         public static PatchSpaceProvenance FromMetadata(FbxCoordinateAxes axes, double metersPerUnit) =>
             new PatchSpaceProvenance
             {
-                OriginRawMetersPerUnit = metersPerUnit,
-                OriginRightAxis = axes.Right,
-                OriginUpAxis = axes.Up,
-                OriginFrontAxis = axes.Front
+                MetersPerUnit = metersPerUnit,
+                RightAxis = axes.Right,
+                UpAxis = axes.Up,
+                FrontAxis = axes.Front
             };
     }
 
     /// <summary>
-    /// Per-mesh header and feature collection inside a PatchDocument.
+    /// Per-mesh header, embedded vertex mappings, and feature collection inside a PatchDocument.
     /// Shares coordinate provenance with its owning <see cref="PatchDocument.SpaceProvenance"/>.
     /// </summary>
     [BlendShareRecord(SchemaVersion = 1)]
@@ -97,7 +97,28 @@ namespace Triturbo.BlendShare.Model.Documents
         [BlendShareField(2)] public string Name = string.Empty;
         [BlendShareField(3)] public string NodePath = string.Empty;
         [BlendShareField(4)] public TopologyDigestRecord Topology = new TopologyDigestRecord();
-        [BlendShareField(5)] public LazyPayload<OriginBindingDocument> OriginBinding = LazyPayload<OriginBindingDocument>.Empty;
+        [BlendShareField(5)] public List<VertexMappingEntry> Mappings = new List<VertexMappingEntry>();
         [BlendShareField(6)] public List<BlendShareFeatureData> Features = new List<BlendShareFeatureData>();
+
+        public bool HasEmbeddedMappings
+        {
+            get
+            {
+                if (Mappings == null)
+                {
+                    return false;
+                }
+
+                for (int i = 0; i < Mappings.Count; i++)
+                {
+                    if (Mappings[i]?.HasPayload == true)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+        }
     }
 }

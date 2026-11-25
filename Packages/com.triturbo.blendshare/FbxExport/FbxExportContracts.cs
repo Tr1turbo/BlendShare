@@ -67,9 +67,9 @@ namespace Triturbo.BlendShare.FbxExport
         {
             space = null;
             if (stored == null || !stored.IsValid ||
-                !CanonicalMeshSpace.TryBuildSpaceToSpace(stored.OriginAxes, stored.OriginRawMetersPerUnit, target.Axes, target.UnitMeters, out var forward, out bool identity) ||
-                !CanonicalMeshSpace.TryBuildSpaceToSpace(stored.OriginAxes, stored.OriginRawMetersPerUnit, CanonicalMeshSpace.CanonicalAxes, CanonicalMeshSpace.CanonicalUnitMeters, out var canonical, out _) ||
-                !CanonicalMeshSpace.TryBuildSpaceToSpace(stored.OriginAxes, 1d, target.Axes, 1d, out var normal, out _) ||
+                !CanonicalMeshSpace.TryBuildSpaceToSpace(stored.Axes, stored.MetersPerUnit, target.Axes, target.UnitMeters, out var forward, out bool identity) ||
+                !CanonicalMeshSpace.TryBuildSpaceToSpace(stored.Axes, stored.MetersPerUnit, CanonicalMeshSpace.CanonicalAxes, CanonicalMeshSpace.CanonicalUnitMeters, out var canonical, out _) ||
+                !CanonicalMeshSpace.TryBuildSpaceToSpace(stored.Axes, 1d, target.Axes, 1d, out var normal, out _) ||
                 !FbxAffineSpaceTransform.TryCreate(forward, out var transform))
                 return false;
 

@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Linq;
 using System.Threading.Tasks;
 using nadena.dev.ndmf.preview;
+using Triturbo.BlendShare.EditorAssets.Mapping;
 using Triturbo.BlendShare.EditorAssets.Settings;
 using Triturbo.BlendShare.Pipeline.Apply;
 using Triturbo.BlendShare.Runtime.Assets;
@@ -137,7 +138,8 @@ namespace Triturbo.BlendShare.NDMF
                 IncomingMesh = proxySmr.sharedMesh, IncomingBones = incomingBones, IncomingRootBone = proxySmr.rootBone,
                 RendererTransform = proxySmr.transform,
                 TargetRootTransform = root.transform, Components = components, BoneProxies = proxies,
-                CreateMissingBones = false, FlushDirtySettings = false
+                CreateMissingBones = false, FlushDirtySettings = false,
+                VertexMappingCacheMode = VertexMappingCacheMode.PersistAssetsOnly
             });
             return Task.FromResult<IRenderFilterNode>(result.Succeeded ? new Node(result, proxySmr, incomingBones, components) : new Node());
         }

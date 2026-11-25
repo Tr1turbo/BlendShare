@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.Container.Serialization;
-using Triturbo.BlendShare.EditorAssets.Binding;
+using Triturbo.BlendShare.EditorAssets.Mapping;
 using Triturbo.BlendShare.Model.Features;
 using Triturbo.BlendShare.Model.Validation;
 using Triturbo.BlendShare.Runtime.Assets;
@@ -73,15 +73,15 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                                 code, $"Unsupported feature {typeId} schema {feature.SchemaVersion}.");
                             continue;
                         }
-                        if (item.VertexBinding?.VertexMap?.SourceCount != request.BaseMesh.vertexCount)
+                        if (item.VertexMapping?.VertexMap?.SourceCount != request.BaseMesh.vertexCount)
                         {
-                            Report(ApplyDiagnosticSeverity.Error, "APP_INVALID_BINDING", "Binding vertex count does not match base mesh.");
+                            Report(ApplyDiagnosticSeverity.Error, "APP_INVALID_MAPPING", "Vertex mapping count does not match base mesh.");
                             continue;
                         }
                         if (FeatureValidatorRegistry.Default.TryGetValidator(typeId, out var validator))
                         {
                             var validation = new FeatureValidationResult();
-                            validator.Validate(feature, new FeatureValidationContext(item.MeshId, item.VertexBinding.VertexMap.TargetCount,
+                            validator.Validate(feature, new FeatureValidationContext(item.MeshId, item.VertexMapping.VertexMap.TargetCount,
                                 payloadSource: item.PayloadSource, validatePayloads: false), validation);
                             foreach (var issue in validation.Issues)
                                 Report(issue.Severity == FeatureValidationSeverity.Error ? ApplyDiagnosticSeverity.Error : ApplyDiagnosticSeverity.Warning,
@@ -93,7 +93,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                             SpaceProvenance = item.SpaceProvenance, MeshHeader = item.MeshHeader,
                             Skeleton = item.Skeleton, CreateMissingBones = item.CreateMissingBones,
                             BindPoseOverrides = item.BindPoseOverrides,
-                            VertexBinding = item.VertexBinding, EffectiveSettings = item.EffectiveSettings, PayloadSource = item.PayloadSource
+                            VertexMapping = item.VertexMapping, EffectiveSettings = item.EffectiveSettings, PayloadSource = item.PayloadSource
                         });
                     }
                 }

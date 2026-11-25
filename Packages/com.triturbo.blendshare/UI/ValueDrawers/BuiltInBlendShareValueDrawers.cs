@@ -218,12 +218,12 @@ namespace Triturbo.BlendShare.UI.ValueDrawers
         {
             var space = (PatchSpaceProvenance)value;
             string Axis(FbxCoordinateAxis axis) => axis.ToString().Replace("Positive", "+").Replace("Negative", "-");
-            string axes = $"{Axis(space.OriginRightAxis)} / {Axis(space.OriginUpAxis)} / {Axis(space.OriginFrontAxis)}";
+            string axes = $"{Axis(space.RightAxis)} / {Axis(space.UpAxis)} / {Axis(space.FrontAxis)}";
             var box = Ui.Box();
             box.Add(Ui.LabeledRow(context.Label ?? "Space Provenance", Ui.BadgeRow(
-                Ui.Badge(DrawerUi.Unit(space.OriginRawMetersPerUnit)), Ui.Badge(axes))));
-            var rawToCanonical = CanonicalMeshSpace.BuildRawToCanonical(space.OriginAxes, space.OriginRawMetersPerUnit, out _);
-            box.Add(context.WithChild("Origin Raw To Canonical").Draw(rawToCanonical, typeof(FbxMatrix4x4)));
+                Ui.Badge(DrawerUi.Unit(space.MetersPerUnit)), Ui.Badge(axes))));
+            var rawToCanonical = CanonicalMeshSpace.BuildRawToCanonical(space.Axes, space.MetersPerUnit, out _);
+            box.Add(context.WithChild("Stored Raw To Canonical").Draw(rawToCanonical, typeof(FbxMatrix4x4)));
             return box;
         }
     }
@@ -412,8 +412,8 @@ namespace Triturbo.BlendShare.UI.ValueDrawers
             }
             double unit = context.PositionUnitMeters;
             if (value is PatchDocument patch)
-                unit = patch.SpaceProvenance != null && CanonicalMeshSpace.IsValidUnitMeters(patch.SpaceProvenance.OriginRawMetersPerUnit)
-                    ? patch.SpaceProvenance.OriginRawMetersPerUnit : 1d;
+                unit = patch.SpaceProvenance != null && CanonicalMeshSpace.IsValidUnitMeters(patch.SpaceProvenance.MetersPerUnit)
+                    ? patch.SpaceProvenance.MetersPerUnit : 1d;
             foreach (var (field, tag) in s_Fields.GetOrAdd(valueType, GetFields))
             {
                 var child = context.WithChild(ObjectNames.NicifyVariableName(field.Name), tag.Semantic,

@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using nadena.dev.ndmf;
 using nadena.dev.ndmf.animator;
+using Triturbo.BlendShare.EditorAssets.Mapping;
 using Triturbo.BlendShare.Pipeline.Apply;
 using Triturbo.BlendShare.Runtime.Assets;
 using Triturbo.BlendShare.Components;
@@ -47,7 +48,8 @@ namespace Triturbo.BlendShare.NDMF
                     IncomingMesh = incoming, IncomingBones = renderer.bones, IncomingRootBone = renderer.rootBone,
                     Components = group.ToArray(), BoneProxies = proxies,
                     RendererTransform = renderer.transform, TargetRootTransform = root.transform,
-                    CreateMissingBones = true, FlushDirtySettings = true
+                    CreateMissingBones = true, FlushDirtySettings = true,
+                    VertexMappingCacheMode = VertexMappingCacheMode.ReadOnly
                 });
                 if (!result.Succeeded)
                 {

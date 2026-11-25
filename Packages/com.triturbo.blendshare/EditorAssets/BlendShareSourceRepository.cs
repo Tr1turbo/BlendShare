@@ -40,6 +40,11 @@ namespace Triturbo.BlendShare.EditorAssets
             new Dictionary<string, GuidRecord>(StringComparer.Ordinal);
         private readonly HashSet<string> m_PendingReimportGuids =
             new HashSet<string>(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> m_LastReimportAttemptRevisionByGuid =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+        private int m_ScheduledReimportCount;
+
+        public int ScheduledReimportCount => m_ScheduledReimportCount;
         private readonly BlendShareContainerReader m_Reader = new BlendShareContainerReader();
         private readonly PayloadStore m_PayloadStore;
 
@@ -190,7 +195,7 @@ namespace Triturbo.BlendShare.EditorAssets
 
             if (!string.IsNullOrEmpty(staleGuid))
             {
-                ScheduleReimportByGuid(staleGuid);
+                ScheduleReimportByGuid(staleGuid, sourceRevision);
             }
 
             return null;
@@ -209,6 +214,15 @@ namespace Triturbo.BlendShare.EditorAssets
             string revisionToInvalidate = null;
             lock (m_Lock)
             {
+                // Retain the per-revision loop guard when reimport yields the exact same revision;
+                // only clear it once the revision actually changes (or after a verified successful read).
+                if (!string.IsNullOrEmpty(currentRev) &&
+                    m_LastReimportAttemptRevisionByGuid.TryGetValue(guid, out string attemptedRev) &&
+                    !string.Equals(attemptedRev, currentRev, StringComparison.Ordinal))
+                {
+                    m_LastReimportAttemptRevisionByGuid.Remove(guid);
+                }
+
                 if (m_ByGuid.TryGetValue(guid, out var existing))
                 {
                     if (!string.IsNullOrEmpty(currentRev) && string.Equals(existing.Revision, currentRev, StringComparison.Ordinal))
@@ -265,6 +279,7 @@ namespace Triturbo.BlendShare.EditorAssets
                     string g = toRemove[i];
                     var rec = m_ByGuid[g];
                     m_ByGuid.Remove(g);
+                    m_LastReimportAttemptRevisionByGuid.Remove(g);
                     string orphaned = DetachGuidFromRevisionLocked(g, rec.Revision);
                     if (!string.IsNullOrEmpty(orphaned))
                     {
@@ -335,24 +350,41 @@ namespace Triturbo.BlendShare.EditorAssets
                 result = operation(stream, toc);
             }
 
-            if (result.Status == ContainerReadStatus.SourceRevisionMismatch)
+            if (result.Success)
+            {
+                lock (m_Lock)
+                {
+                    m_LastReimportAttemptRevisionByGuid.Remove(guid);
+                }
+            }
+            else if (result.Status == ContainerReadStatus.SourceRevisionMismatch)
             {
                 InvalidateByGuid(guid);
-                ScheduleReimportByGuid(guid);
+                ScheduleReimportByGuid(guid, toc.SourceRevision);
             }
 
             return result;
         }
 
-        private void ScheduleReimportByGuid(string guid)
+        private void ScheduleReimportByGuid(string guid, string revision)
         {
             if (string.IsNullOrEmpty(guid)) return;
+            string revKey = revision ?? string.Empty;
             lock (m_Lock)
             {
+                if (m_LastReimportAttemptRevisionByGuid.TryGetValue(guid, out string lastAttemptedRev) &&
+                    string.Equals(lastAttemptedRev, revKey, StringComparison.Ordinal))
+                {
+                    return;
+                }
+
                 if (!m_PendingReimportGuids.Add(guid))
                 {
                     return;
                 }
+
+                m_LastReimportAttemptRevisionByGuid[guid] = revKey;
+                m_ScheduledReimportCount++;
             }
 
             string capturedGuid = guid;

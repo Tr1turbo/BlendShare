@@ -4,7 +4,7 @@ using System.Linq;
 using nadena.dev.ndmf;
 using nadena.dev.ndmf.animator;
 using Triturbo.BlendShare.Components;
-using Triturbo.BlendShare.EditorAssets.Binding;
+using Triturbo.BlendShare.EditorAssets.Mapping;
 using Triturbo.BlendShare.Pipeline.Apply;
 using Unity.Collections;
 using UnityEditor;

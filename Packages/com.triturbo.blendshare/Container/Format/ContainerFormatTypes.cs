@@ -154,7 +154,7 @@ namespace Triturbo.BlendShare.Container.Format
         {
             PatchId = patch;
             FormatIO.Check(spaceProvenance != null && spaceProvenance.IsValid, "Invalid patch space provenance.");
-            SpaceProvenance = PatchSpaceProvenance.FromMetadata(spaceProvenance.OriginAxes, spaceProvenance.OriginRawMetersPerUnit);
+            SpaceProvenance = PatchSpaceProvenance.FromMetadata(spaceProvenance.Axes, spaceProvenance.MetersPerUnit);
             SourceRevision = FormatIO.Hex(revision);
             ManifestSlice = manifest;
             IndexTableSlice = index;

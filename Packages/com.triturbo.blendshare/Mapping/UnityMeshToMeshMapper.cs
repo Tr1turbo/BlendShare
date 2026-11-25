@@ -109,6 +109,13 @@ namespace Triturbo.BlendShare.Mapping
         /// <summary>Count of target vertices that could not be resolved.</summary>
         public int UnresolvedTargetCount { get; }
 
+        /// <summary>
+        /// True when unresolved coincident target vertices reached Step 4 attribute disambiguation where
+        /// shared single-frame blendshapes can alter or reject candidate matches (regardless of whether
+        /// the current snapshots supplied any shared blendshape names).
+        /// </summary>
+        public bool IsBlendShapeSensitive { get; }
+
         internal MeshVertexCorrespondence(
             bool succeeded,
             string diagnostic,
@@ -120,7 +127,8 @@ namespace Triturbo.BlendShare.Mapping
             int mergedTargetVertexCount,
             int splitSourceVertexCount,
             int movedDirectCount,
-            int unresolvedTargetCount)
+            int unresolvedTargetCount,
+            bool isBlendShapeSensitive = false)
         {
             Succeeded = succeeded;
             Diagnostic = diagnostic ?? string.Empty;
@@ -133,6 +141,7 @@ namespace Triturbo.BlendShare.Mapping
             SplitSourceVertexCount = splitSourceVertexCount;
             MovedDirectCount = movedDirectCount;
             UnresolvedTargetCount = unresolvedTargetCount;
+            IsBlendShapeSensitive = isBlendShapeSensitive;
         }
 
         /// <summary>Creates a failed correspondence result.</summary>
@@ -298,6 +307,7 @@ namespace Triturbo.BlendShare.Mapping
             // Step 4: Run UV0 and single-frame BlendShape disambiguation BEFORE conditional residual so
             // splits/merges with attribute evidence are never forced into a false 1:1 residual pair.
             bool[] rejectedByAttributes = null;
+            bool isBlendShapeSensitive = false;
             if (options.AllowAttributeDisambiguation && HasUnresolved(evidence))
             {
                 rejectedByAttributes = DisambiguateByAttributes(
@@ -309,7 +319,8 @@ namespace Triturbo.BlendShare.Mapping
                     sourceToTargets,
                     evidence,
                     options,
-                    epsilon);
+                    epsilon,
+                    out isBlendShapeSensitive);
             }
 
             // Step 5: Guarded conditional residual 1:1 — only when the position cluster has equal source/target
@@ -426,7 +437,8 @@ namespace Triturbo.BlendShare.Mapping
                 mergedTargetVertexCount: mergedCount,
                 splitSourceVertexCount: splitSourceCount,
                 movedDirectCount: movedDirectCount,
-                unresolvedTargetCount: unresolvedCount);
+                unresolvedTargetCount: unresolvedCount,
+                isBlendShapeSensitive: isBlendShapeSensitive);
         }
 
         // ─── Position Clustering (Exact Float32 or Spatial-Grid Connected Components) ──
@@ -703,8 +715,10 @@ namespace Triturbo.BlendShare.Mapping
             HashSet<int>[] sourceToTargets,
             CorrespondenceEvidence[] evidence,
             MeshToMeshOptions options,
-            double epsilon)
+            double epsilon,
+            out bool isBlendShapeSensitive)
         {
+            isBlendShapeSensitive = false;
             int dstCount = evidence.Length;
             var rejectedByAttributes = new bool[dstCount];
             var srcVerts = source.Vertices;
@@ -765,6 +779,10 @@ namespace Triturbo.BlendShare.Mapping
             }
 
             if (unresolvedTargets.Count == 0) return rejectedByAttributes;
+
+            // Any surviving unresolved target (including UV0 singletons) can be altered or rejected by shared
+            // single-frame blendshapes, so the result is blendshape-sensitive even if neither snapshot currently has shapes.
+            isBlendShapeSensitive = true;
 
             // Evaluate ALL shared single-frame weight-100 blendshapes against ALL remaining candidates
             // (including singletons!) so conflicting shapes reject cleanly regardless of enumeration order.

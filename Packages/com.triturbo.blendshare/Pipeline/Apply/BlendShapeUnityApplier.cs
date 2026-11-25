@@ -52,20 +52,20 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                 }
                 if (winners.Count == 0 && context.PreserveExistingBlendShapes) return FeatureApplyResult.Skipped();
 
-                // Pre-validate winning shapes' bindings, space contracts, and Unity float frame weights before mutating mesh.
+                // Pre-validate winning shapes' mappings, space contracts, and Unity float frame weights before mutating mesh.
                 var winningList = new List<(FeatureApplyInput Input, BlendShapeEntry Shape, FbxMatrix4x4 NormalMatrix)>(winners.Count);
                 for (int i = 0; i < candidates.Count; i++)
                 {
                     var (input, shape) = candidates[i];
                     if (winners[shape.Name] != i) continue;
                     current = input;
-                    var binding = input.VertexBinding;
-                    var map = binding.VertexMap;
-                    var matrix = binding.SpaceContract.StoredToUnityMeshLocal;
+                    var mapping = input.VertexMapping;
+                    var map = mapping.VertexMap;
+                    var matrix = mapping.SpaceContract.StoredToUnityMeshLocal;
                     if (map.SourceDomain != IndexDomain.UnityVertex || map.TargetDomain != IndexDomain.ControlPoint ||
                         map.SourceCount != mesh.vertexCount ||
-                        binding.SpaceContract.StoredSpace == null || !binding.SpaceContract.StoredSpace.IsValid ||
-                        (input.SpaceProvenance != null && !binding.SpaceContract.StoredSpace.MatchesSpace(input.SpaceProvenance)) ||
+                        mapping.SpaceContract.StoredSpace == null || !mapping.SpaceContract.StoredSpace.IsValid ||
+                        (input.SpaceProvenance != null && !mapping.SpaceContract.StoredSpace.MatchesSpace(input.SpaceProvenance)) ||
                         !UnitySpaceContractMath.TryBuildNormalDeltaMatrix(matrix, out var normalMatrix))
                         throw new InvalidOperationException("Invalid vertex map or space contract.");
 
@@ -137,12 +137,12 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                 {
                     var (input, shape, normalMatrix) = winningList[w];
                     current = input;
-                    var binding = input.VertexBinding;
-                    var map = binding.VertexMap;
-                    var matrix = binding.SpaceContract.StoredToUnityMeshLocal;
-                    var unitSpace = input.SpaceProvenance ?? binding.SpaceContract.StoredSpace;
-                    double storedUnitMeters = unitSpace != null && CanonicalMeshSpace.IsValidUnitMeters(unitSpace.OriginRawMetersPerUnit)
-                        ? unitSpace.OriginRawMetersPerUnit
+                    var mapping = input.VertexMapping;
+                    var map = mapping.VertexMap;
+                    var matrix = mapping.SpaceContract.StoredToUnityMeshLocal;
+                    var unitSpace = input.SpaceProvenance ?? mapping.SpaceContract.StoredSpace;
+                    double storedUnitMeters = unitSpace != null && CanonicalMeshSpace.IsValidUnitMeters(unitSpace.MetersPerUnit)
+                        ? unitSpace.MetersPerUnit
                         : 1d;
                     double weldTolUnits = 1e-4d / storedUnitMeters;
                     double weldTolSq = weldTolUnits * weldTolUnits;

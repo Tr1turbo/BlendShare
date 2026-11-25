@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using Triturbo.BlendShare.Container.Format;
 using Triturbo.BlendShare.Container.Serialization;
-using Triturbo.BlendShare.EditorAssets.Binding;
+using Triturbo.BlendShare.EditorAssets.Mapping;
 using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Fbx.Ufbx;
 using Triturbo.BlendShare.Fbx.Unity;
@@ -294,12 +294,27 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                     }
                 };
 
-                if (request.OriginBindingBuilder != null)
+                if (request.MeshMappingsBuilder != null)
                 {
-                    var originBinding = request.OriginBindingBuilder(meshReq, rawOriginMesh, effectiveOriginMetadata);
-                    if (originBinding != null)
+                    var builtMappings = request.MeshMappingsBuilder(meshReq, rawOriginMesh, effectiveOriginMetadata);
+                    if (builtMappings != null && builtMappings.Count > 0)
                     {
-                        meshDoc.OriginBinding = LazyPayload<OriginBindingDocument>.FromValue(originBinding);
+                        if (!VertexMappingEntry.TryValidateEntries(builtMappings, meshDoc.Topology, out string mappingError))
+                        {
+                            diagnostics.Add(new ExtractionDiagnostic(
+                                ExtractionDiagnosticSeverity.Error,
+                                "PIPE_EXT_INVALID_MAPPING",
+                                $"Invalid embedded vertex mapping for mesh '{meshReq.NodePath}': {mappingError}",
+                                meshReq.MeshId));
+                            hasError = true;
+                        }
+                        else
+                        {
+                            for (int i = 0; i < builtMappings.Count; i++)
+                            {
+                                meshDoc.Mappings.Add(builtMappings[i]);
+                            }
+                        }
                     }
                 }
 
@@ -533,7 +548,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
         /// <summary>
         /// Convenience entry point loading Unity FBX assets via <see cref="FbxUnityAssetReader"/> and extracting.
         /// Defaults to <see cref="FbxUnityWeldPredictor"/> when <paramref name="weldGroupResolver"/> is null
-        /// and embeds <see cref="OriginBindingDocument"/> when <paramref name="embedOriginBinding"/> is true.
+        /// and embeds a <see cref="VertexMappingEntry"/> when <paramref name="embedMapping"/> is true.
         /// </summary>
         public PatchExtractionResult ExtractFromFbxAssets(
             GameObject sourceFbx,
@@ -543,7 +558,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             PayloadEncodeOptions encodeOptions,
             string patchId = null,
             Func<IFbxMesh, IReadOnlyList<int[]>> weldGroupResolver = null,
-            bool embedOriginBinding = true)
+            bool embedMapping = true)
         {
             var diagnostics = new List<ExtractionDiagnostic>();
             var srcRead = FbxUnityAssetReader.ReadScene(sourceFbx, UfbxLoadOptions.Default);
@@ -580,7 +595,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                         FeatureOptions = featureOptions,
                         EncodeOptions = encodeOptions,
                         WeldGroupResolver = weldGroupResolver ?? BuildDefaultWeldGroupResolver(originImportSettings),
-                        OriginBindingBuilder = embedOriginBinding ? BuildDefaultOriginBindingBuilder(originFbx, originImportSettings) : null
+                        MeshMappingsBuilder = embedMapping ? BuildDefaultMappingsBuilder(originFbx, originImportSettings) : null
                     });
                 }
             }
@@ -600,7 +615,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             string patchId = null,
             Func<IFbxMesh, IReadOnlyList<int[]>> weldGroupResolver = null,
             bool importUnityAsset = true,
-            bool embedOriginBinding = true)
+            bool embedMapping = true)
         {
             writtenToc = null;
             var diagnostics = new List<ExtractionDiagnostic>();
@@ -639,7 +654,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                             FeatureOptions = featureOptions,
                             EncodeOptions = encodeOptions,
                             WeldGroupResolver = weldGroupResolver ?? BuildDefaultWeldGroupResolver(originImportSettings),
-                            OriginBindingBuilder = embedOriginBinding ? BuildDefaultOriginBindingBuilder(originFbx, originImportSettings) : null
+                            MeshMappingsBuilder = embedMapping ? BuildDefaultMappingsBuilder(originFbx, originImportSettings) : null
                         },
                         outputFilePath,
                         out writtenToc);
@@ -674,7 +689,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             };
         }
 
-        private static Func<MeshExtractionRequest, IFbxMesh, FbxSceneMetadata, OriginBindingDocument> BuildDefaultOriginBindingBuilder(
+        private static Func<MeshExtractionRequest, IFbxMesh, FbxSceneMetadata, IReadOnlyList<VertexMappingEntry>> BuildDefaultMappingsBuilder(
             GameObject originFbx,
             FbxUnityImportSettings importSettings)
         {
@@ -704,12 +719,23 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                     return null;
                 }
 
-                return OriginBindingCodec.Build(
+                // Decline to embed a geometry+UV0 mapping when coincident triangles are blendshape-sensitive or
+                // exceeded the layout DFS budget, because a target mesh with swapped blendshape deltas or
+                // reordered triangles could silently accept an unverified mapping on the embedded fast path.
+                if (mapped.IsBlendShapeSensitive || mapped.ExceededLayoutDfsBudget)
+                {
+                    Debug.LogWarning(
+                        $"[BlendShare] Skipping embedded vertex mapping for mesh '{meshReq.NodePath}' because mapping is {(mapped.ExceededLayoutDfsBudget ? "DFS-budget-incomplete" : "blendshape-sensitive")}; target FBX mapping will resolve live.");
+                    return null;
+                }
+
+                var entry = VertexMappingCodec.Build(
                     snapshot,
                     mapped,
                     rawOriginMesh.ControlPointCount,
                     originMetadata,
                     meshReq.NodePath);
+                return new[] { entry };
             };
         }
 

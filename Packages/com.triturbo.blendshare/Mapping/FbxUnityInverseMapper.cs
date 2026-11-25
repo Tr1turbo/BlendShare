@@ -107,6 +107,8 @@ namespace Triturbo.BlendShare.Mapping
             List<CornerTriple>[] resolvedOptions = null;
             int matchedDegenerateTriangles = 0;
             string matchedRefinementNote = string.Empty;
+            bool matchedIsBlendShapeSensitive = false;
+            bool matchedExceededBudget = false;
             bool sawLayoutContradiction = false;
 
             for (int aIdx = 0; aIdx < axisModes.Length && matchedCoords == null; aIdx++)
@@ -160,7 +162,9 @@ namespace Triturbo.BlendShare.Mapping
                             coord.BakeAxisConversion,
                             hints.WeldVertices,
                             out var refined,
-                            out string refinementNote))
+                            out string refinementNote,
+                            out bool isBlendShapeSensitive,
+                            out bool exceededLayoutDfsBudget))
                     {
                         sawLayoutContradiction = true;
                         continue;
@@ -170,6 +174,8 @@ namespace Triturbo.BlendShare.Mapping
                     resolvedOptions = refined;
                     matchedDegenerateTriangles = degenerateCount;
                     matchedRefinementNote = refinementNote;
+                    matchedIsBlendShapeSensitive = isBlendShapeSensitive;
+                    matchedExceededBudget = exceededLayoutDfsBudget;
                     break;
                 }
             }
@@ -191,7 +197,9 @@ namespace Triturbo.BlendShare.Mapping
                 resolvedOptions,
                 matchedCoords,
                 matchedDegenerateTriangles,
-                matchedRefinementNote);
+                matchedRefinementNote,
+                matchedIsBlendShapeSensitive,
+                matchedExceededBudget);
         }
 
         // ─── Stage 1a: Float32 Coordinate & Scale Matching ──────────────────────────
@@ -660,6 +668,54 @@ namespace Triturbo.BlendShare.Mapping
             return r < 0 ? r + modulus : r;
         }
 
+        /// <summary>
+        /// Returns true if <paramref name="fbxMesh"/> has at least one eligible single-frame weight-100 blendshape
+        /// channel that Stage 3b can evaluate. Shared with cache identity checks so sensitivity and keys never drift.
+        /// </summary>
+        public static bool HasEligibleSingleFrameBlendShape(IFbxMeshGeometry fbxMesh)
+        {
+            if (fbxMesh == null || fbxMesh.BlendDeformers == null || fbxMesh.BlendDeformers.Count == 0)
+            {
+                return false;
+            }
+
+            foreach (var deformer in fbxMesh.BlendDeformers)
+            {
+                if (deformer == null || deformer.Channels == null) continue;
+                foreach (var channel in deformer.Channels)
+                {
+                    if (IsEligibleSingleFrameChannel(channel, out _))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsEligibleSingleFrameChannel(IFbxBlendChannel channel, out IFbxBlendShape shape)
+        {
+            shape = null;
+            if (channel == null ||
+                string.IsNullOrEmpty(channel.Name) ||
+                channel.Keyframes == null ||
+                channel.Keyframes.Count != 1)
+            {
+                return false;
+            }
+
+            var keyframe = channel.Keyframes[0];
+            if (keyframe?.Shape == null ||
+                Math.Abs(keyframe.TargetWeight - 100d) > BlendShapeWeight100Tolerance)
+            {
+                return false;
+            }
+
+            shape = keyframe.Shape;
+            return true;
+        }
+
         // ─── Stage 2 & 3: Connected-Component Layout DFS + Lazy UV0 / BlendShape ──
 
         private static bool TryResolveAmbiguousTriangles(
@@ -677,9 +733,13 @@ namespace Triturbo.BlendShare.Mapping
             bool bakeAxis,
             bool? weldVerticesHint,
             out List<CornerTriple>[] output,
-            out string refinementNote)
+            out string refinementNote,
+            out bool isBlendShapeSensitive,
+            out bool exceededLayoutDfsBudget)
         {
             refinementNote = string.Empty;
+            isBlendShapeSensitive = false;
+            exceededLayoutDfsBudget = false;
             var ambiguousTriangles = new List<int>();
             for (int t = 0; t < triangleCount; t++)
             {
@@ -863,9 +923,13 @@ namespace Triturbo.BlendShare.Mapping
             }
 
             // Stage 3b: Lazy single-frame (weight 100) BlendShape disambiguation if ambiguities STILL remain.
-            if (HasRemainingAmbiguity(currentAllowed) &&
-                unityMesh.BlendShapes != null &&
-                fbxMesh.BlendDeformers.Count > 0)
+            // Compute sensitivity BEFORE checking Unity-side BlendShapes so a target without matching shapes
+            // still flags blendshape sensitivity and cannot cache an ambiguous union under a geometry-only key.
+            bool hasRemainingAmbiguityAfterUv = HasRemainingAmbiguity(currentAllowed);
+            bool fbxHasEligibleShapes = hasRemainingAmbiguityAfterUv && HasEligibleSingleFrameBlendShape(fbxMesh);
+            isBlendShapeSensitive = fbxHasEligibleShapes;
+
+            if (fbxHasEligibleShapes && unityMesh.BlendShapes != null)
             {
                 var pairErrors = ComputeBlendShapePairErrors(
                     fbxMesh,
@@ -891,6 +955,7 @@ namespace Triturbo.BlendShare.Mapping
                 }
             }
 
+            exceededLayoutDfsBudget = anyBudgetExceeded;
             if (anyBudgetExceeded)
             {
                 refinementNote = "One or more high-symmetry polygon components exceeded the layout DFS budget and kept filtered candidate sets.";
@@ -1023,20 +1088,17 @@ namespace Triturbo.BlendShare.Mapping
 
             foreach (var deformer in fbxMesh.BlendDeformers)
             {
-                if (deformer == null) continue;
+                if (deformer == null || deformer.Channels == null) continue;
                 foreach (var channel in deformer.Channels)
                 {
-                    if (channel == null || channel.Keyframes.Count != 1) continue;
-                    var keyframe = channel.Keyframes[0];
-                    if (keyframe?.Shape == null ||
-                        Math.Abs(keyframe.TargetWeight - 100d) > BlendShapeWeight100Tolerance)
+                    if (!IsEligibleSingleFrameChannel(channel, out var shape))
                     {
                         continue;
                     }
 
                     string name = channel.Name;
-                    if (string.IsNullOrEmpty(name) || !unityNameSet.Contains(name) || !seenNames.Add(name)) continue;
-                    matchedFbxShapes.Add((name, keyframe.Shape));
+                    if (!unityNameSet.Contains(name) || !seenNames.Add(name)) continue;
+                    matchedFbxShapes.Add((name, shape));
                 }
             }
 
@@ -1443,7 +1505,9 @@ namespace Triturbo.BlendShare.Mapping
             List<CornerTriple>[] resolvedOptions,
             CoordinateMatch matchedCoords,
             int degenerateTriangles,
-            string refinementNote)
+            string refinementNote,
+            bool isBlendShapeSensitive,
+            bool exceededLayoutDfsBudget)
         {
             int cornerCount = triangleCount * 3;
             var unityCornerVertices = new int[cornerCount];
@@ -1579,7 +1643,9 @@ namespace Triturbo.BlendShare.Mapping
                 uniqueCornerCount: uniqueCorners,
                 ambiguousCornerCount: ambiguousCorners,
                 multiControlPointCornerCount: multiCpCorners,
-                isolatedVertexCount: isolatedVertices);
+                isolatedVertexCount: isolatedVertices,
+                isBlendShapeSensitive: isBlendShapeSensitive,
+                exceededLayoutDfsBudget: exceededLayoutDfsBudget);
         }
 
         // ─── Helpers & Small Value Types ───────────────────────────────────────────

@@ -40,10 +40,10 @@ namespace Triturbo.BlendShare.Container.Format
             using var manifest = new MemoryStream();
             var writer = new WireWriter(manifest);
             writer.WriteString(document.PatchId);
-            writer.WriteDouble(provenance.OriginRawMetersPerUnit);
-            writer.WriteByte((byte)provenance.OriginRightAxis);
-            writer.WriteByte((byte)provenance.OriginUpAxis);
-            writer.WriteByte((byte)provenance.OriginFrontAxis);
+            writer.WriteDouble(provenance.MetersPerUnit);
+            writer.WriteByte((byte)provenance.RightAxis);
+            writer.WriteByte((byte)provenance.UpAxis);
+            writer.WriteByte((byte)provenance.FrontAxis);
             var entries = new List<ContainerIndexEntry>();
 
             void AddRecord(ContainerSectionKind kind, byte[] bytes, string mesh = "", BlendShareFeatureData feature = null)
@@ -62,7 +62,7 @@ namespace Triturbo.BlendShare.Container.Format
                 var header = new MeshDocument
                 {
                     MeshId = mesh.MeshId, Name = mesh.Name, NodePath = mesh.NodePath, Topology = mesh.Topology,
-                    OriginBinding = mesh.OriginBinding
+                    Mappings = mesh.Mappings ?? new List<VertexMappingEntry>()
                 };
                 AddRecord(ContainerSectionKind.MeshHeader, m_Serializer.SerializeRecord(header, sink, patchEncoding, mesh.MeshId), mesh.MeshId);
                 foreach (var feature in mesh.Features)
@@ -89,7 +89,8 @@ namespace Triturbo.BlendShare.Container.Format
             var indexBytes = index.ToArray();
             var revision = FormatIO.Hash(headerBytes, manifestBytes, indexBytes);
             Array.Copy(revision, 0, headerBytes, 20, revision.Length);
-            var toc = new ContainerToc(document.PatchId, provenance, revision, manifestSlice, indexSlice, payloadSlice, entries);
+            var clonedProvenance = PatchSpaceProvenance.FromMetadata(provenance.Axes, provenance.MetersPerUnit);
+            var toc = new ContainerToc(document.PatchId, clonedProvenance, revision, manifestSlice, indexSlice, payloadSlice, entries);
 
             stream.Position = 0;
             stream.Write(headerBytes, 0, headerBytes.Length);
@@ -107,9 +108,9 @@ namespace Triturbo.BlendShare.Container.Format
                 return baseOptions;
             }
 
-            double unitMeters = provenance.OriginRawMetersPerUnit;
+            double unitMeters = provenance.MetersPerUnit;
             FormatIO.Check(!double.IsNaN(unitMeters) && !double.IsInfinity(unitMeters) && unitMeters > 0d,
-                "Patch space provenance requires a finite strictly positive OriginRawMetersPerUnit.");
+                "Patch space provenance requires a finite strictly positive MetersPerUnit.");
             return baseOptions.WithPositionUnitMeters(unitMeters);
         }
 
@@ -134,6 +135,12 @@ namespace Triturbo.BlendShare.Container.Format
             {
                 FormatIO.Check(!string.IsNullOrWhiteSpace(mesh?.MeshId) && meshes.Add(mesh.MeshId) &&
                     mesh.Features != null, "Missing or duplicate mesh ID or missing features.");
+                if (mesh.Mappings != null && mesh.Mappings.Count > 0)
+                {
+                    FormatIO.Check(
+                        VertexMappingEntry.TryValidateEntries(mesh.Mappings, mesh.Topology, out string mappingError),
+                        mappingError);
+                }
                 var ids = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var feature in mesh.Features)
                 {

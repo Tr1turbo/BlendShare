@@ -24,10 +24,10 @@ namespace Triturbo.BlendShare.EditorAssets
 
             return new PatchSpaceProvenance
             {
-                OriginRawMetersPerUnit = asset.OriginRawMetersPerUnit,
-                OriginRightAxis = (FbxCoordinateAxis)asset.OriginRightAxis,
-                OriginUpAxis = (FbxCoordinateAxis)asset.OriginUpAxis,
-                OriginFrontAxis = (FbxCoordinateAxis)asset.OriginFrontAxis
+                MetersPerUnit = asset.MetersPerUnit,
+                RightAxis = (FbxCoordinateAxis)asset.RightAxis,
+                UpAxis = (FbxCoordinateAxis)asset.UpAxis,
+                FrontAxis = (FbxCoordinateAxis)asset.FrontAxis
             };
         }
 
@@ -82,10 +82,10 @@ namespace Triturbo.BlendShare.EditorAssets
                 toc.FormatVersion,
                 toc.PatchId,
                 toc.SourceRevision,
-                toc.SpaceProvenance.OriginRawMetersPerUnit,
-                (byte)toc.SpaceProvenance.OriginRightAxis,
-                (byte)toc.SpaceProvenance.OriginUpAxis,
-                (byte)toc.SpaceProvenance.OriginFrontAxis,
+                toc.SpaceProvenance.MetersPerUnit,
+                (byte)toc.SpaceProvenance.RightAxis,
+                (byte)toc.SpaceProvenance.UpAxis,
+                (byte)toc.SpaceProvenance.FrontAxis,
                 toc.TotalFileLength,
                 ToByteRange(toc.ManifestSlice),
                 ToByteRange(toc.IndexTableSlice),

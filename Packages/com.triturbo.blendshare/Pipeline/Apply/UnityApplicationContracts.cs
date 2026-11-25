@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using Triturbo.BlendShare.EditorAssets.Binding;
+using Triturbo.BlendShare.EditorAssets.Mapping;
 using Triturbo.BlendShare.Model.Documents;
 using Triturbo.BlendShare.Model.Features;
 using Triturbo.BlendShare.Model.Serialization;
@@ -122,7 +122,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
         public SkeletonDocument Skeleton { get; set; }
         public BlendShareImportSettings EffectiveSettings { get; set; }
         public ILazyPayloadSource PayloadSource { get; set; }
-        public ResolvedVertexBinding VertexBinding { get; set; }
+        public ResolvedVertexMapping VertexMapping { get; set; }
         public bool CreateMissingBones { get; set; } = true;
         public IReadOnlyDictionary<string, Matrix4x4> BindPoseOverrides { get; set; }
     }

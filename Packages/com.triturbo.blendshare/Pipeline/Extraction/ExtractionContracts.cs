@@ -261,10 +261,10 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
         public Func<IFbxMesh, IReadOnlyList<int[]>> WeldGroupResolver { get; set; }
 
         /// <summary>
-        /// Optional callback building an embedded <see cref="OriginBindingDocument"/> for each extracted mesh
-        /// so downstream consumers can bind without the base FBX.
+        /// Optional callback building one or more embedded <see cref="VertexMappingEntry"/> records for each extracted mesh
+        /// so downstream consumers can map directly without the target FBX.
         /// </summary>
-        public Func<MeshExtractionRequest, IFbxMesh, FbxSceneMetadata, OriginBindingDocument> OriginBindingBuilder { get; set; }
+        public Func<MeshExtractionRequest, IFbxMesh, FbxSceneMetadata, IReadOnlyList<VertexMappingEntry>> MeshMappingsBuilder { get; set; }
     }
 
     /// <summary>

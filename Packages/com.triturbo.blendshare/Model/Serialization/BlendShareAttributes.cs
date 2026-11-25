@@ -85,7 +85,7 @@ namespace Triturbo.BlendShare.Model.Serialization
         public double WeightZeroThreshold { get; }
 
         /// <summary>
-        /// Physical length in meters of 1.0 coordinate unit in the payload's stored Origin FBX mesh space
+        /// Physical length in meters of 1.0 coordinate unit in the payload's stored patch coordinate space
         /// (e.g., <c>1.0</c> for meters, <c>0.01</c> for centimeters, <c>0.001</c> for millimeters).
         /// </summary>
         public double PositionUnitMeters => m_PositionUnitMeters > 0d ? m_PositionUnitMeters : 1d;

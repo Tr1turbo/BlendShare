@@ -7,7 +7,7 @@ using Triturbo.BlendShare.Model.Documents;
 using Triturbo.BlendShare.Model.Features;
 using Triturbo.BlendShare.Model.Settings;
 using Triturbo.BlendShare.EditorAssets;
-using Triturbo.BlendShare.EditorAssets.Binding;
+using Triturbo.BlendShare.EditorAssets.Mapping;
 using Triturbo.BlendShare.EditorAssets.Settings;
 using Triturbo.BlendShare.Pipeline.Apply;
 using Triturbo.BlendShare.Inspector;
@@ -92,7 +92,7 @@ namespace Triturbo.BlendShare.UI.Authoring
 
                 var applier = CreateMeshApplier(placementObject.transform, path, renderer.name);
 
-                Undo.RecordObject(applier, "Create BlendShare Mesh Binding");
+                Undo.RecordObject(applier, "Set Up BlendShare Mesh");
                 applier.Patch = patch;
                 applier.TargetRenderer = renderer;
                 if (!GetTargetFbx(applier) && renderer.sharedMesh)
@@ -227,7 +227,7 @@ namespace Triturbo.BlendShare.UI.Authoring
                     continue;
                 }
 
-                ResolvedVertexBinding mapping = null;
+                ResolvedVertexMapping mapping = null;
 
                 foreach (string bonePath in skin.BonePaths)
                 {
@@ -462,7 +462,7 @@ namespace Triturbo.BlendShare.UI.Authoring
         }
 
         internal static bool HasEmbeddedMapping(BlendShareMesh mesh) =>
-            GetMesh(mesh)?.OriginBinding?.HasPayload == true;
+            GetMesh(mesh)?.HasEmbeddedMappings == true;
 
         internal static MeshMappingStatus GetMappingStatus(BlendShareMesh mesh)
         {
@@ -484,7 +484,7 @@ namespace Triturbo.BlendShare.UI.Authoring
             internal Mesh Target;
             internal Mesh Reference;
             internal GameObject Fbx;
-            internal ResolvedVertexBinding Binding;
+            internal ResolvedVertexMapping Mapping;
             internal bool TriedHeadersOnly;
             internal MeshMappingStatus? Status;
             internal string Language;
@@ -497,33 +497,34 @@ namespace Triturbo.BlendShare.UI.Authoring
             EditorApplication.projectChanged += () => s_Mappings = new();
 
         internal static bool TryResolveMeshApplierMappingReference(BlendShareMesh mesh,
-            out ResolvedVertexBinding binding, bool allowPayloadRead = false)
+            out ResolvedVertexMapping mapping, bool allowPayloadRead = false)
         {
-            binding = null;
+            mapping = null;
             var header = GetMesh(mesh);
             var target = mesh && mesh.TargetRenderer ? mesh.TargetRenderer.sharedMesh : null;
             if (header == null || !target) return false;
             var fbx = GetTargetFbx(mesh);
             var cache = GetMappingCache(mesh, header, fbx);
-            if (cache.Binding == null && (allowPayloadRead || (fbx && !cache.TriedHeadersOnly)))
+            if (cache.Mapping == null && (allowPayloadRead || (fbx && !cache.TriedHeadersOnly)))
             {
-                // Passive display can use the FBX mapping path, but must not open an OriginBinding payload.
+                // Passive display can use the FBX mapping path, but must not open embedded mapping payloads.
                 var input = allowPayloadRead ? header : new MeshDocument
                 {
                     MeshId = header.MeshId, NodePath = header.NodePath, Topology = header.Topology
                 };
-                var result = BindingService.Shared.Resolve(new BindingResolveRequest
+                var result = VertexMappingService.Shared.Resolve(new VertexMappingResolveRequest
                 {
                     MeshHeader = input,
                     SpaceProvenance = BlendShareAssetTocMapper.GetSpaceProvenance(mesh.ResolvedPatch),
                     TargetUnityMesh = target, ReferenceUnityMesh = mesh.ReferenceMesh,
-                    TargetFbxAsset = fbx, PayloadSource = BlendShareSourceRepository.Shared.PayloadStore
+                    TargetFbxAsset = fbx, PayloadSource = BlendShareSourceRepository.Shared.PayloadStore,
+                    CacheMode = VertexMappingCacheMode.PersistAssetsOnly
                 });
-                cache.Binding = result.Binding;
+                cache.Mapping = result.Mapping;
                 cache.TriedHeadersOnly = true;
             }
-            binding = cache.Binding;
-            return binding != null;
+            mapping = cache.Mapping;
+            return mapping != null;
         }
 
         private static MappingCache GetMappingCache(BlendShareMesh mesh, MeshDocument header, GameObject fbx)
@@ -537,18 +538,18 @@ namespace Triturbo.BlendShare.UI.Authoring
                 cache.Reference = mesh.ReferenceMesh;
                 cache.Fbx = fbx;
                 cache.Status = null;
-                cache.Binding = null;
+                cache.Mapping = null;
                 cache.TriedHeadersOnly = false;
             }
             return cache;
         }
 
-        internal static bool TryConvertLocalTransform(this ResolvedVertexBinding binding, FbxMatrix4x4 local,
+        internal static bool TryConvertLocalTransform(this ResolvedVertexMapping mapping, FbxMatrix4x4 local,
             out UnityLocalTransform transform, out string diagnostic)
         {
             transform = default;
             diagnostic = null;
-            if (!ArmatureBindTransformMath.ConvertCanonicalMatrixToUnity(local, binding.SpaceContract.StoredToUnityMeshLocal,
+            if (!ArmatureBindTransformMath.ConvertCanonicalMatrixToUnity(local, mapping.SpaceContract.StoredToUnityMeshLocal,
                     out var matrix) || !ArmatureBindTransformMath.TryDecomposeUnityLocalTransform(matrix,
                     out var position, out var rotation, out var scale, out diagnostic))
             {
@@ -568,7 +569,7 @@ namespace Triturbo.BlendShare.UI.Authoring
                 ? rendererName
                 : MeshNodePath.LeafName(rendererPath);
             var host = new GameObject(CreateUniqueChildName(placementParent, desiredName));
-            Undo.RegisterCreatedObjectUndo(host, "Create BlendShare Mesh Binding");
+            Undo.RegisterCreatedObjectUndo(host, "Set Up BlendShare Mesh");
             host.transform.SetParent(placementParent, false);
             return Undo.AddComponent<BlendShareMesh>(host);
         }

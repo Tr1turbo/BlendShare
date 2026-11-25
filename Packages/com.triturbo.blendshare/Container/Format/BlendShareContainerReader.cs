@@ -28,20 +28,7 @@ namespace Triturbo.BlendShare.Container.Format
             Array.Clear(header.Bytes, 20, 32);
             FormatIO.Check(FormatIO.Hash(header.Bytes, manifest, index).SequenceEqual(header.Revision), "Incorrect metadata digest.");
             var metadata = new WireReader(manifest);
-            string patch = metadata.ReadString();
-            FormatIO.Check(!string.IsNullOrWhiteSpace(patch), "Missing patch ID.");
-            double unitMeters = metadata.ReadDouble();
-            var rightAxis = (FbxCoordinateAxis)metadata.ReadByte();
-            var upAxis = (FbxCoordinateAxis)metadata.ReadByte();
-            var frontAxis = (FbxCoordinateAxis)metadata.ReadByte();
-            var spaceProvenance = new PatchSpaceProvenance
-            {
-                OriginRawMetersPerUnit = unitMeters,
-                OriginRightAxis = rightAxis,
-                OriginUpAxis = upAxis,
-                OriginFrontAxis = frontAxis
-            };
-            FormatIO.Check(spaceProvenance.IsValid, "Invalid patch space provenance.");
+            ReadManifestPrefix(ref metadata, out string patch, out var spaceProvenance);
             var entries = ParseIndex(index, header, header.Manifest.Offset + metadata.Position);
             return new ContainerToc(patch, spaceProvenance, header.Revision, header.Manifest, header.Index, header.Payload, entries);
         });
@@ -79,8 +66,8 @@ namespace Triturbo.BlendShare.Container.Format
                 {
                     PatchId = expectedToc.PatchId,
                     SpaceProvenance = PatchSpaceProvenance.FromMetadata(
-                        expectedToc.SpaceProvenance.OriginAxes,
-                        expectedToc.SpaceProvenance.OriginRawMetersPerUnit),
+                        expectedToc.SpaceProvenance.Axes,
+                        expectedToc.SpaceProvenance.MetersPerUnit),
                     Skeleton = Skeleton(stream, expectedToc)
                 };
                 foreach (var item in expectedToc.Meshes)
@@ -112,6 +99,7 @@ namespace Triturbo.BlendShare.Container.Format
             var value = m_Serializer.DeserializeRecord<MeshDocument>(Verified(stream, toc, mesh.HeaderEntry),
                 new OwnerResolver(toc, mesh.HeaderEntry));
             FormatIO.Check(value.MeshId == mesh.MeshId && value.Features?.Count == 0, "Invalid mesh header.");
+            value.Mappings ??= new List<VertexMappingEntry>();
             return value;
         }
 
@@ -175,9 +163,43 @@ namespace Triturbo.BlendShare.Container.Format
             FormatIO.Check(h.Manifest.Offset == size && h.Manifest.End == h.Index.Offset && h.Index.End == h.Payload.Offset &&
                 h.Payload.End == stream.Length && r.ReadFixedInt64() == stream.Length && r.ReadFixedInt32() == 0, "Invalid section boundaries.");
             if (expected != null)
+            {
                 FormatIO.Check(h.Manifest.Equals(expected.ManifestSlice) && h.Index.Equals(expected.IndexTableSlice) &&
                     h.Payload.Equals(expected.PayloadSectionSlice), "Section layout changed.");
+                FormatIO.Check(expected.Entries != null && expected.Entries.Count > 0, "Cached TOC has no entries.");
+                long prefixEnd = expected.Entries[0].Slice.Offset;
+                FormatIO.Check(prefixEnd > h.Manifest.Offset && prefixEnd <= h.Manifest.End, "Invalid cached manifest prefix bounds.");
+                var prefixBytes = FormatIO.Read(stream, new ByteSlice(h.Manifest.Offset, prefixEnd - h.Manifest.Offset));
+                var prefixReader = new WireReader(prefixBytes);
+                ReadManifestPrefix(ref prefixReader, out string filePatchId, out var fileSpace);
+                FormatIO.Check(prefixReader.IsAtEnd, "Manifest prefix length does not match cached entry offset.");
+                if (!string.Equals(filePatchId, expected.PatchId, StringComparison.Ordinal) ||
+                    expected.SpaceProvenance == null ||
+                    !fileSpace.MatchesSpace(expected.SpaceProvenance))
+                {
+                    throw new ReadFailure(ContainerReadStatus.SourceRevisionMismatch,
+                        "Cached TOC patch metadata or space provenance does not match the container file.");
+                }
+            }
             return h;
+        }
+
+        private static void ReadManifestPrefix(ref WireReader reader, out string patchId, out PatchSpaceProvenance spaceProvenance)
+        {
+            patchId = reader.ReadString();
+            FormatIO.Check(!string.IsNullOrWhiteSpace(patchId), "Missing patch ID.");
+            double unitMeters = reader.ReadDouble();
+            var rightAxis = (FbxCoordinateAxis)reader.ReadByte();
+            var upAxis = (FbxCoordinateAxis)reader.ReadByte();
+            var frontAxis = (FbxCoordinateAxis)reader.ReadByte();
+            spaceProvenance = new PatchSpaceProvenance
+            {
+                MetersPerUnit = unitMeters,
+                RightAxis = rightAxis,
+                UpAxis = upAxis,
+                FrontAxis = frontAxis
+            };
+            FormatIO.Check(spaceProvenance.IsValid, "Invalid patch space provenance.");
         }
 
         private static List<ContainerIndexEntry> ParseIndex(byte[] bytes, Header header, long manifestCursor)

@@ -4,7 +4,7 @@ using System.IO;
 using System.Linq;
 using Triturbo.BlendShare.Components;
 using Triturbo.BlendShare.EditorAssets;
-using Triturbo.BlendShare.EditorAssets.Binding;
+using Triturbo.BlendShare.EditorAssets.Mapping;
 using Triturbo.BlendShare.EditorAssets.Settings;
 using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Pipeline.Apply;
@@ -70,17 +70,18 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
                         return null;
                     }
 
-                    var bindRes = BindingService.Shared.Resolve(new BindingResolveRequest
+                    var mapRes = VertexMappingService.Shared.Resolve(new VertexMappingResolveRequest
                     {
                         MeshHeader = meshDoc,
                         SpaceProvenance = doc.SpaceProvenance,
                         TargetUnityMesh = entry.Mesh,
                         TargetFbxAsset = targetFbx,
-                        PayloadSource = BlendShareSourceRepository.Shared.PayloadStore
+                        PayloadSource = BlendShareSourceRepository.Shared.PayloadStore,
+                        CacheMode = VertexMappingCacheMode.PersistAssetsOnly
                     });
-                    if (!bindRes.Succeeded || bindRes.Binding == null)
+                    if (!mapRes.Succeeded || mapRes.Mapping == null)
                     {
-                        error = $"Failed binding mesh '{nodePath}': {bindRes.FailureCode} ({bindRes.Diagnostic})";
+                        error = $"Failed mapping mesh '{nodePath}': {mapRes.FailureCode} ({mapRes.Diagnostic})";
                         return null;
                     }
 
@@ -100,7 +101,7 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
                         Skeleton = doc.Skeleton,
                         EffectiveSettings = settings,
                         PayloadSource = BlendShareSourceRepository.Shared.PayloadStore,
-                        VertexBinding = bindRes.Binding,
+                        VertexMapping = mapRes.Mapping,
                         CreateMissingBones = true
                     });
                 }

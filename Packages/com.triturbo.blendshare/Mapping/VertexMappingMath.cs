@@ -175,8 +175,8 @@ namespace Triturbo.BlendShare.Mapping
     }
 
     /// <summary>
-    /// Pure geometry digests computed over a <see cref="UnityMeshSnapshot"/> for OriginBinding verification
-    /// and conservative binding cache resolution keys (never disclosing raw 3D vertex coordinates).
+    /// Pure geometry digests computed over a <see cref="UnityMeshSnapshot"/> for embedded vertex mapping verification
+    /// and conservative mapping cache resolution keys (never disclosing raw 3D vertex coordinates).
     /// </summary>
     public readonly struct UnityMeshGeometryDigest
     {
@@ -184,6 +184,7 @@ namespace Triturbo.BlendShare.Mapping
         public int TriangleCount { get; }
         public string OrderedPositionsDigest { get; }
         public string CanonicalTriangleIncidenceDigest { get; }
+        public string OrderedTrianglesDigest { get; }
         public string Uv0Digest { get; }
         public string CombinedGeometryKey { get; }
 
@@ -192,6 +193,7 @@ namespace Triturbo.BlendShare.Mapping
             int triangleCount,
             string orderedPositionsDigest,
             string canonicalTriangleIncidenceDigest,
+            string orderedTrianglesDigest,
             string uv0Digest,
             string combinedGeometryKey)
         {
@@ -199,6 +201,7 @@ namespace Triturbo.BlendShare.Mapping
             TriangleCount = triangleCount;
             OrderedPositionsDigest = orderedPositionsDigest ?? string.Empty;
             CanonicalTriangleIncidenceDigest = canonicalTriangleIncidenceDigest ?? string.Empty;
+            OrderedTrianglesDigest = orderedTrianglesDigest ?? string.Empty;
             Uv0Digest = uv0Digest ?? string.Empty;
             CombinedGeometryKey = combinedGeometryKey ?? string.Empty;
         }
@@ -208,8 +211,9 @@ namespace Triturbo.BlendShare.Mapping
     {
         private const string k_PositionsDomain = "BlendShare.UnityOrderedPositions.v1";
         private const string k_TrianglesDomain = "BlendShare.UnityCanonicalTriangles.v1";
+        private const string k_OrderedTrianglesDomain = "BlendShare.UnityOrderedTriangles.v1";
         private const string k_Uv0Domain = "BlendShare.UnityUv0.v1";
-        private const string k_CombinedDomain = "BlendShare.UnityGeometryKey.v1";
+        private const string k_CombinedDomain = "BlendShare.UnityGeometryKey.v2";
         private const string k_ClassDiscDomain = "BlendShare.CoincidentClassDisc.v1";
 
         public static UnityMeshGeometryDigest Compute(UnityMeshSnapshot snapshot)
@@ -221,6 +225,7 @@ namespace Triturbo.BlendShare.Mapping
 
             string posDigest = ComputeOrderedPositionsDigest(snapshot.Vertices);
             string triDigest = ComputeCanonicalTriangleIncidenceDigest(snapshot.Triangles);
+            string orderedTriDigest = ComputeOrderedTrianglesDigest(snapshot.Triangles);
             string uvDigest = ComputeUv0Digest(snapshot.Uv0);
 
             string combined;
@@ -233,6 +238,7 @@ namespace Triturbo.BlendShare.Mapping
                 bw.Write(snapshot.TriangleCount);
                 bw.Write(posDigest);
                 bw.Write(triDigest);
+                bw.Write(orderedTriDigest);
                 bw.Write(uvDigest);
                 bw.Flush();
                 cs.FlushFinalBlock();
@@ -244,8 +250,30 @@ namespace Triturbo.BlendShare.Mapping
                 snapshot.TriangleCount,
                 posDigest,
                 triDigest,
+                orderedTriDigest,
                 uvDigest,
                 combined);
+        }
+
+        public static string ComputeOrderedTrianglesDigest(int[] triangles)
+        {
+            int triCount = triangles != null ? triangles.Length / 3 : 0;
+            using (var sha = SHA256.Create())
+            using (var cs = new CryptoStream(Stream.Null, sha, CryptoStreamMode.Write))
+            using (var bw = new BinaryWriter(cs, Encoding.UTF8, leaveOpen: true))
+            {
+                bw.Write(k_OrderedTrianglesDomain);
+                bw.Write(triCount);
+                int indexCount = triCount * 3;
+                for (int i = 0; i < indexCount; i++)
+                {
+                    bw.Write(triangles[i]);
+                }
+
+                bw.Flush();
+                cs.FlushFinalBlock();
+                return CsrVertexMapFactory.ToLowerHex(sha.Hash);
+            }
         }
 
         public static string ComputeOrderedPositionsDigest(Vector3[] vertices)
@@ -522,7 +550,7 @@ namespace Triturbo.BlendShare.Mapping
     }
 
     /// <summary>
-    /// Binary64 coordinate contract math between stored Origin FBX mesh-local space
+    /// Binary64 coordinate contract math between stored patch mesh-local space
     /// and Unity <c>Mesh</c> local space.
     /// </summary>
     public static class UnitySpaceContractMath
@@ -563,7 +591,7 @@ namespace Triturbo.BlendShare.Mapping
         }
 
         /// <summary>
-        /// Builds the binary64 row-vector matrix transforming stored Origin FBX mesh-local coordinates
+        /// Builds the binary64 row-vector matrix transforming stored patch mesh-local coordinates
         /// into Unity mesh local coordinates. Uses an exact direct <see cref="BuildFbxRawToUnityMatrix"/> fast path
         /// when the stored axes and unit scale match the target FBX.
         /// Returns false when stored axes or unit metadata are invalid.

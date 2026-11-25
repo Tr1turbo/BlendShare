@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShapeShare;
 using Triturbo.BlendShare.Components;
-using Triturbo.BlendShare.EditorAssets.Binding;
+using Triturbo.BlendShare.EditorAssets.Mapping;
 using UnityEditor;
 using UnityEngine;
 
@@ -289,7 +289,7 @@ namespace Triturbo.BlendShare.UI.Authoring
         private static bool TryMatchesSourcePose(
             BlendShareBoneProxy proxy,
             BlendShareBoneProxyBinding binding,
-            ResolvedVertexBinding mapping,
+            ResolvedVertexMapping mapping,
             out bool matches)
         {
             matches = false;
@@ -476,7 +476,7 @@ namespace Triturbo.BlendShare.UI.Authoring
             return result;
         }
 
-        private static ResolvedVertexBinding GetFbxToUnityMapping(BlendShareMesh meshApplier)
+        private static ResolvedVertexMapping GetFbxToUnityMapping(BlendShareMesh meshApplier)
         {
             return BlendShareComponentSetupService.TryResolveMeshApplierMappingReference(
                 meshApplier,
@@ -485,7 +485,7 @@ namespace Triturbo.BlendShare.UI.Authoring
                 : null;
         }
 
-        private static ResolvedVertexBinding GetSourceMapping(BlendShareBoneProxy proxy)
+        private static ResolvedVertexMapping GetSourceMapping(BlendShareBoneProxy proxy)
         {
             return proxy?.transform.root
                 .GetComponentsInChildren<BlendShareMesh>(true)
@@ -511,7 +511,7 @@ namespace Triturbo.BlendShare.UI.Authoring
         private static bool TryCreateBindingRevertPlan(
             BlendShareBoneProxy proxy,
             IReadOnlyList<(BlendShareMesh Mesh, BlendShareBoneProxyBinding Binding)> usages,
-            ResolvedVertexBinding mapping,
+            ResolvedVertexMapping mapping,
             out BlendShareBindingRevertPlan plan,
             out string diagnostic)
         {

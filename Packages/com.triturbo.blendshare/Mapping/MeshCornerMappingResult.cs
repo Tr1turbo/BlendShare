@@ -62,6 +62,18 @@ namespace Triturbo.BlendShare.Mapping
         /// <summary>Count of Unity vertices not referenced by any mapped triangle that fell back to exact position class.</summary>
         public int IsolatedVertexCount { get; }
 
+        /// <summary>
+        /// True when ambiguity remained after geometry and UV0 disambiguation and the FBX mesh has at least one
+        /// eligible single-frame weight-100 blendshape channel (independent of whether the Unity mesh supplied matching shapes).
+        /// Such results are blendshape-sensitive and must not be cached or embedded under a geometry+UV0-only key.
+        /// </summary>
+        public bool IsBlendShapeSensitive { get; }
+
+        /// <summary>
+        /// True when one or more high-symmetry components exceeded the polygon-layout DFS step budget.
+        /// </summary>
+        public bool ExceededLayoutDfsBudget { get; }
+
         internal MeshCornerMappingResult(
             bool succeeded,
             string diagnostic,
@@ -77,7 +89,9 @@ namespace Triturbo.BlendShare.Mapping
             int uniqueCornerCount,
             int ambiguousCornerCount,
             int multiControlPointCornerCount,
-            int isolatedVertexCount)
+            int isolatedVertexCount,
+            bool isBlendShapeSensitive = false,
+            bool exceededLayoutDfsBudget = false)
         {
             Succeeded = succeeded;
             Diagnostic = diagnostic ?? string.Empty;
@@ -94,6 +108,8 @@ namespace Triturbo.BlendShare.Mapping
             AmbiguousCornerCount = ambiguousCornerCount;
             MultiControlPointCornerCount = multiControlPointCornerCount;
             IsolatedVertexCount = isolatedVertexCount;
+            IsBlendShapeSensitive = isBlendShapeSensitive;
+            ExceededLayoutDfsBudget = exceededLayoutDfsBudget;
         }
 
         /// <summary>Creates a failed mapping result with the given diagnostic message.</summary>

@@ -745,7 +745,7 @@ namespace Triturbo.BlendShare.UI.Inspectors
 
             foldout.Add(BlendShareInspectorUi.Row(Localization.S("common.patch_id"), patch.PatchId));
 
-            double unitMeters = document.SpaceProvenance?.OriginRawMetersPerUnit ?? 1d;
+            double unitMeters = document.SpaceProvenance?.MetersPerUnit ?? 1d;
             foldout.Add(new BlendShareRecordView(
                 document.SpaceProvenance ?? new PatchSpaceProvenance(),
                 ctx.PayloadSource,

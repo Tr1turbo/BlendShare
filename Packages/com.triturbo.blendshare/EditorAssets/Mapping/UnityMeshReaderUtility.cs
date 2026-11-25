@@ -6,11 +6,11 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-namespace Triturbo.BlendShare.EditorAssets.Binding
+namespace Triturbo.BlendShare.EditorAssets.Mapping
 {
     /// <summary>
     /// Editor-safe Unity <see cref="Mesh"/> reader using <see cref="MeshUtility.AcquireReadOnlyMeshData"/>
-    /// for non-readable meshes so binding and application never require modifying source ModelImporter Read/Write flags.
+    /// for non-readable meshes so vertex mapping and application never require modifying source ModelImporter Read/Write flags.
     /// </summary>
     public static class UnityMeshReaderUtility
     {

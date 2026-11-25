@@ -290,14 +290,14 @@ namespace Triturbo.BlendShare.Inspector
                     StatusKind.Neutral);
             }
 
-            bool hasEmbedded = mesh.OriginBinding != null && mesh.OriginBinding.HasPayload;
+            bool hasEmbedded = mesh.HasEmbeddedMappings;
             if (targetFbx == null)
             {
                 if (hasEmbedded)
                 {
                     return new MeshMappingStatus(
                         Localization.S("common.status.ready"),
-                        Localization.S("patch.mapping.embedded_ready", "Embedded OriginBinding ready (no base FBX required)."),
+                        Localization.S("patch.mapping.embedded_ready", "Embedded mapping ready (no target FBX required)."),
                         false,
                         StatusKind.Success);
                 }
@@ -315,7 +315,7 @@ namespace Triturbo.BlendShare.Inspector
                 return new MeshMappingStatus(
                     Localization.S("common.status.ready"),
                     hasEmbedded
-                        ? Localization.S("patch.mapping.embedded_and_fbx_ready", "Embedded OriginBinding + Target FBX verified.")
+                        ? Localization.S("patch.mapping.embedded_and_fbx_ready", "Embedded mapping + Target FBX verified.")
                         : targetFbx.name,
                     false,
                     StatusKind.Success);
@@ -325,7 +325,7 @@ namespace Triturbo.BlendShare.Inspector
             {
                 return new MeshMappingStatus(
                     Localization.S("common.status.ready"),
-                    Localization.S("patch.mapping.embedded_ready", "Embedded OriginBinding ready."),
+                    Localization.S("patch.mapping.embedded_ready", "Embedded mapping ready."),
                     false,
                     StatusKind.Success);
             }

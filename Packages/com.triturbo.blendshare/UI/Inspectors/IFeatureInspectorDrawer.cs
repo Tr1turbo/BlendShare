@@ -58,7 +58,7 @@ namespace Triturbo.BlendShare.UI.Inspectors
         {
             var foldout = new Foldout { text = Localization.S("common.advanced"), value = false };
             foldout.Add(new BlendShareRecordView(record, PayloadSource, startExpanded: false,
-                positionUnitMeters: SpaceProvenance?.OriginRawMetersPerUnit ?? 1d));
+                positionUnitMeters: SpaceProvenance?.MetersPerUnit ?? 1d));
             return foldout;
         }
 

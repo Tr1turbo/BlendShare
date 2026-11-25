@@ -21,7 +21,7 @@ namespace Triturbo.BlendShare.UI.Inspectors
         public SkeletonTreeView(SkeletonDocument skeleton, FeatureInspectorContext context)
         {
             var bones = (skeleton?.Bones ?? new List<SkeletonBoneRecord>()).Where(bone => bone != null).ToArray();
-            m_UnitMeters = context?.SpaceProvenance?.OriginRawMetersPerUnit ?? 1d;
+            m_UnitMeters = context?.SpaceProvenance?.MetersPerUnit ?? 1d;
             EnsureValidExpandedBone(bones);
             Add(CreateBonesHeader(bones.Length));
             Add(CreateBoneTree(bones));

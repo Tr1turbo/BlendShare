@@ -49,16 +49,16 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                 foreach (var input in inputs)
                 {
                     var feature = (SkinWeightFeature)input.Feature;
-                    var binding = input.VertexBinding;
-                    var map = binding.VertexMap;
-                    var space = binding.SpaceContract.StoredToUnityMeshLocal;
+                    var mapping = input.VertexMapping;
+                    var map = mapping.VertexMap;
+                    var space = mapping.SpaceContract.StoredToUnityMeshLocal;
                     if (map.SourceDomain != IndexDomain.UnityVertex || map.TargetDomain != IndexDomain.ControlPoint ||
                         map.SourceCount != mesh.vertexCount ||
-                        binding.SpaceContract.StoredSpace == null || !binding.SpaceContract.StoredSpace.IsValid ||
-                        (input.SpaceProvenance != null && !binding.SpaceContract.StoredSpace.MatchesSpace(input.SpaceProvenance)) ||
+                        mapping.SpaceContract.StoredSpace == null || !mapping.SpaceContract.StoredSpace.IsValid ||
+                        (input.SpaceProvenance != null && !mapping.SpaceContract.StoredSpace.MatchesSpace(input.SpaceProvenance)) ||
                         !FbxAffineSpaceTransform.TryCreate(space, out _))
                     {
-                        throw new InvalidOperationException("Invalid skin vertex binding.");
+                        throw new InvalidOperationException("Invalid skin vertex mapping.");
                     }
 
                     var skeleton = input.Skeleton;
