@@ -48,7 +48,9 @@ namespace Triturbo.BlendShare.NDMF
                     IncomingMesh = incoming, IncomingBones = renderer.bones, IncomingRootBone = renderer.rootBone,
                     Components = group.ToArray(), BoneProxies = proxies,
                     RendererTransform = renderer.transform, TargetRootTransform = root.transform,
-                    CreateMissingBones = true, FlushDirtySettings = true,
+                    // Never invoke SaveAndReimport() inside an NDMF build pass; EffectiveSettingsResolver
+                    // already consumes live in-memory settings buffers cleanly across Edit/Play/read-only assets.
+                    CreateMissingBones = true, FlushDirtySettings = false,
                     VertexMappingCacheMode = VertexMappingCacheMode.ReadOnly
                 });
                 if (!result.Succeeded)

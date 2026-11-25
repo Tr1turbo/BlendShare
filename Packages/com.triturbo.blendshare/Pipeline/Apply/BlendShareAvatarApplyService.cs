@@ -65,7 +65,10 @@ namespace Triturbo.BlendShare.Pipeline.Apply
 
         /// <summary>
         /// Whether dirty <see cref="BlendShareSettingsSession"/> buffers for referenced patches
-        /// should be flushed to <c>.blendshare.meta</c> before applying (true at Build boundary, false in Preview).
+        /// should be flushed to <c>.blendshare.meta</c> before applying. Keep <c>false</c> in NDMF Build and Preview
+        /// passes (never invoke <c>SaveAndReimport</c> mid-pass; <see cref="EffectiveSettingsResolver"/> already reads
+        /// live in-memory buffers). When <c>true</c>, <see cref="SettingsCommitResultStatus.QueuedForEditMode"/> and
+        /// <see cref="SettingsCommitResultStatus.ReadOnlySessionOnly"/> emit a warning and continue with in-memory settings.
         /// </summary>
         public bool FlushDirtySettings { get; set; }
 
@@ -213,12 +216,29 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                 string assetPath = AssetDatabase.GetAssetPath(patch);
                 string assetGuid = !string.IsNullOrEmpty(assetPath) ? AssetDatabase.AssetPathToGUID(assetPath) : string.Empty;
 
-                // At Build boundaries, commit ONLY dirty Settings buffers so clean patches never abort in Play Mode.
+                // When explicitly requested by direct EditMode workflows, flush dirty Settings buffers before applying.
+                // Never abort on PlayMode-deferred or read-only session-only buffers since EffectiveSettingsResolver
+                // already returns the live in-memory settings snapshot.
                 var preSnapshot = EffectiveSettingsResolver.Resolve(patch);
+                bool flushedToDisk = false;
                 if (request.FlushDirtySettings && preSnapshot.IsDirty && !string.IsNullOrEmpty(assetGuid) && committedGuids.Add(assetGuid))
                 {
                     var commitRes = BlendShareSettingsSession.Flush(assetGuid);
-                    if (!commitRes.Success)
+                    if (commitRes.Success)
+                    {
+                        flushedToDisk = true;
+                    }
+                    else if (commitRes.Status == SettingsCommitResultStatus.QueuedForEditMode ||
+                             commitRes.Status == SettingsCommitResultStatus.ReadOnlySessionOnly)
+                    {
+                        diagnostics.Add(new ApplyDiagnostic(
+                            ApplyDiagnosticSeverity.Warning,
+                            "AVATAR_APPLY_SETTINGS_DEFERRED",
+                            $"Using in-memory settings for patch '{patch.name}' ({commitRes.Status}): {commitRes.Message}",
+                            patchId: patch.PatchId,
+                            meshId: meshId));
+                    }
+                    else
                     {
                         diagnostics.Add(new ApplyDiagnostic(
                             ApplyDiagnosticSeverity.Error,
@@ -230,7 +250,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     }
                 }
 
-                var effectiveSnapshot = request.FlushDirtySettings && preSnapshot.IsDirty
+                var effectiveSnapshot = flushedToDisk
                     ? EffectiveSettingsResolver.Resolve(patch)
                     : preSnapshot;
                 string revKey = !string.IsNullOrEmpty(assetGuid) ? assetGuid : patch.GetInstanceID().ToString();

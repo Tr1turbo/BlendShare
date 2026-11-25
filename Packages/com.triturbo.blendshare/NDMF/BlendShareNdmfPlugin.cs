@@ -14,7 +14,10 @@ namespace Triturbo.BlendShare.NDMF
 
         protected override void Configure()
         {
-            var sequence = InPhase(BuildPhase.Transforming).BeforePlugin("nadena.dev.modular-avatar");
+            // Run in Generating: after PlatformInit and Resolving (RemoveEditorOnlyPass, MA PlatformFilter,
+            // MA ResolveObjectReferences, AAO FetchOriginalState) and strictly before all Transforming/Optimizing
+            // plugins mutate meshes or armatures.
+            var sequence = InPhase(BuildPhase.Generating);
             sequence.WithRequiredExtension(typeof(AnimatorServicesContext), apply =>
             {
                 apply.Run(BlendShareNdmfPass.Instance)
