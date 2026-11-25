@@ -991,10 +991,10 @@ msgid "features.blend-shapes.no_feature_for_mesh"
 msgstr "No BlendShape data found for this mesh."
 
 msgid "legacy.blendshape_data.legacy_notice"
-msgstr "This is a legacy BlendShapeDataSO asset. Use the new BlendShareObject format for new workflows."
+msgstr "This asset uses the legacy BlendShare 1.x format. Upgrade it to .blendshare to use it with the current version."
 
 msgid "legacy.blendshape_data.upgrade"
-msgstr "Upgrade to BlendShareObject"
+msgstr "Upgrade to .blendshare"
 
 msgid "legacy.generated_mesh_asset.applied_patches"
 msgstr "Applied BlendShare Objects"
@@ -1742,3 +1742,13 @@ msgstr "This transform is required by a selected weight or bind pose."
 
 msgid "features.skin-weights.group_toggle.tooltip"
 msgstr "Enable or disable all entries in this section."
+
+
+msgid "legacy.blendshape_data.upgrade_failed"
+msgstr "Could not upgrade this asset. Please check that the assigned Original FBX matches this asset, and see the Console for details."
+
+msgid "legacy.blendshape_data.upgrade_completed_with_warnings"
+msgstr "Upgrade completed with warnings (some empty entries or unsupported legacy shading data were skipped). See the Console for details."
+
+msgid "legacy.blendshape_data.upgrade_partial_settings_failed"
+msgstr "The .blendshare file was created, but its preset and selection settings could not be saved. Check file permissions and see the Console for details."

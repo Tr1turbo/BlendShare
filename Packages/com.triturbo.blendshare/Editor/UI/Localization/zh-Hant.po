@@ -991,10 +991,10 @@ msgid "features.blend-shapes.no_feature_for_mesh"
 msgstr "此網格沒有 BlendShape 資料。"
 
 msgid "legacy.blendshape_data.legacy_notice"
-msgstr "這是舊版 BlendShapeDataSO 資產。新的工作流程請使用新的 BlendShareObject 格式。"
+msgstr "此資產為舊版 BlendShare 1.x 格式，請先升級為 .blendshare 以在目前版本中使用。"
 
 msgid "legacy.blendshape_data.upgrade"
-msgstr "升級到 BlendShareObject"
+msgstr "升級為 .blendshare"
 
 msgid "legacy.generated_mesh_asset.applied_patches"
 msgstr "已套用的 BlendShare 物件"
@@ -1742,3 +1742,13 @@ msgstr "此變換為已選取的權重或綁定姿勢所必需。"
 
 msgid "features.skin-weights.group_toggle.tooltip"
 msgstr "啟用或停用此區段中的所有項目。"
+
+
+msgid "legacy.blendshape_data.upgrade_failed"
+msgstr "無法升級此資產。請確認所選的原始 FBX 與此資產相符（詳情請查看 Console）。"
+
+msgid "legacy.blendshape_data.upgrade_completed_with_warnings"
+msgstr "升級已完成，但存在警告（部分空白項目或不支援的舊版法線／切線資料已被略過，詳情請查看 Console）。"
+
+msgid "legacy.blendshape_data.upgrade_partial_settings_failed"
+msgstr "已建立 .blendshare 檔案，但無法儲存其選擇與預設集設定。請檢查檔案寫入權限（詳情請查看 Console）。"

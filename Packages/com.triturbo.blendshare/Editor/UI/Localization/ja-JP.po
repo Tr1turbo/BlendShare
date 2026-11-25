@@ -991,10 +991,10 @@ msgid "features.blend-shapes.no_feature_for_mesh"
 msgstr "このメッシュには BlendShape データがありません。"
 
 msgid "legacy.blendshape_data.legacy_notice"
-msgstr "これはレガシーの BlendShapeDataSO アセットです。新しいワークフローでは新しい BlendShareObject 形式を使用してください。"
+msgstr "このアセットは旧バージョンの BlendShare 1.x 形式です。現在のバージョンで使用するには .blendshare にアップグレードしてください。"
 
 msgid "legacy.blendshape_data.upgrade"
-msgstr "BlendShareObject にアップグレード"
+msgstr ".blendshare にアップグレード"
 
 msgid "legacy.generated_mesh_asset.applied_patches"
 msgstr "適用済み BlendShare オブジェクト"
@@ -1742,3 +1742,13 @@ msgstr "選択されたウェイトまたはバインドポーズで必要なた
 
 msgid "features.skin-weights.group_toggle.tooltip"
 msgstr "このセクションのすべての項目を有効または無効にします。"
+
+
+msgid "legacy.blendshape_data.upgrade_failed"
+msgstr "このアセットをアップグレードできませんでした。指定された元の FBX が一致しているか確認してください（詳細は Console を参照）。"
+
+msgid "legacy.blendshape_data.upgrade_completed_with_warnings"
+msgstr "アップグレードは完了しましたが、警告があります（空の項目や互換性のない旧シェーディングデータがスキップされました。詳細は Console を参照）。"
+
+msgid "legacy.blendshape_data.upgrade_partial_settings_failed"
+msgstr ".blendshare ファイルは作成されましたが、選択設定やプリセットを保存できませんでした。ファイルの書き込み権限を確認してください（詳細は Console を参照）。"

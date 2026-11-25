@@ -1,0 +1,25 @@
+{
+    "name": "Triturbo.BlendShare.Legacy.Editor",
+    "rootNamespace": "Triturbo.BlendShare.Legacy",
+    "references": [
+        "Triturbo.BlendShare.Primitives",
+        "Triturbo.BlendShare.Runtime",
+        "Triturbo.BlendShare.Model.Editor",
+        "Triturbo.BlendShare.Fbx.Editor",
+        "Triturbo.BlendShare.Mapping.Editor",
+        "Triturbo.BlendShare.Container.Editor",
+        "Triturbo.BlendShare.EditorAssets.Editor",
+        "Triturbo.BlendShare.UI.Editor"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
