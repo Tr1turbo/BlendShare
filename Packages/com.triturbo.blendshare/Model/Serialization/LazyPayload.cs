@@ -14,7 +14,7 @@ namespace Triturbo.BlendShare.Model.Serialization
         /// <summary>In-memory value produced during extraction or authoring before container serialization.</summary>
         Value = 1,
 
-        /// <summary>Reference to a compressed payload entry inside a verified BLSHARE1 container revision.</summary>
+        /// <summary>Reference to a compressed payload entry inside a verified BLSH container revision.</summary>
         Ref = 2
     }
 

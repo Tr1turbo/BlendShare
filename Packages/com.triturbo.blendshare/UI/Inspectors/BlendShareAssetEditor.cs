@@ -755,7 +755,7 @@ namespace Triturbo.BlendShare.UI.Inspectors
 
             var containerFoldout = new Foldout
             {
-                text = $"Container (BLSHARE1 v{patch.FormatVersion}, {patch.TotalFileLength:N0} B, {patch.Entries.Count} entries)",
+                text = $"Container (BLSH v{patch.FormatVersion}, {patch.TotalFileLength:N0} B, {patch.Entries.Count} entries)",
                 value = false
             };
             foreach (var entry in patch.Entries)

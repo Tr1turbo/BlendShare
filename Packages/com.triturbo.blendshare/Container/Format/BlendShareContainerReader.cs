@@ -25,7 +25,7 @@ namespace Triturbo.BlendShare.Container.Format
             var header = ReadHeader(stream, null);
             var manifest = FormatIO.Read(stream, header.Manifest);
             var index = FormatIO.Read(stream, header.Index);
-            Array.Clear(header.Bytes, 20, 32);
+            Array.Clear(header.Bytes, BlendShareContainerWriter.RevisionOffset, 32);
             FormatIO.Check(FormatIO.Hash(header.Bytes, manifest, index).SequenceEqual(header.Revision), "Incorrect metadata digest.");
             var metadata = new WireReader(manifest);
             ReadManifestPrefix(ref metadata, out string patch, out var spaceProvenance);
@@ -144,13 +144,13 @@ namespace Triturbo.BlendShare.Container.Format
             const int size = BlendShareContainerWriter.FixedHeaderSize;
             if (expected != null && expected.TotalFileLength != stream.Length)
                 throw new ReadFailure(ContainerReadStatus.SourceRevisionMismatch, "Source length changed.");
-            if (stream.Length < 12)
+            if (stream.Length < BlendShareContainerWriter.Magic.Length + 4)
                 throw new ReadFailure(ContainerReadStatus.InvalidFormat, "Missing container header.");
             var bytes = FormatIO.Read(stream, new ByteSlice(0, Math.Min(stream.Length, size)));
             var r = new WireReader(bytes);
-            if (!r.ReadSlice(8).SequenceEqual(BlendShareContainerWriter.Magic))
+            if (!r.ReadSlice(BlendShareContainerWriter.Magic.Length).SequenceEqual(BlendShareContainerWriter.Magic))
                 throw new ReadFailure(ContainerReadStatus.InvalidFormat, "Invalid container magic.");
-            if (r.ReadFixedInt32() != 5)
+            if (r.ReadFixedInt32() != BlendShareContainerWriter.CurrentFormatVersion)
                 throw new ReadFailure(ContainerReadStatus.UnsupportedVersion, "Unsupported container version.");
             FormatIO.Check(r.ReadFixedInt32() == 0 && r.ReadFixedInt32() == size, "Invalid flags or header size.");
             var h = new Header { Bytes = bytes, Revision = r.ReadSlice(32).ToArray() };
@@ -161,7 +161,7 @@ namespace Triturbo.BlendShare.Container.Format
             h.Index = new ByteSlice(r.ReadFixedInt64(), r.ReadFixedInt64());
             h.Payload = new ByteSlice(r.ReadFixedInt64(), r.ReadFixedInt64());
             FormatIO.Check(h.Manifest.Offset == size && h.Manifest.End == h.Index.Offset && h.Index.End == h.Payload.Offset &&
-                h.Payload.End == stream.Length && r.ReadFixedInt64() == stream.Length && r.ReadFixedInt32() == 0, "Invalid section boundaries.");
+                h.Payload.End == stream.Length && r.ReadFixedInt64() == stream.Length && r.IsAtEnd, "Invalid section boundaries.");
             if (expected != null)
             {
                 FormatIO.Check(h.Manifest.Equals(expected.ManifestSlice) && h.Index.Equals(expected.IndexTableSlice) &&

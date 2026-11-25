@@ -11,12 +11,12 @@ using UnityEngine;
 namespace Triturbo.BlendShare.EditorAssets
 {
     /// <summary>
-    /// Unity 2022.3 ScriptedImporter for BLSHARE1 v5 .blendshare files.
+    /// Unity 2022.3 ScriptedImporter for BLSH v1 .blendshare files.
     /// - Produces only 1 ultra-thin BlendShareAsset (TOC pointer cache) + N thin BlendShareMeshAsset handles.
     /// - Accelerator-safe (AllowCaching = true, deterministic artifact contents, zero paths/InstanceIDs/timestamps).
     /// - Stores project-local Unity Settings in .blendshare.meta via m_Settings.
     /// </summary>
-    [ScriptedImporter(3, "blendshare", AllowCaching = true)]
+    [ScriptedImporter(1, "blendshare", AllowCaching = true)]
     public sealed class BlendShareImporter : ScriptedImporter
     {
         private const string k_PatchIconPath = "Packages/com.triturbo.blendshare/Icons/BlendShapesDataIcon.png";
@@ -68,7 +68,7 @@ namespace Triturbo.BlendShare.EditorAssets
                 var tocResult = reader.ReadToc(stream);
                 if (!tocResult.Success)
                 {
-                    ctx.LogImportError($"Failed to import BlendShare v5 container '{ctx.assetPath}': {tocResult.Status} - {tocResult.Message}");
+                    ctx.LogImportError($"Failed to import BlendShare container '{ctx.assetPath}': {tocResult.Status} - {tocResult.Message}");
                     return;
                 }
 

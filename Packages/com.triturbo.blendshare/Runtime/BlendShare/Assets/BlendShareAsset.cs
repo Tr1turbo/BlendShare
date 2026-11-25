@@ -78,7 +78,7 @@ namespace Triturbo.BlendShare.Runtime.Assets
     /// </summary>
     public sealed class BlendShareAsset : ScriptableObject
     {
-        [SerializeField] private int m_FormatVersion = 5;
+        [SerializeField] private int m_FormatVersion = 1;
         [SerializeField] private string m_PatchId = string.Empty;
         [SerializeField] private string m_SourceRevision = string.Empty;
         [SerializeField] private double m_MetersPerUnit = 1d;

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using Triturbo.BlendShare.Container.Serialization;
 using Triturbo.BlendShare.Container.Wire;
 using Triturbo.BlendShare.Model.Documents;
@@ -15,8 +14,11 @@ namespace Triturbo.BlendShare.Container.Format
 {
     public sealed class BlendShareContainerWriter
     {
-        public const int FixedHeaderSize = 112;
-        internal static readonly byte[] Magic = Encoding.ASCII.GetBytes("BLSHARE1");
+        public const int CurrentFormatVersion = 1;
+        public const int FixedHeaderSize = 104;
+        public const int RevisionOffset = 16;
+
+        internal static readonly byte[] Magic = { (byte)'B', (byte)'L', (byte)'S', (byte)'H' };
         private readonly IBlendShareRecordSerializer m_Serializer;
 
         public BlendShareContainerWriter(IBlendShareRecordSerializer serializer = null)
@@ -88,7 +90,7 @@ namespace Triturbo.BlendShare.Container.Format
             var manifestBytes = manifest.ToArray();
             var indexBytes = index.ToArray();
             var revision = FormatIO.Hash(headerBytes, manifestBytes, indexBytes);
-            Array.Copy(revision, 0, headerBytes, 20, revision.Length);
+            Array.Copy(revision, 0, headerBytes, RevisionOffset, revision.Length);
             var clonedProvenance = PatchSpaceProvenance.FromMetadata(provenance.Axes, provenance.MetersPerUnit);
             var toc = new ContainerToc(document.PatchId, clonedProvenance, revision, manifestSlice, indexSlice, payloadSlice, entries);
 
@@ -164,7 +166,7 @@ namespace Triturbo.BlendShare.Container.Format
             using var buffer = new MemoryStream();
             var w = new WireWriter(buffer);
             w.WriteBytesRaw(Magic);
-            w.WriteFixedInt32(5);
+            w.WriteFixedInt32(CurrentFormatVersion);
             w.WriteFixedInt32(0);
             w.WriteFixedInt32(FixedHeaderSize);
             w.WriteBytesRaw(new byte[32]);
@@ -174,7 +176,6 @@ namespace Triturbo.BlendShare.Container.Format
                 w.WriteFixedInt64(slice.Length);
             }
             w.WriteFixedInt64(payload.End);
-            w.WriteFixedInt32(0);
             return buffer.ToArray();
         }
 

@@ -78,8 +78,8 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
         public static readonly TimeSpan DefaultStaleTempFileAge = TimeSpan.FromMinutes(10);
 
         internal const int FbxReaderAlgoRevision = 1;
-        private const int k_MappingSpaceAlgoRevision = 3;
-        private const int k_FormatVersion = 2;
+        private const int k_MappingSpaceAlgoRevision = 1;
+        private const int k_FormatVersion = 1;
         private const double k_LowWatermarkRatio = 0.75d;
 
         private static readonly byte[] s_BlobMagic = Encoding.ASCII.GetBytes("BSCSR001");

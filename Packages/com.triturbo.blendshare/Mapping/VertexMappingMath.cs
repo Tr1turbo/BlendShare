@@ -213,7 +213,7 @@ namespace Triturbo.BlendShare.Mapping
         private const string k_TrianglesDomain = "BlendShare.UnityCanonicalTriangles.v1";
         private const string k_OrderedTrianglesDomain = "BlendShare.UnityOrderedTriangles.v1";
         private const string k_Uv0Domain = "BlendShare.UnityUv0.v1";
-        private const string k_CombinedDomain = "BlendShare.UnityGeometryKey.v2";
+        private const string k_CombinedDomain = "BlendShare.UnityGeometryKey.v1";
         private const string k_ClassDiscDomain = "BlendShare.CoincidentClassDisc.v1";
 
         public static UnityMeshGeometryDigest Compute(UnityMeshSnapshot snapshot)

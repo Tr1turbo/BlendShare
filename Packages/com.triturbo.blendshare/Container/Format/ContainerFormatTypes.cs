@@ -131,7 +131,7 @@ namespace Triturbo.BlendShare.Container.Format
 
     public sealed class ContainerToc : IPayloadRefResolver
     {
-        public int FormatVersion => 5;
+        public int FormatVersion => BlendShareContainerWriter.CurrentFormatVersion;
         public string PatchId { get; }
         public PatchSpaceProvenance SpaceProvenance { get; }
         public string SourceRevision { get; }

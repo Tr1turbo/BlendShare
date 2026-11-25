@@ -136,8 +136,8 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
     /// </summary>
     public sealed class VertexMappingService
     {
-        private const string k_ResolutionKeyDomain = "BlendShare.VertexMappingResolutionKey.v2";
-        private const string k_ComposedKeyDomain = "BlendShare.ComposedMappingKey.v2";
+        private const string k_ResolutionKeyDomain = "BlendShare.VertexMappingResolutionKey.v1";
+        private const string k_ComposedKeyDomain = "BlendShare.ComposedMappingKey.v1";
         private const int k_MaxCachedFbxFiles = 64;
         private const int k_MaxCachedNodesPerFbxFile = 256;
 

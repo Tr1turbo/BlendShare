@@ -18,7 +18,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
 {
     /// <summary>
     /// Coordinates BlendShare 2.0 feature extraction into a <see cref="PatchDocument"/> in native Origin FBX
-    /// local space (preserving Origin FBX axes and unit scale) and optional atomic <c>BLSHARE1</c> v5 file writing.
+    /// local space (preserving Origin FBX axes and unit scale) and optional atomic <c>BLSH</c> v1 file writing.
     /// Zero <c>Autodesk.Fbx</c> dependency.
     /// </summary>
     public sealed class PatchExtractionPipeline
@@ -474,7 +474,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
         }
 
         /// <summary>
-        /// Extracts a <see cref="PatchDocument"/> and atomically writes a <c>BLSHARE1</c> v5 file to <paramref name="outputFilePath"/>.
+        /// Extracts a <see cref="PatchDocument"/> and atomically writes a <c>BLSH</c> v1 file to <paramref name="outputFilePath"/>.
         /// </summary>
         public PatchExtractionResult ExtractAndWriteFile(
             PatchExtractionRequest request,
@@ -540,7 +540,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                 diags.Add(new ExtractionDiagnostic(
                     ExtractionDiagnosticSeverity.Error,
                     "PIPE_EXT_WRITE_FAILED",
-                    $"Failed to write BLSHARE1 v5 container '{outputFilePath}': {ex.Message}"));
+                    $"Failed to write BLSH container '{outputFilePath}': {ex.Message}"));
                 return new PatchExtractionResult(false, null, diags);
             }
         }

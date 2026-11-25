@@ -6,7 +6,7 @@ using Triturbo.BlendShare.Model.Serialization;
 namespace Triturbo.BlendShare.Model.Documents
 {
     /// <summary>
-    /// Root document stored in a BLSHARE1 v5 container.
+    /// Root document stored in a BLSH v1 container.
     /// Carries a single shared <see cref="PatchSpaceProvenance"/> and a single shared <see cref="SkeletonDocument"/>
     /// referenced by all meshes without duplication. The user-visible patch name comes from the <c>.blendshare</c>
     /// file name and imported <c>BlendShareAsset.name</c>, never stored in the binary header.
