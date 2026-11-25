@@ -1,6 +1,6 @@
 {
     "name": "Triturbo.BlendShare.Runtime",
-    "rootNamespace": "Triturbo.BlendShare.Runtime",
+    "rootNamespace": "Triturbo.BlendShare",
     "references": [
         "VRC.SDKBase"
     ],
