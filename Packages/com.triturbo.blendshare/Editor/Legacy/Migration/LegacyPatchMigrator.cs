@@ -863,6 +863,15 @@ namespace Triturbo.BlendShare.Legacy.Migration
                     continue;
                 }
 
+                var meshNode = scene.FindNodeByPath(nodePath) ?? fbxMesh.PrimaryNode;
+                double sigmaMax = meshNode != null
+                    ? FbxLinearAlgebra3d.ComputeMaxSingularValue(meshNode.GeometryToWorldMatrix)
+                    : 0d;
+                double effectiveMeshUnitMeters = sigmaMax > 1e-12d && !double.IsNaN(sigmaMax) && !double.IsInfinity(sigmaMax)
+                    ? unitMeters * sigmaMax
+                    : unitMeters;
+                var sketch = GeometrySketch.TryBuild(fbxMesh.GetControlPoints(), fbxMesh.GetFaceCornerControlPoints());
+
                 var meshDoc = new MeshDocument
                 {
                     MeshId = nodePath,
@@ -874,7 +883,9 @@ namespace Triturbo.BlendShare.Legacy.Migration
                         ControlPointCount = digest.ControlPointCount,
                         FaceCount = digest.FaceCount,
                         IsValid = digest.IsValid
-                    }
+                    },
+                    Sketch = sketch,
+                    EffectivePositionUnitMeters = effectiveMeshUnitMeters
                 };
 
                 if (TryBuildEmbeddedMapping(nodePath, fbxMesh, effectiveMetadata, importSettings, unityMeshesByPath, diagnostics, out var mappingEntry) &&
@@ -912,7 +923,7 @@ namespace Triturbo.BlendShare.Legacy.Migration
             {
                 PatchId = patchId,
                 SpaceProvenance = PatchSpaceProvenance.FromMetadata(axes, unitMeters),
-                Skeleton = new SkeletonDocument(),
+                Skeleton = null,
                 Meshes = convertedMeshes
             };
             return true;

@@ -347,6 +347,9 @@ static int32_t bs_configure_load_opts(const bs_ufbx_load_options *opts, ufbx_loa
     memset(out_uopts, 0, sizeof(*out_uopts));
     out_uopts->evaluate_skinning = false;
     out_uopts->skip_skin_vertices = false;
+    /* Retain skin clusters whose bone node link is missing/broken (bone_node == NULL) so managed
+     * link-mode detection and TotalOne skin-weight validation never silently drop unlinked clusters. */
+    out_uopts->connect_broken_elements = true;
 
     if (opts == NULL) {
         return BS_UFBX_OK;
@@ -530,6 +533,7 @@ BS_UFBX_API int32_t bs_ufbx_load_file(
 BS_UFBX_API int32_t bs_ufbx_load_memory(
     const void *data,
     int64_t data_size,
+    const char *filename,
     const bs_ufbx_load_options *opts,
     bs_ufbx_scene **out_scene,
     char *error,
@@ -547,6 +551,13 @@ BS_UFBX_API int32_t bs_ufbx_load_memory(
     int32_t opt_status = bs_configure_load_opts(opts, &uopts);
     if (opt_status != BS_UFBX_OK) {
         return bs_write_error(error, error_size, "Invalid ufbx load options.", opt_status);
+    }
+    if (filename != NULL && filename[0] != '\0') {
+        size_t fn_len = strlen(filename);
+        uopts.filename.data = filename;
+        uopts.filename.length = fn_len;
+        uopts.raw_filename.data = filename;
+        uopts.raw_filename.size = fn_len;
     }
 
     ufbx_error uerr;
@@ -1500,6 +1511,7 @@ BS_UFBX_API int32_t bs_ufbx_get_skin_cluster_info(
     out_info->bone_node_index = bs_node_index_o1(scene->scene, cluster->bone_node);
     out_info->weight_count = weight_count;
     out_info->name_length = name_len;
+    out_info->link_mode = (int32_t)cluster->link_mode;
     ufbx_matrix bone_to_world = cluster->bind_to_world;
     ufbx_matrix mesh_to_world = ufbx_matrix_mul(&bone_to_world, &cluster->mesh_node_to_bone);
     bs_matrix_from_ufbx(&out_info->mesh_bind_world, &mesh_to_world);

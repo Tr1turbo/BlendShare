@@ -143,6 +143,24 @@ namespace Triturbo.BlendShare.Fbx
             return true;
         }
 
+        /// <summary>
+        /// Checks whether <paramref name="matrix"/> is a finite, non-projective, invertible 3D affine row-vector matrix.
+        /// </summary>
+        public static bool IsInvertibleAffine(in FbxMatrix4x4 matrix)
+        {
+            if (!IsFinite(matrix) ||
+                Math.Abs(matrix[0, 3]) > 1e-9d ||
+                Math.Abs(matrix[1, 3]) > 1e-9d ||
+                Math.Abs(matrix[2, 3]) > 1e-9d ||
+                Math.Abs(matrix[3, 3] - 1d) > 1e-9d)
+            {
+                return false;
+            }
+
+            double det = FbxLinearAlgebra3d.Determinant3x3(matrix);
+            return !double.IsNaN(det) && !double.IsInfinity(det) && Math.Abs(det) > 1e-18d;
+        }
+
         private static bool IsAffineRowVectorMatrix(FbxMatrix4x4 matrix)
         {
             return Math.Abs(matrix[0, 3]) <= k_AffineColumnEpsilon &&

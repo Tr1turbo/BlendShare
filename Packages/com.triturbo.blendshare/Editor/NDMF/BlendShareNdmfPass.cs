@@ -31,6 +31,8 @@ namespace Triturbo.BlendShare.NDMF
             var skeletonBonesByPath = new Dictionary<string, GeneratedSkeletonBoneRecord>(System.StringComparer.Ordinal);
             var capturedWeights = BlendShareBlendShapeWeightService.CaptureExistingRendererWeights(components);
             bool succeeded = true;
+            var targetedGroups = new List<(SkinnedMeshRenderer Renderer, BlendShareMesh[] Group)>();
+            var avatarRequests = new List<AvatarRendererApplyRequest>();
             foreach (var group in components.GroupBy(c => c.TargetRenderer))
             {
                 var renderer = group.Key;
@@ -42,17 +44,26 @@ namespace Triturbo.BlendShare.NDMF
                     continue;
                 }
 
-                var incoming = renderer.sharedMesh;
-                var result = BlendShareAvatarApplyService.ApplyToRenderer(new AvatarRendererApplyRequest
+                var groupArray = group.ToArray();
+                targetedGroups.Add((renderer, groupArray));
+                avatarRequests.Add(new AvatarRendererApplyRequest
                 {
-                    IncomingMesh = incoming, IncomingBones = renderer.bones, IncomingRootBone = renderer.rootBone,
-                    Components = group.ToArray(), BoneProxies = proxies,
+                    IncomingMesh = renderer.sharedMesh, IncomingBones = renderer.bones, IncomingRootBone = renderer.rootBone,
+                    Components = groupArray, BoneProxies = proxies,
                     RendererTransform = renderer.transform, TargetRootTransform = root.transform,
                     // Never invoke SaveAndReimport() inside an NDMF build pass; EffectiveSettingsResolver
                     // already consumes live in-memory settings buffers cleanly across Edit/Play/read-only assets.
                     CreateMissingBones = true, FlushDirtySettings = false,
                     VertexMappingCacheMode = VertexMappingCacheMode.ReadOnly
                 });
+            }
+
+            if (!succeeded) return;
+
+            var avatarResults = BlendShareAvatarApplyService.ApplyToAvatarRenderers(root.transform, avatarRequests);
+            for (int r = 0; r < targetedGroups.Count; r++)
+            {
+                var result = avatarResults[r];
                 if (!result.Succeeded)
                 {
                     ErrorReport.ReportError(new ApplyError(string.Join("\n", result.Diagnostics.Select(d => $"{d.Code}: {d.Message}"))));
@@ -60,19 +71,54 @@ namespace Triturbo.BlendShare.NDMF
                     continue;
                 }
 
-                var output = result.MeshResult.OutputMesh;
                 uses.AddRange(result.BoneBindingUses);
                 if (result.MeshResult.AppliedSkeletonBones != null)
                 {
                     foreach (var skelBone in result.MeshResult.AppliedSkeletonBones)
                     {
-                        if (skelBone != null && !string.IsNullOrEmpty(skelBone.Path))
+                        if (skelBone == null || string.IsNullOrEmpty(skelBone.Path))
+                        {
+                            continue;
+                        }
+
+                        if (skeletonBonesByPath.TryGetValue(skelBone.Path, out var existingSkelBone))
+                        {
+                            if (!existingSkelBone.ApproximatelyMatches(skelBone))
+                            {
+                                ErrorReport.ReportError(new ApplyError(
+                                    $"Conflicting skeleton bone transforms for '{skelBone.Path}' across avatar renderers."));
+                                succeeded = false;
+                                break;
+                            }
+                        }
+                        else
                         {
                             skeletonBonesByPath[skelBone.Path] = skelBone;
                         }
                     }
                 }
+            }
 
+            if (!succeeded)
+            {
+                for (int r = 0; r < avatarResults.Count; r++)
+                {
+                    var outMesh = avatarResults[r]?.MeshResult?.OutputMesh;
+                    if (outMesh != null && !UnityEditor.AssetDatabase.Contains(outMesh))
+                    {
+                        Object.DestroyImmediate(outMesh);
+                    }
+                }
+
+                return;
+            }
+
+            for (int r = 0; r < targetedGroups.Count; r++)
+            {
+                var (renderer, group) = targetedGroups[r];
+                var incoming = renderer.sharedMesh;
+                var result = avatarResults[r];
+                var output = result.MeshResult.OutputMesh;
                 ObjectRegistry.RegisterReplacedObject(incoming, output);
                 context.AssetSaver.SaveAsset(output);
                 renderer.sharedMesh = output;
@@ -85,17 +131,19 @@ namespace Triturbo.BlendShare.NDMF
                     BlendShareBlendShapeWeightService.ApplyWeightsToRenderer(applier, renderer);
                 BlendShareBlendShapeWeightService.ApplyCapturedRendererWeights(capturedWeights, renderer);
             }
-            if (!succeeded) return;
 
-            // Apply authored existing-bone transform changes (non-proxy) in parent-before-child order.
+            // Apply authored skeleton bone transforms strictly onto existing or already-materialized transforms
+            // (so missing bones from components with CreateMissingBones = false are never fabricated here).
+            var ensuredSkeletonTransforms = new HashSet<Transform>();
             foreach (var skelBone in skeletonBonesByPath.Values
                          .OrderBy(b => b.Path.Count(c => c == '/'))
                          .ThenBy(b => b.Path, System.StringComparer.Ordinal))
             {
-                var existing = root.transform.Find(skelBone.Path);
-                if (existing != null)
+                var targetBone = root.transform.Find(skelBone.Path);
+                if (targetBone != null)
                 {
-                    skelBone.ApplyLocalTransform(existing);
+                    skelBone.ApplyLocalTransform(targetBone);
+                    ensuredSkeletonTransforms.Add(targetBone);
                 }
             }
             BlendShareBlendShapeWeightService.RetargetRendererBlendShapeCurves(components, animator);
@@ -109,6 +157,7 @@ namespace Triturbo.BlendShare.NDMF
                 BlendShareBlendShapeWeightService.CaptureExistingRendererWeights(components);
             var mapped = new HashSet<Transform>(root.GetComponentsInChildren<SkinnedMeshRenderer>(true)
                 .SelectMany(renderer => renderer.bones.Append(renderer.rootBone)));
+            mapped.UnionWith(ensuredSkeletonTransforms);
             mapped.UnionWith(proxies.Where(proxy => proxy).SelectMany(proxy => proxy.Bindings)
                 .Where(binding => binding != null).Select(binding => binding.Transform));
             var allAuthoring = allMeshes.Cast<Component>().Concat(allProxies);

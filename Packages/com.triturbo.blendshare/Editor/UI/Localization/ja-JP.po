@@ -1743,6 +1743,9 @@ msgstr "選択されたウェイトまたはバインドポーズで必要なた
 msgid "features.skin-weights.group_toggle.tooltip"
 msgstr "このセクションのすべての項目を有効または無効にします。"
 
+msgid "common.status.basis_only"
+msgstr "ロールのみ"
+
 
 msgid "legacy.blendshape_data.upgrade_failed"
 msgstr "このアセットをアップグレードできませんでした。指定された元の FBX が一致しているか確認してください（詳細は Console を参照）。"

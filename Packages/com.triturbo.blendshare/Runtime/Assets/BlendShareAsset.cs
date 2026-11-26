@@ -105,6 +105,7 @@ namespace Triturbo.BlendShare.Assets
         public BlendShareByteRange IndexTableSlice => m_IndexTableSlice;
         public BlendShareByteRange PayloadSectionSlice => m_PayloadSectionSlice;
         public int SkeletonEntryIndex => m_SkeletonEntryIndex;
+        public bool HasSkeleton => m_SkeletonEntryIndex >= 0;
         public IReadOnlyList<BlendShareMeshToc> Meshes => m_Meshes ?? Array.Empty<BlendShareMeshToc>();
         public IReadOnlyList<BlendShareTocEntry> Entries => m_Entries ?? Array.Empty<BlendShareTocEntry>();
 

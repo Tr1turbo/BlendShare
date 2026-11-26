@@ -6,10 +6,13 @@ using Triturbo.BlendShare.EditorAssets;
 using Triturbo.BlendShare.EditorAssets.Mapping;
 using Triturbo.BlendShare.EditorAssets.Settings;
 using Triturbo.BlendShare.Fbx;
+using Triturbo.BlendShare.Fbx.Ufbx;
+using Triturbo.BlendShare.Fbx.Unity;
 using Triturbo.BlendShare.Model.Documents;
 using Triturbo.BlendShare.Model.Features;
 using Triturbo.BlendShare.Model.Serialization;
 using Triturbo.BlendShare.Model.Validation;
+using Triturbo.BlendShare.Pipeline.Skeleton;
 using Triturbo.BlendShare.Assets;
 using Triturbo.BlendShare.Components;
 using UnityEditor;
@@ -31,6 +34,12 @@ namespace Triturbo.BlendShare.Pipeline.Apply
         public Transform[] IncomingBones { get; set; }
 
         /// <summary>
+        /// Optional avatar-relative bone paths corresponding 1:1 to <see cref="IncomingBones"/> when incoming slots
+        /// hold external upstream replacement transforms outside <see cref="TargetRootTransform"/> (e.g., NDMF Preview).
+        /// </summary>
+        public string[] IncomingBoneSlotPaths { get; set; }
+
+        /// <summary>
         /// Incoming root bone transform (in NDMF Preview: <c>proxy.rootBone</c>; in Build: <c>targetRenderer.rootBone</c>).
         /// </summary>
         public Transform IncomingRootBone { get; set; }
@@ -39,6 +48,18 @@ namespace Triturbo.BlendShare.Pipeline.Apply
         /// Avatar root transform used for bone hierarchy resolution.
         /// </summary>
         public Transform TargetRootTransform { get; set; }
+
+        /// <summary>
+        /// Optional live authoring root transform used to validate <see cref="BlendShareBoneProxy"/> bindings when
+        /// <see cref="TargetRootTransform"/> is a preview-owned shadow rig. Defaults to <see cref="TargetRootTransform"/>.
+        /// </summary>
+        public Transform AuthoringRootTransform { get; set; }
+
+        /// <summary>
+        /// Optional bone transform remapper applied to validated <see cref="BlendShareBoneProxy"/> target transforms
+        /// (e.g., mapping live authoring transforms onto preview-owned shadow rig transforms).
+        /// </summary>
+        public Func<Transform, Transform> RemapAuthoringBoneTransform { get; set; }
 
         /// <summary>
         /// Target SkinnedMeshRenderer transform (used as fallback bind-pose frame when cluster matrices are absent).
@@ -84,6 +105,9 @@ namespace Triturbo.BlendShare.Pipeline.Apply
 
         /// <summary>Optional applier registry override (defaults to <see cref="FeatureUnityApplierRegistry.Default"/>).</summary>
         public FeatureUnityApplierRegistry ApplierRegistry { get; set; }
+
+        /// <summary>Optional avatar-wide shared skeleton scope across all renderers on <see cref="TargetRootTransform"/>.</summary>
+        public UnitySkeletonScope SharedSkeletonScope { get; set; }
     }
 
     /// <summary>A proxy binding that actually supplied a bone slot on the generated renderer.</summary>
@@ -136,10 +160,221 @@ namespace Triturbo.BlendShare.Pipeline.Apply
     /// </summary>
     public static class BlendShareAvatarApplyService
     {
+        private sealed class PreparedRendererPlan
+        {
+            public AvatarRendererApplyRequest Request;
+            public UnityMeshApplyRequest MeshRequest;
+            public List<ApplyDiagnostic> Diagnostics;
+            public Dictionary<string, long> ObservedRevisions;
+            public List<string> WeightOrder;
+            public Dictionary<string, float> WeightOverrides;
+            public Dictionary<string, BlendShareAsset> PatchByScopeKey;
+            public Dictionary<BlendShareAsset, BlendShareBoneProxyResolution> Resolutions;
+            public AvatarRendererApplyResult ImmediateFailure;
+        }
+
+        /// <summary>
+        /// Applies BlendShare patches across all targeted renderers on <paramref name="targetRoot"/> using a single
+        /// avatar-wide <see cref="UnitySkeletonScope"/> so pre-edit rest frames and ancestor bone compensation
+        /// span across renderer boundaries regardless of renderer visit order.
+        /// </summary>
+        public static IReadOnlyList<AvatarRendererApplyResult> ApplyToAvatarRenderers(
+            Transform targetRoot,
+            IReadOnlyList<AvatarRendererApplyRequest> requests)
+        {
+            if (requests == null || requests.Count == 0)
+            {
+                return Array.Empty<AvatarRendererApplyResult>();
+            }
+
+            var openedRawTargetScenes = new Dictionary<GameObject, IFbxScene>();
+            try
+            {
+                var plans = new PreparedRendererPlan[requests.Count];
+                var validMeshRequests = new List<UnityMeshApplyRequest>(requests.Count);
+                Transform scanHierarchyRoot = null;
+
+                for (int i = 0; i < requests.Count; i++)
+                {
+                    if (scanHierarchyRoot == null && requests[i]?.AuthoringRootTransform != null)
+                    {
+                        scanHierarchyRoot = requests[i].AuthoringRootTransform;
+                    }
+
+                    var plan = PrepareRendererPlan(requests[i], openedRawTargetScenes);
+                    plans[i] = plan;
+                    if (plan.MeshRequest != null)
+                    {
+                        validMeshRequests.Add(plan.MeshRequest);
+                    }
+                }
+
+                UnitySkeletonScope sharedScope = null;
+                if (validMeshRequests.Count > 0)
+                {
+                    try
+                    {
+                        // Never mutate scene transforms before all renderer mesh applications validate cleanly.
+                        sharedScope = UnitySkeletonScope.BuildForRequests(
+                            targetRoot,
+                            validMeshRequests,
+                            scanHierarchyRoot: scanHierarchyRoot);
+                    }
+                    catch (Exception ex)
+                    {
+                        var failResults = new AvatarRendererApplyResult[requests.Count];
+                        for (int i = 0; i < requests.Count; i++)
+                        {
+                            if (plans[i].ImmediateFailure != null)
+                            {
+                                failResults[i] = plans[i].ImmediateFailure;
+                            }
+                            else
+                            {
+                                plans[i].Diagnostics.Add(new ApplyDiagnostic(
+                                    ApplyDiagnosticSeverity.Error,
+                                    "SKIN_APPLY_FAILED",
+                                    ex.Message));
+                                failResults[i] = new AvatarRendererApplyResult(
+                                    false,
+                                    null,
+                                    plans[i].Diagnostics,
+                                    null,
+                                    plans[i].ObservedRevisions);
+                            }
+                        }
+
+                        return failResults;
+                    }
+                }
+
+                var results = new AvatarRendererApplyResult[requests.Count];
+                bool anyFailed = false;
+                for (int i = 0; i < requests.Count; i++)
+                {
+                    var plan = plans[i];
+                    if (plan.ImmediateFailure != null)
+                    {
+                        results[i] = plan.ImmediateFailure;
+                        anyFailed = true;
+                        continue;
+                    }
+
+                    plan.MeshRequest.SharedSkeletonScope = sharedScope;
+                    results[i] = ExecutePreparedPlan(plan, publishInfluenceDiagnostics: false);
+                    if (!results[i].Succeeded)
+                    {
+                        anyFailed = true;
+                    }
+                }
+
+                // Make the avatar batch atomic: if any renderer failed, destroy all created bone roots AND all
+                // transient output meshes, and mark previously-succeeded sibling results as rolled back.
+                if (anyFailed)
+                {
+                    string failureDetail = results
+                        .Where(r => r != null && !r.Succeeded)
+                        .SelectMany(r => r.Diagnostics)
+                        .Where(d => d.Severity == ApplyDiagnosticSeverity.Error)
+                        .Select(d => d.Message)
+                        .FirstOrDefault()
+                        ?? "A sibling avatar renderer failed during coupled avatar application.";
+
+                    for (int i = results.Length - 1; i >= 0; i--)
+                    {
+                        var createdRoots = results[i]?.MeshResult?.CreatedBoneRoots;
+                        if (createdRoots != null)
+                        {
+                            for (int c = createdRoots.Count - 1; c >= 0; c--)
+                            {
+                                if (createdRoots[c] != null)
+                                {
+                                    UnityEngine.Object.DestroyImmediate(createdRoots[c].gameObject);
+                                }
+                            }
+                        }
+
+                        var outMesh = results[i]?.MeshResult?.OutputMesh;
+                        if (outMesh != null && !AssetDatabase.Contains(outMesh))
+                        {
+                            UnityEngine.Object.DestroyImmediate(outMesh);
+                        }
+
+                        if (results[i] != null && results[i].Succeeded)
+                        {
+                            var rolledBackDiags = new List<ApplyDiagnostic>(results[i].Diagnostics)
+                            {
+                                new ApplyDiagnostic(
+                                    ApplyDiagnosticSeverity.Error,
+                                    "AVATAR_APPLY_BATCH_ROLLED_BACK",
+                                    $"Rolled back avatar renderer output because another renderer in the coupled avatar batch failed: {failureDetail}")
+                            };
+                            results[i] = new AvatarRendererApplyResult(
+                                false,
+                                null,
+                                rolledBackDiags,
+                                null,
+                                results[i].ObservedSettingsRevisions);
+                        }
+                    }
+
+                    return results;
+                }
+
+                for (int i = 0; i < results.Length; i++)
+                {
+                    var meshRes = results[i]?.MeshResult;
+                    if (meshRes != null && meshRes.AppliedBoneBindings.Count > 0 && plans[i]?.Request != null)
+                    {
+                        BlendShareSkinWeightInfluenceDiagnostics.Set(plans[i].Request.Components, meshRes.SkinWeightInfluenceSummary);
+                    }
+                }
+
+                return results;
+            }
+            finally
+            {
+                foreach (var sc in openedRawTargetScenes.Values)
+                {
+                    sc?.Dispose();
+                }
+            }
+        }
+
         public static AvatarRendererApplyResult ApplyToRenderer(AvatarRendererApplyRequest request)
+        {
+            var openedRawTargetScenes = new Dictionary<GameObject, IFbxScene>();
+            try
+            {
+                var plan = PrepareRendererPlan(request, openedRawTargetScenes);
+                if (plan.ImmediateFailure != null)
+                {
+                    return plan.ImmediateFailure;
+                }
+
+                return ExecutePreparedPlan(plan);
+            }
+            finally
+            {
+                foreach (var sc in openedRawTargetScenes.Values)
+                {
+                    sc?.Dispose();
+                }
+            }
+        }
+
+        private static PreparedRendererPlan PrepareRendererPlan(
+            AvatarRendererApplyRequest request,
+            Dictionary<GameObject, IFbxScene> openedRawTargetScenes)
         {
             var diagnostics = new List<ApplyDiagnostic>();
             var observedRevisions = new Dictionary<string, long>(StringComparer.Ordinal);
+            var plan = new PreparedRendererPlan
+            {
+                Request = request,
+                Diagnostics = diagnostics,
+                ObservedRevisions = observedRevisions
+            };
 
             if (request == null || request.IncomingMesh == null)
             {
@@ -147,7 +382,8 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     ApplyDiagnosticSeverity.Error,
                     "AVATAR_APPLY_NO_INCOMING_MESH",
                     "Incoming Unity Mesh is required."));
-                return new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
+                plan.ImmediateFailure = new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
+                return plan;
             }
 
             if (request.Components == null || request.Components.Count == 0)
@@ -156,7 +392,8 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     ApplyDiagnosticSeverity.Info,
                     "AVATAR_APPLY_NO_COMPONENTS",
                     "No BlendShareMesh components were provided."));
-                return new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
+                plan.ImmediateFailure = new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
+                return plan;
             }
 
             var repo = request.Repository ?? BlendShareSourceRepository.Shared;
@@ -170,6 +407,12 @@ namespace Triturbo.BlendShare.Pipeline.Apply
             var committedGuids = new HashSet<string>(StringComparer.Ordinal);
             var resolutions = new Dictionary<BlendShareAsset, BlendShareBoneProxyResolution>();
             var patchByScopeKey = new Dictionary<string, BlendShareAsset>(StringComparer.Ordinal);
+            var skeletonByPatch = new Dictionary<BlendShareAsset, SkeletonDocument>();
+
+            void Fail()
+            {
+                plan.ImmediateFailure = new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
+            }
 
             for (int c = 0; c < request.Components.Count; c++)
             {
@@ -189,7 +432,8 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                         $"BlendShareMesh on '{comp.name}' references Patch '{comp.Patch.name}' but MeshAsset '{comp.MeshAsset.name}' belongs to '{comp.MeshAsset.Root.name}'.",
                         patchId: comp.Patch.PatchId,
                         meshId: comp.ResolvedMeshId));
-                    return new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
+                    Fail();
+                    return plan;
                 }
 
                 var patch = comp.ResolvedPatch;
@@ -200,7 +444,8 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                         ApplyDiagnosticSeverity.Error,
                         "AVATAR_APPLY_MISSING_PATCH",
                         $"BlendShareMesh on '{comp.name}' has no BlendShareAsset assigned."));
-                    return new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
+                    Fail();
+                    return plan;
                 }
 
                 if (string.IsNullOrWhiteSpace(meshId))
@@ -210,7 +455,8 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                         "AVATAR_APPLY_MISSING_MESH_ID",
                         $"BlendShareMesh on '{comp.name}' has no MeshId assigned.",
                         patchId: patch.PatchId));
-                    return new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
+                    Fail();
+                    return plan;
                 }
 
                 string assetPath = AssetDatabase.GetAssetPath(patch);
@@ -246,7 +492,8 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                             $"Failed committing dirty settings for patch '{patch.name}' ({commitRes.Status}): {commitRes.Message}",
                             patchId: patch.PatchId,
                             meshId: meshId));
-                        return new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
+                        Fail();
+                        return plan;
                     }
                 }
 
@@ -261,16 +508,44 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                 string patchScopeKey = BuildPatchScopeKey(patch, assetGuid);
                 patchByScopeKey[patchScopeKey] = patch;
 
-                var skeletonRes = repo.ReadSkeleton(patch);
-                if (!skeletonRes.Success)
+                if (!skeletonByPatch.TryGetValue(patch, out var patchSkeleton))
                 {
-                    diagnostics.Add(new ApplyDiagnostic(
-                        ApplyDiagnosticSeverity.Error,
-                        "AVATAR_APPLY_CONTAINER_READ_FAILED",
-                        $"Failed reading skeleton for patch '{patch.name}': {skeletonRes.Message}",
-                        patchId: patch.PatchId,
-                        meshId: meshId));
-                    return new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
+                    var skelRes = repo.ReadSkeleton(patch);
+                    if (!skelRes.Success)
+                    {
+                        diagnostics.Add(new ApplyDiagnostic(
+                            ApplyDiagnosticSeverity.Error,
+                            skelRes.Status == Container.Format.ContainerReadStatus.UnsupportedVersion
+                                ? "AVATAR_APPLY_UNSUPPORTED_SKELETON_VERSION"
+                                : "AVATAR_APPLY_CONTAINER_READ_FAILED",
+                            $"Failed reading skeleton for patch '{patch.name}': {skelRes.Message}",
+                            patchId: patch.PatchId,
+                            meshId: meshId,
+                            featureTypeId: SkeletonDocument.SectionTypeId));
+                        Fail();
+                        return plan;
+                    }
+
+                    patchSkeleton = skelRes.Value;
+                    if (patchSkeleton != null)
+                    {
+                        var skelVal = SkeletonDocumentValidator.Validate(patchSkeleton);
+                        if (!skelVal.IsValid)
+                        {
+                            string msg = string.Join("; ", skelVal.Issues.Select(i => i.Message));
+                            diagnostics.Add(new ApplyDiagnostic(
+                                ApplyDiagnosticSeverity.Error,
+                                "AVATAR_APPLY_SKELETON_VALIDATION_FAILED",
+                                msg,
+                                patchId: patch.PatchId,
+                                meshId: meshId,
+                                featureTypeId: SkeletonDocument.SectionTypeId));
+                            Fail();
+                            return plan;
+                        }
+                    }
+
+                    skeletonByPatch.Add(patch, patchSkeleton);
                 }
 
                 var meshHeaderRes = repo.ReadMeshHeader(patch, meshId);
@@ -282,7 +557,8 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                         $"Failed reading mesh header '{meshId}' from patch '{patch.name}': {meshHeaderRes.Message}",
                         patchId: patch.PatchId,
                         meshId: meshId));
-                    return new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
+                    Fail();
+                    return plan;
                 }
 
                 MeshDocument meshHeader = meshHeaderRes.Value;
@@ -295,7 +571,8 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                         $"Mesh '{meshId}' not found in TOC of patch '{patch.name}'.",
                         patchId: patch.PatchId,
                         meshId: meshId));
-                    return new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
+                    Fail();
+                    return plan;
                 }
 
                 var features = new List<BlendShareFeatureData>(meshToc.Features.Count);
@@ -322,7 +599,8 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                                 patchId: patch.PatchId,
                                 meshId: meshId,
                                 featureTypeId: typeId));
-                            return new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
+                            Fail();
+                            return plan;
                         }
 
                         diagnostics.Add(new ApplyDiagnostic(
@@ -345,7 +623,8 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                             patchId: patch.PatchId,
                             meshId: meshId,
                             featureTypeId: typeId));
-                        return new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
+                        Fail();
+                        return plan;
                     }
 
                     if (FeatureValidatorRegistry.Default.TryGetValidator(typeId, out var validator))
@@ -371,7 +650,8 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                                 patchId: patch.PatchId,
                                 meshId: meshId,
                                 featureTypeId: typeId));
-                            return new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
+                            Fail();
+                            return plan;
                         }
                     }
 
@@ -402,7 +682,26 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                         $"Failed mapping patch '{patch.name}' mesh '{meshId}': {mapRes.Diagnostic}",
                         patchId: patch.PatchId,
                         meshId: meshId));
-                    return new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
+                    Fail();
+                    return plan;
+                }
+
+                VerifiedRawTargetSkinContext verifiedRawTargetSkin = null;
+                if (targetFbx != null && features.OfType<SkinWeightFeature>().Any())
+                {
+                    if (!openedRawTargetScenes.TryGetValue(targetFbx, out var rawScene))
+                    {
+                        var rawSceneRes = FbxUnityAssetReader.ReadScene(targetFbx, UfbxLoadOptions.Default);
+                        rawScene = rawSceneRes.Success ? rawSceneRes.Value : null;
+                        openedRawTargetScenes[targetFbx] = rawScene;
+                    }
+
+                    verifiedRawTargetSkin = VerifiedRawTargetSkinResolver.TryResolve(
+                        request.IncomingMesh,
+                        targetFbx,
+                        rawScene,
+                        meshHeader,
+                        mapRes.Mapping);
                 }
 
                 if (features.OfType<SkinWeightFeature>().Any() && !resolutions.TryGetValue(patch, out var resolution))
@@ -412,24 +711,31 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     {
                         diagnostics.Add(new ApplyDiagnostic(ApplyDiagnosticSeverity.Error,
                             "AVATAR_APPLY_INVALID_SKELETON", string.Join("\n", resolution.Diagnostics)));
-                        return new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
+                        Fail();
+                        return plan;
                     }
                     resolutions.Add(patch, resolution);
                     foreach (var proxy in resolution.SelectedProxies)
                     foreach (var binding in proxy.Bindings.Where(b => resolution.IsEffective(proxy, b)))
                     {
                         var parent = proxy.GetEffectiveParent(binding);
-                        var root = request.TargetRootTransform;
-                        if (root && (!binding.Transform.IsChildOf(root) || binding.Transform == root ||
-                            (parent && (!parent.IsChildOf(root) || parent.IsChildOf(binding.Transform)))))
+                        var hierarchyRoot = request.AuthoringRootTransform != null
+                            ? request.AuthoringRootTransform
+                            : request.TargetRootTransform;
+                        if (hierarchyRoot && (!binding.Transform.IsChildOf(hierarchyRoot) || binding.Transform == hierarchyRoot ||
+                            (parent && (!parent.IsChildOf(hierarchyRoot) || parent.IsChildOf(binding.Transform)))))
                         {
                             diagnostics.Add(new ApplyDiagnostic(ApplyDiagnosticSeverity.Error,
                                 "AVATAR_APPLY_INVALID_PROXY_HIERARCHY", $"Invalid parent or bone on proxy '{proxy.name}'."));
-                            return new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
+                            Fail();
+                            return plan;
                         }
                         var key = new BoneOverrideKey(patchScopeKey,
                             FbxNameUtility.NormalizePath(binding.SourceBonePath));
-                        boneOverrides[key] = binding.Transform;
+                        var mappedTransform = request.RemapAuthoringBoneTransform != null
+                            ? request.RemapAuthoringBoneTransform(binding.Transform)
+                            : binding.Transform;
+                        boneOverrides[key] = mappedTransform;
                     }
                 }
 
@@ -474,10 +780,11 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     MeshId = meshId,
                     SpaceProvenance = toc.SpaceProvenance,
                     MeshHeader = meshHeader,
-                    Skeleton = skeletonRes.Value,
+                    Skeleton = patchSkeleton,
                     EffectiveSettings = effectiveSnapshot.Settings,
                     PayloadSource = repo.PayloadStore,
                     VertexMapping = mapRes.Mapping,
+                    VerifiedRawTargetSkin = verifiedRawTargetSkin,
                     CreateMissingBones = request.CreateMissingBones && comp.CreateMissingBones,
                     BindPoseOverrides = itemBindPoseOverrides,
                     Features = features
@@ -490,47 +797,80 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     ApplyDiagnosticSeverity.Info,
                     "AVATAR_APPLY_EMPTY_ITEMS",
                     "No valid patch items to apply."));
-                return new AvatarRendererApplyResult(false, null, diagnostics, null, observedRevisions);
+                Fail();
+                return plan;
             }
 
             int effectiveMaxBones = request.MaxBonesPerVertex > 0
                 ? request.MaxBonesPerVertex
                 : BlendShareSkinWeightSettings.EffectiveMaxBonesPerVertex;
 
-            var meshApplyRes = UnityMeshApplicationPipeline.Apply(new UnityMeshApplyRequest
+            plan.MeshRequest = new UnityMeshApplyRequest
             {
                 BaseMesh = request.IncomingMesh,
                 IncomingBones = request.IncomingBones,
+                IncomingBoneSlotPaths = request.IncomingBoneSlotPaths,
                 IncomingRootBone = request.IncomingRootBone,
                 TargetRootTransform = request.TargetRootTransform,
                 MeshRendererTransform = request.RendererTransform,
+                SharedSkeletonScope = request.SharedSkeletonScope,
                 BoneTransformOverrides = boneOverrides,
                 MaxBonesPerVertex = effectiveMaxBones,
                 CreateMissingBones = request.CreateMissingBones,
                 PreserveExistingBlendShapes = request.PreserveExistingBlendShapes,
                 Items = items,
                 Registry = applierRegistry
-            });
+            };
+            plan.WeightOrder = weightOrder;
+            plan.WeightOverrides = weightOverrides;
+            plan.PatchByScopeKey = patchByScopeKey;
+            plan.Resolutions = resolutions;
+            return plan;
+        }
+
+        private static AvatarRendererApplyResult ExecutePreparedPlan(
+            PreparedRendererPlan plan,
+            bool publishInfluenceDiagnostics = true)
+        {
+            var request = plan.Request;
+            var diagnostics = plan.Diagnostics;
+            var observedRevisions = plan.ObservedRevisions;
+            var meshApplyRes = UnityMeshApplicationPipeline.Apply(plan.MeshRequest);
 
             if (meshApplyRes.Diagnostics != null)
             {
                 diagnostics.AddRange(meshApplyRes.Diagnostics);
             }
 
-            if (meshApplyRes.Succeeded && meshApplyRes.AppliedBoneBindings.Count > 0)
+            if (!meshApplyRes.Succeeded)
+            {
+                if (meshApplyRes.OutputMesh != null && !AssetDatabase.Contains(meshApplyRes.OutputMesh))
+                {
+                    UnityEngine.Object.DestroyImmediate(meshApplyRes.OutputMesh);
+                }
+
+                return new AvatarRendererApplyResult(
+                    false,
+                    null,
+                    diagnostics,
+                    null,
+                    observedRevisions);
+            }
+
+            if (publishInfluenceDiagnostics && meshApplyRes.AppliedBoneBindings.Count > 0)
             {
                 BlendShareSkinWeightInfluenceDiagnostics.Set(request.Components, meshApplyRes.SkinWeightInfluenceSummary);
             }
 
             var uses = new List<AvatarBoneBindingUse>();
-            if (meshApplyRes.Succeeded && meshApplyRes.AppliedBoneBindings.Count > 0)
+            if (meshApplyRes.AppliedBoneBindings.Count > 0)
             {
                 var records = meshApplyRes.AppliedBoneBindings;
                 for (int i = 0; i < records.Count; i++)
                 {
                     var record = records[i];
-                    if (!patchByScopeKey.TryGetValue(record.PatchId, out var ownerPatch)) continue;
-                    if (resolutions.TryGetValue(ownerPatch, out var resolution) &&
+                    if (!plan.PatchByScopeKey.TryGetValue(record.PatchId, out var ownerPatch)) continue;
+                    if (plan.Resolutions.TryGetValue(ownerPatch, out var resolution) &&
                         resolution.TryGetBinding(record.SourceBonePath, out var bone))
                     {
                         uses.Add(new AvatarBoneBindingUse(bone, record.BindPose, request.RendererTransform));
@@ -538,15 +878,15 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                 }
             }
 
-            var resolvedWeights = new List<KeyValuePair<string, float>>(weightOrder.Count);
-            for (int i = 0; i < weightOrder.Count; i++)
+            var resolvedWeights = new List<KeyValuePair<string, float>>(plan.WeightOrder.Count);
+            for (int i = 0; i < plan.WeightOrder.Count; i++)
             {
-                string shapeName = weightOrder[i];
-                resolvedWeights.Add(new KeyValuePair<string, float>(shapeName, weightOverrides[shapeName]));
+                string shapeName = plan.WeightOrder[i];
+                resolvedWeights.Add(new KeyValuePair<string, float>(shapeName, plan.WeightOverrides[shapeName]));
             }
 
             return new AvatarRendererApplyResult(
-                meshApplyRes.Succeeded,
+                true,
                 meshApplyRes,
                 diagnostics,
                 resolvedWeights,

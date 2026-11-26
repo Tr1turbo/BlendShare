@@ -207,7 +207,7 @@ namespace Triturbo.BlendShare.UI.Authoring
                     var targetObject = bindingProperty.serializedObject.targetObject;
                     var dropdown = new SourceBonePathDropdown(
                         Localization.S("ndmf.bone_proxy.source_bone_path"),
-                        skeleton.Bones.Select(bone => bone.Path),
+                        skeleton.Nodes.Where(bone => bone != null).Select(bone => bone.Path),
                         path => SetSourcePath(targetObject, propertyPath, path));
                     dropdown.Show(position);
                 }

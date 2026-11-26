@@ -44,6 +44,12 @@ namespace Triturbo.BlendShare.Fbx.Unity
         /// <summary><see cref="ModelImporter.importBlendShapes"/>.</summary>
         public bool ImportBlendShapes { get; }
 
+        /// <summary><see cref="ModelImporter.swapUVChannels"/>.</summary>
+        public bool SwapUvChannels { get; }
+
+        /// <summary>True when <see cref="ModelImporter.meshCompression"/> is not <see cref="ModelImporterMeshCompression.Off"/>.</summary>
+        public bool IsMeshCompressed { get; }
+
         /// <summary>Creates an import-settings snapshot.</summary>
         public FbxUnityImportSettings(
             float fileScale,
@@ -52,7 +58,9 @@ namespace Triturbo.BlendShare.Fbx.Unity
             bool bakeAxisConversion,
             bool weldVertices,
             bool importBlendShapes,
-            bool hasImporter = true)
+            bool hasImporter = true,
+            bool swapUvChannels = false,
+            bool isMeshCompressed = false)
         {
             FileScale = fileScale;
             GlobalScale = globalScale;
@@ -61,6 +69,8 @@ namespace Triturbo.BlendShare.Fbx.Unity
             WeldVertices = weldVertices;
             ImportBlendShapes = importBlendShapes;
             HasImporter = hasImporter;
+            SwapUvChannels = swapUvChannels;
+            IsMeshCompressed = isMeshCompressed;
         }
     }
 
@@ -85,7 +95,9 @@ namespace Triturbo.BlendShare.Fbx.Unity
                 bakeAxisConversion: importer.bakeAxisConversion,
                 weldVertices: importer.weldVertices,
                 importBlendShapes: importer.importBlendShapes,
-                hasImporter: true);
+                hasImporter: true,
+                swapUvChannels: importer.swapUVChannels,
+                isMeshCompressed: importer.meshCompression != ModelImporterMeshCompression.Off);
         }
 
         /// <summary>Reads all relevant <see cref="ModelImporter"/> settings for the asset backing <paramref name="fbxGo"/> once.</summary>

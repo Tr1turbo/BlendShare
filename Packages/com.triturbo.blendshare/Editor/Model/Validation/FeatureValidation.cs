@@ -277,6 +277,11 @@ namespace Triturbo.BlendShare.Model.Validation
                 result.AddError("SW_VAL_EMPTY_FEATURE_ID", "SkinWeightFeature.FeatureId must be non-empty.");
             }
 
+            if (!Enum.IsDefined(typeof(SkinWeightLinkMode), skin.LinkMode))
+            {
+                result.AddError("SW_VAL_INVALID_LINK_MODE", $"SkinWeightFeature.LinkMode value '{(int)skin.LinkMode}' is undefined.");
+            }
+
             var clusters = skin.Clusters;
             if (clusters == null)
             {

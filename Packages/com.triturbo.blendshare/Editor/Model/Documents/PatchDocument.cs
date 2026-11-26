@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Model.Features;
@@ -7,16 +8,16 @@ namespace Triturbo.BlendShare.Model.Documents
 {
     /// <summary>
     /// Root document stored in a BLSH v1 container.
-    /// Carries a single shared <see cref="PatchSpaceProvenance"/> and a single shared <see cref="SkeletonDocument"/>
-    /// referenced by all meshes without duplication. The user-visible patch name comes from the <c>.blendshare</c>
-    /// file name and imported <c>BlendShareAsset.name</c>, never stored in the binary header.
+    /// Carries a single shared <see cref="PatchSpaceProvenance"/>, an optional shared <see cref="SkeletonDocument"/>,
+    /// and per-mesh <see cref="MeshDocument"/> records.
+    /// The user-visible patch name comes solely from the <c>.blendshare</c> file name and imported <c>BlendShareAsset.name</c>.
     /// </summary>
     [BlendShareRecord(SchemaVersion = 1)]
     public sealed class PatchDocument
     {
         [BlendShareField(1)] public string PatchId = string.Empty;
         [BlendShareField(2)] public PatchSpaceProvenance SpaceProvenance = new PatchSpaceProvenance();
-        [BlendShareField(3)] public SkeletonDocument Skeleton = new SkeletonDocument();
+        [BlendShareField(3)] public SkeletonDocument Skeleton;
         [BlendShareField(4)] public List<MeshDocument> Meshes = new List<MeshDocument>();
     }
 
@@ -34,7 +35,7 @@ namespace Triturbo.BlendShare.Model.Documents
 
     /// <summary>
     /// Records the single shared FBX coordinate space (axes and meters-per-unit scale)
-    /// in which all mesh deltas, bind matrices, and skeleton bone transforms in a patch are stored.
+    /// in which patch scene metadata and fallback provenances are declared.
     /// </summary>
     [BlendShareRecord(SchemaVersion = 1)]
     public sealed class PatchSpaceProvenance
@@ -87,8 +88,8 @@ namespace Triturbo.BlendShare.Model.Documents
     }
 
     /// <summary>
-    /// Per-mesh header, embedded vertex mappings, and feature collection inside a PatchDocument.
-    /// Shares coordinate provenance with its owning <see cref="PatchDocument.SpaceProvenance"/>.
+    /// Per-mesh header, optional geometry sketch, effective physical quantization scale, embedded vertex mappings,
+    /// and feature collection inside a <see cref="PatchDocument"/>.
     /// </summary>
     [BlendShareRecord(SchemaVersion = 1)]
     public sealed class MeshDocument
@@ -99,6 +100,14 @@ namespace Triturbo.BlendShare.Model.Documents
         [BlendShareField(4)] public TopologyDigestRecord Topology = new TopologyDigestRecord();
         [BlendShareField(5)] public List<VertexMappingEntry> Mappings = new List<VertexMappingEntry>();
         [BlendShareField(6)] public List<BlendShareFeatureData> Features = new List<BlendShareFeatureData>();
+        [BlendShareField(7)] public GeometrySketch Sketch;
+
+        /// <summary>
+        /// Effective physical meters per stored mesh-local coordinate unit (<c>originUnitMeters * sigma_max(GeometryToWorld)</c>).
+        /// Preserves accurate physical quantization error budgets under Blender <c>All Local</c> (<c>0.01 * 100 = 1.0 m</c>)
+        /// across both initial extraction and subsequent container re-encodes. Zero means unset (falls back to <see cref="PatchSpaceProvenance.MetersPerUnit"/>).
+        /// </summary>
+        [BlendShareField(8)] public double EffectivePositionUnitMeters;
 
         public bool HasEmbeddedMappings
         {

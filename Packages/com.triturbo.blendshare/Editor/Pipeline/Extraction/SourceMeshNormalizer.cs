@@ -719,6 +719,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             public IFbxSkinDeformer OwnerSkin { get; }
             public IFbxNode BoneNode => m_Source.BoneNode;
             public string BonePath => m_Source.BonePath;
+            public FbxClusterLinkMode LinkMode => m_Source.LinkMode;
             public int WeightCount => m_OwnerMesh.WeldGroups == null ? m_Source.WeightCount : EnsureWeightsBuilt().Length;
             public FbxMatrix4x4 MeshBindWorld { get; }
             public FbxMatrix4x4 BindToWorld => m_Source.BindToWorld;

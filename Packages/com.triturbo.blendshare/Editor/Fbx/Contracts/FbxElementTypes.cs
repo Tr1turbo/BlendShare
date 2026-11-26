@@ -42,4 +42,17 @@ namespace Triturbo.BlendShare.Fbx
         /// <summary>Other.</summary>
         Other = 6
     }
+
+    /// <summary>FBX skin cluster weight accumulation/normalization mode (<c>FbxCluster::ELinkMode</c>).</summary>
+    public enum FbxClusterLinkMode
+    {
+        /// <summary>Weights on each control point are normalized to sum to 1.0 (<c>eNormalize</c>).</summary>
+        Normalize = 0,
+        /// <summary>Additive cluster deformation (<c>eAdditive</c>).</summary>
+        Additive = 1,
+        /// <summary>Partial weights sum to at most 1.0; remaining <c>1 - sum</c> stays at bind pose (<c>eTotalOne</c> / <c>"Total1"</c>).</summary>
+        TotalOne = 2,
+        /// <summary>Unrecognized cluster link mode string in the source file.</summary>
+        Unknown = 3
+    }
 }

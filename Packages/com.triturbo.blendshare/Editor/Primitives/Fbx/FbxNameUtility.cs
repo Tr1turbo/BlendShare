@@ -32,15 +32,74 @@ namespace Triturbo.BlendShare.Fbx
         /// <summary>Cleans each hierarchy segment and joins nonempty segments with slashes.</summary>
         public static string NormalizePath(string value)
         {
-            if (string.IsNullOrEmpty(value))
+            if (string.IsNullOrWhiteSpace(value))
             {
                 return string.Empty;
             }
 
             return string.Join(
                 "/",
-                value.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries)
-                    .Select(CleanObjectName));
+                value.Replace('\\', '/')
+                    .Trim()
+                    .Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(s => CleanObjectName(s)?.Trim() ?? string.Empty)
+                    .Where(s => !string.IsNullOrEmpty(s) && s != "."));
+        }
+
+        /// <summary>Returns the normalized parent hierarchy path, or empty string for root-level or empty paths.</summary>
+        public static string GetParentPath(string path)
+        {
+            string normalized = NormalizePath(path);
+            if (string.IsNullOrEmpty(normalized))
+            {
+                return string.Empty;
+            }
+
+            int lastSlash = normalized.LastIndexOf('/');
+            return lastSlash < 0 ? string.Empty : normalized.Substring(0, lastSlash);
+        }
+
+        /// <summary>Returns the normalized leaf node name from a hierarchy path.</summary>
+        public static string GetNodeName(string path)
+        {
+            string normalized = NormalizePath(path);
+            if (string.IsNullOrEmpty(normalized))
+            {
+                return string.Empty;
+            }
+
+            int lastSlash = normalized.LastIndexOf('/');
+            return lastSlash < 0 ? normalized : normalized.Substring(lastSlash + 1);
+        }
+
+        /// <summary>Returns the slash-separated hierarchy depth (0 for top-level nodes, -1 for empty).</summary>
+        public static int GetPathDepth(string path)
+        {
+            string normalized = NormalizePath(path);
+            if (string.IsNullOrEmpty(normalized))
+            {
+                return -1;
+            }
+
+            int depth = 0;
+            for (int i = 0; i < normalized.Length; i++)
+            {
+                if (normalized[i] == '/')
+                {
+                    depth++;
+                }
+            }
+
+            return depth;
+        }
+
+        /// <summary>Deterministic parent-before-child hierarchy path comparison (depth ascending, then ordinal).</summary>
+        public static int CompareHierarchyOrder(string leftPath, string rightPath)
+        {
+            string left = NormalizePath(leftPath);
+            string right = NormalizePath(rightPath);
+            int depthDiff = GetPathDepth(left).CompareTo(GetPathDepth(right));
+            return depthDiff != 0 ? depthDiff : StringComparer.Ordinal.Compare(left, right);
         }
     }
 }

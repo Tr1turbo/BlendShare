@@ -253,6 +253,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
         public IFbxScene OriginScene { get; set; }
         public IReadOnlyList<MeshExtractionRequest> Meshes { get; set; } = Array.Empty<MeshExtractionRequest>();
         public ExtractionOptionsSet FeatureOptions { get; set; } = new ExtractionOptionsSet();
+        public SkeletonExtractionOptions SkeletonOptions { get; set; }
         public PayloadEncodeOptions EncodeOptions { get; set; } = PayloadEncodeOptions.Default;
 
         /// <summary>
@@ -284,23 +285,6 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             Succeeded = succeeded;
             Document = document;
             Diagnostics = diagnostics ?? Array.Empty<ExtractionDiagnostic>();
-        }
-    }
-
-    /// <summary>
-    /// Describes one source FBX bone node registered into the patch's shared <see cref="SkeletonDocument"/> during extraction.
-    /// </summary>
-    public readonly struct SkeletonBoneRegistration
-    {
-        public string BonePath { get; }
-        public IFbxNode SourceNode { get; }
-        public bool CreateIfMissing { get; }
-
-        public SkeletonBoneRegistration(string bonePath, IFbxNode sourceNode, bool createIfMissing)
-        {
-            BonePath = FbxNameUtility.NormalizePath(bonePath ?? string.Empty);
-            SourceNode = sourceNode;
-            CreateIfMissing = createIfMissing;
         }
     }
 
@@ -344,7 +328,12 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
         public FbxTopologyCompatibilityResult TopologyCompatibility { get; }
         public PatchSpaceProvenance SpaceProvenance { get; }
         public PayloadEncodeOptions EncodeOptions { get; }
-        private readonly Action<IReadOnlyList<SkeletonBoneRegistration>, FbxAffineSpaceTransform> m_SkeletonRegistrar;
+
+        /// <summary>
+        /// Effective physical meters per 1.0 unit of this mesh's stored raw control-point coordinates
+        /// (<c>OriginScene.UnitMeters * sigma_max(OriginMesh.GeometryToWorldMatrix)</c>).
+        /// </summary>
+        public double EffectiveMeshPositionUnitMeters { get; }
 
         public MeshExtractionContext(
             string meshId,
@@ -359,9 +348,9 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             FbxTopologyCompatibilityResult topologyCompatibility,
             PatchSpaceProvenance spaceProvenance,
             PayloadEncodeOptions encodeOptions,
-            Action<IReadOnlyList<SkeletonBoneRegistration>, FbxAffineSpaceTransform> skeletonRegistrar = null,
             FbxAffineSpaceTransform? sourceWorldToStoredSpace = null,
-            FbxAffineSpaceTransform? sourceMeshToStoredSpace = null)
+            FbxAffineSpaceTransform? sourceMeshToStoredSpace = null,
+            double effectiveMeshPositionUnitMeters = 0d)
         {
             MeshId = meshId ?? string.Empty;
             NodePath = nodePath ?? string.Empty;
@@ -375,16 +364,11 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             TopologyCompatibility = topologyCompatibility;
             SpaceProvenance = spaceProvenance;
             EncodeOptions = encodeOptions;
-            m_SkeletonRegistrar = skeletonRegistrar;
             SourceWorldToStoredSpace = sourceWorldToStoredSpace ?? default;
             SourceMeshToStoredSpace = sourceMeshToStoredSpace ?? default;
-        }
-
-        public void RegisterSkeletonBones(
-            IReadOnlyList<SkeletonBoneRegistration> bones,
-            FbxAffineSpaceTransform sourceWorldToStored)
-        {
-            m_SkeletonRegistrar?.Invoke(bones, sourceWorldToStored);
+            EffectiveMeshPositionUnitMeters = effectiveMeshPositionUnitMeters > 0d
+                ? effectiveMeshPositionUnitMeters
+                : (spaceProvenance?.MetersPerUnit ?? 1d);
         }
     }
 

@@ -132,12 +132,15 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
                 return false;
             }
 
+            TryGetNormals(mesh, out var normals);
+
             snapshot = new UnityMeshSnapshot(
                 vertices,
                 triangles,
                 submeshOffsets,
                 uv0,
-                new UnityMeshBlendShapeSnapshot(mesh));
+                new UnityMeshBlendShapeSnapshot(mesh),
+                normals != null && normals.Length == vertices.Length ? normals : null);
             return true;
         }
 
@@ -338,9 +341,12 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
         {
             private readonly Mesh m_Mesh;
             private readonly Dictionary<string, int> m_SingleFrameIndexByName;
+            private readonly Dictionary<string, int> m_AllShapeIndexByName;
             private readonly string[] m_SingleFrameNames;
+            private readonly string[] m_AllShapeNames;
 
             public IReadOnlyList<string> SingleFrameShapeNames => m_SingleFrameNames;
+            public IReadOnlyList<string> ShapeNames => m_AllShapeNames;
 
             public UnityMeshBlendShapeSnapshot(Mesh mesh)
             {
@@ -349,29 +355,47 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
                 if (count == 0)
                 {
                     m_SingleFrameIndexByName = new Dictionary<string, int>(0);
+                    m_AllShapeIndexByName = new Dictionary<string, int>(0);
                     m_SingleFrameNames = Array.Empty<string>();
+                    m_AllShapeNames = Array.Empty<string>();
                     return;
                 }
 
                 m_SingleFrameIndexByName = new Dictionary<string, int>(count, StringComparer.Ordinal);
-                var names = new List<string>(count);
+                m_AllShapeIndexByName = new Dictionary<string, int>(count, StringComparer.Ordinal);
+                var singleNames = new List<string>(count);
+                var allNames = new List<string>(count);
                 for (int i = 0; i < count; i++)
                 {
-                    if (mesh.GetBlendShapeFrameCount(i) != 1 ||
-                        !Mathf.Approximately(mesh.GetBlendShapeFrameWeight(i, 0), 100f))
+                    int frameCount = mesh.GetBlendShapeFrameCount(i);
+                    if (frameCount <= 0)
                     {
                         continue;
                     }
 
                     string name = mesh.GetBlendShapeName(i);
-                    if (!string.IsNullOrEmpty(name) && !m_SingleFrameIndexByName.ContainsKey(name))
+                    if (string.IsNullOrEmpty(name))
+                    {
+                        continue;
+                    }
+
+                    if (!m_AllShapeIndexByName.ContainsKey(name))
+                    {
+                        m_AllShapeIndexByName.Add(name, i);
+                        allNames.Add(name);
+                    }
+
+                    if (frameCount == 1 &&
+                        Mathf.Approximately(mesh.GetBlendShapeFrameWeight(i, 0), 100f) &&
+                        !m_SingleFrameIndexByName.ContainsKey(name))
                     {
                         m_SingleFrameIndexByName.Add(name, i);
-                        names.Add(name);
+                        singleNames.Add(name);
                     }
                 }
 
-                m_SingleFrameNames = names.ToArray();
+                m_SingleFrameNames = singleNames.ToArray();
+                m_AllShapeNames = allNames.ToArray();
             }
 
             public bool TryGetSingleFrameDeltaVertices(string shapeName, out Vector3[] deltaVertices)
@@ -392,6 +416,43 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
                 catch
                 {
                     deltaVertices = null;
+                    return false;
+                }
+            }
+
+            public bool TryGetShapeFrames(string shapeName, out UnityBlendShapeFrame[] frames)
+            {
+                frames = null;
+                if (m_Mesh == null || string.IsNullOrEmpty(shapeName) ||
+                    !m_AllShapeIndexByName.TryGetValue(shapeName, out int shapeIndex))
+                {
+                    return false;
+                }
+
+                try
+                {
+                    int frameCount = m_Mesh.GetBlendShapeFrameCount(shapeIndex);
+                    if (frameCount <= 0)
+                    {
+                        return false;
+                    }
+
+                    var result = new UnityBlendShapeFrame[frameCount];
+                    int vCount = m_Mesh.vertexCount;
+                    for (int f = 0; f < frameCount; f++)
+                    {
+                        float weight = m_Mesh.GetBlendShapeFrameWeight(shapeIndex, f);
+                        var deltaVertices = new Vector3[vCount];
+                        m_Mesh.GetBlendShapeFrameVertices(shapeIndex, f, deltaVertices, null, null);
+                        result[f] = new UnityBlendShapeFrame(weight, deltaVertices);
+                    }
+
+                    frames = result;
+                    return true;
+                }
+                catch
+                {
+                    frames = null;
                     return false;
                 }
             }

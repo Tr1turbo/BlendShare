@@ -293,11 +293,15 @@ namespace Triturbo.BlendShare.UI.Authoring
             out bool matches)
         {
             matches = false;
-            var bone = BlendShareComponentSetupService.GetSkeleton(proxy)?.Bones.Find(item => item.Path == binding?.SourceBonePath);
+            var skeleton = BlendShareComponentSetupService.GetSkeleton(proxy);
+            var bone = skeleton?.Nodes.Find(item => item != null && item.Path == binding?.SourceBonePath);
             if (bone == null ||
                 mapping == null ||
-                !mapping.TryConvertLocalTransform(
-                    bone.LocalBindMatrix,
+                !mapping.TryConvertSkeletonBoneTransform(
+                    skeleton,
+                    bone,
+                    proxy != null ? proxy.transform.root : null,
+                    null,
                     out var sourceTransform,
                     out _) ||
                 !proxy.TryGetCurrentLocalTransform(
@@ -541,10 +545,14 @@ namespace Triturbo.BlendShare.UI.Authoring
                     return false;
                 }
 
-                var sourceBone = BlendShareComponentSetupService.GetSkeleton(proxy)?.Bones.Find(bone => bone.Path == binding.SourceBonePath);
+                var skeleton = BlendShareComponentSetupService.GetSkeleton(proxy);
+                var sourceBone = skeleton?.Nodes.Find(bone => bone != null && bone.Path == binding.SourceBonePath);
                 if (sourceBone == null ||
-                    !mapping.TryConvertLocalTransform(
-                        sourceBone.LocalBindMatrix,
+                    !mapping.TryConvertSkeletonBoneTransform(
+                        skeleton,
+                        sourceBone,
+                        proxy.transform.root,
+                        null,
                         out var localTransform,
                         out _))
                 {

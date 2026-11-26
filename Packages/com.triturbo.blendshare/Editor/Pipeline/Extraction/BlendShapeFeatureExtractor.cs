@@ -253,11 +253,15 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             }
 
             double posEpsUnits = bsOptions.PositionDeltaEpsilon;
-            if (posEpsUnits > 0d &&
-                context.SpaceProvenance != null &&
-                CanonicalMeshSpace.IsValidUnitMeters(context.SpaceProvenance.MetersPerUnit))
+            if (posEpsUnits > 0d)
             {
-                posEpsUnits /= context.SpaceProvenance.MetersPerUnit;
+                double unitMeters = context.EffectiveMeshPositionUnitMeters > 0d
+                    ? context.EffectiveMeshPositionUnitMeters
+                    : (context.SpaceProvenance?.MetersPerUnit ?? 0d);
+                if (CanonicalMeshSpace.IsValidUnitMeters(unitMeters))
+                {
+                    posEpsUnits /= unitMeters;
+                }
             }
 
             double posEpsSq = posEpsUnits > 0d

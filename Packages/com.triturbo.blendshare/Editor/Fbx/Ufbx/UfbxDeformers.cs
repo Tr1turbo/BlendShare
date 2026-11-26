@@ -75,7 +75,14 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
                 var boneNode = info.BoneNodeIndex >= 0 && info.BoneNodeIndex < Scene.Nodes.Count
                     ? Scene.Nodes[info.BoneNodeIndex]
                     : null;
-                result.Add(new UfbxSkinCluster(Scene, OwnerUfbxMesh, this, i, (long)info.Id, name, boneNode, info));
+                var linkMode = info.LinkMode switch
+                {
+                    0 => FbxClusterLinkMode.Normalize,
+                    1 => FbxClusterLinkMode.TotalOne,
+                    2 => FbxClusterLinkMode.Additive,
+                    _ => FbxClusterLinkMode.Unknown
+                };
+                result.Add(new UfbxSkinCluster(Scene, OwnerUfbxMesh, this, i, (long)info.Id, name, boneNode, info, linkMode));
             }
 
             return FbxReadOnlyList.ToReadOnly(result);
@@ -96,13 +103,15 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             long id,
             string name,
             IFbxNode boneNode,
-            UfbxNative.ClusterInfo info)
+            UfbxNative.ClusterInfo info,
+            FbxClusterLinkMode linkMode = FbxClusterLinkMode.Normalize)
             : base(scene, FbxElementType.SkinCluster, clusterIndex, id, name)
         {
             this.ownerMesh = ownerMesh ?? throw new ArgumentNullException(nameof(ownerMesh));
             this.ownerSkin = ownerSkin ?? throw new ArgumentNullException(nameof(ownerSkin));
             BoneNode = boneNode;
             BonePath = boneNode?.Path ?? string.Empty;
+            LinkMode = linkMode;
             WeightCount = Math.Max(0, info.WeightCount);
             MeshBindWorld = info.MeshBindWorld.ToFbxMatrix();
             BindToWorld = info.BoneBindWorld.ToFbxMatrix();
@@ -121,6 +130,9 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
 
         /// <inheritdoc />
         public string BonePath { get; }
+
+        /// <inheritdoc />
+        public FbxClusterLinkMode LinkMode { get; }
 
         /// <inheritdoc />
         public int WeightCount { get; }

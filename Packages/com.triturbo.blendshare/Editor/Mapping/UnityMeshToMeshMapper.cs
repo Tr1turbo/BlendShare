@@ -20,7 +20,9 @@ namespace Triturbo.BlendShare.Mapping
         /// <summary>Disambiguated among coincident source vertices using UV0.</summary>
         UvDisambiguated = 4,
         /// <summary>Disambiguated among coincident source vertices using single-frame weight-100 blendshapes.</summary>
-        BlendShapeDisambiguated = 5
+        BlendShapeDisambiguated = 5,
+        /// <summary>Linked all attribute-indistinguishable coincident source vertices for downstream composer validation.</summary>
+        IndistinguishableEquivalence = 6
     }
 
     /// <summary>
@@ -304,9 +306,10 @@ namespace Triturbo.BlendShare.Mapping
                 }
             }
 
-            // Step 4: Run UV0 and single-frame BlendShape disambiguation BEFORE conditional residual so
+            // Step 4: Run UV0, BlendShape, and Normal disambiguation BEFORE conditional residual so
             // splits/merges with attribute evidence are never forced into a false 1:1 residual pair.
             bool[] rejectedByAttributes = null;
+            Dictionary<int, List<int>> survivingCandidates = null;
             bool isBlendShapeSensitive = false;
             if (options.AllowAttributeDisambiguation && HasUnresolved(evidence))
             {
@@ -320,6 +323,7 @@ namespace Triturbo.BlendShare.Mapping
                     evidence,
                     options,
                     epsilon,
+                    out survivingCandidates,
                     out isBlendShapeSensitive);
             }
 
@@ -377,6 +381,30 @@ namespace Triturbo.BlendShare.Mapping
 
                 AddLink(unlinkedTarget, unlinkedSource, targetToSources, sourceToTargets);
                 evidence[unlinkedTarget] = CorrespondenceEvidence.ConditionalResidual;
+            }
+
+            // Step 6: Indistinguishable equivalence fallback — when retriangulated hard-edge splits share identical
+            // position, UV0, and blendshape deltas across multiple source vertices (e.g. 3 cube-corner split vertices
+            // originating from the exact same FBX control point), link all attribute-indistinguishable candidates so
+            // VertexMapComposer can verify they map to the same canonical FBX control-point group (or reject conflicts).
+            if (survivingCandidates != null)
+            {
+                for (int t = 0; t < dstCount; t++)
+                {
+                    if (evidence[t] != CorrespondenceEvidence.Unresolved) continue;
+                    if (rejectedByAttributes != null && rejectedByAttributes[t]) continue;
+                    if (!survivingCandidates.TryGetValue(t, out var equivCands) || equivCands == null || equivCands.Count <= 1)
+                    {
+                        continue;
+                    }
+
+                    for (int i = 0; i < equivCands.Count; i++)
+                    {
+                        AddLink(t, equivCands[i], targetToSources, sourceToTargets);
+                    }
+
+                    evidence[t] = CorrespondenceEvidence.IndistinguishableEquivalence;
+                }
             }
 
             // Build final sorted arrays and diagnostics.
@@ -716,15 +744,20 @@ namespace Triturbo.BlendShare.Mapping
             CorrespondenceEvidence[] evidence,
             MeshToMeshOptions options,
             double epsilon,
+            out Dictionary<int, List<int>> survivingByTarget,
             out bool isBlendShapeSensitive)
         {
             isBlendShapeSensitive = false;
+            survivingByTarget = null;
             int dstCount = evidence.Length;
             var rejectedByAttributes = new bool[dstCount];
             var srcVerts = source.Vertices;
             var dstVerts = target.Vertices;
 
             bool hasUv0 = source.Uv0 != null && target.Uv0 != null;
+            bool hasNormals = source.Normals != null && target.Normals != null &&
+                              source.Normals.Length == srcVerts.Length &&
+                              target.Normals.Length == dstVerts.Length;
             float uvTol = options.Uv0SqrDistanceTolerance;
 
             // Collect unresolved target vertices and their pairwise-within-epsilon source candidates.
@@ -780,11 +813,13 @@ namespace Triturbo.BlendShare.Mapping
 
             if (unresolvedTargets.Count == 0) return rejectedByAttributes;
 
+            survivingByTarget = remainingByTarget;
+
             // Any surviving unresolved target (including UV0 singletons) can be altered or rejected by shared
-            // single-frame blendshapes, so the result is blendshape-sensitive even if neither snapshot currently has shapes.
+            // blendshapes, so the result is blendshape-sensitive even if neither snapshot currently has shapes.
             isBlendShapeSensitive = true;
 
-            // Evaluate ALL shared single-frame weight-100 blendshapes against ALL remaining candidates
+            // Evaluate ALL shared blendshape channels (single-frame and multi-frame) against ALL remaining candidates
             // (including singletons!) so conflicting shapes reject cleanly regardless of enumeration order.
             var sharedNames = CollectSharedShapeNames(source.BlendShapes, target.BlendShapes);
             bool evaluatedAnyShape = false;
@@ -794,33 +829,64 @@ namespace Triturbo.BlendShare.Mapping
                 for (int si = 0; si < sharedNames.Count; si++)
                 {
                     string name = sharedNames[si];
-                    if (!source.BlendShapes.TryGetSingleFrameDeltaVertices(name, out var srcDeltas) ||
-                        !target.BlendShapes.TryGetSingleFrameDeltaVertices(name, out var dstDeltas) ||
-                        srcDeltas == null || dstDeltas == null ||
-                        srcDeltas.Length != srcVerts.Length ||
-                        dstDeltas.Length != dstVerts.Length)
+                    if (!TryGetComparableFrames(source.BlendShapes, target.BlendShapes, name, srcVerts.Length, dstVerts.Length, out var srcFrames, out var dstFrames))
                     {
                         continue;
                     }
 
                     evaluatedAnyShape = true;
-                    for (int i = 0; i < unresolvedTargets.Count; i++)
+                    for (int f = 0; f < srcFrames.Length; f++)
                     {
-                        int t = unresolvedTargets[i];
-                        var cands = remainingByTarget[t];
-                        if (cands.Count == 0) continue;
-
-                        var td = dstDeltas[t];
-                        for (int j = cands.Count - 1; j >= 0; j--)
+                        var srcDeltas = srcFrames[f].DeltaVertices;
+                        var dstDeltas = dstFrames[f].DeltaVertices;
+                        for (int i = 0; i < unresolvedTargets.Count; i++)
                         {
-                            var sd = srcDeltas[cands[j]];
-                            if (Math.Abs(sd.x - td.x) > bsTol ||
-                                Math.Abs(sd.y - td.y) > bsTol ||
-                                Math.Abs(sd.z - td.z) > bsTol)
+                            int t = unresolvedTargets[i];
+                            var cands = remainingByTarget[t];
+                            if (cands.Count == 0) continue;
+
+                            var td = dstDeltas[t];
+                            for (int j = cands.Count - 1; j >= 0; j--)
                             {
-                                cands.RemoveAt(j);
+                                var sd = srcDeltas[cands[j]];
+                                if (Math.Abs(sd.x - td.x) > bsTol ||
+                                    Math.Abs(sd.y - td.y) > bsTol ||
+                                    Math.Abs(sd.z - td.z) > bsTol)
+                                {
+                                    cands.RemoveAt(j);
+                                }
                             }
                         }
+                    }
+                }
+            }
+
+            // Optional normal tie-breaker for hard-edge split vertices when UV0 and blendshapes are identical.
+            bool narrowedAnyByNormal = false;
+            if (hasNormals)
+            {
+                const float normalSqrTol = 1e-4f;
+                for (int i = 0; i < unresolvedTargets.Count; i++)
+                {
+                    int t = unresolvedTargets[i];
+                    var cands = remainingByTarget[t];
+                    if (cands.Count <= 1) continue;
+
+                    var tn = target.Normals[t];
+                    var normalMatched = new List<int>(cands.Count);
+                    for (int j = 0; j < cands.Count; j++)
+                    {
+                        int s = cands[j];
+                        if ((source.Normals[s] - tn).sqrMagnitude <= normalSqrTol)
+                        {
+                            normalMatched.Add(s);
+                        }
+                    }
+
+                    if (normalMatched.Count > 0 && normalMatched.Count < cands.Count)
+                    {
+                        remainingByTarget[t] = normalMatched;
+                        narrowedAnyByNormal = true;
                     }
                 }
             }
@@ -835,7 +901,7 @@ namespace Triturbo.BlendShare.Mapping
                     continue;
                 }
 
-                if (cands.Count == 1 && (hasUv0 || evaluatedAnyShape))
+                if (cands.Count == 1 && (hasUv0 || evaluatedAnyShape || narrowedAnyByNormal))
                 {
                     AddLink(t, cands[0], targetToSources, sourceToTargets);
                     evidence[t] = evaluatedAnyShape && (!hasUv0 || srcByCluster[dstCluster[t]].Count > 1)
@@ -847,6 +913,51 @@ namespace Triturbo.BlendShare.Mapping
             }
 
             return rejectedByAttributes;
+        }
+
+        private static bool TryGetComparableFrames(
+            IUnityBlendShapeSnapshot source,
+            IUnityBlendShapeSnapshot target,
+            string name,
+            int srcVertCount,
+            int dstVertCount,
+            out UnityBlendShapeFrame[] srcFrames,
+            out UnityBlendShapeFrame[] dstFrames)
+        {
+            srcFrames = null;
+            dstFrames = null;
+            if (source.TryGetShapeFrames(name, out var sf) &&
+                target.TryGetShapeFrames(name, out var df) &&
+                sf != null && df != null &&
+                sf.Length > 0 && sf.Length == df.Length)
+            {
+                for (int i = 0; i < sf.Length; i++)
+                {
+                    if (Math.Abs(sf[i].Weight - df[i].Weight) > 2e-2f ||
+                        sf[i].DeltaVertices == null || df[i].DeltaVertices == null ||
+                        sf[i].DeltaVertices.Length != srcVertCount ||
+                        df[i].DeltaVertices.Length != dstVertCount)
+                    {
+                        return false;
+                    }
+                }
+
+                srcFrames = sf;
+                dstFrames = df;
+                return true;
+            }
+
+            if (source.TryGetSingleFrameDeltaVertices(name, out var sSingle) &&
+                target.TryGetSingleFrameDeltaVertices(name, out var dSingle) &&
+                sSingle != null && dSingle != null &&
+                sSingle.Length == srcVertCount && dSingle.Length == dstVertCount)
+            {
+                srcFrames = new[] { new UnityBlendShapeFrame(100f, sSingle) };
+                dstFrames = new[] { new UnityBlendShapeFrame(100f, dSingle) };
+                return true;
+            }
+
+            return false;
         }
 
         private static int CountUvMatches(
@@ -878,8 +989,8 @@ namespace Triturbo.BlendShare.Mapping
             var shared = new List<string>();
             if (source == null || target == null) return shared;
 
-            var srcNames = source.SingleFrameShapeNames;
-            var dstNames = target.SingleFrameShapeNames;
+            var srcNames = source.ShapeNames ?? source.SingleFrameShapeNames;
+            var dstNames = target.ShapeNames ?? target.SingleFrameShapeNames;
             if (srcNames == null || srcNames.Count == 0 || dstNames == null || dstNames.Count == 0)
             {
                 return shared;

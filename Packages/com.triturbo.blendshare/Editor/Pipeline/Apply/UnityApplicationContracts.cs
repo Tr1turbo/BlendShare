@@ -7,6 +7,7 @@ using Triturbo.BlendShare.Model.Documents;
 using Triturbo.BlendShare.Model.Features;
 using Triturbo.BlendShare.Model.Serialization;
 using Triturbo.BlendShare.Model.Settings;
+using Triturbo.BlendShare.Pipeline.Skeleton;
 using Triturbo.BlendShare.Assets;
 using UnityEngine;
 
@@ -113,6 +114,56 @@ namespace Triturbo.BlendShare.Pipeline.Apply
         public override int GetHashCode() => HashCode.Combine(PatchId, SourceBonePath);
     }
 
+    /// <summary>
+    /// Verified correspondence between a target Unity <see cref="Mesh"/>, its owning raw <see cref="Triturbo.BlendShare.Fbx.IFbxMesh"/>
+    /// node in the target FBX asset, the full-target <c>UnityVertex -&gt; ControlPoint</c> mapping (preserving appended prefix-compatible
+    /// control points), and the imported <c>SkinnedMeshRenderer</c> bone-path-to-slot index map (preserving deliberate scene bone remaps).
+    /// </summary>
+    public sealed class VerifiedRawTargetSkinContext
+    {
+        public Triturbo.BlendShare.Fbx.IFbxMesh RawMesh { get; }
+        public Triturbo.BlendShare.Primitives.CsrVertexMap FullTargetVertexMap { get; }
+        public IReadOnlyDictionary<string, IReadOnlyList<int>> ImportedSlotsByFbxBonePath { get; }
+
+        public VerifiedRawTargetSkinContext(
+            Triturbo.BlendShare.Fbx.IFbxMesh rawMesh,
+            Triturbo.BlendShare.Primitives.CsrVertexMap fullTargetVertexMap = null,
+            IReadOnlyDictionary<string, int> importedSlotByFbxBonePath = null)
+        {
+            RawMesh = rawMesh ?? throw new ArgumentNullException(nameof(rawMesh));
+            FullTargetVertexMap = fullTargetVertexMap;
+            if (importedSlotByFbxBonePath != null)
+            {
+                var converted = new Dictionary<string, IReadOnlyList<int>>(importedSlotByFbxBonePath.Count, StringComparer.Ordinal);
+                foreach (var kv in importedSlotByFbxBonePath)
+                {
+                    converted[kv.Key] = new[] { kv.Value };
+                }
+
+                ImportedSlotsByFbxBonePath = converted;
+            }
+        }
+
+        private VerifiedRawTargetSkinContext(
+            Triturbo.BlendShare.Fbx.IFbxMesh rawMesh,
+            Triturbo.BlendShare.Primitives.CsrVertexMap fullTargetVertexMap,
+            IReadOnlyDictionary<string, IReadOnlyList<int>> importedSlotsByFbxBonePath,
+            bool _)
+        {
+            RawMesh = rawMesh ?? throw new ArgumentNullException(nameof(rawMesh));
+            FullTargetVertexMap = fullTargetVertexMap;
+            ImportedSlotsByFbxBonePath = importedSlotsByFbxBonePath;
+        }
+
+        public static VerifiedRawTargetSkinContext WithSlotLists(
+            Triturbo.BlendShare.Fbx.IFbxMesh rawMesh,
+            Triturbo.BlendShare.Primitives.CsrVertexMap fullTargetVertexMap,
+            IReadOnlyDictionary<string, IReadOnlyList<int>> importedSlotsByFbxBonePath)
+        {
+            return new VerifiedRawTargetSkinContext(rawMesh, fullTargetVertexMap, importedSlotsByFbxBonePath, true);
+        }
+    }
+
     public abstract class PatchMeshContext
     {
         public string PatchId { get; set; }
@@ -123,6 +174,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
         public BlendShareImportSettings EffectiveSettings { get; set; }
         public ILazyPayloadSource PayloadSource { get; set; }
         public ResolvedVertexMapping VertexMapping { get; set; }
+        public VerifiedRawTargetSkinContext VerifiedRawTargetSkin { get; set; }
         public bool CreateMissingBones { get; set; } = true;
         public IReadOnlyDictionary<string, Matrix4x4> BindPoseOverrides { get; set; }
     }
@@ -141,11 +193,13 @@ namespace Triturbo.BlendShare.Pipeline.Apply
     {
         public Mesh WorkingMesh { get; internal set; }
         public Transform[] WorkingBones { get; set; }
+        public string[] IncomingBoneSlotPaths { get; internal set; }
         public Transform IncomingRootBone { get; internal set; }
         public Transform OutputRootBone { get; set; }
         public string OutputRootBonePath { get; set; } = string.Empty;
         public Transform TargetRootTransform { get; internal set; }
         public Transform MeshRendererTransform { get; internal set; }
+        public UnitySkeletonScope SharedSkeletonScope { get; internal set; }
         public IReadOnlyDictionary<BoneOverrideKey, Transform> BoneTransformOverrides { get; internal set; }
         public int MaxBonesPerVertex { get; internal set; } = 4;
         public bool CreateMissingBones { get; internal set; }
@@ -153,6 +207,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
         public bool PreserveExistingBlendShapes { get; internal set; } = true;
         public List<AppliedBoneBinding> AppliedBoneBindings { get; } = new List<AppliedBoneBinding>();
         public List<GeneratedSkeletonBoneRecord> AppliedSkeletonBones { get; } = new List<GeneratedSkeletonBoneRecord>();
+        public List<Transform> CreatedBoneRoots { get; } = new List<Transform>();
         public BlendShareSkinWeightInfluenceSummary SkinWeightInfluenceSummary { get; set; }
         public List<ApplyDiagnostic> Diagnostics { get; } = new List<ApplyDiagnostic>();
     }

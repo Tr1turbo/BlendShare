@@ -8,7 +8,7 @@ using System.Threading;
 
 namespace Triturbo.BlendShare.Fbx.Ufbx
 {
-    /// <summary>Scene-backed FBX reader powered by vendored ufbx through the BlendShareUfbx native bridge (ABI v3).</summary>
+    /// <summary>Scene-backed FBX reader powered by vendored ufbx through the BlendShareUfbx native bridge (ABI v4).</summary>
     public sealed class UfbxScene : IFbxScene
     {
         private NativeSceneHandle handle;
@@ -79,7 +79,7 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             var nodeArray = BuildNodes(sceneHandle, sceneInfo.NodeCount, materialArray);
             Nodes = Array.AsReadOnly<IFbxNode>(nodeArray);
 
-            var meshArray = BuildMeshes(sceneHandle, sceneInfo.MeshCount, nodeArray, materialArray);
+            var meshArray = BuildMeshes(sceneHandle, sceneInfo.MeshCount, nodeArray, materialArray, out _);
             Meshes = Array.AsReadOnly<IFbxMesh>(meshArray);
 
             nodesByPath = new Dictionary<string, IFbxNode>(nodeArray.Length, StringComparer.Ordinal);
@@ -134,14 +134,67 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             }
 
             var resolvedOptions = options ?? UfbxLoadOptions.Default;
-            return TryLoadCore(
-                assetPath,
-                resolvedOptions,
-                (ref UfbxNative.LoadOptionsNative nativeOpts, out IntPtr loaded, ref byte err, int errLen) =>
+            var abiCheck = CheckAbiVersion();
+            if (abiCheck != null)
+            {
+                return abiCheck;
+            }
+
+            IntPtr loaded = IntPtr.Zero;
+            byte[] pathBytes = null;
+            try
+            {
+                var nativeOpts = BuildNativeOptions(resolvedOptions);
+                int pathByteLen = Encoding.UTF8.GetByteCount(assetPath);
+                pathBytes = ArrayPool<byte>.Shared.Rent(pathByteLen + 1);
+                int written = Encoding.UTF8.GetBytes(assetPath, 0, assetPath.Length, pathBytes, 0);
+                pathBytes[written] = 0;
+
+                Span<byte> errorBuf = stackalloc byte[2048];
+                int status = UfbxNative.LoadFile(
+                    ref pathBytes[0],
+                    ref nativeOpts,
+                    out loaded,
+                    ref MemoryMarshal.GetReference(errorBuf),
+                    errorBuf.Length);
+
+                if (status != UfbxNative.StatusOk || loaded == IntPtr.Zero)
                 {
-                    var utf8Path = ToUtf8NullTerminated(assetPath);
-                    return UfbxNative.LoadFile(ref MemoryMarshal.GetReference(utf8Path.AsSpan()), ref nativeOpts, out loaded, ref err, errLen);
-                });
+                    if (loaded != IntPtr.Zero) UfbxNative.Free(loaded);
+                    string errorMessage = DecodeUtf8(errorBuf, errorBuf.Length);
+                    return FbxReadResult<UfbxScene>.Failed(
+                        MapStatus(status),
+                        string.IsNullOrWhiteSpace(errorMessage) ? $"ufbx failed to load FBX file '{assetPath}'." : errorMessage);
+                }
+
+                return WrapNativeScene(ref loaded, assetPath, resolvedOptions);
+            }
+            catch (DllNotFoundException exception)
+            {
+                if (loaded != IntPtr.Zero) UfbxNative.Free(loaded);
+                return FbxReadResult<UfbxScene>.Failed(FbxReadStatus.SectionUnavailable, exception.Message);
+            }
+            catch (EntryPointNotFoundException exception)
+            {
+                if (loaded != IntPtr.Zero) UfbxNative.Free(loaded);
+                return FbxReadResult<UfbxScene>.Failed(FbxReadStatus.SectionUnavailable, exception.Message);
+            }
+            catch (FbxReadException exception)
+            {
+                return FbxReadResult<UfbxScene>.Failed(exception.Status, exception.Message, exception.Diagnostics);
+            }
+            catch (Exception exception) when (exception is SEHException || exception is InvalidOperationException || exception is ArgumentException)
+            {
+                if (loaded != IntPtr.Zero) UfbxNative.Free(loaded);
+                return FbxReadResult<UfbxScene>.Failed(FbxReadStatus.ParseError, $"ufbx reader failed: {exception.Message}");
+            }
+            finally
+            {
+                if (pathBytes != null)
+                {
+                    ArrayPool<byte>.Shared.Return(pathBytes);
+                }
+            }
         }
 
         /// <summary>Loads an FBX scene from an in-memory byte span or throws <see cref="FbxReadException"/> on failure.</summary>
@@ -172,13 +225,27 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             }
 
             IntPtr loaded = IntPtr.Zero;
+            byte[] filenameBytes = null;
             try
             {
                 var nativeOpts = BuildNativeOptions(resolvedOptions);
+                int fnLen = !string.IsNullOrEmpty(sourceName) ? Encoding.UTF8.GetByteCount(sourceName) : 0;
+                filenameBytes = ArrayPool<byte>.Shared.Rent(fnLen + 1);
+                if (fnLen > 0)
+                {
+                    int fnWritten = Encoding.UTF8.GetBytes(sourceName, 0, sourceName.Length, filenameBytes, 0);
+                    filenameBytes[fnWritten] = 0;
+                }
+                else
+                {
+                    filenameBytes[0] = 0;
+                }
+
                 Span<byte> errorBuf = stackalloc byte[2048];
                 int status = UfbxNative.LoadMemory(
                     ref MemoryMarshal.GetReference(data),
                     data.Length,
+                    ref filenameBytes[0],
                     ref nativeOpts,
                     out loaded,
                     ref MemoryMarshal.GetReference(errorBuf),
@@ -213,6 +280,13 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             {
                 if (loaded != IntPtr.Zero) UfbxNative.Free(loaded);
                 return FbxReadResult<UfbxScene>.Failed(FbxReadStatus.ParseError, $"ufbx reader failed: {exception.Message}");
+            }
+            finally
+            {
+                if (filenameBytes != null)
+                {
+                    ArrayPool<byte>.Shared.Return(filenameBytes);
+                }
             }
         }
 
@@ -250,54 +324,6 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             return current;
         }
 
-        private delegate int LoadCallback(ref UfbxNative.LoadOptionsNative nativeOpts, out IntPtr loaded, ref byte error, int errorSize);
-
-        private static FbxReadResult<UfbxScene> TryLoadCore(string assetPath, UfbxLoadOptions options, LoadCallback loader)
-        {
-            var abiCheck = CheckAbiVersion();
-            if (abiCheck != null)
-            {
-                return abiCheck;
-            }
-
-            IntPtr loaded = IntPtr.Zero;
-            try
-            {
-                var nativeOpts = BuildNativeOptions(options);
-                Span<byte> errorBuf = stackalloc byte[2048];
-                int status = loader(ref nativeOpts, out loaded, ref MemoryMarshal.GetReference(errorBuf), errorBuf.Length);
-                if (status != UfbxNative.StatusOk || loaded == IntPtr.Zero)
-                {
-                    if (loaded != IntPtr.Zero) UfbxNative.Free(loaded);
-                    string errorMessage = DecodeUtf8(errorBuf, errorBuf.Length);
-                    return FbxReadResult<UfbxScene>.Failed(
-                        MapStatus(status),
-                        string.IsNullOrWhiteSpace(errorMessage) ? "ufbx failed to load the FBX file." : errorMessage);
-                }
-
-                return WrapNativeScene(ref loaded, assetPath, options);
-            }
-            catch (DllNotFoundException exception)
-            {
-                if (loaded != IntPtr.Zero) UfbxNative.Free(loaded);
-                return FbxReadResult<UfbxScene>.Failed(FbxReadStatus.SectionUnavailable, exception.Message);
-            }
-            catch (EntryPointNotFoundException exception)
-            {
-                if (loaded != IntPtr.Zero) UfbxNative.Free(loaded);
-                return FbxReadResult<UfbxScene>.Failed(FbxReadStatus.SectionUnavailable, exception.Message);
-            }
-            catch (FbxReadException exception)
-            {
-                return FbxReadResult<UfbxScene>.Failed(exception.Status, exception.Message, exception.Diagnostics);
-            }
-            catch (Exception exception) when (exception is SEHException || exception is InvalidOperationException || exception is ArgumentException)
-            {
-                if (loaded != IntPtr.Zero) UfbxNative.Free(loaded);
-                return FbxReadResult<UfbxScene>.Failed(FbxReadStatus.ParseError, $"ufbx reader failed: {exception.Message}");
-            }
-        }
-
         private static FbxReadResult<UfbxScene> CheckAbiVersion()
         {
             int abiVersion;
@@ -327,7 +353,10 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             return null;
         }
 
-        private static FbxReadResult<UfbxScene> WrapNativeScene(ref IntPtr loaded, string assetPath, UfbxLoadOptions options)
+        private static FbxReadResult<UfbxScene> WrapNativeScene(
+            ref IntPtr loaded,
+            string assetPath,
+            UfbxLoadOptions options)
         {
             // Transfer ownership to SafeHandle immediately and clear the caller's raw pointer
             // so construction failures cannot double-free the native scene in caller catch blocks.
@@ -335,7 +364,8 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             loaded = IntPtr.Zero;
             try
             {
-                return FbxReadResult<UfbxScene>.Succeeded(new UfbxScene(sceneHandle, assetPath, options));
+                var scene = new UfbxScene(sceneHandle, assetPath, options);
+                return FbxReadResult<UfbxScene>.Succeeded(scene);
             }
             catch
             {
@@ -522,8 +552,14 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             return nodes;
         }
 
-        private UfbxMesh[] BuildMeshes(NativeSceneHandle sceneHandle, int meshCount, UfbxNode[] sceneNodes, UfbxMaterial[] sceneMaterials)
+        private UfbxMesh[] BuildMeshes(
+            NativeSceneHandle sceneHandle,
+            int meshCount,
+            UfbxNode[] sceneNodes,
+            UfbxMaterial[] sceneMaterials,
+            out bool hasAnySkins)
         {
+            hasAnySkins = false;
             int count = Math.Max(0, meshCount);
             var meshes = new UfbxMesh[count];
             for (int i = 0; i < count; i++)
@@ -533,6 +569,11 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
                     throw new FbxReadException(
                         FbxReadStatus.ParseError,
                         $"The BlendShare ufbx native plugin could not read mesh {i}.");
+                }
+
+                if (info.SkinCount > 0)
+                {
+                    hasAnySkins = true;
                 }
 
                 string name = CopyString(
@@ -652,14 +693,6 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             {
                 ArrayPool<byte>.Shared.Return(rented);
             }
-        }
-
-        private static byte[] ToUtf8NullTerminated(string value)
-        {
-            var bytes = Encoding.UTF8.GetBytes(value ?? string.Empty);
-            var result = new byte[bytes.Length + 1];
-            Buffer.BlockCopy(bytes, 0, result, 0, bytes.Length);
-            return result;
         }
 
         private static string DecodeUtf8(ReadOnlySpan<byte> buffer, int byteCount)

@@ -15,7 +15,7 @@ extern "C" {
 
 typedef struct bs_ufbx_scene bs_ufbx_scene;
 
-#define BS_UFBX_ABI_VERSION 3
+#define BS_UFBX_ABI_VERSION 4
 
 typedef enum bs_ufbx_status {
     BS_UFBX_OK                   = 0,
@@ -230,7 +230,7 @@ typedef struct bs_ufbx_cluster_info {
     int32_t bone_node_index;
     int32_t weight_count;
     int32_t name_length;
-    int32_t _pad0;
+    int32_t link_mode;
     bs_ufbx_matrix mesh_bind_world;
     bs_ufbx_matrix bone_bind_world;
     bs_ufbx_matrix mesh_node_to_bone;
@@ -262,7 +262,7 @@ typedef struct bs_ufbx_blend_keyframe_info {
 /* Scene lifecycle & metadata */
 BS_UFBX_API int32_t bs_ufbx_get_abi_version(void);
 BS_UFBX_API int32_t bs_ufbx_load_file(const char *path, const bs_ufbx_load_options *opts, bs_ufbx_scene **out_scene, char *error, int32_t error_size);
-BS_UFBX_API int32_t bs_ufbx_load_memory(const void *data, int64_t data_size, const bs_ufbx_load_options *opts, bs_ufbx_scene **out_scene, char *error, int32_t error_size);
+BS_UFBX_API int32_t bs_ufbx_load_memory(const void *data, int64_t data_size, const char *filename, const bs_ufbx_load_options *opts, bs_ufbx_scene **out_scene, char *error, int32_t error_size);
 BS_UFBX_API void bs_ufbx_free(bs_ufbx_scene *scene);
 BS_UFBX_API int32_t bs_ufbx_get_scene_info(bs_ufbx_scene *scene, bs_ufbx_scene_info *out_info);
 

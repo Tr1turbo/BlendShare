@@ -13,15 +13,18 @@ namespace Triturbo.BlendShare.Mapping
     /// </summary>
     public static class FbxUnityInverseMapper
     {
-        private const double BoundsRelativeSlack = 1e-4d;
-        private const double BoundsAbsoluteSlack = 1e-5d;
-        private const float MinRepresentableScale = 1e-7f;
-        private const float Uv0SqrDistanceTolerance = 1.001e-6f;
-        private const float BlendShapeDeltaTolerance = 1.2e-5f;
-        private const double BlendShapeOffsetThreshold = 1e-6d;
-        private const double BlendShapeWeight100Tolerance = 1e-3d;
-        private const int MaxUlpNeighborSteps = 3;
-        private const int MaxDfsStepsPerComponent = 500000;
+        private const double k_BoundsRelativeSlack = 1e-4d;
+        private const double k_BoundsAbsoluteSlack = 1e-5d;
+        private const double k_ApproxBoundsRelativeSlack = 2e-2d;
+        private const double k_ApproxBoundsAbsoluteSlack = 2e-3d;
+        private const float k_MinRepresentableScale = 1e-7f;
+        private const float k_Uv0SqrDistanceTolerance = 1.001e-6f;
+        private const float k_CompressedUv0SqrDistanceTolerance = 1e-4f;
+        private const float k_BlendShapeDeltaTolerance = 1.2e-5f;
+        private const double k_BlendShapeOffsetThreshold = 1e-6d;
+        private const double k_BlendShapeFrameWeightPercentTolerance = 2e-2d;
+        private const int k_MaxUlpNeighborSteps = 3;
+        private const int k_MaxDfsStepsPerComponent = 500000;
 
         private enum ComponentSolveStatus
         {
@@ -83,25 +86,43 @@ namespace Triturbo.BlendShare.Mapping
                 }
             }
 
-            // Precompute FBX face starts and corner -> face table.
+            // Precompute FBX face starts, corner -> face table, and corners belonging to faces with non-zero 3D area
+            // so culled zero-area or collinear outlier faces cannot poison AABB scale seed ratios.
+            var rawBase32 = new CoordKey[fbxCpCount];
+            for (int i = 0; i < fbxCpCount; i++)
+            {
+                rawBase32[i] = new CoordKey((float)fbxPoints64[i].x, (float)fbxPoints64[i].y, (float)fbxPoints64[i].z);
+            }
+
             var faceStarts = new int[fbxFaceCount];
             var cornerToFace = new int[fbxCornerCount];
+            var nonDegenerateCornersList = new List<int>(fbxCornerCount);
             int cursor = 0;
             for (int f = 0; f < fbxFaceCount; f++)
             {
-                faceStarts[f] = cursor;
+                int start = cursor;
+                faceStarts[f] = start;
                 int n = fbxFaceSizes[f];
                 for (int k = 0; k < n && cursor < fbxCornerCount; k++, cursor++)
                 {
                     cornerToFace[cursor] = f;
                 }
+
+                int actualLen = cursor - start;
+                if (actualLen >= 3 && HasPositivePolygonArea(fbxPoints64, fbxCornerCps, start, actualLen))
+                {
+                    for (int cIdx = start; cIdx < cursor; cIdx++)
+                    {
+                        nonDegenerateCornersList.Add(fbxCornerCps[cIdx]);
+                    }
+                }
             }
 
-            // Stage 1 + Stage 2/3 validation: test prioritized (bakeAxis, scale) candidates until one
-            // satisfies exact coordinates, reversed polygon winding, and consistent polygon layouts.
-            var axisModes = hints.BakeAxisConversion.HasValue
-                ? new[] { hints.BakeAxisConversion.Value, !hints.BakeAxisConversion.Value }
-                : new[] { false, true };
+            int[] nonDegenerateCornerCps = nonDegenerateCornersList.Count > 0 ? nonDegenerateCornersList.ToArray() : null;
+
+            // Stage 1 + Stage 2/3 validation: test prioritized (geometryTransform, axisPerm, scale) candidates until one
+            // satisfies exact coordinates, polygon winding, consistent polygon layouts, and blendshape transform agreement.
+            var candidateTransforms = BuildCandidateTransforms(fbxMesh, hints);
 
             CoordinateMatch matchedCoords = null;
             List<CornerTriple>[] resolvedOptions = null;
@@ -111,15 +132,23 @@ namespace Triturbo.BlendShare.Mapping
             bool matchedExceededBudget = false;
             bool sawLayoutContradiction = false;
 
-            for (int aIdx = 0; aIdx < axisModes.Length && matchedCoords == null; aIdx++)
+            CoordinateMatch fallbackShapeMismatchCoords = null;
+            List<CornerTriple>[] fallbackShapeMismatchOptions = null;
+            int fallbackDegenerateTriangles = 0;
+            string fallbackRefinementNote = string.Empty;
+            bool fallbackExceededBudget = false;
+
+            int matchedTransformIndex = -1;
+            for (int tIdx = 0; tIdx < candidateTransforms.Count && matchedCoords == null; tIdx++)
             {
-                bool bakeAxis = axisModes[aIdx];
+                var transform = candidateTransforms[tIdx];
                 var candidates = DiscoverCoordinateMatches(
                     fbxPoints64,
+                    nonDegenerateCornerCps,
                     fbxCornerCps,
                     unityVertices,
                     unityTriangles,
-                    bakeAxis,
+                    transform,
                     hints.Scale);
 
                 for (int c = 0; c < candidates.Count; c++)
@@ -128,6 +157,7 @@ namespace Triturbo.BlendShare.Mapping
                     if (triangleCount == 0)
                     {
                         matchedCoords = coord;
+                        matchedTransformIndex = tIdx;
                         resolvedOptions = Array.Empty<List<CornerTriple>>();
                         break;
                     }
@@ -139,8 +169,10 @@ namespace Triturbo.BlendShare.Mapping
                             coord.FbxCpClass,
                             coord.ClassCount,
                             coord.UnityVertexClass,
+                            coord.UnityVertexCandidateClasses,
                             unityTriangles,
                             triangleCount,
+                            coord.Transform.AxisPerm.ReversesWinding,
                             out var rawOptions,
                             out int degenerateCount))
                     {
@@ -150,6 +182,7 @@ namespace Triturbo.BlendShare.Mapping
                     if (!TryResolveAmbiguousTriangles(
                             fbxMesh,
                             fbxPoints64,
+                            rawBase32,
                             fbxFaceSizes,
                             faceStarts,
                             cornerToFace,
@@ -159,8 +192,11 @@ namespace Triturbo.BlendShare.Mapping
                             triangleCount,
                             rawOptions,
                             coord.Scale,
-                            coord.BakeAxisConversion,
+                            coord.Transform,
                             hints.WeldVertices,
+                            hints.SwapUvChannels,
+                            k_Uv0SqrDistanceTolerance,
+                            k_BlendShapeDeltaTolerance,
                             out var refined,
                             out string refinementNote,
                             out bool isBlendShapeSensitive,
@@ -170,13 +206,199 @@ namespace Triturbo.BlendShare.Mapping
                         continue;
                     }
 
+                    if (!VerifyResolvedBlendShapesAgree(
+                            fbxMesh,
+                            fbxPoints64,
+                            fbxCornerCps,
+                            unityMesh.BlendShapes,
+                            unityTriangles,
+                            triangleCount,
+                            refined,
+                            coord.Scale,
+                            coord.Transform,
+                            k_BlendShapeDeltaTolerance))
+                    {
+                        if (fallbackShapeMismatchCoords == null)
+                        {
+                            fallbackShapeMismatchCoords = coord;
+                            fallbackShapeMismatchOptions = refined;
+                            fallbackDegenerateTriangles = degenerateCount;
+                            fallbackRefinementNote = refinementNote;
+                            fallbackExceededBudget = exceededLayoutDfsBudget;
+                        }
+
+                        continue;
+                    }
+
                     matchedCoords = coord;
+                    matchedTransformIndex = tIdx;
                     resolvedOptions = refined;
                     matchedDegenerateTriangles = degenerateCount;
                     matchedRefinementNote = refinementNote;
-                    matchedIsBlendShapeSensitive = isBlendShapeSensitive;
+                    matchedIsBlendShapeSensitive = isBlendShapeSensitive || fallbackShapeMismatchCoords != null;
                     matchedExceededBudget = exceededLayoutDfsBudget;
                     break;
+                }
+            }
+
+            if (matchedCoords == null && fallbackShapeMismatchCoords != null)
+            {
+                matchedCoords = fallbackShapeMismatchCoords;
+                resolvedOptions = fallbackShapeMismatchOptions;
+                matchedDegenerateTriangles = fallbackDegenerateTriangles;
+                matchedRefinementNote = fallbackRefinementNote;
+                matchedIsBlendShapeSensitive = true;
+                matchedExceededBudget = fallbackExceededBudget;
+            }
+            else if (matchedCoords != null &&
+                     !matchedIsBlendShapeSensitive &&
+                     matchedTransformIndex >= 0 &&
+                     HasEligibleSingleFrameBlendShape(fbxMesh) &&
+                     HasAlternateGeometryValidLinearTransform(
+                         fbxMesh,
+                         fbxPoints64,
+                         rawBase32,
+                         nonDegenerateCornerCps,
+                         fbxFaceSizes,
+                         faceStarts,
+                         cornerToFace,
+                         fbxCornerCps,
+                         unityVertices,
+                         unityTriangles,
+                         triangleCount,
+                         candidateTransforms,
+                         matchedTransformIndex,
+                         matchedCoords,
+                         hints))
+            {
+                // Base geometry (e.g. a planar mesh with out-of-plane GeometryToNodeMatrix) admits multiple distinct
+                // linear deformation matrices; mark blendshape-sensitive so geometry-only caches/embeddings never
+                // freeze one deformation matrix across targets with different blendshape deltas.
+                matchedIsBlendShapeSensitive = true;
+            }
+
+            // Stage 1 fallback: quantized vertex tolerance matching for compressed Unity meshes (e.g. MeshCompression.High).
+            if (matchedCoords == null)
+            {
+                CoordinateMatch approxShapeMismatchCoords = null;
+                List<CornerTriple>[] approxShapeMismatchOptions = null;
+                int approxFallbackDegenerate = 0;
+                string approxFallbackNote = string.Empty;
+                bool approxFallbackExceededBudget = false;
+
+                for (int tIdx = 0; tIdx < candidateTransforms.Count && matchedCoords == null; tIdx++)
+                {
+                    var transform = candidateTransforms[tIdx];
+                    var approxCandidates = DiscoverApproximateCoordinateMatches(
+                        fbxPoints64,
+                        nonDegenerateCornerCps,
+                        fbxCornerCps,
+                        unityVertices,
+                        unityTriangles,
+                        transform,
+                        hints.Scale);
+
+                    for (int c = 0; c < approxCandidates.Count; c++)
+                    {
+                        var coord = approxCandidates[c];
+                        if (triangleCount == 0)
+                        {
+                            matchedCoords = coord;
+                            resolvedOptions = Array.Empty<List<CornerTriple>>();
+                            break;
+                        }
+
+                        if (!TryMatchTriangles(
+                                fbxFaceSizes,
+                                faceStarts,
+                                fbxCornerCps,
+                                coord.FbxCpClass,
+                                coord.ClassCount,
+                                coord.UnityVertexClass,
+                                coord.UnityVertexCandidateClasses,
+                                unityTriangles,
+                                triangleCount,
+                                coord.Transform.AxisPerm.ReversesWinding,
+                                out var rawOptions,
+                                out int degenerateCount))
+                        {
+                            continue;
+                        }
+
+                        float bsTol = Math.Max(1e-3f, coord.PositionTolerance * 2.5f);
+                        if (!TryResolveAmbiguousTriangles(
+                                fbxMesh,
+                                fbxPoints64,
+                                rawBase32,
+                                fbxFaceSizes,
+                                faceStarts,
+                                cornerToFace,
+                                fbxCornerCps,
+                                unityMesh,
+                                unityTriangles,
+                                triangleCount,
+                                rawOptions,
+                                coord.Scale,
+                                coord.Transform,
+                                hints.WeldVertices,
+                                hints.SwapUvChannels,
+                                k_CompressedUv0SqrDistanceTolerance,
+                                bsTol,
+                                out var refined,
+                                out string refinementNote,
+                                out bool isBlendShapeSensitive,
+                                out bool exceededLayoutDfsBudget))
+                        {
+                            sawLayoutContradiction = true;
+                            continue;
+                        }
+
+                        if (!VerifyResolvedBlendShapesAgree(
+                                fbxMesh,
+                                fbxPoints64,
+                                fbxCornerCps,
+                                unityMesh.BlendShapes,
+                                unityTriangles,
+                                triangleCount,
+                                refined,
+                                coord.Scale,
+                                coord.Transform,
+                                bsTol))
+                        {
+                            if (approxShapeMismatchCoords == null)
+                            {
+                                approxShapeMismatchCoords = coord;
+                                approxShapeMismatchOptions = refined;
+                                approxFallbackDegenerate = degenerateCount;
+                                approxFallbackNote = refinementNote;
+                                approxFallbackExceededBudget = exceededLayoutDfsBudget;
+                            }
+
+                            continue;
+                        }
+
+                        matchedCoords = coord;
+                        resolvedOptions = refined;
+                        matchedDegenerateTriangles = degenerateCount;
+                        matchedRefinementNote = string.IsNullOrEmpty(refinementNote)
+                            ? "Matched using quantized coordinate tolerance fallback (compressed Unity mesh)."
+                            : refinementNote;
+                        matchedIsBlendShapeSensitive = isBlendShapeSensitive || approxShapeMismatchCoords != null;
+                        matchedExceededBudget = exceededLayoutDfsBudget;
+                        break;
+                    }
+                }
+
+                if (matchedCoords == null && approxShapeMismatchCoords != null)
+                {
+                    matchedCoords = approxShapeMismatchCoords;
+                    resolvedOptions = approxShapeMismatchOptions;
+                    matchedDegenerateTriangles = approxFallbackDegenerate;
+                    matchedRefinementNote = string.IsNullOrEmpty(approxFallbackNote)
+                        ? "Matched using quantized coordinate tolerance fallback (compressed Unity mesh)."
+                        : approxFallbackNote;
+                    matchedIsBlendShapeSensitive = true;
+                    matchedExceededBudget = approxFallbackExceededBudget;
                 }
             }
 
@@ -204,51 +426,289 @@ namespace Triturbo.BlendShare.Mapping
 
         // ─── Stage 1a: Float32 Coordinate & Scale Matching ──────────────────────────
 
+        private static bool HasAlternateGeometryValidLinearTransform(
+            IFbxMeshGeometry fbxMesh,
+            Vector3d[] fbxPoints64,
+            CoordKey[] rawBase32,
+            int[] nonDegenerateCornerCps,
+            int[] faceSizes,
+            int[] faceStarts,
+            int[] cornerToFace,
+            int[] cornerCps,
+            Vector3[] unityVertices,
+            int[] unityTriangles,
+            int triangleCount,
+            List<CandidateTransform> candidateTransforms,
+            int matchedTransformIndex,
+            CoordinateMatch matchedCoords,
+            FbxInverseMapHints hints)
+        {
+            var matchedLinear = matchedCoords.Transform.BuildRawToUnityLinearMatrix(matchedCoords.Scale);
+            var geomOnlyMesh = new UnityMeshSnapshot(unityVertices, unityTriangles);
+
+            for (int tIdx = matchedTransformIndex + 1; tIdx < candidateTransforms.Count; tIdx++)
+            {
+                var transform = candidateTransforms[tIdx];
+                var cands = DiscoverCoordinateMatches(
+                    fbxPoints64,
+                    nonDegenerateCornerCps,
+                    cornerCps,
+                    unityVertices,
+                    unityTriangles,
+                    transform,
+                    hints.Scale);
+
+                for (int c = 0; c < cands.Count; c++)
+                {
+                    var alt = cands[c];
+                    var altLinear = alt.Transform.BuildRawToUnityLinearMatrix(alt.Scale);
+                    if (altLinear.Approximately(matchedLinear, 1e-7d))
+                    {
+                        continue;
+                    }
+
+                    if (triangleCount == 0)
+                    {
+                        return true;
+                    }
+
+                    if (!TryMatchTriangles(
+                            faceSizes,
+                            faceStarts,
+                            cornerCps,
+                            alt.FbxCpClass,
+                            alt.ClassCount,
+                            alt.UnityVertexClass,
+                            alt.UnityVertexCandidateClasses,
+                            unityTriangles,
+                            triangleCount,
+                            alt.Transform.AxisPerm.ReversesWinding,
+                            out var rawOptions,
+                            out _))
+                    {
+                        continue;
+                    }
+
+                    if (TryResolveAmbiguousTriangles(
+                            fbxMesh,
+                            fbxPoints64,
+                            rawBase32,
+                            faceSizes,
+                            faceStarts,
+                            cornerToFace,
+                            cornerCps,
+                            geomOnlyMesh,
+                            unityTriangles,
+                            triangleCount,
+                            rawOptions,
+                            alt.Scale,
+                            alt.Transform,
+                            hints.WeldVertices,
+                            hints.SwapUvChannels,
+                            k_Uv0SqrDistanceTolerance,
+                            k_BlendShapeDeltaTolerance,
+                            out _,
+                            out _,
+                            out _,
+                            out _))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private static bool HasPositivePolygonArea(Vector3d[] points64, int[] cornerCps, int start, int length)
+        {
+            int cp0 = cornerCps[start];
+            if ((uint)cp0 >= (uint)points64.Length) return false;
+            var p0 = points64[cp0];
+
+            for (int k = 1; k + 1 < length; k++)
+            {
+                int cp1 = cornerCps[start + k];
+                int cp2 = cornerCps[start + k + 1];
+                if ((uint)cp1 >= (uint)points64.Length || (uint)cp2 >= (uint)points64.Length) continue;
+                var p1 = points64[cp1];
+                var p2 = points64[cp2];
+                double ux = p1.x - p0.x, uy = p1.y - p0.y, uz = p1.z - p0.z;
+                double vx = p2.x - p0.x, vy = p2.y - p0.y, vz = p2.z - p0.z;
+                double cx = uy * vz - uz * vy;
+                double cy = uz * vx - ux * vz;
+                double cz = ux * vy - uy * vx;
+                if (cx * cx + cy * cy + cz * cz > 1e-20d)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static List<CandidateTransform> BuildCandidateTransforms(IFbxMeshGeometry fbxMesh, FbxInverseMapHints hints)
+        {
+            var geomMatrices = new List<(FbxMatrix4x4 Matrix, bool IsIdentity)>();
+            if (fbxMesh is IFbxMesh sceneMesh)
+            {
+                // Prioritize the target node's own GeometryToNodeMatrix ahead of Identity so planar meshes with
+                // out-of-plane geometric scale (e.g. diag(1,1,2)) never falsely prefer Identity first.
+                if (!string.IsNullOrEmpty(hints.NodePath) && sceneMesh.Instances != null)
+                {
+                    string normTarget = FbxNameUtility.NormalizePath(hints.NodePath);
+                    for (int i = 0; i < sceneMesh.Instances.Count; i++)
+                    {
+                        var inst = sceneMesh.Instances[i];
+                        if (inst != null && string.Equals(FbxNameUtility.NormalizePath(inst.Path), normTarget, StringComparison.Ordinal))
+                        {
+                            TryAddDistinctGeometryMatrix(inst, geomMatrices);
+                            break;
+                        }
+                    }
+                }
+                else if (sceneMesh.PrimaryNode != null && (sceneMesh.Instances == null || sceneMesh.Instances.Count <= 1))
+                {
+                    TryAddDistinctGeometryMatrix(sceneMesh.PrimaryNode, geomMatrices);
+                }
+
+                TryAddIdentityGeometryMatrix(geomMatrices);
+                TryAddDistinctGeometryMatrix(sceneMesh.PrimaryNode, geomMatrices);
+                if (sceneMesh.Instances != null)
+                {
+                    for (int i = 0; i < sceneMesh.Instances.Count; i++)
+                    {
+                        TryAddDistinctGeometryMatrix(sceneMesh.Instances[i], geomMatrices);
+                    }
+                }
+            }
+            else
+            {
+                geomMatrices.Add((FbxMatrix4x4.Identity, true));
+            }
+
+            FbxCoordinateAxes? sceneAxes = hints.SceneAxes;
+            if (!sceneAxes.HasValue &&
+                fbxMesh is Triturbo.BlendShare.Fbx.Ufbx.UfbxElement ufbxElement &&
+                ufbxElement.OwnerScene != null)
+            {
+                sceneAxes = ufbxElement.OwnerScene.Metadata.Axes;
+            }
+
+            SignedAxisPerm3x3 sceneBakedPerm = default;
+            bool hasSceneBakedPerm = sceneAxes.HasValue &&
+                                     TryBuildSceneBakedAxisPerm(sceneAxes.Value, out sceneBakedPerm) &&
+                                     (sceneBakedPerm.ReversesWinding || hints.BakeAxisConversion == true);
+            SignedAxisPerm3x3 primaryBakedPerm = hasSceneBakedPerm ? sceneBakedPerm : SignedAxisPerm3x3.MayaBaked;
+
+            bool firstBake = hints.BakeAxisConversion ?? false;
+            var firstPerm = firstBake ? primaryBakedPerm : SignedAxisPerm3x3.MayaUnbaked;
+            var secondPerm = firstBake ? SignedAxisPerm3x3.MayaUnbaked : primaryBakedPerm;
+
+            var list = new List<CandidateTransform>(geomMatrices.Count * 3);
+            for (int g = 0; g < geomMatrices.Count; g++)
+            {
+                var (mat, isId) = geomMatrices[g];
+                AddUniqueCandidateTransform(list, new CandidateTransform(mat, isId, firstPerm, firstBake));
+                AddUniqueCandidateTransform(list, new CandidateTransform(mat, isId, secondPerm, !firstBake));
+                if (hasSceneBakedPerm && !sceneBakedPerm.Equals(SignedAxisPerm3x3.MayaBaked))
+                {
+                    AddUniqueCandidateTransform(list, new CandidateTransform(mat, isId, SignedAxisPerm3x3.MayaBaked, true));
+                }
+            }
+
+            return list;
+        }
+
+        private static void AddUniqueCandidateTransform(List<CandidateTransform> list, CandidateTransform candidate)
+        {
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (list[i].IsIdentityGeometry == candidate.IsIdentityGeometry &&
+                    list[i].AxisPerm.Equals(candidate.AxisPerm) &&
+                    list[i].GeometryToNode.Approximately(candidate.GeometryToNode, 1e-9d))
+                {
+                    return;
+                }
+            }
+
+            list.Add(candidate);
+        }
+
+        private static void TryAddIdentityGeometryMatrix(List<(FbxMatrix4x4 Matrix, bool IsIdentity)> list)
+        {
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (list[i].IsIdentity) return;
+            }
+
+            list.Add((FbxMatrix4x4.Identity, true));
+        }
+
+        private static void TryAddDistinctGeometryMatrix(
+            IFbxNode node,
+            List<(FbxMatrix4x4 Matrix, bool IsIdentity)> list)
+        {
+            if (node == null) return;
+            var m = node.GeometryToNodeMatrix;
+            if (m.Approximately(FbxMatrix4x4.Identity, 1e-9d))
+            {
+                TryAddIdentityGeometryMatrix(list);
+                return;
+            }
+
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (list[i].Matrix.Approximately(m, 1e-9d)) return;
+            }
+
+            list.Add((m, false));
+        }
+
         private static List<CoordinateMatch> DiscoverCoordinateMatches(
             Vector3d[] fbxPoints64,
+            int[] nonDegenerateCornerCps,
             int[] fbxCornerCps,
             Vector3[] unityVertices,
             int[] unityTriangles,
-            bool bakeAxis,
+            CandidateTransform transform,
             float? scaleHint)
         {
             int fbxCpCount = fbxPoints64.Length;
             int unityVertexCount = unityVertices.Length;
 
-            // Cast raw FBX coordinates to float32 with axis sign flip (matching Unity before scale).
             var fbxAxis32 = new Float3[fbxCpCount];
             var fbxValid = new bool[fbxCpCount];
             for (int i = 0; i < fbxCpCount; i++)
             {
-                float x = (float)fbxPoints64[i].x;
-                float y = (float)fbxPoints64[i].y;
-                float z = (float)fbxPoints64[i].z;
-                if (!IsFinite(x) || !IsFinite(y) || !IsFinite(z))
+                var p = transform.ApplyPreScale32(fbxPoints64[i]);
+                if (!IsFinite(p.X) || !IsFinite(p.Y) || !IsFinite(p.Z))
                 {
                     continue;
                 }
 
                 fbxValid[i] = true;
-                fbxAxis32[i] = bakeAxis
-                    ? new Float3(x, y, -z)
-                    : new Float3(-x, y, z);
+                fbxAxis32[i] = p;
             }
 
-            // Compute extents over face-referenced points for scale seeds, and over all points for bounds filtering
-            // (so meshes containing isolated vertices outside face bounds still discover the true scale).
+            // Compute extents over non-degenerate face points, all face points, and all points for scale seeds.
+            ComputeExtents(fbxAxis32, fbxValid, nonDegenerateCornerCps, out double survAx, out double survAy, out double survAz);
             ComputeExtents(fbxAxis32, fbxValid, fbxCornerCps, out double usedAx, out double usedAy, out double usedAz);
             ComputeExtents(fbxAxis32, fbxValid, null, out double allAx, out double allAy, out double allAz);
             ComputeUnityExtents(unityVertices, unityTriangles, out double usedBx, out double usedBy, out double usedBz);
             ComputeUnityExtents(unityVertices, null, out double allBx, out double allBy, out double allBz);
 
-            var seedList = new List<float>(48);
+            var seedList = new List<float>(64);
             var seenScaleBits = new HashSet<int>();
 
-            if (scaleHint.HasValue && scaleHint.Value > MinRepresentableScale && IsFinite(scaleHint.Value))
+            if (scaleHint.HasValue && scaleHint.Value > k_MinRepresentableScale && IsFinite(scaleHint.Value))
             {
                 AddScaleWithNeighbors(scaleHint.Value, seedList, seenScaleBits);
             }
 
+            if (survAx > 0d) AddScaleWithNeighbors((float)(usedBx / survAx), seedList, seenScaleBits);
+            if (survAy > 0d) AddScaleWithNeighbors((float)(usedBy / survAy), seedList, seenScaleBits);
+            if (survAz > 0d) AddScaleWithNeighbors((float)(usedBz / survAz), seedList, seenScaleBits);
             if (usedAx > 0d) AddScaleWithNeighbors((float)(usedBx / usedAx), seedList, seenScaleBits);
             if (usedAy > 0d) AddScaleWithNeighbors((float)(usedBy / usedAy), seedList, seenScaleBits);
             if (usedAz > 0d) AddScaleWithNeighbors((float)(usedBz / usedAz), seedList, seenScaleBits);
@@ -256,11 +716,9 @@ namespace Triturbo.BlendShare.Mapping
             if (allAy > 0d) AddScaleWithNeighbors((float)(allBy / allAy), seedList, seenScaleBits);
             if (allAz > 0d) AddScaleWithNeighbors((float)(allBz / allAz), seedList, seenScaleBits);
 
-            if (seedList.Count == 0)
-            {
-                AddScaleWithNeighbors(1f, seedList, seenScaleBits);
-                AddScaleWithNeighbors(0.01f, seedList, seenScaleBits);
-            }
+            // Always include canonical meter (1.0) and centimeter (0.01) seeds even when outlier culled faces skew AABB ratios.
+            AddScaleWithNeighbors(1f, seedList, seenScaleBits);
+            AddScaleWithNeighbors(0.01f, seedList, seenScaleBits);
 
             var results = new List<CoordinateMatch>();
             var classByKey = new Dictionary<CoordKey, int>(fbxCpCount);
@@ -268,16 +726,16 @@ namespace Triturbo.BlendShare.Mapping
             for (int s = 0; s < seedList.Count; s++)
             {
                 float scale = seedList[s];
-                if (scale <= MinRepresentableScale || !IsFinite(scale))
+                if (scale <= k_MinRepresentableScale || !IsFinite(scale))
                 {
                     continue;
                 }
 
                 // Relative slack accounts for float32 endpoint rounding (e.g., 10000f * 0.01f == 100f in float32
                 // while double computes 99.99999776); exact float32 coordinate lookup below enforces precision.
-                if (allAx * scale * (1d + BoundsRelativeSlack) + BoundsAbsoluteSlack < allBx ||
-                    allAy * scale * (1d + BoundsRelativeSlack) + BoundsAbsoluteSlack < allBy ||
-                    allAz * scale * (1d + BoundsRelativeSlack) + BoundsAbsoluteSlack < allBz)
+                if (allAx * scale * (1d + k_BoundsRelativeSlack) + k_BoundsAbsoluteSlack < allBx ||
+                    allAy * scale * (1d + k_BoundsRelativeSlack) + k_BoundsAbsoluteSlack < allBy ||
+                    allAz * scale * (1d + k_BoundsRelativeSlack) + k_BoundsAbsoluteSlack < allBz)
                 {
                     continue;
                 }
@@ -324,9 +782,230 @@ namespace Triturbo.BlendShare.Mapping
                     continue;
                 }
 
-                if (!ContainsEquivalentPartition(results, fbxCpClass, unityVertexClass))
+                if (!ContainsEquivalentPartition(results, fbxCpClass, unityVertexClass, null))
                 {
-                    results.Add(new CoordinateMatch(scale, bakeAxis, nextClass, fbxCpClass, unityVertexClass));
+                    results.Add(new CoordinateMatch(scale, transform, nextClass, fbxCpClass, unityVertexClass, null, isApproximate: false, positionTolerance: 0f));
+                }
+            }
+
+            return results;
+        }
+
+        private static List<CoordinateMatch> DiscoverApproximateCoordinateMatches(
+            Vector3d[] fbxPoints64,
+            int[] nonDegenerateCornerCps,
+            int[] fbxCornerCps,
+            Vector3[] unityVertices,
+            int[] unityTriangles,
+            CandidateTransform transform,
+            float? scaleHint)
+        {
+            int fbxCpCount = fbxPoints64.Length;
+            int unityVertexCount = unityVertices.Length;
+
+            var fbxAxis32 = new Float3[fbxCpCount];
+            var fbxValid = new bool[fbxCpCount];
+            for (int i = 0; i < fbxCpCount; i++)
+            {
+                var p = transform.ApplyPreScale32(fbxPoints64[i]);
+                if (!IsFinite(p.X) || !IsFinite(p.Y) || !IsFinite(p.Z))
+                {
+                    continue;
+                }
+
+                fbxValid[i] = true;
+                fbxAxis32[i] = p;
+            }
+
+            ComputeExtents(fbxAxis32, fbxValid, nonDegenerateCornerCps, out double survAx, out double survAy, out double survAz);
+            ComputeExtents(fbxAxis32, fbxValid, fbxCornerCps, out double usedAx, out double usedAy, out double usedAz);
+            ComputeExtents(fbxAxis32, fbxValid, null, out double allAx, out double allAy, out double allAz);
+            ComputeUnityExtents(unityVertices, unityTriangles, out double usedBx, out double usedBy, out double usedBz);
+            ComputeUnityExtents(unityVertices, null, out double allBx, out double allBy, out double allBz);
+
+            var scaleList = new List<float>(16);
+            var seenScaleBits = new HashSet<int>();
+
+            void AddApproxScale(float candidate)
+            {
+                if (candidate <= k_MinRepresentableScale || !IsFinite(candidate)) return;
+                if (Math.Abs(candidate - 0.01f) <= 0.01f * 1e-2f) AddUniqueScale(0.01f, scaleList, seenScaleBits);
+                if (Math.Abs(candidate - 1f) <= 1e-2f) AddUniqueScale(1f, scaleList, seenScaleBits);
+                AddUniqueScale(candidate, scaleList, seenScaleBits);
+            }
+
+            if (scaleHint.HasValue) AddApproxScale(scaleHint.Value);
+            if (survAx > 1e-5d && usedBx > 1e-5d) AddApproxScale((float)(usedBx / survAx));
+            if (survAy > 1e-5d && usedBy > 1e-5d) AddApproxScale((float)(usedBy / survAy));
+            if (survAz > 1e-5d && usedBz > 1e-5d) AddApproxScale((float)(usedBz / survAz));
+            if (usedAx > 1e-5d && usedBx > 1e-5d) AddApproxScale((float)(usedBx / usedAx));
+            if (usedAy > 1e-5d && usedBy > 1e-5d) AddApproxScale((float)(usedBy / usedAy));
+            if (usedAz > 1e-5d && usedBz > 1e-5d) AddApproxScale((float)(usedBz / usedAz));
+            AddUniqueScale(1f, scaleList, seenScaleBits);
+            AddUniqueScale(0.01f, scaleList, seenScaleBits);
+
+            double maxUnityExtent = Math.Max(allBx, Math.Max(allBy, allBz));
+            float posTol = Math.Max(2.5e-4f, (float)(maxUnityExtent * 4e-3d));
+            float posTolSqr = posTol * posTol;
+
+            var results = new List<CoordinateMatch>();
+            var clusterCenters = new List<Vector3>(fbxCpCount);
+            var clusterGrid = new Dictionary<SpatialCellKey, List<int>>(fbxCpCount);
+            var lookupGrid = new Dictionary<SpatialCellKey, List<int>>(fbxCpCount);
+            var candScratch = new List<int>(4);
+
+            for (int s = 0; s < scaleList.Count; s++)
+            {
+                float scale = scaleList[s];
+                if (allAx * scale * (1d + k_ApproxBoundsRelativeSlack) + k_ApproxBoundsAbsoluteSlack < allBx ||
+                    allAy * scale * (1d + k_ApproxBoundsRelativeSlack) + k_ApproxBoundsAbsoluteSlack < allBy ||
+                    allAz * scale * (1d + k_ApproxBoundsRelativeSlack) + k_ApproxBoundsAbsoluteSlack < allBz)
+                {
+                    continue;
+                }
+
+                clusterCenters.Clear();
+                clusterGrid.Clear();
+                lookupGrid.Clear();
+
+                float clusterTol = Math.Max(1e-6f, 1e-5f * scale);
+                float clusterTolSqr = clusterTol * clusterTol;
+                float invClusterCell = 1f / clusterTol;
+                var fbxCpClass = new int[fbxCpCount];
+
+                for (int i = 0; i < fbxCpCount; i++)
+                {
+                    if (!fbxValid[i])
+                    {
+                        fbxCpClass[i] = -1;
+                        continue;
+                    }
+
+                    var p = new Vector3(fbxAxis32[i].X * scale, fbxAxis32[i].Y * scale, fbxAxis32[i].Z * scale);
+                    var baseCell = SpatialCellKey.FromPoint(p, invClusterCell);
+                    int matchedCluster = -1;
+
+                    for (int dx = -1; dx <= 1 && matchedCluster < 0; dx++)
+                    {
+                        for (int dy = -1; dy <= 1 && matchedCluster < 0; dy++)
+                        {
+                            for (int dz = -1; dz <= 1; dz++)
+                            {
+                                var key = new SpatialCellKey(baseCell.X + dx, baseCell.Y + dy, baseCell.Z + dz);
+                                if (!clusterGrid.TryGetValue(key, out var bucket)) continue;
+                                for (int b = 0; b < bucket.Count; b++)
+                                {
+                                    int cIdx = bucket[b];
+                                    if ((clusterCenters[cIdx] - p).sqrMagnitude <= clusterTolSqr)
+                                        {
+                                        matchedCluster = cIdx;
+                                        break;
+                                    }
+                                }
+
+                                if (matchedCluster >= 0) break;
+                            }
+                        }
+                    }
+
+                    if (matchedCluster < 0)
+                    {
+                        matchedCluster = clusterCenters.Count;
+                        clusterCenters.Add(p);
+                        if (!clusterGrid.TryGetValue(baseCell, out var ownBucket))
+                        {
+                            ownBucket = new List<int>(2);
+                            clusterGrid.Add(baseCell, ownBucket);
+                        }
+
+                        ownBucket.Add(matchedCluster);
+                    }
+
+                    fbxCpClass[i] = matchedCluster;
+                }
+
+                if (clusterCenters.Count == 0)
+                {
+                    continue;
+                }
+
+                float invPosCell = 1f / posTol;
+                for (int cIdx = 0; cIdx < clusterCenters.Count; cIdx++)
+                {
+                    var key = SpatialCellKey.FromPoint(clusterCenters[cIdx], invPosCell);
+                    if (!lookupGrid.TryGetValue(key, out var bucket))
+                    {
+                        bucket = new List<int>(2);
+                        lookupGrid.Add(key, bucket);
+                    }
+
+                    bucket.Add(cIdx);
+                }
+
+                var unityVertexClass = new int[unityVertexCount];
+                var unityCandidateClasses = new int[unityVertexCount][];
+                bool allMatched = true;
+                for (int v = 0; v < unityVertexCount; v++)
+                {
+                    var u = unityVertices[v];
+                    var baseCell = SpatialCellKey.FromPoint(u, invPosCell);
+                    candScratch.Clear();
+                    int nearestCluster = -1;
+                    float nearestDistSqr = float.PositiveInfinity;
+
+                    for (int dx = -1; dx <= 1; dx++)
+                    {
+                        for (int dy = -1; dy <= 1; dy++)
+                        {
+                            for (int dz = -1; dz <= 1; dz++)
+                            {
+                                var key = new SpatialCellKey(baseCell.X + dx, baseCell.Y + dy, baseCell.Z + dz);
+                                if (!lookupGrid.TryGetValue(key, out var bucket)) continue;
+                                for (int b = 0; b < bucket.Count; b++)
+                                {
+                                    int cIdx = bucket[b];
+                                    float dSqr = (clusterCenters[cIdx] - u).sqrMagnitude;
+                                    if (dSqr <= posTolSqr)
+                                    {
+                                        candScratch.Add(cIdx);
+                                        if (dSqr < nearestDistSqr)
+                                        {
+                                            nearestDistSqr = dSqr;
+                                            nearestCluster = cIdx;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (candScratch.Count == 0)
+                    {
+                        allMatched = false;
+                        break;
+                    }
+
+                    candScratch.Sort();
+                    unityVertexClass[v] = nearestCluster >= 0 ? nearestCluster : candScratch[0];
+                    unityCandidateClasses[v] = candScratch.ToArray();
+                }
+
+                if (!allMatched)
+                {
+                    continue;
+                }
+
+                if (!ContainsEquivalentPartition(results, fbxCpClass, unityVertexClass, unityCandidateClasses))
+                {
+                    results.Add(new CoordinateMatch(
+                        scale,
+                        transform,
+                        clusterCenters.Count,
+                        fbxCpClass,
+                        unityVertexClass,
+                        unityCandidateClasses,
+                        isApproximate: true,
+                        positionTolerance: posTol));
                 }
             }
 
@@ -335,7 +1014,7 @@ namespace Triturbo.BlendShare.Mapping
 
         private static void AddScaleWithNeighbors(float center, List<float> list, HashSet<int> seenBits)
         {
-            if (center <= MinRepresentableScale || !IsFinite(center))
+            if (center <= k_MinRepresentableScale || !IsFinite(center))
             {
                 return;
             }
@@ -343,7 +1022,7 @@ namespace Triturbo.BlendShare.Mapping
             AddUniqueScale(center, list, seenBits);
             float lo = center;
             float hi = center;
-            for (int step = 0; step < MaxUlpNeighborSteps; step++)
+            for (int step = 0; step < k_MaxUlpNeighborSteps; step++)
             {
                 lo = NextDownPositive(lo);
                 hi = NextUpPositive(hi);
@@ -354,7 +1033,7 @@ namespace Triturbo.BlendShare.Mapping
 
         private static void AddUniqueScale(float value, List<float> list, HashSet<int> seenBits)
         {
-            if (value <= MinRepresentableScale || !IsFinite(value))
+            if (value <= k_MinRepresentableScale || !IsFinite(value))
             {
                 return;
             }
@@ -489,13 +1168,15 @@ namespace Triturbo.BlendShare.Mapping
         private static bool ContainsEquivalentPartition(
             List<CoordinateMatch> existing,
             int[] fbxCpClass,
-            int[] unityVertexClass)
+            int[] unityVertexClass,
+            int[][] unityCandidateClasses)
         {
             for (int i = 0; i < existing.Count; i++)
             {
                 var other = existing[i];
                 if (ArraysEqual(other.FbxCpClass, fbxCpClass) &&
-                    ArraysEqual(other.UnityVertexClass, unityVertexClass))
+                    ArraysEqual(other.UnityVertexClass, unityVertexClass) &&
+                    JaggedArraysEqual(other.UnityVertexCandidateClasses, unityCandidateClasses))
                 {
                     return true;
                 }
@@ -504,9 +1185,22 @@ namespace Triturbo.BlendShare.Mapping
             return false;
         }
 
+        private static bool JaggedArraysEqual(int[][] a, int[][] b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a == null || b == null || a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++)
+            {
+                if (!ArraysEqual(a[i], b[i])) return false;
+            }
+
+            return true;
+        }
+
         private static bool ArraysEqual(int[] a, int[] b)
         {
-            if (a.Length != b.Length) return false;
+            if (ReferenceEquals(a, b)) return true;
+            if (a == null || b == null || a.Length != b.Length) return false;
             for (int i = 0; i < a.Length; i++)
             {
                 if (a[i] != b[i]) return false;
@@ -515,7 +1209,7 @@ namespace Triturbo.BlendShare.Mapping
             return true;
         }
 
-        // ─── Stage 1b: Polygon & Reversed-Winding Corner Matching ──────────────────
+        // ─── Stage 1b: Polygon & Winding Corner Matching ───────────────────────────
 
         private static bool TryMatchTriangles(
             int[] faceSizes,
@@ -524,8 +1218,10 @@ namespace Triturbo.BlendShare.Mapping
             int[] fbxCpClass,
             int classCount,
             int[] unityVertexClass,
+            int[][] unityVertexCandidateClasses,
             int[] unityTriangles,
             int triangleCount,
+            bool reversesWinding,
             out List<CornerTriple>[] options,
             out int degenerateCount)
         {
@@ -562,13 +1258,18 @@ namespace Triturbo.BlendShare.Mapping
 
             options = new List<CornerTriple>[triangleCount];
             degenerateCount = 0;
+            var markA = new int[faceCount];
             var markB = new int[faceCount];
             var markC = new int[faceCount];
             int stamp = 0;
 
+            var candidateFacesA = new List<int>(8);
             var slotsA = new List<int>(4);
             var slotsB = new List<int>(4);
             var slotsC = new List<int>(4);
+            var singleA = new int[1];
+            var singleB = new int[1];
+            var singleC = new int[1];
 
             for (int t = 0; t < triangleCount; t++)
             {
@@ -595,22 +1296,74 @@ namespace Triturbo.BlendShare.Mapping
                     degenerateCount++;
                 }
 
-                var facesA = classToFaces[ca];
-                var facesB = classToFaces[cb];
-                var facesC = classToFaces[cc];
-                if (facesA == null || facesB == null || facesC == null)
+                int[] candsA;
+                int[] candsB;
+                int[] candsC;
+                if (unityVertexCandidateClasses != null)
+                {
+                    candsA = unityVertexCandidateClasses[v0];
+                    candsB = unityVertexCandidateClasses[v1];
+                    candsC = unityVertexCandidateClasses[v2];
+                }
+                else
+                {
+                    singleA[0] = ca;
+                    singleB[0] = cb;
+                    singleC[0] = cc;
+                    candsA = singleA;
+                    candsB = singleB;
+                    candsC = singleC;
+                }
+
+                stamp++;
+                candidateFacesA.Clear();
+                for (int a = 0; a < candsA.Length; a++)
+                {
+                    var faces = classToFaces[candsA[a]];
+                    if (faces == null) continue;
+                    for (int i = 0; i < faces.Count; i++)
+                    {
+                        int f = faces[i];
+                        if (markA[f] != stamp)
+                        {
+                            markA[f] = stamp;
+                            candidateFacesA.Add(f);
+                        }
+                    }
+                }
+
+                if (candidateFacesA.Count == 0)
                 {
                     return false;
                 }
 
-                stamp++;
-                for (int i = 0; i < facesB.Count; i++) markB[facesB[i]] = stamp;
-                for (int i = 0; i < facesC.Count; i++) markC[facesC[i]] = stamp;
+                bool anyB = false;
+                for (int b = 0; b < candsB.Length; b++)
+                {
+                    var faces = classToFaces[candsB[b]];
+                    if (faces == null) continue;
+                    anyB = true;
+                    for (int i = 0; i < faces.Count; i++) markB[faces[i]] = stamp;
+                }
+
+                bool anyC = false;
+                for (int c = 0; c < candsC.Length; c++)
+                {
+                    var faces = classToFaces[candsC[c]];
+                    if (faces == null) continue;
+                    anyC = true;
+                    for (int i = 0; i < faces.Count; i++) markC[faces[i]] = stamp;
+                }
+
+                if (!anyB || !anyC)
+                {
+                    return false;
+                }
 
                 var triOpts = new List<CornerTriple>(2);
-                for (int i = 0; i < facesA.Count; i++)
+                for (int i = 0; i < candidateFacesA.Count; i++)
                 {
-                    int f = facesA[i];
+                    int f = candidateFacesA[i];
                     if (markB[f] != stamp || markC[f] != stamp) continue;
 
                     int lo = faceStarts[f];
@@ -621,9 +1374,9 @@ namespace Triturbo.BlendShare.Mapping
                     for (int k = 0; k < n; k++)
                     {
                         int cls = cornerClasses[lo + k];
-                        if (cls == ca) slotsA.Add(k);
-                        if (cls == cb) slotsB.Add(k);
-                        if (cls == cc) slotsC.Add(k);
+                        if (ContainsClass(candsA, cls)) slotsA.Add(k);
+                        if (ContainsClass(candsB, cls)) slotsB.Add(k);
+                        if (ContainsClass(candsC, cls)) slotsC.Add(k);
                     }
 
                     for (int ia = 0; ia < slotsA.Count; ia++)
@@ -638,11 +1391,10 @@ namespace Triturbo.BlendShare.Mapping
                                 int w = slotsC[ic];
                                 if (w == u || w == v) continue;
 
-                                // Unity reverses source FBX polygon winding (both bakeAxis=false and true flip handedness).
-                                int duv = Mod(u - v, n);
-                                int dvw = Mod(v - w, n);
-                                int dwu = Mod(w - u, n);
-                                if (duv + dvw + dwu == n)
+                                int d1 = reversesWinding ? Mod(u - v, n) : Mod(v - u, n);
+                                int d2 = reversesWinding ? Mod(v - w, n) : Mod(w - v, n);
+                                int d3 = reversesWinding ? Mod(w - u, n) : Mod(u - w, n);
+                                if (d1 + d2 + d3 == n)
                                 {
                                     triOpts.Add(new CornerTriple(lo + u, lo + v, lo + w));
                                 }
@@ -662,6 +1414,16 @@ namespace Triturbo.BlendShare.Mapping
             return true;
         }
 
+        private static bool ContainsClass(int[] classes, int target)
+        {
+            for (int i = 0; i < classes.Length; i++)
+            {
+                if (classes[i] == target) return true;
+            }
+
+            return false;
+        }
+
         private static int Mod(int value, int modulus)
         {
             int r = value % modulus;
@@ -669,7 +1431,7 @@ namespace Triturbo.BlendShare.Mapping
         }
 
         /// <summary>
-        /// Returns true if <paramref name="fbxMesh"/> has at least one eligible single-frame weight-100 blendshape
+        /// Returns true if <paramref name="fbxMesh"/> has at least one eligible single- or multi-frame blendshape
         /// channel that Stage 3b can evaluate. Shared with cache identity checks so sensitivity and keys never drift.
         /// </summary>
         public static bool HasEligibleSingleFrameBlendShape(IFbxMeshGeometry fbxMesh)
@@ -684,7 +1446,7 @@ namespace Triturbo.BlendShare.Mapping
                 if (deformer == null || deformer.Channels == null) continue;
                 foreach (var channel in deformer.Channels)
                 {
-                    if (IsEligibleSingleFrameChannel(channel, out _))
+                    if (IsEligibleBlendChannel(channel))
                     {
                         return true;
                     }
@@ -694,26 +1456,30 @@ namespace Triturbo.BlendShare.Mapping
             return false;
         }
 
-        private static bool IsEligibleSingleFrameChannel(IFbxBlendChannel channel, out IFbxBlendShape shape)
+        private static bool IsEligibleBlendChannel(IFbxBlendChannel channel)
         {
-            shape = null;
             if (channel == null ||
                 string.IsNullOrEmpty(channel.Name) ||
                 channel.Keyframes == null ||
-                channel.Keyframes.Count != 1)
+                channel.Keyframes.Count == 0)
             {
                 return false;
             }
 
-            var keyframe = channel.Keyframes[0];
-            if (keyframe?.Shape == null ||
-                Math.Abs(keyframe.TargetWeight - 100d) > BlendShapeWeight100Tolerance)
+            bool anyValid = false;
+            for (int i = 0; i < channel.Keyframes.Count; i++)
             {
-                return false;
+                var keyframe = channel.Keyframes[i];
+                if (keyframe?.Shape != null &&
+                    !double.IsNaN(keyframe.TargetWeight) &&
+                    !double.IsInfinity(keyframe.TargetWeight) &&
+                    Math.Abs(keyframe.TargetWeight) > 1e-9d)
+                {
+                    anyValid = true;
+                }
             }
 
-            shape = keyframe.Shape;
-            return true;
+            return anyValid;
         }
 
         // ─── Stage 2 & 3: Connected-Component Layout DFS + Lazy UV0 / BlendShape ──
@@ -721,6 +1487,7 @@ namespace Triturbo.BlendShare.Mapping
         private static bool TryResolveAmbiguousTriangles(
             IFbxMeshGeometry fbxMesh,
             Vector3d[] fbxPoints64,
+            CoordKey[] fbxBase32,
             int[] faceSizes,
             int[] faceStarts,
             int[] cornerToFace,
@@ -730,8 +1497,11 @@ namespace Triturbo.BlendShare.Mapping
             int triangleCount,
             List<CornerTriple>[] rawOptions,
             float scale,
-            bool bakeAxis,
+            CandidateTransform transform,
             bool? weldVerticesHint,
+            bool? swapUvHint,
+            float uvSqrTolerance,
+            float blendShapeDeltaTolerance,
             out List<CornerTriple>[] output,
             out string refinementNote,
             out bool isBlendShapeSensitive,
@@ -740,12 +1510,62 @@ namespace Triturbo.BlendShare.Mapping
             refinementNote = string.Empty;
             isBlendShapeSensitive = false;
             exceededLayoutDfsBudget = false;
+            bool allowDistinctCpWeld = weldVerticesHint != false;
+            bool reversesWinding = transform.AxisPerm.ReversesWinding;
+
             var ambiguousTriangles = new List<int>();
+            var dirtyFaces = new HashSet<int>();
             for (int t = 0; t < triangleCount; t++)
             {
                 if (rawOptions[t] != null && rawOptions[t].Count > 1)
                 {
                     ambiguousTriangles.Add(t);
+                    var opts = rawOptions[t];
+                    for (int j = 0; j < opts.Count; j++)
+                    {
+                        dirtyFaces.Add(cornerToFace[opts[j].A]);
+                    }
+                }
+            }
+
+            // Validate singleton-only FBX faces too so two Unity triangles can never silently map onto the same
+            // unique FBX 3-gon (e.g. under approximate nearest-cluster fallback).
+            var singletonUsedByFace = new Dictionary<int, HashSet<SortedCornerTriple>>();
+            for (int t = 0; t < triangleCount; t++)
+            {
+                var opts = rawOptions[t];
+                if (opts == null || opts.Count != 1) continue;
+                int f = cornerToFace[opts[0].A];
+                if (dirtyFaces.Contains(f)) continue;
+
+                if (!singletonUsedByFace.TryGetValue(f, out var set))
+                {
+                    set = new HashSet<SortedCornerTriple>();
+                    singletonUsedByFace.Add(f, set);
+                }
+
+                var sorted = SortedCornerTriple.Create(opts[0].A, opts[0].B, opts[0].C);
+                if (!set.Add(sorted))
+                {
+                    output = null;
+                    return false;
+                }
+            }
+
+            foreach (var kv in singletonUsedByFace)
+            {
+                int f = kv.Key;
+                var layoutSet = ComputeFaceLayouts(
+                    faceStarts[f],
+                    faceSizes[f],
+                    fbxBase32,
+                    cornerCps,
+                    allowDistinctCpWeld,
+                    reversesWinding);
+                if (!layoutSet.MatchesExact(kv.Value))
+                {
+                    output = null;
+                    return false;
                 }
             }
 
@@ -753,16 +1573,6 @@ namespace Triturbo.BlendShare.Mapping
             {
                 output = rawOptions;
                 return true;
-            }
-
-            var dirtyFaces = new HashSet<int>();
-            for (int i = 0; i < ambiguousTriangles.Count; i++)
-            {
-                var opts = rawOptions[ambiguousTriangles[i]];
-                for (int j = 0; j < opts.Count; j++)
-                {
-                    dirtyFaces.Add(cornerToFace[opts[j].A]);
-                }
             }
 
             var candidatesByTri = new Dictionary<int, List<CornerTriple>>(ambiguousTriangles.Count * 2);
@@ -776,13 +1586,6 @@ namespace Triturbo.BlendShare.Mapping
                 }
             }
 
-            var fbxBase32 = new CoordKey[fbxPoints64.Length];
-            for (int i = 0; i < fbxPoints64.Length; i++)
-            {
-                fbxBase32[i] = new CoordKey((float)fbxPoints64[i].x, (float)fbxPoints64[i].y, (float)fbxPoints64[i].z);
-            }
-
-            bool allowDistinctCpWeld = weldVerticesHint != false;
             var faceVariants = new Dictionary<int, FaceLayoutSet>(dirtyFaces.Count);
             foreach (int f in dirtyFaces)
             {
@@ -791,7 +1594,8 @@ namespace Triturbo.BlendShare.Mapping
                     faceSizes[f],
                     fbxBase32,
                     cornerCps,
-                    allowDistinctCpWeld);
+                    allowDistinctCpWeld,
+                    reversesWinding);
             }
 
             // Partition dirty faces into independent connected components via Union-Find.
@@ -897,18 +1701,31 @@ namespace Triturbo.BlendShare.Mapping
             }
 
             // Stage 3a: Lazy UV0 disambiguation if ambiguities remain.
+            // Respect explicit SwapUvChannels hints when known; when unknown (null), if BOTH UvSets[0] and UvSets[1]
+            // explain every triangle across the mesh with opposite assignments, retain their union so Stage 3b blendshapes
+            // can disambiguate or honest ambiguity is preserved instead of returning a wrong singleton assignment.
             if (HasRemainingAmbiguity(currentAllowed) &&
                 unityMesh.Uv0 != null &&
+                unityMesh.Uv0.Length == unityMesh.Vertices.Length &&
                 fbxMesh is IFbxMesh fullFbxMesh &&
-                fullFbxMesh.UvSets.Count > 0 &&
-                fullFbxMesh.UvSets[0]?.Uvs != null &&
-                fullFbxMesh.UvSets[0].Uvs.Exists)
+                fullFbxMesh.UvSets != null &&
+                fullFbxMesh.UvSets.Count > 0)
             {
-                var fbxUv0 = new Vector2d[cornerCps.Length];
-                if (fullFbxMesh.UvSets[0].Uvs.TryCopyPerCornerValues(fbxUv0, out int uvWritten) &&
-                    uvWritten == cornerCps.Length)
+                var unityUv0 = unityMesh.Uv0;
+                bool canUseUv0 = swapUvHint != true || fullFbxMesh.UvSets.Count == 1;
+                bool canUseUv1 = swapUvHint != false && fullFbxMesh.UvSets.Count > 1;
+
+                Vector2d[] fbxUv0 = null;
+                bool uv0Valid = canUseUv0 &&
+                                TryReadPerCornerUvs(fullFbxMesh.UvSets[0], cornerCps.Length, out fbxUv0) &&
+                                IsUvSetGloballyConsistent(fbxUv0, unityUv0, unityTriangles, triangleCount, rawOptions, currentAllowed, uvSqrTolerance);
+                Vector2d[] fbxUv1 = null;
+                bool uv1Valid = canUseUv1 &&
+                                TryReadPerCornerUvs(fullFbxMesh.UvSets[1], cornerCps.Length, out fbxUv1) &&
+                                IsUvSetGloballyConsistent(fbxUv1, unityUv0, unityTriangles, triangleCount, rawOptions, currentAllowed, uvSqrTolerance);
+
+                if (uv0Valid && !uv1Valid)
                 {
-                    var unityUv0 = unityMesh.Uv0;
                     ApplyAttributeFilterPerComponent(
                         componentTriangles,
                         componentFacesByRoot,
@@ -916,13 +1733,61 @@ namespace Triturbo.BlendShare.Mapping
                         cornerToFace,
                         faceVariants,
                         (t, opt) =>
-                            UvMatches(fbxUv0[opt.A], unityUv0[unityTriangles[t * 3]]) &&
-                            UvMatches(fbxUv0[opt.B], unityUv0[unityTriangles[t * 3 + 1]]) &&
-                            UvMatches(fbxUv0[opt.C], unityUv0[unityTriangles[t * 3 + 2]]));
+                            UvMatches(fbxUv0[opt.A], unityUv0[unityTriangles[t * 3]], uvSqrTolerance) &&
+                            UvMatches(fbxUv0[opt.B], unityUv0[unityTriangles[t * 3 + 1]], uvSqrTolerance) &&
+                            UvMatches(fbxUv0[opt.C], unityUv0[unityTriangles[t * 3 + 2]], uvSqrTolerance));
+                }
+                else if (!uv0Valid && uv1Valid)
+                {
+                    ApplyAttributeFilterPerComponent(
+                        componentTriangles,
+                        componentFacesByRoot,
+                        currentAllowed,
+                        cornerToFace,
+                        faceVariants,
+                        (t, opt) =>
+                            UvMatches(fbxUv1[opt.A], unityUv0[unityTriangles[t * 3]], uvSqrTolerance) &&
+                            UvMatches(fbxUv1[opt.B], unityUv0[unityTriangles[t * 3 + 1]], uvSqrTolerance) &&
+                            UvMatches(fbxUv1[opt.C], unityUv0[unityTriangles[t * 3 + 2]], uvSqrTolerance));
+                }
+                else if (uv0Valid && uv1Valid)
+                {
+                    var allowed0 = CloneAllowedMap(currentAllowed);
+                    var allowed1 = CloneAllowedMap(currentAllowed);
+                    ApplyAttributeFilterPerComponent(
+                        componentTriangles,
+                        componentFacesByRoot,
+                        allowed0,
+                        cornerToFace,
+                        faceVariants,
+                        (t, opt) =>
+                            UvMatches(fbxUv0[opt.A], unityUv0[unityTriangles[t * 3]], uvSqrTolerance) &&
+                            UvMatches(fbxUv0[opt.B], unityUv0[unityTriangles[t * 3 + 1]], uvSqrTolerance) &&
+                            UvMatches(fbxUv0[opt.C], unityUv0[unityTriangles[t * 3 + 2]], uvSqrTolerance));
+                    ApplyAttributeFilterPerComponent(
+                        componentTriangles,
+                        componentFacesByRoot,
+                        allowed1,
+                        cornerToFace,
+                        faceVariants,
+                        (t, opt) =>
+                            UvMatches(fbxUv1[opt.A], unityUv0[unityTriangles[t * 3]], uvSqrTolerance) &&
+                            UvMatches(fbxUv1[opt.B], unityUv0[unityTriangles[t * 3 + 1]], uvSqrTolerance) &&
+                            UvMatches(fbxUv1[opt.C], unityUv0[unityTriangles[t * 3 + 2]], uvSqrTolerance));
+
+                    foreach (var key in new List<int>(currentAllowed.Keys))
+                    {
+                        var set = new HashSet<CornerTriple>(allowed0[key]);
+                        var other = allowed1[key];
+                        for (int i = 0; i < other.Count; i++) set.Add(other[i]);
+                        var merged = new List<CornerTriple>(set);
+                        merged.Sort();
+                        currentAllowed[key] = merged;
+                    }
                 }
             }
 
-            // Stage 3b: Lazy single-frame (weight 100) BlendShape disambiguation if ambiguities STILL remain.
+            // Stage 3b: Lazy single- and multi-frame BlendShape disambiguation if ambiguities STILL remain.
             // Compute sensitivity BEFORE checking Unity-side BlendShapes so a target without matching shapes
             // still flags blendshape sensitivity and cannot cache an ambiguous union under a geometry-only key.
             bool hasRemainingAmbiguityAfterUv = HasRemainingAmbiguity(currentAllowed);
@@ -939,7 +1804,7 @@ namespace Triturbo.BlendShare.Mapping
                     unityTriangles,
                     currentAllowed,
                     scale,
-                    bakeAxis);
+                    transform);
                 if (pairErrors != null)
                 {
                     ApplyAttributeFilterPerComponent(
@@ -949,9 +1814,9 @@ namespace Triturbo.BlendShare.Mapping
                         cornerToFace,
                         faceVariants,
                         (t, opt) =>
-                            BlendShapePairMatches(pairErrors, unityTriangles[t * 3], cornerCps[opt.A]) &&
-                            BlendShapePairMatches(pairErrors, unityTriangles[t * 3 + 1], cornerCps[opt.B]) &&
-                            BlendShapePairMatches(pairErrors, unityTriangles[t * 3 + 2], cornerCps[opt.C]));
+                            BlendShapePairMatches(pairErrors, unityTriangles[t * 3], cornerCps[opt.A], blendShapeDeltaTolerance) &&
+                            BlendShapePairMatches(pairErrors, unityTriangles[t * 3 + 1], cornerCps[opt.B], blendShapeDeltaTolerance) &&
+                            BlendShapePairMatches(pairErrors, unityTriangles[t * 3 + 2], cornerCps[opt.C], blendShapeDeltaTolerance));
                 }
             }
 
@@ -1053,17 +1918,299 @@ namespace Triturbo.BlendShare.Mapping
             }
         }
 
-        private static bool UvMatches(Vector2d fbxUv, Vector2 unityUv)
+        private static bool TryReadPerCornerUvs(IFbxUvSet uvSet, int cornerCount, out Vector2d[] perCorner)
+        {
+            perCorner = null;
+            if (uvSet?.Uvs == null || !uvSet.Uvs.Exists)
+            {
+                return false;
+            }
+
+            var buf = new Vector2d[cornerCount];
+            if (!uvSet.Uvs.TryCopyPerCornerValues(buf, out int written) || written != cornerCount)
+            {
+                return false;
+            }
+
+            perCorner = buf;
+            return true;
+        }
+
+        private static bool IsUvSetGloballyConsistent(
+            Vector2d[] fbxUv,
+            Vector2[] unityUv0,
+            int[] unityTriangles,
+            int triangleCount,
+            List<CornerTriple>[] rawOptions,
+            Dictionary<int, List<CornerTriple>> currentAllowed,
+            float uvSqrTolerance)
+        {
+            for (int t = 0; t < triangleCount; t++)
+            {
+                var opts = currentAllowed.TryGetValue(t, out var refined) ? refined : rawOptions[t];
+                if (opts == null || opts.Count == 0) continue;
+
+                int v0 = unityTriangles[t * 3];
+                int v1 = unityTriangles[t * 3 + 1];
+                int v2 = unityTriangles[t * 3 + 2];
+                bool anyMatch = false;
+                for (int i = 0; i < opts.Count; i++)
+                {
+                    var opt = opts[i];
+                    if (UvMatches(fbxUv[opt.A], unityUv0[v0], uvSqrTolerance) &&
+                        UvMatches(fbxUv[opt.B], unityUv0[v1], uvSqrTolerance) &&
+                        UvMatches(fbxUv[opt.C], unityUv0[v2], uvSqrTolerance))
+                    {
+                        anyMatch = true;
+                        break;
+                    }
+                }
+
+                if (!anyMatch)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool UvMatches(Vector2d fbxUv, Vector2 unityUv, float uvSqrTolerance)
         {
             float dx = (float)fbxUv.x - unityUv.x;
             float dy = (float)fbxUv.y - unityUv.y;
-            return dx * dx + dy * dy <= Uv0SqrDistanceTolerance;
+            return dx * dx + dy * dy <= uvSqrTolerance;
         }
 
-        private static bool BlendShapePairMatches(Dictionary<long, float> pairErrors, int unityVertex, int fbxCp)
+        private static bool BlendShapePairMatches(Dictionary<long, float> pairErrors, int unityVertex, int fbxCp, float tolerance)
         {
             long key = ((long)unityVertex << 32) | (uint)fbxCp;
-            return !pairErrors.TryGetValue(key, out float err) || err <= BlendShapeDeltaTolerance;
+            return !pairErrors.TryGetValue(key, out float err) || err <= tolerance;
+        }
+
+        private static Dictionary<int, List<CornerTriple>> CloneAllowedMap(Dictionary<int, List<CornerTriple>> source)
+        {
+            var copy = new Dictionary<int, List<CornerTriple>>(source.Count);
+            foreach (var kv in source)
+            {
+                copy[kv.Key] = new List<CornerTriple>(kv.Value);
+            }
+
+            return copy;
+        }
+
+        private static bool TryCollectUniqueMatchingFramePairs(
+            IUnityBlendShapeSnapshot unityBlendShapes,
+            IFbxBlendChannel channel,
+            List<(IFbxBlendShape Shape, Vector3[] UnityDeltas)> destination)
+        {
+            string name = channel.Name;
+            if (!unityBlendShapes.TryGetShapeFrames(name, out var frames) || frames == null || frames.Length == 0)
+            {
+                if (channel.Keyframes.Count == 1 &&
+                    Math.Abs(channel.Keyframes[0].TargetWeight * 100d - 100d) <= k_BlendShapeFrameWeightPercentTolerance &&
+                    unityBlendShapes.TryGetSingleFrameDeltaVertices(name, out var singleDeltas) &&
+                    singleDeltas != null)
+                {
+                    frames = new[] { new UnityBlendShapeFrame(100f, singleDeltas) };
+                }
+                else
+                {
+                    return false;
+                }
+            }
+
+            int beforeCount = destination.Count;
+            for (int i = 0; i < channel.Keyframes.Count; i++)
+            {
+                var kf = channel.Keyframes[i];
+                if (kf?.Shape == null ||
+                    double.IsNaN(kf.TargetWeight) ||
+                    double.IsInfinity(kf.TargetWeight) ||
+                    Math.Abs(kf.TargetWeight) <= 1e-9d)
+                {
+                    continue;
+                }
+
+                double targetPercent = kf.TargetWeight * 100d;
+
+                // Skip duplicate/ambiguous FBX keyframe weights so duplicate weights never pair arbitrarily by index.
+                bool duplicateFbxWeight = false;
+                for (int j = 0; j < channel.Keyframes.Count; j++)
+                {
+                    if (j == i || channel.Keyframes[j] == null) continue;
+                    if (Math.Abs(channel.Keyframes[j].TargetWeight * 100d - targetPercent) <= k_BlendShapeFrameWeightPercentTolerance)
+                    {
+                        duplicateFbxWeight = true;
+                        break;
+                    }
+                }
+
+                if (duplicateFbxWeight)
+                {
+                    continue;
+                }
+
+                int matchedUnityIndex = -1;
+                bool duplicateUnityWeight = false;
+                for (int u = 0; u < frames.Length; u++)
+                {
+                    if (frames[u].DeltaVertices == null) continue;
+                    if (Math.Abs(frames[u].Weight - targetPercent) <= k_BlendShapeFrameWeightPercentTolerance)
+                    {
+                        if (matchedUnityIndex >= 0)
+                        {
+                            duplicateUnityWeight = true;
+                            break;
+                        }
+
+                        matchedUnityIndex = u;
+                    }
+                }
+
+                if (matchedUnityIndex >= 0 && !duplicateUnityWeight)
+                {
+                    destination.Add((kf.Shape, frames[matchedUnityIndex].DeltaVertices));
+                }
+            }
+
+            return destination.Count > beforeCount;
+        }
+
+        private static bool VerifyResolvedBlendShapesAgree(
+            IFbxMeshGeometry fbxMesh,
+            Vector3d[] fbxPoints64,
+            int[] cornerCps,
+            IUnityBlendShapeSnapshot unityBlendShapes,
+            int[] unityTriangles,
+            int triangleCount,
+            List<CornerTriple>[] resolvedOptions,
+            float scale,
+            CandidateTransform transform,
+            float tolerance)
+        {
+            if (unityBlendShapes == null || fbxMesh.BlendDeformers == null || fbxMesh.BlendDeformers.Count == 0)
+            {
+                return true;
+            }
+
+            var unityNames = unityBlendShapes.ShapeNames ?? unityBlendShapes.SingleFrameShapeNames;
+            if (unityNames == null || unityNames.Count == 0)
+            {
+                return true;
+            }
+
+            var unityNameSet = new HashSet<string>(unityNames, StringComparer.Ordinal);
+            var matchedFramePairs = new List<(IFbxBlendShape Shape, Vector3[] UnityDeltas)>();
+            var seenNames = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (var deformer in fbxMesh.BlendDeformers)
+            {
+                if (deformer?.Channels == null) continue;
+                foreach (var channel in deformer.Channels)
+                {
+                    if (!IsEligibleBlendChannel(channel)) continue;
+                    if (!seenNames.Add(channel.Name) || !unityNameSet.Contains(channel.Name)) continue;
+                    TryCollectUniqueMatchingFramePairs(unityBlendShapes, channel, matchedFramePairs);
+                }
+            }
+
+            if (matchedFramePairs.Count == 0)
+            {
+                return true;
+            }
+
+            int[] idxBuf = Array.Empty<int>();
+            Vector3d[] posBuf = Array.Empty<Vector3d>();
+            var fbxDeltaByCp = new Dictionary<int, Vector3>();
+
+            for (int s = 0; s < matchedFramePairs.Count; s++)
+            {
+                var (shape, unityDeltas) = matchedFramePairs[s];
+                if (unityDeltas == null) continue;
+
+                fbxDeltaByCp.Clear();
+                int offsetCount = shape.OffsetCount;
+                if (offsetCount > 0)
+                {
+                    if (idxBuf.Length < offsetCount)
+                    {
+                        idxBuf = new int[offsetCount];
+                        posBuf = new Vector3d[offsetCount];
+                    }
+
+                    if (!shape.TryCopyOffsets(
+                            idxBuf.AsSpan(0, offsetCount),
+                            posBuf.AsSpan(0, offsetCount),
+                            Span<Vector3d>.Empty,
+                            Span<double>.Empty,
+                            out int written) ||
+                        written != offsetCount)
+                    {
+                        continue;
+                    }
+
+                    for (int i = 0; i < written; i++)
+                    {
+                        int cp = idxBuf[i];
+                        if ((uint)cp >= (uint)fbxPoints64.Length) continue;
+                        var off = posBuf[i];
+                        double ox = Math.Abs(off.x) > k_BlendShapeOffsetThreshold ? off.x : 0d;
+                        double oy = Math.Abs(off.y) > k_BlendShapeOffsetThreshold ? off.y : 0d;
+                        double oz = Math.Abs(off.z) > k_BlendShapeOffsetThreshold ? off.z : 0d;
+                        var b = fbxPoints64[cp];
+                        var basePre = transform.ApplyPreScale32(b);
+                        var targetPre = transform.ApplyPreScale32(new Vector3d(b.x + ox, b.y + oy, b.z + oz));
+                        fbxDeltaByCp[cp] = new Vector3(
+                            targetPre.X * scale - basePre.X * scale,
+                            targetPre.Y * scale - basePre.Y * scale,
+                            targetPre.Z * scale - basePre.Z * scale);
+                    }
+                }
+
+                for (int t = 0; t < triangleCount; t++)
+                {
+                    var opts = resolvedOptions[t];
+                    if (opts == null || opts.Count == 0) continue;
+                    int v0 = unityTriangles[t * 3];
+                    int v1 = unityTriangles[t * 3 + 1];
+                    int v2 = unityTriangles[t * 3 + 2];
+                    bool anyOptMatches = false;
+                    for (int i = 0; i < opts.Count; i++)
+                    {
+                        var opt = opts[i];
+                        if (SingleCornerDeltaMatches(fbxDeltaByCp, unityDeltas, v0, cornerCps[opt.A], tolerance) &&
+                            SingleCornerDeltaMatches(fbxDeltaByCp, unityDeltas, v1, cornerCps[opt.B], tolerance) &&
+                            SingleCornerDeltaMatches(fbxDeltaByCp, unityDeltas, v2, cornerCps[opt.C], tolerance))
+                        {
+                            anyOptMatches = true;
+                            break;
+                        }
+                    }
+
+                    if (!anyOptMatches)
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        private static bool SingleCornerDeltaMatches(
+            Dictionary<int, Vector3> fbxDeltaByCp,
+            Vector3[] unityDeltas,
+            int unityVertex,
+            int fbxCp,
+            float tolerance)
+        {
+            if ((uint)unityVertex >= (uint)unityDeltas.Length) return true;
+            fbxDeltaByCp.TryGetValue(fbxCp, out Vector3 expected);
+            Vector3 actual = unityDeltas[unityVertex];
+            return Math.Abs(expected.x - actual.x) <= tolerance &&
+                   Math.Abs(expected.y - actual.y) <= tolerance &&
+                   Math.Abs(expected.z - actual.z) <= tolerance;
         }
 
         private static Dictionary<long, float> ComputeBlendShapePairErrors(
@@ -1074,16 +2221,16 @@ namespace Triturbo.BlendShare.Mapping
             int[] unityTriangles,
             Dictionary<int, List<CornerTriple>> currentAllowed,
             float scale,
-            bool bakeAxis)
+            CandidateTransform transform)
         {
-            var unityNames = unityBlendShapes.SingleFrameShapeNames;
+            var unityNames = unityBlendShapes.ShapeNames ?? unityBlendShapes.SingleFrameShapeNames;
             if (unityNames == null || unityNames.Count == 0)
             {
                 return null;
             }
 
             var unityNameSet = new HashSet<string>(unityNames, StringComparer.Ordinal);
-            var matchedFbxShapes = new List<(string Name, IFbxBlendShape Shape)>();
+            var matchedFramePairs = new List<(IFbxBlendShape Shape, Vector3[] UnityDeltas)>();
             var seenNames = new HashSet<string>(StringComparer.Ordinal);
 
             foreach (var deformer in fbxMesh.BlendDeformers)
@@ -1091,18 +2238,18 @@ namespace Triturbo.BlendShare.Mapping
                 if (deformer == null || deformer.Channels == null) continue;
                 foreach (var channel in deformer.Channels)
                 {
-                    if (!IsEligibleSingleFrameChannel(channel, out var shape))
+                    if (!IsEligibleBlendChannel(channel))
                     {
                         continue;
                     }
 
                     string name = channel.Name;
-                    if (!unityNameSet.Contains(name) || !seenNames.Add(name)) continue;
-                    matchedFbxShapes.Add((name, shape));
+                    if (!seenNames.Add(name) || !unityNameSet.Contains(name)) continue;
+                    TryCollectUniqueMatchingFramePairs(unityBlendShapes, channel, matchedFramePairs);
                 }
             }
 
-            if (matchedFbxShapes.Count == 0)
+            if (matchedFramePairs.Count == 0)
             {
                 return null;
             }
@@ -1141,13 +2288,12 @@ namespace Triturbo.BlendShare.Mapping
             int[] idxBuf = Array.Empty<int>();
             Vector3d[] posBuf = Array.Empty<Vector3d>();
             var fbxDeltaByCp = new Dictionary<int, Vector3>(neededCps.Count);
-            int evaluatedShapes = 0;
+            int evaluatedFrames = 0;
 
-            for (int s = 0; s < matchedFbxShapes.Count; s++)
+            for (int s = 0; s < matchedFramePairs.Count; s++)
             {
-                var (name, shape) = matchedFbxShapes[s];
-                if (!unityBlendShapes.TryGetSingleFrameDeltaVertices(name, out var unityDeltas) ||
-                    unityDeltas == null)
+                var (shape, unityDeltas) = matchedFramePairs[s];
+                if (unityDeltas == null)
                 {
                     continue;
                 }
@@ -1180,22 +2326,22 @@ namespace Triturbo.BlendShare.Mapping
                         if (!neededCps.Contains(cp)) continue;
 
                         var off = posBuf[i];
-                        double ox = Math.Abs(off.x) > BlendShapeOffsetThreshold ? off.x : 0d;
-                        double oy = Math.Abs(off.y) > BlendShapeOffsetThreshold ? off.y : 0d;
-                        double oz = Math.Abs(off.z) > BlendShapeOffsetThreshold ? off.z : 0d;
+                        double ox = Math.Abs(off.x) > k_BlendShapeOffsetThreshold ? off.x : 0d;
+                        double oy = Math.Abs(off.y) > k_BlendShapeOffsetThreshold ? off.y : 0d;
+                        double oz = Math.Abs(off.z) > k_BlendShapeOffsetThreshold ? off.z : 0d;
                         var b = fbxPoints64[cp];
 
-                        // Match Unity's exact float32 target - base subtraction in mesh space.
-                        float dx = (float)(b.x + ox) * scale - (float)b.x * scale;
-                        float dy = (float)(b.y + oy) * scale - (float)b.y * scale;
-                        float dz = (float)(b.z + oz) * scale - (float)b.z * scale;
-                        fbxDeltaByCp[cp] = bakeAxis
-                            ? new Vector3(dx, dy, -dz)
-                            : new Vector3(-dx, dy, dz);
+                        // Match Unity's exact float32 target - base subtraction in transformed mesh space.
+                        var basePre = transform.ApplyPreScale32(b);
+                        var targetPre = transform.ApplyPreScale32(new Vector3d(b.x + ox, b.y + oy, b.z + oz));
+                        fbxDeltaByCp[cp] = new Vector3(
+                            targetPre.X * scale - basePre.X * scale,
+                            targetPre.Y * scale - basePre.Y * scale,
+                            targetPre.Z * scale - basePre.Z * scale);
                     }
                 }
 
-                evaluatedShapes++;
+                evaluatedFrames++;
                 for (int i = 0; i < pairList.Count; i++)
                 {
                     var (v, cp) = pairList[i];
@@ -1213,7 +2359,7 @@ namespace Triturbo.BlendShare.Mapping
                 }
             }
 
-            return evaluatedShapes > 0 ? maxErrByPair : null;
+            return evaluatedFrames > 0 ? maxErrByPair : null;
         }
 
         private static void AddPair(
@@ -1236,7 +2382,8 @@ namespace Triturbo.BlendShare.Mapping
             int size,
             CoordKey[] fbxBase32,
             int[] cornerCps,
-            bool allowDistinctCpWeld)
+            bool allowDistinctCpWeld,
+            bool reversesWinding)
         {
             if (size < 3)
             {
@@ -1248,14 +2395,15 @@ namespace Triturbo.BlendShare.Mapping
                 return FaceLayoutSet.CreateNGon(start, size);
             }
 
-            // Unity reverses polygon winding while keeping corner 0 first: [raw[0], raw[n-1], ..., raw[1]].
+            // Unity reverses polygon winding when det(sceneAxisMatrix) < 0, keeping corner 0 first;
+            // left-handed baked scene axes with det(sceneAxisMatrix) > 0 preserve forward corner order.
             var q = new int[size];
             var qCp = new int[size];
             var qPos = new CoordKey[size];
             q[0] = start;
             for (int k = 1; k < size; k++)
             {
-                q[k] = start + (size - k);
+                q[k] = reversesWinding ? start + (size - k) : start + k;
             }
 
             for (int k = 0; k < size; k++)
@@ -1401,7 +2549,7 @@ namespace Triturbo.BlendShare.Mapping
 
             while (depth >= 0)
             {
-                if (++steps > MaxDfsStepsPerComponent)
+                if (++steps > k_MaxDfsStepsPerComponent)
                 {
                     supportedOptions = null;
                     return ComponentSolveStatus.BudgetExceeded;
@@ -1616,9 +2764,31 @@ namespace Triturbo.BlendShare.Mapping
                     }
                 }
 
-                int vCls = matchedCoords.UnityVertexClass[v];
-                var fallback = (uint)vCls < (uint)classToFbxCps.Length ? classToFbxCps[vCls] : null;
-                vertexGroups[v] = fallback != null && fallback.Count > 0 ? fallback.ToArray() : Array.Empty<int>();
+                if (matchedCoords.UnityVertexCandidateClasses != null &&
+                    matchedCoords.UnityVertexCandidateClasses[v] != null)
+                {
+                    var isoSet = new HashSet<int>();
+                    var cands = matchedCoords.UnityVertexCandidateClasses[v];
+                    for (int cIdx = 0; cIdx < cands.Length; cIdx++)
+                    {
+                        int cls = cands[cIdx];
+                        var list = (uint)cls < (uint)classToFbxCps.Length ? classToFbxCps[cls] : null;
+                        if (list == null) continue;
+                        for (int m = 0; m < list.Count; m++) isoSet.Add(list[m]);
+                    }
+
+                    var arr = new int[isoSet.Count];
+                    isoSet.CopyTo(arr);
+                    Array.Sort(arr);
+                    vertexGroups[v] = arr;
+                }
+                else
+                {
+                    int vCls = matchedCoords.UnityVertexClass[v];
+                    var fallback = (uint)vCls < (uint)classToFbxCps.Length ? classToFbxCps[vCls] : null;
+                    vertexGroups[v] = fallback != null && fallback.Count > 0 ? fallback.ToArray() : Array.Empty<int>();
+                }
+
                 isolatedVertices++;
             }
 
@@ -1645,7 +2815,11 @@ namespace Triturbo.BlendShare.Mapping
                 multiControlPointCornerCount: multiCpCorners,
                 isolatedVertexCount: isolatedVertices,
                 isBlendShapeSensitive: isBlendShapeSensitive,
-                exceededLayoutDfsBudget: exceededLayoutDfsBudget);
+                exceededLayoutDfsBudget: exceededLayoutDfsBudget,
+                matchedRawToUnityMatrix: matchedCoords.Transform.BuildRawToUnityAffineMatrix(matchedCoords.Scale),
+                hasNonStandardRawTransform: matchedCoords.Transform.IsNonStandard,
+                isApproximateCoordinateMatch: matchedCoords.IsApproximate,
+                matchedRawToUnitySceneMatrix: matchedCoords.Transform.BuildRawToUnitySceneMatrix(matchedCoords.Scale));
         }
 
         // ─── Helpers & Small Value Types ───────────────────────────────────────────
@@ -1717,26 +2891,245 @@ namespace Triturbo.BlendShare.Mapping
             return $"{t0.A},{t0.B},{t0.C}|{t1.A},{t1.B},{t1.C}";
         }
 
+        private static bool TryBuildSceneBakedAxisPerm(FbxCoordinateAxes axes, out SignedAxisPerm3x3 perm)
+        {
+            perm = default;
+            if (!TryDecodeCoordinateAxis(axes.Right, out int p0, out int s0) ||
+                !TryDecodeCoordinateAxis(axes.Up, out int p1, out int s1) ||
+                !TryDecodeCoordinateAxis(axes.Front, out int p2, out int sFront))
+            {
+                return false;
+            }
+
+            if (p0 == p1 || p1 == p2 || p0 == p2)
+            {
+                return false;
+            }
+
+            // In ufbx, Front points opposite forward, so Unity's +Z forward is -Front (+Right, +Up, -Front).
+            // Unity reverses source polygon winding iff det((+Right, +Up, -Front)) == -1.
+            int s2 = -sFront;
+            int parity = ((p0 == 0 && p1 == 1 && p2 == 2) ||
+                          (p0 == 1 && p1 == 2 && p2 == 0) ||
+                          (p0 == 2 && p1 == 0 && p2 == 1))
+                ? 1
+                : -1;
+            bool reversesWinding = (parity * s0 * s1 * s2) < 0;
+
+            perm = new SignedAxisPerm3x3(p0, p1, p2, s0, s1, s2, reversesWinding);
+            return true;
+        }
+
+        private static bool TryDecodeCoordinateAxis(FbxCoordinateAxis axis, out int componentIndex, out int sign)
+        {
+            switch (axis)
+            {
+                case FbxCoordinateAxis.PositiveX: componentIndex = 0; sign = 1; return true;
+                case FbxCoordinateAxis.NegativeX: componentIndex = 0; sign = -1; return true;
+                case FbxCoordinateAxis.PositiveY: componentIndex = 1; sign = 1; return true;
+                case FbxCoordinateAxis.NegativeY: componentIndex = 1; sign = -1; return true;
+                case FbxCoordinateAxis.PositiveZ: componentIndex = 2; sign = 1; return true;
+                case FbxCoordinateAxis.NegativeZ: componentIndex = 2; sign = -1; return true;
+                default: componentIndex = 0; sign = 0; return false;
+            }
+        }
+
+        private readonly struct SpatialCellKey : IEquatable<SpatialCellKey>
+        {
+            public readonly int X;
+            public readonly int Y;
+            public readonly int Z;
+
+            public SpatialCellKey(int x, int y, int z)
+            {
+                X = x;
+                Y = y;
+                Z = z;
+            }
+
+            public static SpatialCellKey FromPoint(Vector3 p, float invCellSize) =>
+                new(
+                    (int)Math.Floor(p.x * invCellSize),
+                    (int)Math.Floor(p.y * invCellSize),
+                    (int)Math.Floor(p.z * invCellSize));
+
+            public bool Equals(SpatialCellKey other) => X == other.X && Y == other.Y && Z == other.Z;
+            public override bool Equals(object obj) => obj is SpatialCellKey other && Equals(other);
+            public override int GetHashCode()
+            {
+                unchecked
+                {
+                    int h = X * 73856093;
+                    h ^= Y * 19349663;
+                    h ^= Z * 83492791;
+                    return h;
+                }
+            }
+        }
+
+        private readonly struct SignedAxisPerm3x3 : IEquatable<SignedAxisPerm3x3>
+        {
+            public static readonly SignedAxisPerm3x3 MayaUnbaked = new(0, 1, 2, -1, 1, 1, reversesWinding: true);
+            public static readonly SignedAxisPerm3x3 MayaBaked = new(0, 1, 2, 1, 1, -1, reversesWinding: true);
+
+            public readonly int P0;
+            public readonly int P1;
+            public readonly int P2;
+            public readonly int S0;
+            public readonly int S1;
+            public readonly int S2;
+            public readonly bool ReversesWinding;
+
+            public SignedAxisPerm3x3(int p0, int p1, int p2, int s0, int s1, int s2, bool reversesWinding)
+            {
+                P0 = p0;
+                P1 = p1;
+                P2 = p2;
+                S0 = s0;
+                S1 = s1;
+                S2 = s2;
+                ReversesWinding = reversesWinding;
+            }
+
+            public bool IsStandardMaya => Equals(MayaUnbaked) || Equals(MayaBaked);
+
+            public Float3 Apply(float x, float y, float z)
+            {
+                float c0 = P0 == 0 ? x : (P0 == 1 ? y : z);
+                float c1 = P1 == 0 ? x : (P1 == 1 ? y : z);
+                float c2 = P2 == 0 ? x : (P2 == 1 ? y : z);
+                return new Float3(S0 * c0, S1 * c1, S2 * c2);
+            }
+
+            public FbxMatrix4x4 BuildRowVectorScaleMatrix(double scale)
+            {
+                var values = new double[16];
+                values[P0 * 4 + 0] = S0 * scale;
+                values[P1 * 4 + 1] = S1 * scale;
+                values[P2 * 4 + 2] = S2 * scale;
+                values[15] = 1d;
+                return FbxMatrix4x4.FromRowMajor(values);
+            }
+
+            public bool Equals(SignedAxisPerm3x3 other) =>
+                P0 == other.P0 && P1 == other.P1 && P2 == other.P2 &&
+                S0 == other.S0 && S1 == other.S1 && S2 == other.S2 &&
+                ReversesWinding == other.ReversesWinding;
+
+            public override bool Equals(object obj) => obj is SignedAxisPerm3x3 other && Equals(other);
+
+            public override int GetHashCode()
+            {
+                unchecked
+                {
+                    int h = P0;
+                    h = h * 31 + P1;
+                    h = h * 31 + P2;
+                    h = h * 31 + S0;
+                    h = h * 31 + S1;
+                    h = h * 31 + S2;
+                    h = h * 31 + (ReversesWinding ? 1 : 0);
+                    return h;
+                }
+            }
+        }
+
+        private readonly struct CandidateTransform
+        {
+            public readonly FbxMatrix4x4 GeometryToNode;
+            public readonly bool IsIdentityGeometry;
+            public readonly SignedAxisPerm3x3 AxisPerm;
+            public readonly bool BakeAxisConversion;
+
+            public CandidateTransform(
+                FbxMatrix4x4 geometryToNode,
+                bool isIdentityGeometry,
+                SignedAxisPerm3x3 axisPerm,
+                bool bakeAxisConversion)
+            {
+                GeometryToNode = geometryToNode;
+                IsIdentityGeometry = isIdentityGeometry;
+                AxisPerm = axisPerm;
+                BakeAxisConversion = bakeAxisConversion;
+            }
+
+            public bool MatchesMayaConvention =>
+                BakeAxisConversion
+                    ? AxisPerm.Equals(SignedAxisPerm3x3.MayaBaked)
+                    : AxisPerm.Equals(SignedAxisPerm3x3.MayaUnbaked);
+
+            public bool IsNonStandard => !IsIdentityGeometry || !MatchesMayaConvention;
+
+            public Float3 ApplyPreScale32(Vector3d rawPoint)
+            {
+                Vector3d p = IsIdentityGeometry ? rawPoint : GeometryToNode.TransformPoint(rawPoint);
+                return AxisPerm.Apply((float)p.x, (float)p.y, (float)p.z);
+            }
+
+            public FbxMatrix4x4 BuildRawToUnitySceneMatrix(float scale)
+            {
+                if (MatchesMayaConvention)
+                {
+                    return UnitySpaceContractMath.BuildFbxRawToUnityMatrix(scale, BakeAxisConversion);
+                }
+
+                return AxisPerm.BuildRowVectorScaleMatrix(scale);
+            }
+
+            public FbxMatrix4x4 BuildRawToUnityAffineMatrix(float scale)
+            {
+                var axisScale = BuildRawToUnitySceneMatrix(scale);
+                return IsIdentityGeometry ? axisScale : (GeometryToNode * axisScale);
+            }
+
+            public FbxMatrix4x4 BuildRawToUnityLinearMatrix(float scale)
+            {
+                var axisScale = BuildRawToUnitySceneMatrix(scale);
+                if (IsIdentityGeometry)
+                {
+                    return axisScale;
+                }
+
+                // Strip translation row strictly when comparing blendshape delta sensitivity.
+                var linearGeom = new FbxMatrix4x4(
+                    GeometryToNode[0, 0], GeometryToNode[0, 1], GeometryToNode[0, 2], 0d,
+                    GeometryToNode[1, 0], GeometryToNode[1, 1], GeometryToNode[1, 2], 0d,
+                    GeometryToNode[2, 0], GeometryToNode[2, 1], GeometryToNode[2, 2], 0d,
+                    0d, 0d, 0d, 1d);
+                return linearGeom * axisScale;
+            }
+        }
+
         private sealed class CoordinateMatch
         {
             public readonly float Scale;
-            public readonly bool BakeAxisConversion;
+            public readonly CandidateTransform Transform;
+            public bool BakeAxisConversion => Transform.BakeAxisConversion;
             public readonly int ClassCount;
             public readonly int[] FbxCpClass;
             public readonly int[] UnityVertexClass;
+            public readonly int[][] UnityVertexCandidateClasses;
+            public readonly bool IsApproximate;
+            public readonly float PositionTolerance;
 
             public CoordinateMatch(
                 float scale,
-                bool bakeAxisConversion,
+                CandidateTransform transform,
                 int classCount,
                 int[] fbxCpClass,
-                int[] unityVertexClass)
+                int[] unityVertexClass,
+                int[][] unityVertexCandidateClasses,
+                bool isApproximate,
+                float positionTolerance)
             {
                 Scale = scale;
-                BakeAxisConversion = bakeAxisConversion;
+                Transform = transform;
                 ClassCount = classCount;
                 FbxCpClass = fbxCpClass;
                 UnityVertexClass = unityVertexClass;
+                UnityVertexCandidateClasses = unityVertexCandidateClasses;
+                IsApproximate = isApproximate;
+                PositionTolerance = positionTolerance;
             }
         }
 

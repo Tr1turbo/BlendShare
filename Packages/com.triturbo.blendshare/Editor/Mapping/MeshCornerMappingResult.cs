@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Triturbo.BlendShare.Fbx;
 
 namespace Triturbo.BlendShare.Mapping
 {
@@ -18,8 +19,32 @@ namespace Triturbo.BlendShare.Mapping
         /// <summary>Matched Unity float32 vertex import scale.</summary>
         public float MatchedScale { get; }
 
-        /// <summary>Whether the matched coordinate mapping used Unity's baked axis conversion (<c>+X,+Y,-Z</c>).</summary>
+        /// <summary>Whether the matched coordinate mapping used Unity's baked axis conversion.</summary>
         public bool MatchedBakeAxisConversion { get; }
+
+        /// <summary>
+        /// Full affine row-vector matrix transforming raw FBX mesh-local points and delta vectors into Unity mesh-local space
+        /// (includes any node <c>GeometryToNodeMatrix</c> translation/rotation/scale, baked axis permutation, and import scale).
+        /// </summary>
+        public FbxMatrix4x4 MatchedRawToUnityMatrix { get; }
+
+        /// <summary>
+        /// Linear row-vector matrix transforming FBX scene/node-level coordinates into Unity scene-local space
+        /// (includes baked scene axis permutation and import scale, excluding mesh-node <c>GeometryToNodeMatrix</c>).
+        /// </summary>
+        public FbxMatrix4x4 MatchedRawToUnitySceneMatrix { get; }
+
+        /// <summary>
+        /// True when the matched transform required a non-Maya axis permutation (e.g. Z-Up baked axes) or a
+        /// non-identity node <c>GeometryToNodeMatrix</c>.
+        /// </summary>
+        public bool HasNonStandardRawTransform { get; }
+
+        /// <summary>
+        /// True when coordinate matching required quantized tolerance fallback (e.g. <c>ModelImporter.meshCompression != Off</c>).
+        /// Approximate matches are valid for direct application but are never persisted into lossless embedded mappings or disk caches.
+        /// </summary>
+        public bool IsApproximateCoordinateMatch { get; }
 
         /// <summary>Number of Unity mesh vertices.</summary>
         public int UnityVertexCount { get; }
@@ -41,7 +66,7 @@ namespace Triturbo.BlendShare.Mapping
 
         /// <summary>
         /// Surviving FBX face-corner candidates for Unity corners that remained genuinely ambiguous
-        /// after polygon-layout, UV0, and blendshape disambiguation.
+        /// after polygon-layout, UV, and blendshape disambiguation.
         /// </summary>
         public IReadOnlyDictionary<int, int[]> AmbiguousCornerOptions { get; }
 
@@ -59,12 +84,12 @@ namespace Triturbo.BlendShare.Mapping
         /// <summary>Count of ambiguous Unity corners whose surviving candidates span more than one FBX control point.</summary>
         public int MultiControlPointCornerCount { get; }
 
-        /// <summary>Count of Unity vertices not referenced by any mapped triangle that fell back to exact position class.</summary>
+        /// <summary>Count of Unity vertices not referenced by any mapped triangle that fell back to position class.</summary>
         public int IsolatedVertexCount { get; }
 
         /// <summary>
-        /// True when ambiguity remained after geometry and UV0 disambiguation and the FBX mesh has at least one
-        /// eligible single-frame weight-100 blendshape channel (independent of whether the Unity mesh supplied matching shapes).
+        /// True when ambiguity remained after geometry and UV disambiguation and the FBX mesh has at least one
+        /// eligible blendshape channel (independent of whether the Unity mesh supplied matching shapes).
         /// Such results are blendshape-sensitive and must not be cached or embedded under a geometry+UV0-only key.
         /// </summary>
         public bool IsBlendShapeSensitive { get; }
@@ -91,12 +116,23 @@ namespace Triturbo.BlendShare.Mapping
             int multiControlPointCornerCount,
             int isolatedVertexCount,
             bool isBlendShapeSensitive = false,
-            bool exceededLayoutDfsBudget = false)
+            bool exceededLayoutDfsBudget = false,
+            FbxMatrix4x4? matchedRawToUnityMatrix = null,
+            bool hasNonStandardRawTransform = false,
+            bool isApproximateCoordinateMatch = false,
+            FbxMatrix4x4? matchedRawToUnitySceneMatrix = null)
         {
             Succeeded = succeeded;
             Diagnostic = diagnostic ?? string.Empty;
             MatchedScale = matchedScale;
             MatchedBakeAxisConversion = matchedBakeAxisConversion;
+            var defaultRawToUnity = succeeded && matchedScale > 0f && !float.IsNaN(matchedScale) && !float.IsInfinity(matchedScale)
+                ? UnitySpaceContractMath.BuildFbxRawToUnityMatrix(matchedScale, matchedBakeAxisConversion)
+                : FbxMatrix4x4.Identity;
+            MatchedRawToUnityMatrix = matchedRawToUnityMatrix ?? defaultRawToUnity;
+            MatchedRawToUnitySceneMatrix = matchedRawToUnitySceneMatrix ?? MatchedRawToUnityMatrix;
+            HasNonStandardRawTransform = hasNonStandardRawTransform;
+            IsApproximateCoordinateMatch = isApproximateCoordinateMatch;
             UnityVertexCount = unityVertexCount;
             TriangleCount = triangleCount;
             UnityCornerVertices = unityCornerVertices ?? Array.Empty<int>();
@@ -124,7 +160,7 @@ namespace Triturbo.BlendShare.Mapping
             return new MeshCornerMappingResult(
                 succeeded: false,
                 diagnostic: diagnostic,
-                matchedScale: 1f,
+                matchedScale: 0f,
                 matchedBakeAxisConversion: false,
                 unityVertexCount: Math.Max(0, unityVertexCount),
                 triangleCount: 0,

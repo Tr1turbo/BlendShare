@@ -1743,6 +1743,9 @@ msgstr "此变换由已选择的权重或绑定姿势所必需。"
 msgid "features.skin-weights.group_toggle.tooltip"
 msgstr "启用或禁用此分区中的所有项目。"
 
+msgid "common.status.basis_only"
+msgstr "仅轴向旋转"
+
 
 msgid "legacy.blendshape_data.upgrade_failed"
 msgstr "无法升级此资产。请确认所选的原始 FBX 与此资产匹配（详情请查看 Console）。"

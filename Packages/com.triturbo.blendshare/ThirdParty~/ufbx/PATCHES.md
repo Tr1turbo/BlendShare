@@ -20,4 +20,14 @@ Upstream `ufbx` decodes `LayerElementSmoothing/Smoothing` with array target type
 5. **`ufbx.c`** (`ufbx_subdivide_mesh`): Propagate `mesh->face_smoothing_group` to subdivided child faces alongside `mesh->face_smoothing`.
 
 ### Re-applying on Upstream Upgrade
-Search for `BLENDSHARE_PATCH_BEGIN` in `ufbx.h` and `ufbx.c` to inspect the 5 hunks, then re-apply on the new upstream files and run the native smoothing verification harness (Salt oracle + `0x100` / `0x80000000` / `0x80` byte fixtures).
+Search for `BLENDSHARE_PATCH_BEGIN` in `ufbx.h` and `ufbx.c` to inspect the hunks, then re-apply on the new upstream files and run the native smoothing and skin link-mode verification tests.
+
+## Patch 2: Preserve skin cluster `Mode` (`link_mode`)
+
+### Motivation
+Upstream `ufbx` reads `Indexes`, `Weights`, `Transform`, and `TransformLink` on `Deformer(..., "Cluster")` / legacy `Link` nodes without exposing the FBX cluster `Mode` property (`"Normalize"`, `"Total1"`/`"TotalOne"`, `"Additive"`). BlendShare requires exact cluster link-mode inspection during extraction, Unity apply, and FBX export without re-scanning files outside `ufbx`.
+
+### Changes
+1. **`ufbx.h`** (`ufbx_skin_cluster_link_mode`, `struct ufbx_skin_cluster`): Added `ufbx_skin_cluster_link_mode link_mode` (`NORMALIZE = 0`, `TOTAL_ONE = 1`, `ADDITIVE = 2`, `UNKNOWN = 3`).
+2. **`ufbx.c`** (`ufbxi_Mode`, `ufbxi_predefined_names`): Registered `"Mode"` in the sorted interned node-name table.
+3. **`ufbx.c`** (`ufbxi_read_skin_cluster_link_mode`, `ufbxi_read_skin_cluster`, `ufbxi_read_legacy_link`): Default to `NORMALIZE` only when `Mode` is absent; classify `"Normalize"`, `"Total1"`/`"TotalOne"`, and `"Additive"` case-insensitively, and report `UNKNOWN` when `Mode` is present with an empty, non-string, or unrecognized value.

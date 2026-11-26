@@ -14,9 +14,10 @@ using Triturbo.BlendShare.Primitives;
 namespace Triturbo.BlendShare.Container.Serialization
 {
     /// <summary>
-    /// Declarative, tag-based binary serializer for BlendShare records, polymorphic features, and heavy payloads.
-    /// Enforces pre-allocation DecodeBudget, exact (Type, CodecId, CodecVersion) dispatch, strict trailing-byte checks,
-    /// transitive nested LazyPayload prohibition, symmetric writer/reader limits, and lease isolation cloning.
+    /// Declarative, tag-based binary serializer for BlendShare records, polymorphic features,
+    /// and heavy payloads. Enforces pre-allocation DecodeBudget, exact (Type, CodecId, CodecVersion) dispatch,
+    /// strict trailing-byte checks, transitive nested LazyPayload prohibition, symmetric writer/reader limits,
+    /// and lease isolation cloning.
     /// </summary>
     public sealed class BlendShareSerializer : IBlendShareRecordSerializer
     {
@@ -194,7 +195,6 @@ namespace Triturbo.BlendShare.Container.Serialization
                 throw new InvalidDataException($"Uncompressed payload size {uncompressedLen} exceeds wire cap.");
             }
 
-            // Decompress within WireLimits cap; actual decoded object budget is strictly enforced via DecodeBudget below.
             byte[] raw = CompressionEnvelope.Decompress(bytes, WireLimits.MaxUncompressedEnvelopeBytes);
             var budget = new DecodeBudget(maxDecodedBytes);
 
@@ -246,7 +246,6 @@ namespace Triturbo.BlendShare.Container.Serialization
 
             if (m_CustomCodecs.TryGetWriterCodec<T>(out _))
             {
-                // For custom-codec payloads that aren't declarative records, return as-is if not a BlendShareRecord.
                 if (typeof(T).GetCustomAttribute<BlendShareRecordAttribute>(inherit: false) == null &&
                     !typeof(BlendShareFeatureData).IsAssignableFrom(typeof(T)))
                 {
@@ -257,13 +256,10 @@ namespace Triturbo.BlendShare.Container.Serialization
             return (T)CloneRecordInstance(cachedValue.GetType(), cachedValue, depth: 0);
         }
 
-        // ============================================================
-        // Lease defensive cloning (zero-copy for immutable IndexedBuffer<T>)
-        // ============================================================
-
         private object CloneRecordInstance(Type type, object instance, int depth)
         {
             if (instance == null) return null;
+            if (instance is UnknownFeatureData) return instance;
             if (depth > WireLimits.MaxNestingDepth)
             {
                 throw new InvalidDataException($"Exceeded max nesting depth while cloning '{type.Name}'.");
@@ -286,7 +282,6 @@ namespace Triturbo.BlendShare.Container.Serialization
                 {
                     case FieldKind.IndexedVector3d:
                     case FieldKind.IndexedDouble:
-                        // IndexedBuffer<T> is strictly immutable -> zero-copy share!
                         f.FieldInfo.SetValue(clone, val);
                         break;
                     case FieldKind.ByteArray:
@@ -308,19 +303,19 @@ namespace Triturbo.BlendShare.Container.Serialization
                     {
                         var srcList = (IList)val;
                         var dstList = (IList)Activator.CreateInstance(f.FieldType, srcList.Count);
-                        bool elemIsRecord = f.ElementType.GetCustomAttribute<BlendShareRecordAttribute>(inherit: false) != null;
+                        bool elemIsRecord = f.ElementType.GetCustomAttribute<BlendShareRecordAttribute>(inherit: false) != null ||
+                                            typeof(BlendShareFeatureData).IsAssignableFrom(f.ElementType);
                         for (int j = 0; j < srcList.Count; j++)
                         {
                             object elem = srcList[j];
                             dstList.Add(elemIsRecord && elem != null
-                                ? CloneRecordInstance(f.ElementType, elem, depth + 1)
+                                ? CloneRecordInstance(elem.GetType(), elem, depth + 1)
                                 : elem);
                         }
                         f.FieldInfo.SetValue(clone, dstList);
                         break;
                     }
                     default:
-                        // Value types, strings, enums, LazyPayload<T> (immutable)
                         f.FieldInfo.SetValue(clone, val);
                         break;
                 }
@@ -328,10 +323,6 @@ namespace Triturbo.BlendShare.Container.Serialization
 
             return clone;
         }
-
-        // ============================================================
-        // Internal feature serialization/deserialization (preserves depth & budget)
-        // ============================================================
 
         private byte[] SerializeFeatureInternal(BlendShareFeatureData feature, ref WriteContext ctx, int depth)
         {
@@ -401,10 +392,6 @@ namespace Triturbo.BlendShare.Container.Serialization
             feature.Required = required;
             return feature;
         }
-
-        // ============================================================
-        // Record writing & reading
-        // ============================================================
 
         private struct WriteContext
         {
@@ -892,7 +879,6 @@ namespace Triturbo.BlendShare.Container.Serialization
                 throw new InvalidDataException($"List count {count} exceeds limit ({WireLimits.MaxCollectionCount}).");
             }
 
-            // Charge list backing array capacity BEFORE allocation (8 bytes/ref or 4 bytes/int).
             long elemBackingSize = elementType == typeof(int) ? sizeof(int) : 8L;
             budget.Charge(checked((long)count * elemBackingSize));
 
@@ -963,10 +949,6 @@ namespace Triturbo.BlendShare.Container.Serialization
             }
         }
 
-        // ============================================================
-        // LazyPayload<T> generic dispatch helpers
-        // ============================================================
-
         private static readonly MethodInfo s_WriteLazyPayloadMethod =
             typeof(BlendShareSerializer).GetMethod(nameof(WriteLazyPayloadTyped), BindingFlags.Instance | BindingFlags.NonPublic);
 
@@ -1012,10 +994,6 @@ namespace Triturbo.BlendShare.Container.Serialization
             var method = closed.GetMethod(nameof(LazyPayload<object>.FromRef), BindingFlags.Public | BindingFlags.Static);
             return method.Invoke(null, new object[] { payloadRef });
         }
-
-        // ============================================================
-        // Schema reflection, caching & transitive LazyPayload check
-        // ============================================================
 
         private RecordSchema GetOrBuildSchema(Type type, bool forbidLazyPayloads)
         {
@@ -1072,7 +1050,8 @@ namespace Triturbo.BlendShare.Container.Serialization
             bool isFeature = typeof(BlendShareFeatureData).IsAssignableFrom(type);
             if (!isFeature && type.GetCustomAttribute<BlendShareRecordAttribute>(inherit: false) == null)
             {
-                throw new InvalidOperationException($"Type '{type.FullName}' must be marked with [{nameof(BlendShareRecordAttribute)}] or inherit {nameof(BlendShareFeatureData)}.");
+                throw new InvalidOperationException(
+                    $"Type '{type.FullName}' must be marked with [{nameof(BlendShareRecordAttribute)}] or inherit {nameof(BlendShareFeatureData)}.");
             }
 
             var fields = new List<FieldEntry>();

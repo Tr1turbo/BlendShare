@@ -647,29 +647,9 @@ namespace Triturbo.BlendShare.Mapping
                 return false;
             }
 
-            // Compute linear row norms of the upper-left 3x3.
-            var r0 = new Vector3d(canonicalToUnity[0, 0], canonicalToUnity[0, 1], canonicalToUnity[0, 2]);
-            var r1 = new Vector3d(canonicalToUnity[1, 0], canonicalToUnity[1, 1], canonicalToUnity[1, 2]);
-            var r2 = new Vector3d(canonicalToUnity[2, 0], canonicalToUnity[2, 1], canonicalToUnity[2, 2]);
-            double s0 = r0.magnitude;
-            double s1 = r1.magnitude;
-            double s2 = r2.magnitude;
-            if (s0 <= Vector3d.Epsilon || s1 <= Vector3d.Epsilon || s2 <= Vector3d.Epsilon)
+            // Require both equal row norms AND row orthogonality so sheared transforms never take the similarity shortcut.
+            if (FbxLinearAlgebra3d.TryExtractOrthogonalSimilarity(canonicalToUnity, out _, out normalDeltaMatrix, 1e-5d))
             {
-                return false;
-            }
-
-            // For uniform similarity transform, dividing by uniform scale preserves exact orientation/reflection.
-            double avg = (s0 + s1 + s2) / 3d;
-            double relDiff = Math.Max(Math.Abs(s0 - avg), Math.Max(Math.Abs(s1 - avg), Math.Abs(s2 - avg))) / avg;
-            if (relDiff <= 1e-6d)
-            {
-                double invS = 1d / avg;
-                normalDeltaMatrix = new FbxMatrix4x4(
-                    r0.x * invS, r0.y * invS, r0.z * invS, 0d,
-                    r1.x * invS, r1.y * invS, r1.z * invS, 0d,
-                    r2.x * invS, r2.y * invS, r2.z * invS, 0d,
-                    0d, 0d, 0d, 1d);
                 return true;
             }
 

@@ -49,13 +49,11 @@ namespace Triturbo.BlendShare.Assets
         [SerializeField] private Vector3 m_LocalPosition = Vector3.zero;
         [SerializeField] private Quaternion m_LocalRotation = Quaternion.identity;
         [SerializeField] private Vector3 m_LocalScale = Vector3.one;
-        [SerializeField] private bool m_CreateIfMissing = true;
 
         public string Path => m_Path;
         public Vector3 LocalPosition => m_LocalPosition;
         public Quaternion LocalRotation => m_LocalRotation;
         public Vector3 LocalScale => m_LocalScale;
-        public bool CreateIfMissing => m_CreateIfMissing;
 
         public string ParentPath
         {
@@ -93,14 +91,12 @@ namespace Triturbo.BlendShare.Assets
             string path,
             Vector3 localPosition,
             Quaternion localRotation,
-            Vector3 localScale,
-            bool createIfMissing)
+            Vector3 localScale)
         {
             m_Path = path ?? string.Empty;
             m_LocalPosition = localPosition;
             m_LocalRotation = localRotation;
             m_LocalScale = localScale == Vector3.zero ? Vector3.one : localScale;
-            m_CreateIfMissing = createIfMissing;
         }
 
         public void ApplyLocalTransform(Transform target)
@@ -117,7 +113,8 @@ namespace Triturbo.BlendShare.Assets
 
         public bool ApproximatelyMatches(GeneratedSkeletonBoneRecord other, float tolerance = 1e-4f)
         {
-            if (other == null)
+            if (other == null || !IsFiniteState(m_LocalPosition, m_LocalRotation, m_LocalScale) ||
+                !IsFiniteState(other.m_LocalPosition, other.m_LocalRotation, other.m_LocalScale))
             {
                 return false;
             }
@@ -129,7 +126,8 @@ namespace Triturbo.BlendShare.Assets
 
         public bool ApproximatelyMatches(Transform target, float tolerance = 1e-4f)
         {
-            if (target == null)
+            if (target == null || !IsFiniteState(m_LocalPosition, m_LocalRotation, m_LocalScale) ||
+                !IsFiniteState(target.localPosition, target.localRotation, target.localScale))
             {
                 return false;
             }
@@ -138,6 +136,18 @@ namespace Triturbo.BlendShare.Assets
                    Mathf.Abs(Quaternion.Dot(m_LocalRotation, target.localRotation)) >= 1f - tolerance &&
                    Vector3.Distance(m_LocalScale, target.localScale) <= tolerance;
         }
+
+        private static bool IsFiniteState(Vector3 p, Quaternion q, Vector3 s) =>
+            !float.IsNaN(p.x) && !float.IsInfinity(p.x) &&
+            !float.IsNaN(p.y) && !float.IsInfinity(p.y) &&
+            !float.IsNaN(p.z) && !float.IsInfinity(p.z) &&
+            !float.IsNaN(q.x) && !float.IsInfinity(q.x) &&
+            !float.IsNaN(q.y) && !float.IsInfinity(q.y) &&
+            !float.IsNaN(q.z) && !float.IsInfinity(q.z) &&
+            !float.IsNaN(q.w) && !float.IsInfinity(q.w) &&
+            !float.IsNaN(s.x) && !float.IsInfinity(s.x) &&
+            !float.IsNaN(s.y) && !float.IsInfinity(s.y) &&
+            !float.IsNaN(s.z) && !float.IsInfinity(s.z);
     }
 
     [Serializable]

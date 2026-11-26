@@ -55,6 +55,7 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
     public sealed class ResolvedVertexMapping
     {
         public CsrVertexMap VertexMap { get; }
+        public CsrVertexMap FullTargetVertexMap { get; }
         public MappingSpaceContract SpaceContract { get; }
         public VertexMappingSourceKind SourceKind { get; }
         public string CsrBlobId { get; }
@@ -67,9 +68,11 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
             VertexMappingSourceKind sourceKind,
             string csrBlobId,
             bool cacheHit,
-            string diagnostic = null)
+            string diagnostic = null,
+            CsrVertexMap fullTargetVertexMap = null)
         {
             VertexMap = vertexMap ?? throw new ArgumentNullException(nameof(vertexMap));
+            FullTargetVertexMap = fullTargetVertexMap ?? vertexMap;
             SpaceContract = spaceContract ?? throw new ArgumentNullException(nameof(spaceContract));
             SourceKind = sourceKind;
             CsrBlobId = csrBlobId ?? string.Empty;
@@ -222,7 +225,100 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
                 targetFromPersistedAsset = AssetDatabase.Contains(request.TargetUnityMesh);
             }
 
-            return ResolveCore(request, snapshot, targetFromPersistedAsset);
+            var coreResult = ResolveCore(request, snapshot, targetFromPersistedAsset);
+            if (!coreResult.Succeeded || coreResult.Mapping == null)
+            {
+                return coreResult;
+            }
+
+            return VertexMappingResolveResult.Success(
+                ApplyGeometrySketchCalibration(request.MeshHeader, snapshot, coreResult.Mapping));
+        }
+
+        private static ResolvedVertexMapping ApplyGeometrySketchCalibration(
+            MeshDocument meshHeader,
+            UnityMeshSnapshot targetSnapshot,
+            ResolvedVertexMapping mapping)
+        {
+            var sketch = meshHeader?.Sketch;
+            if (sketch == null || !sketch.HasData || targetSnapshot == null || mapping == null)
+            {
+                return mapping;
+            }
+
+            int cpCount = meshHeader.Topology != null && meshHeader.Topology.IsValid
+                ? meshHeader.Topology.ControlPointCount
+                : mapping.VertexMap.TargetCount;
+            int blockCount = sketch.BlockCount;
+            if (cpCount <= 0 || blockCount <= 0 || !sketch.TryValidate(cpCount, out _))
+            {
+                return mapping;
+            }
+
+            var storedBlocks = new StoredSketchBlock[blockCount];
+            for (int b = 0; b < blockCount; b++)
+            {
+                if (!sketch.TryReadBlockContrasts(b, out uint mask, out var c1, out var c2, out var c3))
+                {
+                    return mapping;
+                }
+
+                storedBlocks[b] = new StoredSketchBlock(b, mask, c1, c2, c3);
+            }
+
+            var observations = GeometrySketchAligner.ExtractTargetContrastsFromUnity(
+                storedBlocks,
+                cpCount,
+                targetSnapshot,
+                mapping.VertexMap);
+            if (observations.Length == 0)
+            {
+                return mapping;
+            }
+
+            var baseMeshLocal = mapping.SpaceContract.StoredToUnityMeshLocal;
+            if (!GeometrySketchAligner.TryRefineLinearTransform(
+                    storedBlocks,
+                    observations,
+                    baseMeshLocal,
+                    out var refinedMeshLocal,
+                    out bool wasRefined,
+                    out string sketchDiag) ||
+                !wasRefined ||
+                MatrixEqualsBitwise(baseMeshLocal, refinedMeshLocal))
+            {
+                return mapping;
+            }
+
+            // Preserve scene/bone coordinate space untouched so mesh-local vertex-baked scales or rotations
+            // never contaminate skeleton or bindpose transforms.
+            var preservedSceneLocal = mapping.SpaceContract.EffectiveStoredToUnitySceneLocal;
+            bool hasSeparateScene = !MatrixEqualsBitwise(refinedMeshLocal, preservedSceneLocal);
+            var calibratedContract = new MappingSpaceContract
+            {
+                TargetIdentity = mapping.SpaceContract.TargetIdentity,
+                StoredToUnityMeshLocal = refinedMeshLocal,
+                HasSeparateSceneTransform = hasSeparateScene,
+                StoredToUnitySceneLocal = hasSeparateScene ? preservedSceneLocal : FbxMatrix4x4.Identity,
+                StoredSpace = mapping.SpaceContract.StoredSpace != null
+                    ? PatchSpaceProvenance.FromMetadata(
+                        mapping.SpaceContract.StoredSpace.Axes,
+                        mapping.SpaceContract.StoredSpace.MetersPerUnit)
+                    : null
+            };
+
+            string combinedDiag = string.IsNullOrEmpty(mapping.Diagnostic)
+                ? sketchDiag
+                : (string.IsNullOrEmpty(sketchDiag) ? mapping.Diagnostic : $"{mapping.Diagnostic}; {sketchDiag}");
+
+            return new ResolvedVertexMapping(
+                mapping.VertexMap,
+                calibratedContract,
+                mapping.SourceKind,
+                mapping.CsrBlobId,
+                mapping.CacheHit,
+                combinedDiag,
+                mapping.FullTargetVertexMap);
         }
 
         private VertexMappingResolveResult ResolveCore(
@@ -424,7 +520,13 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
                 request.ComposePolicy,
                 request.SpaceProvenance);
 
+            var refFullMap = refRes.Mapping.FullTargetVertexMap ?? refRes.Mapping.VertexMap;
+            int patchControlPointCount = refRes.Mapping.VertexMap.TargetCount;
+            int fullControlPointCount = refFullMap.TargetCount;
+            bool refHasPrefixExtendedTarget = fullControlPointCount > patchControlPointCount;
+
             if (canReadCache &&
+                !refHasPrefixExtendedTarget &&
                 m_CacheStore.TryLoadResolution(
                     composedKey,
                     out var cachedIdx,
@@ -448,34 +550,44 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
                     $"Reference-to-target Unity mesh mapping failed: {correspondence.Diagnostic}");
             }
 
-            var composed = VertexMapComposer.Compose(
-                refRes.Mapping.VertexMap,
+            // Compose the full target control-point map FIRST so appended-only vertices resolve cleanly
+            // and any full-domain merge conflict is propagated rather than discarded.
+            var composedFull = VertexMapComposer.Compose(
+                refFullMap,
                 correspondence,
                 request.ComposePolicy);
 
-            if (!composed.Succeeded)
+            if (!composedFull.Succeeded)
             {
-                if (composed.ConflictingMergedTargetCount > 0)
+                if (composedFull.ConflictingMergedTargetCount > 0)
                 {
                     return VertexMappingResolveResult.Fail(
                         "MAP_COMPOSED_MERGE_CONFLICT",
-                        $"Reference mesh composition rejected {composed.ConflictingMergedTargetCount} target vertex(es) with conflicting merged FBX control-point groups ({composed.Diagnostic}).",
-                        composed.ConflictingTargetVertices);
+                        $"Reference mesh composition rejected {composedFull.ConflictingMergedTargetCount} target vertex(es) with conflicting merged FBX control-point groups ({composedFull.Diagnostic}).",
+                        composedFull.ConflictingTargetVertices);
                 }
 
                 return VertexMappingResolveResult.Fail(
                     "MAP_COMPOSED_UNRESOLVED",
-                    composed.Diagnostic,
-                    composed.ConflictingTargetVertices);
+                    composedFull.Diagnostic,
+                    composedFull.ConflictingTargetVertices);
             }
 
-            var composedCsr = CsrVertexMapFactory.FromJaggedGroups(
-                composed.TargetFbxGroups,
-                refRes.Mapping.VertexMap.TargetCount,
+            var composedFullTargetCsr = CsrVertexMapFactory.FromJaggedGroups(
+                composedFull.TargetFbxGroups,
+                fullControlPointCount,
                 IndexDomain.UnityVertex,
                 IndexDomain.ControlPoint);
 
-            string blobId = (!correspondence.IsBlendShapeSensitive && (canWriteMemory || canWriteDisk))
+            var composedCsr = refHasPrefixExtendedTarget
+                ? CsrVertexMapFactory.FromJaggedGroups(
+                    FilterControlPointGroups(composedFull.TargetFbxGroups, patchControlPointCount),
+                    patchControlPointCount,
+                    IndexDomain.UnityVertex,
+                    IndexDomain.ControlPoint)
+                : composedFullTargetCsr;
+
+            string blobId = (!refHasPrefixExtendedTarget && !correspondence.IsBlendShapeSensitive && (canWriteMemory || canWriteDisk))
                 ? m_CacheStore.StoreResolution(
                     composedKey,
                     composedCsr,
@@ -491,9 +603,10 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
                 VertexMappingSourceKind.ComposedReferenceMeshComputed,
                 blobId,
                 cacheHit: false,
-                diagnostic: composed.ConflictingMergedTargetCount > 0
-                    ? $"Composed with {composed.ConflictingMergedTargetCount} merged union vertex(es) under AllowMergedUnion policy."
-                    : string.Empty));
+                diagnostic: composedFull.ConflictingMergedTargetCount > 0
+                    ? $"Composed with {composedFull.ConflictingMergedTargetCount} merged union vertex(es) under AllowMergedUnion policy."
+                    : string.Empty,
+                fullTargetVertexMap: composedFullTargetCsr));
         }
 
         private static string ComputeComposedResolutionKeyHash(
@@ -743,6 +856,8 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
                 {
                     TargetIdentity = canonicalTargetIdentity,
                     StoredToUnityMeshLocal = canonical.SpaceContract.StoredToUnityMeshLocal,
+                    HasSeparateSceneTransform = canonical.SpaceContract.HasSeparateSceneTransform,
+                    StoredToUnitySceneLocal = canonical.SpaceContract.StoredToUnitySceneLocal,
                     StoredSpace = canonical.SpaceContract.StoredSpace != null
                         ? PatchSpaceProvenance.FromMetadata(canonical.SpaceContract.StoredSpace.Axes, canonical.SpaceContract.StoredSpace.MetersPerUnit)
                         : null
@@ -753,7 +868,8 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
                     canonical.SourceKind,
                     canonical.CsrBlobId,
                     cacheHit: false,
-                    diagnostic: canonical.Diagnostic);
+                    diagnostic: canonical.Diagnostic,
+                    fullTargetVertexMap: canonical.FullTargetVertexMap);
             }
 
             return VertexMappingResolveResult.Success(canonical);
@@ -799,7 +915,8 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
                 return false;
             }
 
-            if (!MatrixEqualsBitwise(a.SpaceContract.StoredToUnityMeshLocal, b.SpaceContract.StoredToUnityMeshLocal))
+            if (!MatrixEqualsBitwise(a.SpaceContract.StoredToUnityMeshLocal, b.SpaceContract.StoredToUnityMeshLocal) ||
+                !MatrixEqualsBitwise(a.SpaceContract.EffectiveStoredToUnitySceneLocal, b.SpaceContract.EffectiveStoredToUnitySceneLocal))
             {
                 return false;
             }
@@ -839,9 +956,10 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
             UnityMeshSnapshot targetSnapshot,
             bool targetFromPersistedAsset)
         {
+            string headerNodePath = FbxNameUtility.NormalizePath(request.MeshHeader.NodePath);
             string nodePath = !string.IsNullOrWhiteSpace(request.TargetFbxNodePathOverride)
                 ? FbxNameUtility.NormalizePath(request.TargetFbxNodePathOverride)
-                : FbxNameUtility.NormalizePath(request.MeshHeader.NodePath);
+                : (TryFindOwningSubassetNodePath(request.TargetUnityMesh, request.TargetFbxAsset, headerNodePath) ?? headerNodePath);
 
             if (string.IsNullOrEmpty(nodePath))
             {
@@ -915,7 +1033,8 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
                             request.SpaceProvenance);
                         resolutionCacheChecked = true;
 
-                        if (m_CacheStore.TryLoadResolution(
+                        if (cachedFullTopo.ControlPointCount == cachedPatchCpCount &&
+                            m_CacheStore.TryLoadResolution(
                                 cachedResKey,
                                 out var warmIdx,
                                 out var warmCsr,
@@ -929,7 +1048,9 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
                                     cachedSceneMeta,
                                     warmIdx.MatchedScale,
                                     warmIdx.MatchedBakeAxisConversion,
-                                    nodePath);
+                                    nodePath,
+                                    warmIdx.HasNonStandardRawTransform ? warmIdx.MatchedRawToUnityMatrix : (FbxMatrix4x4?)null,
+                                    warmIdx.HasNonStandardRawTransform ? warmIdx.MatchedRawToUnitySceneMatrix : (FbxMatrix4x4?)null);
                                 return VertexMappingResolveResult.Success(new ResolvedVertexMapping(
                                     warmCsr,
                                     warmSpace,
@@ -1038,6 +1159,7 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
                     request.SpaceProvenance);
 
                 if (canReadCache && !resolutionCacheChecked &&
+                    fbxMesh.ControlPointCount == patchControlPointCount &&
                     m_CacheStore.TryLoadResolution(
                         resolutionKey,
                         out var cachedIdx,
@@ -1050,21 +1172,32 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
                         scene.Metadata,
                         cachedIdx.MatchedScale,
                         cachedIdx.MatchedBakeAxisConversion,
-                        nodePath);
+                        nodePath,
+                        cachedIdx.HasNonStandardRawTransform ? cachedIdx.MatchedRawToUnityMatrix : (FbxMatrix4x4?)null,
+                        cachedIdx.HasNonStandardRawTransform ? cachedIdx.MatchedRawToUnitySceneMatrix : (FbxMatrix4x4?)null);
                     return VertexMappingResolveResult.Success(new ResolvedVertexMapping(
                         cachedCsr,
                         cachedSpace,
                         VertexMappingSourceKind.FbxInverseMapCached,
                         cachedIdx.CsrBlobId,
-                        cacheHit: true));
+                        cacheHit: true,
+                        fullTargetVertexMap: cachedCsr));
                 }
 
-                var hints = FbxInverseMapHints.FromImportSettings(importSettings);
+                var hints = FbxInverseMapHints.FromImportSettings(importSettings, scene.Metadata.Axes, nodePath);
                 var mapped = FbxUnityInverseMapper.Map(fbxMesh, targetSnapshot, hints);
                 if (!mapped.Succeeded)
                 {
                     return VertexMappingResolveResult.Fail("MAP_FBX_INVERSE_MAP_FAILED", mapped.Diagnostic);
                 }
+
+                CsrVertexMap fullTargetCsr = fbxMesh.ControlPointCount > patchControlPointCount
+                    ? CsrVertexMapFactory.FromJaggedGroups(
+                        mapped.VertexControlPointGroups,
+                        fbxMesh.ControlPointCount,
+                        IndexDomain.UnityVertex,
+                        IndexDomain.ControlPoint)
+                    : null;
 
                 // Filter any control points beyond patchControlPointCount if target FBX had extra trailing CPs.
                 int[][] groups = FilterControlPointGroups(mapped.VertexControlPointGroups, patchControlPointCount);
@@ -1079,9 +1212,14 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
                     scene.Metadata,
                     mapped.MatchedScale,
                     mapped.MatchedBakeAxisConversion,
-                    nodePath);
+                    nodePath,
+                    mapped.HasNonStandardRawTransform ? mapped.MatchedRawToUnityMatrix : (FbxMatrix4x4?)null,
+                    mapped.HasNonStandardRawTransform ? mapped.MatchedRawToUnitySceneMatrix : (FbxMatrix4x4?)null);
 
-                bool canCacheResult = !mapped.IsBlendShapeSensitive && !mapped.ExceededLayoutDfsBudget;
+                bool canCacheResult = fbxMesh.ControlPointCount == patchControlPointCount &&
+                                      !mapped.IsBlendShapeSensitive &&
+                                      !mapped.ExceededLayoutDfsBudget &&
+                                      !mapped.IsApproximateCoordinateMatch;
                 string blobId = (canCacheResult && (canWriteMemory || canWriteDisk))
                     ? m_CacheStore.StoreResolution(
                         resolutionKey,
@@ -1089,7 +1227,10 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
                         mapped.MatchedScale,
                         mapped.MatchedBakeAxisConversion,
                         writeToDisk: canWriteDisk,
-                        writeToMemory: canWriteMemory)
+                        writeToMemory: canWriteMemory,
+                        hasNonStandardRawTransform: mapped.HasNonStandardRawTransform,
+                        matchedRawToUnityMatrix: mapped.HasNonStandardRawTransform ? mapped.MatchedRawToUnityMatrix : (FbxMatrix4x4?)null,
+                        matchedRawToUnitySceneMatrix: mapped.HasNonStandardRawTransform ? mapped.MatchedRawToUnitySceneMatrix : (FbxMatrix4x4?)null)
                     : CsrVertexMapFactory.ComputeCsrBlobId(csr);
 
                 return VertexMappingResolveResult.Success(new ResolvedVertexMapping(
@@ -1098,7 +1239,8 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
                     VertexMappingSourceKind.FbxInverseMapComputed,
                     blobId,
                     cacheHit: false,
-                    diagnostic: mapped.Diagnostic));
+                    diagnostic: mapped.Diagnostic,
+                    fullTargetVertexMap: fullTargetCsr ?? csr));
             }
             catch (ArgumentException ex)
             {
@@ -1108,6 +1250,73 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
             {
                 ownedScene?.Dispose();
             }
+        }
+
+        private static string TryFindOwningSubassetNodePath(
+            Mesh targetUnityMesh,
+            GameObject targetFbxAsset,
+            string preferredNodePath)
+        {
+            if (targetUnityMesh == null || targetFbxAsset == null ||
+                !EditorUtility.IsPersistent(targetUnityMesh) || !EditorUtility.IsPersistent(targetFbxAsset))
+            {
+                return null;
+            }
+
+            string meshAssetPath = AssetDatabase.GetAssetPath(targetUnityMesh);
+            string fbxAssetPath = AssetDatabase.GetAssetPath(targetFbxAsset);
+            if (string.IsNullOrEmpty(meshAssetPath) || !string.Equals(meshAssetPath, fbxAssetPath, StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            string uniqueOwnerPath = null;
+            bool ambiguousOwnerPath = false;
+            foreach (var smr in targetFbxAsset.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            {
+                if (smr != null && ReferenceEquals(smr.sharedMesh, targetUnityMesh))
+                {
+                    string ownerPath = FbxNameUtility.NormalizePath(
+                        AnimationUtility.CalculateTransformPath(smr.transform, targetFbxAsset.transform));
+                    if (string.Equals(ownerPath, preferredNodePath, StringComparison.Ordinal))
+                    {
+                        return ownerPath;
+                    }
+
+                    if (uniqueOwnerPath == null)
+                    {
+                        uniqueOwnerPath = ownerPath;
+                    }
+                    else if (!string.Equals(uniqueOwnerPath, ownerPath, StringComparison.Ordinal))
+                    {
+                        ambiguousOwnerPath = true;
+                    }
+                }
+            }
+
+            foreach (var mf in targetFbxAsset.GetComponentsInChildren<MeshFilter>(true))
+            {
+                if (mf != null && ReferenceEquals(mf.sharedMesh, targetUnityMesh))
+                {
+                    string ownerPath = FbxNameUtility.NormalizePath(
+                        AnimationUtility.CalculateTransformPath(mf.transform, targetFbxAsset.transform));
+                    if (string.Equals(ownerPath, preferredNodePath, StringComparison.Ordinal))
+                    {
+                        return ownerPath;
+                    }
+
+                    if (uniqueOwnerPath == null)
+                    {
+                        uniqueOwnerPath = ownerPath;
+                    }
+                    else if (!string.Equals(uniqueOwnerPath, ownerPath, StringComparison.Ordinal))
+                    {
+                        ambiguousOwnerPath = true;
+                    }
+                }
+            }
+
+            return ambiguousOwnerPath ? null : uniqueOwnerPath;
         }
 
         private static VertexMappingResolveResult ValidateCachedTopology(
@@ -1358,6 +1567,8 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
                 bw.Write(importSettings.BakeAxisConversion);
                 bw.Write(importSettings.WeldVertices);
                 bw.Write(importSettings.ImportBlendShapes);
+                bw.Write(importSettings.SwapUvChannels);
+                bw.Write(importSettings.IsMeshCompressed);
                 bw.Flush();
                 cs.FlushFinalBlock();
                 return ToLowerHex(sha.Hash);
@@ -1416,38 +1627,87 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
                     bw.Write(cornerCps[i]);
                 }
 
-                // UV0 per-corner state: 0 = absent, 1 = present and full copy succeeded, 2 = present but copy failed/partial.
-                if (fbxMesh.UvSets != null &&
-                    fbxMesh.UvSets.Count > 0 &&
-                    fbxMesh.UvSets[0]?.Uvs != null &&
-                    fbxMesh.UvSets[0].Uvs.Exists)
+                // Hash all UV sets consulted by Stage 3a (including UvSets[1] for swapped UV channels).
+                int uvSetCount = fbxMesh.UvSets?.Count ?? 0;
+                bw.Write(uvSetCount);
+                if (uvSetCount > 0)
                 {
-                    var uv0 = new Vector2d[cornerCps.Length];
-                    if (fbxMesh.UvSets[0].Uvs.TryCopyPerCornerValues(uv0, out int uvWritten) &&
-                        uvWritten == cornerCps.Length)
+                    var uvBuf = new Vector2d[cornerCps.Length];
+                    for (int u = 0; u < uvSetCount; u++)
                     {
-                        bw.Write((byte)1);
-                        bw.Write(uvWritten);
-                        for (int i = 0; i < uvWritten; i++)
+                        var uvSet = fbxMesh.UvSets[u];
+                        if (uvSet?.Uvs != null && uvSet.Uvs.Exists)
                         {
-                            bw.Write(BitConverter.DoubleToInt64Bits(uv0[i].x));
-                            bw.Write(BitConverter.DoubleToInt64Bits(uv0[i].y));
+                            if (uvSet.Uvs.TryCopyPerCornerValues(uvBuf, out int uvWritten) &&
+                                uvWritten == cornerCps.Length)
+                            {
+                                bw.Write((byte)1);
+                                bw.Write(uvWritten);
+                                for (int i = 0; i < uvWritten; i++)
+                                {
+                                    bw.Write(BitConverter.DoubleToInt64Bits(uvBuf[i].x));
+                                    bw.Write(BitConverter.DoubleToInt64Bits(uvBuf[i].y));
+                                }
+                            }
+                            else
+                            {
+                                bw.Write((byte)2);
+                            }
+                        }
+                        else
+                        {
+                            bw.Write((byte)0);
                         }
                     }
-                    else
-                    {
-                        bw.Write((byte)2);
-                    }
-                }
-                else
-                {
-                    bw.Write((byte)0);
                 }
 
+                // Hash target node and mesh instance GeometryToNodeMatrix values.
+                WriteMatrixBits(bw, scene.FindNodeByPath(nodePath)?.GeometryToNodeMatrix ?? FbxMatrix4x4.Identity);
+                WriteMatrixBits(bw, fbxMesh.PrimaryNode?.GeometryToNodeMatrix ?? FbxMatrix4x4.Identity);
+                int instCount = fbxMesh.Instances?.Count ?? 0;
+                bw.Write(instCount);
+                for (int i = 0; i < instCount; i++)
+                {
+                    WriteMatrixBits(bw, fbxMesh.Instances[i]?.GeometryToNodeMatrix ?? FbxMatrix4x4.Identity);
+                }
+
+                // Hash eligible blendshape channel names and keyframe target weights alongside sensitivity flag.
                 bw.Write(hasEligibleShapes);
+                int deformerCount = fbxMesh.BlendDeformers?.Count ?? 0;
+                bw.Write(deformerCount);
+                for (int d = 0; d < deformerCount; d++)
+                {
+                    var def = fbxMesh.BlendDeformers[d];
+                    int chCount = def?.Channels?.Count ?? 0;
+                    bw.Write(chCount);
+                    for (int c = 0; c < chCount; c++)
+                    {
+                        var ch = def.Channels[c];
+                        bw.Write(ch?.Name ?? string.Empty);
+                        int kfCount = ch?.Keyframes?.Count ?? 0;
+                        bw.Write(kfCount);
+                        for (int k = 0; k < kfCount; k++)
+                        {
+                            bw.Write(BitConverter.DoubleToInt64Bits(ch.Keyframes[k]?.TargetWeight ?? 0d));
+                            bw.Write(ch.Keyframes[k]?.Shape?.OffsetCount ?? -1);
+                        }
+                    }
+                }
+
                 bw.Flush();
                 cs.FlushFinalBlock();
                 return "scene:" + ToLowerHex(sha.Hash);
+            }
+        }
+
+        private static void WriteMatrixBits(BinaryWriter bw, FbxMatrix4x4 m)
+        {
+            for (int r = 0; r < 4; r++)
+            {
+                for (int c = 0; c < 4; c++)
+                {
+                    bw.Write(BitConverter.DoubleToInt64Bits(m[r, c]));
+                }
             }
         }
 

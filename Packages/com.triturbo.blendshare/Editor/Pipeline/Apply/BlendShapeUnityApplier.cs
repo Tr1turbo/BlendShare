@@ -53,7 +53,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                 if (winners.Count == 0 && context.PreserveExistingBlendShapes) return FeatureApplyResult.Skipped();
 
                 // Pre-validate winning shapes' mappings, space contracts, and Unity float frame weights before mutating mesh.
-                var winningList = new List<(FeatureApplyInput Input, BlendShapeEntry Shape, FbxMatrix4x4 NormalMatrix)>(winners.Count);
+                var winningList = new List<(FeatureApplyInput Input, BlendShapeEntry Shape, FbxMatrix4x4 NormalMatrix, FbxAffineSpaceTransform AffineXform, FbxAffineSpaceTransform InvAffineXform, bool IsSimilarity)>(winners.Count);
                 for (int i = 0; i < candidates.Count; i++)
                 {
                     var (input, shape) = candidates[i];
@@ -62,12 +62,17 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                     var mapping = input.VertexMapping;
                     var map = mapping.VertexMap;
                     var matrix = mapping.SpaceContract.StoredToUnityMeshLocal;
+                    var linearMatrix = FbxLinearAlgebra3d.ExtractLinear(matrix);
                     if (map.SourceDomain != IndexDomain.UnityVertex || map.TargetDomain != IndexDomain.ControlPoint ||
                         map.SourceCount != mesh.vertexCount ||
                         mapping.SpaceContract.StoredSpace == null || !mapping.SpaceContract.StoredSpace.IsValid ||
                         (input.SpaceProvenance != null && !mapping.SpaceContract.StoredSpace.MatchesSpace(input.SpaceProvenance)) ||
-                        !UnitySpaceContractMath.TryBuildNormalDeltaMatrix(matrix, out var normalMatrix))
+                        !FbxAffineSpaceTransform.TryCreate(linearMatrix, out var affineXform) ||
+                        !FbxAffineSpaceTransform.TryCreate(affineXform.InverseOffset, out var invAffineXform) ||
+                        !UnitySpaceContractMath.TryBuildNormalDeltaMatrix(linearMatrix, out var normalMatrix))
                         throw new InvalidOperationException("Invalid vertex map or space contract.");
+
+                    bool isSimilarity = FbxLinearAlgebra3d.TryExtractOrthogonalSimilarity(linearMatrix, out _, out _, 1e-5d);
 
                     float previous = float.NegativeInfinity;
                     foreach (var source in shape.Frames)
@@ -78,7 +83,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                         previous = weight;
                     }
 
-                    winningList.Add((input, shape, normalMatrix));
+                    winningList.Add((input, shape, normalMatrix, affineXform, invAffineXform, isSimilarity));
                 }
 
                 // Determine whether existing blendshapes need rebuilding (only on name collision or when clearing base shapes).
@@ -130,12 +135,14 @@ namespace Triturbo.BlendShare.Pipeline.Apply
 
                 // Stream winning shapes into mesh using reusable per-vertex scratch buffers to keep peak memory O(vertexCount).
                 int vertexCount = mesh.vertexCount;
+                var baseNormals = mesh.normals;
+                bool hasBaseNormals = baseNormals != null && baseNormals.Length == vertexCount;
                 var posScratch = new Vector3[vertexCount];
                 var nrmScratch = new Vector3[vertexCount];
 
                 for (int w = 0; w < winningList.Count; w++)
                 {
-                    var (input, shape, normalMatrix) = winningList[w];
+                    var (input, shape, normalMatrix, affineXform, invAffineXform, isSimilarity) = winningList[w];
                     current = input;
                     var mapping = input.VertexMapping;
                     var map = mapping.VertexMap;
@@ -177,7 +184,27 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                                     if (normals != null) normal += normals[row[j]];
                                 }
                                 posScratch[u] = UnitySpaceContractMath.TransformPositionDelta(matrix, position / row.Length);
-                                if (normals != null) nrmScratch[u] = UnitySpaceContractMath.TransformNormalDelta(normalMatrix, normal / row.Length);
+                                if (normals != null)
+                                {
+                                    Vector3d avgStoredNormalDelta = normal / row.Length;
+                                    if (isSimilarity)
+                                    {
+                                        nrmScratch[u] = UnitySpaceContractMath.TransformNormalDelta(normalMatrix, avgStoredNormalDelta);
+                                    }
+                                    else if (hasBaseNormals && baseNormals[u].sqrMagnitude > 1e-12f)
+                                    {
+                                        // Reconstruct stored unit base normal and transport endpoint normals via inverse-transpose
+                                        // normalization so non-uniform scales (e.g. GeometryToNode=(1,1,2)) preserve exact shading direction.
+                                        var unityBase = new Vector3d(baseNormals[u].x, baseNormals[u].y, baseNormals[u].z).normalized;
+                                        var storedBase = invAffineXform.TransformNormal(unityBase);
+                                        var targetDelta = affineXform.TransformNormalDelta(storedBase, avgStoredNormalDelta);
+                                        nrmScratch[u] = new Vector3((float)targetDelta.x, (float)targetDelta.y, (float)targetDelta.z);
+                                    }
+                                    else
+                                    {
+                                        nrmScratch[u] = UnitySpaceContractMath.TransformNormalDelta(normalMatrix, avgStoredNormalDelta);
+                                    }
+                                }
                             }
 
                             mesh.AddBlendShapeFrame(shape.Name, weight, posScratch, normals != null ? nrmScratch : null, null);

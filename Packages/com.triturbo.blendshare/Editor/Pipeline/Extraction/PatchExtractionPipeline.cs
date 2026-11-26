@@ -9,6 +9,7 @@ using Triturbo.BlendShare.Fbx.Ufbx;
 using Triturbo.BlendShare.Fbx.Unity;
 using Triturbo.BlendShare.Mapping;
 using Triturbo.BlendShare.Model.Documents;
+using Triturbo.BlendShare.Model.Features;
 using Triturbo.BlendShare.Model.Serialization;
 using Triturbo.BlendShare.Model.Validation;
 using UnityEditor;
@@ -49,7 +50,8 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                 return new PatchExtractionResult(false, null, diagnostics);
             }
 
-            if (request.Meshes == null || request.Meshes.Count == 0)
+            bool hasSkeletonOptions = request.SkeletonOptions != null && request.SkeletonOptions.Enabled;
+            if ((request.Meshes == null || request.Meshes.Count == 0) && !hasSkeletonOptions)
             {
                 diagnostics.Add(new ExtractionDiagnostic(
                     ExtractionDiagnosticSeverity.Error,
@@ -115,54 +117,21 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             var extractors = FeatureExtractorRegistry.GetAllOrdered();
             var optionsSet = request.FeatureOptions ?? new ExtractionOptionsSet();
             var seenMeshIds = new HashSet<string>(StringComparer.Ordinal);
-            var extractedMeshes = new List<MeshDocument>(request.Meshes.Count);
-            var skeletonNodesByPath = new Dictionary<string, SkeletonNodeCandidate>(StringComparer.Ordinal);
+            var meshRequests = request.Meshes ?? Array.Empty<MeshExtractionRequest>();
+            var extractedMeshes = new List<MeshDocument>(meshRequests.Count);
+            var priorityMeshPaths = new List<string>(meshRequests.Count);
             bool hasError = false;
             var sharedProvenance = PatchSpaceProvenance.FromMetadata(originAxes, originUnitMeters);
 
-            // Collect unique skeleton bone registrations across ALL meshes first, then finalize the single
-            // shared SkeletonDocument deterministically in parent-before-child hierarchy order.
-            Action<IReadOnlyList<SkeletonBoneRegistration>, FbxAffineSpaceTransform> registerSkeleton =
-                (boneRegistrations, worldToStored) =>
-                {
-                    if (boneRegistrations == null || boneRegistrations.Count == 0) return;
-
-                    for (int i = 0; i < boneRegistrations.Count; i++)
-                    {
-                        var reg = boneRegistrations[i];
-                        var node = reg.SourceNode;
-                        string path = FbxNameUtility.NormalizePath(
-                            !string.IsNullOrEmpty(reg.BonePath) ? reg.BonePath : node?.Path);
-                        if (string.IsNullOrEmpty(path) || node == null) continue;
-
-                        string parentPath = node.Parent != null && !node.Parent.IsRoot
-                            ? FbxNameUtility.NormalizePath(node.Parent.Path)
-                            : GetParentPath(path);
-                        int depth = CountPathDepth(path);
-
-                        if (skeletonNodesByPath.TryGetValue(path, out var existing))
-                        {
-                            if (reg.CreateIfMissing && !existing.CreateIfMissing)
-                            {
-                                skeletonNodesByPath[path] = new SkeletonNodeCandidate(
-                                    path, parentPath, depth, existing.Node, existing.WorldToStored, createIfMissing: true);
-                            }
-                        }
-                        else
-                        {
-                            skeletonNodesByPath.Add(path, new SkeletonNodeCandidate(
-                                path, parentPath, depth, node, worldToStored, reg.CreateIfMissing));
-                        }
-                    }
-                };
-
-            for (int m = 0; m < request.Meshes.Count; m++)
+            for (int m = 0; m < meshRequests.Count; m++)
             {
-                var meshReq = request.Meshes[m];
+                var meshReq = meshRequests[m];
                 if (meshReq == null)
                 {
                     continue;
                 }
+
+                priorityMeshPaths.Add(meshReq.NodePath);
 
                 if (!seenMeshIds.Add(meshReq.MeshId))
                 {
@@ -263,6 +232,16 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                 var normalizedOriginMesh = SourceMeshNormalizer.Normalize(rawOriginMesh, FbxAffineSpaceTransform.Identity, weldGroups: null);
                 var normalizedSourceMesh = SourceMeshNormalizer.Normalize(rawSourceMesh, sourceMeshToStored, weldGroups);
 
+                var originMeshNode = request.OriginScene.FindNodeByPath(meshReq.NodePath) ?? rawOriginMesh.PrimaryNode;
+                double originMeshSigmaMax = originMeshNode != null
+                    ? FbxLinearAlgebra3d.ComputeMaxSingularValue(originMeshNode.GeometryToWorldMatrix)
+                    : 0d;
+                double effectiveMeshUnitMeters = originMeshSigmaMax > 1e-12d &&
+                                                 !double.IsNaN(originMeshSigmaMax) &&
+                                                 !double.IsInfinity(originMeshSigmaMax)
+                    ? originUnitMeters * originMeshSigmaMax
+                    : originUnitMeters;
+
                 var context = new MeshExtractionContext(
                     meshReq.MeshId,
                     meshReq.NodePath,
@@ -276,9 +255,13 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                     compatibility,
                     sharedProvenance,
                     request.EncodeOptions,
-                    registerSkeleton,
                     sourceWorldToStored,
-                    sourceMeshToStored);
+                    sourceMeshToStored,
+                    effectiveMeshUnitMeters);
+
+                var meshSketch = GeometrySketch.TryBuild(
+                    rawOriginMesh.GetControlPoints(),
+                    rawOriginMesh.GetFaceCornerControlPoints());
 
                 var meshDoc = new MeshDocument
                 {
@@ -291,7 +274,9 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                         ControlPointCount = compatibility.OriginDigest.ControlPointCount,
                         FaceCount = compatibility.OriginDigest.FaceCount,
                         IsValid = compatibility.OriginDigest.IsValid
-                    }
+                    },
+                    Sketch = meshSketch,
+                    EffectivePositionUnitMeters = effectiveMeshUnitMeters
                 };
 
                 if (request.MeshMappingsBuilder != null)
@@ -407,41 +392,44 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                 }
             }
 
-            // Finalize the single shared SkeletonDocument deterministically in parent-before-child hierarchy order.
-            var finalizedSkeleton = new SkeletonDocument();
-            var candidates = new List<SkeletonNodeCandidate>(skeletonNodesByPath.Values);
-            candidates.Sort((x, y) =>
+            optionsSet.TryGet<SkinWeightExtractionOptions>(SkinWeightFeature.FeatureTypeId, out var swOptions);
+            SkeletonDocument skeletonDoc = null;
+            if (!hasError)
             {
-                int cmp = x.Depth.CompareTo(y.Depth);
-                return cmp != 0 ? cmp : string.CompareOrdinal(x.Path, y.Path);
-            });
-
-            for (int i = 0; i < candidates.Count; i++)
-            {
-                var cand = candidates[i];
-                FbxMatrix4x4 localStored = cand.WorldToStored.IsIdentity
-                    ? cand.Node.NodeToParentMatrix
-                    : cand.WorldToStored.InverseOffset * cand.Node.NodeToParentMatrix * cand.WorldToStored.Offset;
-                FbxMatrix4x4 globalStored = cand.WorldToStored.IsIdentity
-                    ? cand.Node.NodeToWorldMatrix
-                    : cand.WorldToStored.InverseOffset * cand.Node.NodeToWorldMatrix * cand.WorldToStored.Offset;
-
-                var record = new SkeletonBoneRecord
+                if (!SkeletonExtractor.TryExtract(
+                        request.SourceScene,
+                        request.OriginScene,
+                        sourceWorldToStored,
+                        originUnitMeters,
+                        priorityMeshPaths,
+                        extractedMeshes,
+                        swOptions,
+                        request.SkeletonOptions,
+                        diagnostics,
+                        out skeletonDoc))
                 {
-                    Path = cand.Path,
-                    ParentPath = cand.ParentPath,
-                    LocalBindMatrix = localStored,
-                    GlobalBindMatrix = globalStored,
-                    CreateIfMissing = cand.CreateIfMissing,
-                    HasTransformData = true
-                };
-
-                if (cand.WorldToStored.IsIdentity && !cand.Node.RawTransform.LclScaling.IsZero())
-                {
-                    record.CopyRawTransformFrom(cand.Node.RawTransform);
+                    hasError = true;
                 }
+                else if (skeletonDoc != null)
+                {
+                    var skelVal = SkeletonDocumentValidator.Validate(skeletonDoc);
+                    for (int v = 0; v < skelVal.Issues.Count; v++)
+                    {
+                        var issue = skelVal.Issues[v];
+                        diagnostics.Add(new ExtractionDiagnostic(
+                            issue.Severity == FeatureValidationSeverity.Error
+                                ? ExtractionDiagnosticSeverity.Error
+                                : ExtractionDiagnosticSeverity.Warning,
+                            issue.Code,
+                            issue.Message,
+                            featureTypeId: SkeletonDocument.SectionTypeId));
+                    }
 
-                finalizedSkeleton.Bones.Add(record);
+                    if (!skelVal.IsValid)
+                    {
+                        hasError = true;
+                    }
+                }
             }
 
             if (hasError)
@@ -449,7 +437,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                 return new PatchExtractionResult(false, null, diagnostics);
             }
 
-            if (extractedMeshes.Count == 0)
+            if (extractedMeshes.Count == 0 && (skeletonDoc == null || !skeletonDoc.HasContent))
             {
                 diagnostics.Add(new ExtractionDiagnostic(
                     ExtractionDiagnosticSeverity.Error,
@@ -466,7 +454,7 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             {
                 PatchId = patchId,
                 SpaceProvenance = sharedProvenance,
-                Skeleton = finalizedSkeleton,
+                Skeleton = skeletonDoc,
                 Meshes = extractedMeshes
             };
 
@@ -699,7 +687,6 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             }
 
             var meshByPath = CollectUnityMeshesByPath(originFbx);
-            var hints = FbxInverseMapHints.FromImportSettings(importSettings);
 
             return (meshReq, rawOriginMesh, originMetadata) =>
             {
@@ -713,19 +700,22 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
                     return null;
                 }
 
+                var hints = FbxInverseMapHints.FromImportSettings(importSettings, originMetadata.Axes, meshReq.NodePath);
                 var mapped = FbxUnityInverseMapper.Map(rawOriginMesh, snapshot, hints);
                 if (!mapped.Succeeded)
                 {
                     return null;
                 }
 
-                // Decline to embed a geometry+UV0 mapping when coincident triangles are blendshape-sensitive or
-                // exceeded the layout DFS budget, because a target mesh with swapped blendshape deltas or
-                // reordered triangles could silently accept an unverified mapping on the embedded fast path.
-                if (mapped.IsBlendShapeSensitive || mapped.ExceededLayoutDfsBudget)
+                // Decline to embed a geometry+UV0 mapping when coincident triangles are blendshape-sensitive,
+                // exceeded the layout DFS budget, or required lossy mesh-compression tolerance fallback.
+                if (mapped.IsBlendShapeSensitive || mapped.ExceededLayoutDfsBudget || mapped.IsApproximateCoordinateMatch)
                 {
+                    string reason = mapped.IsApproximateCoordinateMatch
+                        ? "lossy-compressed"
+                        : (mapped.ExceededLayoutDfsBudget ? "DFS-budget-incomplete" : "blendshape-sensitive");
                     Debug.LogWarning(
-                        $"[BlendShare] Skipping embedded vertex mapping for mesh '{meshReq.NodePath}' because mapping is {(mapped.ExceededLayoutDfsBudget ? "DFS-budget-incomplete" : "blendshape-sensitive")}; target FBX mapping will resolve live.");
+                        $"[BlendShare] Skipping embedded vertex mapping for mesh '{meshReq.NodePath}' because mapping is {reason}; target FBX mapping will resolve live.");
                     return null;
                 }
 
@@ -825,50 +815,6 @@ namespace Triturbo.BlendShare.Pipeline.Extraction
             {
                 return false;
             }
-        }
-
-        private readonly struct SkeletonNodeCandidate
-        {
-            public string Path { get; }
-            public string ParentPath { get; }
-            public int Depth { get; }
-            public IFbxNode Node { get; }
-            public FbxAffineSpaceTransform WorldToStored { get; }
-            public bool CreateIfMissing { get; }
-
-            public SkeletonNodeCandidate(
-                string path,
-                string parentPath,
-                int depth,
-                IFbxNode node,
-                FbxAffineSpaceTransform worldToStored,
-                bool createIfMissing)
-            {
-                Path = path;
-                ParentPath = parentPath;
-                Depth = depth;
-                Node = node;
-                WorldToStored = worldToStored;
-                CreateIfMissing = createIfMissing;
-            }
-        }
-
-        private static string GetParentPath(string normalizedPath)
-        {
-            if (string.IsNullOrEmpty(normalizedPath)) return string.Empty;
-            int slash = normalizedPath.LastIndexOf('/');
-            return slash > 0 ? normalizedPath.Substring(0, slash) : string.Empty;
-        }
-
-        private static int CountPathDepth(string normalizedPath)
-        {
-            int depth = 0;
-            for (int i = 0; i < normalizedPath.Length; i++)
-            {
-                if (normalizedPath[i] == '/') depth++;
-            }
-
-            return depth;
         }
 
         private static void TryDeleteQuietly(string path)

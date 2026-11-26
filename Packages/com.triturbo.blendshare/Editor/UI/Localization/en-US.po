@@ -1743,6 +1743,9 @@ msgstr "This transform is required by a selected weight or bind pose."
 msgid "features.skin-weights.group_toggle.tooltip"
 msgstr "Enable or disable all entries in this section."
 
+msgid "common.status.basis_only"
+msgstr "Roll Only"
+
 
 msgid "legacy.blendshape_data.upgrade_failed"
 msgstr "Could not upgrade this asset. Please check that the assigned Original FBX matches this asset, and see the Console for details."

@@ -15,6 +15,10 @@ namespace Triturbo.BlendShare.FbxExport
         public string FeatureTypeId => BlendShapeFeature.FeatureTypeId;
         public int ExecutionOrder => 100;
 
+        public void RegisterTransactionInputs(FbxExportMeshContext context, IReadOnlyList<FbxFeatureWriteInput> inputs)
+        {
+        }
+
         private static IReadOnlyList<(FbxFeatureWriteInput Input, BlendShapeEntry Shape)> ResolveWinners(
             IReadOnlyList<FbxFeatureWriteInput> inputs)
         {
@@ -343,7 +347,7 @@ namespace Triturbo.BlendShare.FbxExport
                     return;
                 }
 
-                var deltaRaw = space.NormalDeltaToRaw(storedDelta);
+                var deltaRaw = space.TransformNormalDeltaToRaw(raw, storedDelta);
                 array.Add(new FbxVector4(raw.x + deltaRaw.x, raw.y + deltaRaw.y, raw.z + deltaRaw.z, 0d));
             }
 
@@ -459,9 +463,14 @@ namespace Triturbo.BlendShare.FbxExport
                     var expectedNormals = verifyNormals ? new Vector3d[count] : null;
                     if (verifyNormals)
                     {
+                        var baseNormals = context.OriginalReaderMesh.GetFirstCornerNormals();
                         var sourceNormals = payload.DeltaNormals;
                         for (int j = 0; j < sourceNormals.Count; j++)
-                            expectedNormals[sourceNormals.Indices[j]] = input.PatchSpace.NormalDeltaToRaw(sourceNormals.Values[j]);
+                        {
+                            int ncp = sourceNormals.Indices[j];
+                            Vector3d baseNrm = (uint)ncp < (uint)baseNormals.Length ? baseNormals[ncp] : Vector3d.zero;
+                            expectedNormals[ncp] = input.PatchSpace.TransformNormalDeltaToRaw(baseNrm, sourceNormals.Values[j]);
+                        }
                     }
                     for (int j = 0; j < indices.Length; j++)
                     {

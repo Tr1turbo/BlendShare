@@ -1347,6 +1347,7 @@ namespace Triturbo.BlendShare.UI.Extraction
             {
                 SkinWeightComparisonStatus.New => Localization.S("common.status.new"),
                 SkinWeightComparisonStatus.Changed => Localization.S("common.status.diff"),
+                SkinWeightComparisonStatus.BasisOnly => Localization.S("common.status.basis_only"),
                 SkinWeightComparisonStatus.Same => Localization.S("common.status.same"),
                 SkinWeightComparisonStatus.MissingSource => Localization.S("common.status.missing_source"),
                 SkinWeightComparisonStatus.Unavailable => Localization.S("common.status.unavailable"),
@@ -1901,6 +1902,7 @@ namespace Triturbo.BlendShare.UI.Extraction
                 m_State.ClearExplicitBoneTransformSelections();
                 foreach (var bone in m_Comparison.Bones.Where(bone =>
                              bone.SourceBoneExists &&
+                             !bone.IsEndBone &&
                              bone.Transform?.Status == SkinWeightComparisonStatus.Changed))
                 {
                     m_State.SetBoneTransformSelected(bone.BonePath, true);
@@ -2216,6 +2218,7 @@ namespace Triturbo.BlendShare.UI.Extraction
 
                 foreach (var bone in m_Comparison.Bones.Where(bone =>
                              bone.SourceBoneExists &&
+                             !bone.IsEndBone &&
                              bone.Transform?.Status == SkinWeightComparisonStatus.Changed))
                 {
                     m_State.SetSimpleBoneSelected(bone.BonePath, true);
@@ -2319,7 +2322,9 @@ namespace Triturbo.BlendShare.UI.Extraction
                     StringComparer.Ordinal);
                 foreach (string bonePath in selectedBones)
                 {
-                    if (m_Comparison.TryGetBone(bonePath, out var bone) && bone.SourceBoneExists)
+                    if (m_Comparison.TryGetBone(bonePath, out var bone) &&
+                        bone.SourceBoneExists &&
+                        (bone.RequiresCreateBone || bone.Transform?.Status == SkinWeightComparisonStatus.Changed))
                     {
                         m_State.SetBoneTransformSelected(bonePath, true);
                     }
@@ -2356,13 +2361,13 @@ namespace Triturbo.BlendShare.UI.Extraction
                     return;
                 }
 
-                if (forceTransform && bone.SourceBoneExists)
-                {
-                    m_State.SetBoneTransformForced(bone.BonePath, true);
-                }
-
                 if (bone.RequiresCreateBone)
                 {
+                    if (forceTransform)
+                    {
+                        m_State.SetBoneTransformForced(bone.BonePath, true);
+                    }
+
                     m_State.SetNewBoneSelected(bone.BonePath, true);
                     m_State.EnsureRequiredParentSelections(m_Comparison);
                 }
@@ -2387,6 +2392,24 @@ namespace Triturbo.BlendShare.UI.Extraction
                         m_State.IsBindposeSelected(pair.MeshPath, pair.BonePath))
                     {
                         AddAutomaticArmatureDependencies(pair.BonePath, true);
+                    }
+                }
+
+                // Automatically include <bone>_end leaf helpers when their parent bone is selected for upsert.
+                foreach (var endBone in m_Comparison.Bones.Where(b => b.IsEndBone && b.SourceBoneExists))
+                {
+                    string parentPath = GetParentPath(endBone.BonePath);
+                    if (!string.IsNullOrEmpty(parentPath) &&
+                        (m_State.IsBoneTransformSelected(parentPath) || m_State.GetSelectedNewBonePaths().Contains(parentPath)) &&
+                        (endBone.RequiresCreateBone ||
+                         endBone.Transform?.Status == SkinWeightComparisonStatus.Changed ||
+                         endBone.Transform?.Status == SkinWeightComparisonStatus.BasisOnly))
+                    {
+                        m_State.SetBoneTransformForced(endBone.BonePath, true);
+                        if (endBone.RequiresCreateBone)
+                        {
+                            m_State.SetNewBoneSelected(endBone.BonePath, true);
+                        }
                     }
                 }
 

@@ -30,6 +30,8 @@ namespace Triturbo.BlendShare.Fbx
         IFbxNode BoneNode { get; }
         /// <summary>The linked bone path, retained for detached geometry.</summary>
         string BonePath { get; }
+        /// <summary>Weight normalization/accumulation link mode authored on this FBX cluster.</summary>
+        FbxClusterLinkMode LinkMode { get; }
         /// <summary>Number of paired control point indices and skin weights.</summary>
         int WeightCount { get; }
         /// <summary>Mesh bind transform in world space.</summary>
@@ -105,5 +107,58 @@ namespace Triturbo.BlendShare.Fbx
             Span<Vector3d> destinationNormalOffsets,
             Span<double> destinationOffsetWeights,
             out int written);
+    }
+
+    /// <summary>Shared deformer selection helpers across extraction, Unity raw seeding, and FBX export.</summary>
+    public static class FbxDeformerUtility
+    {
+        /// <summary>
+        /// Selects the primary <see cref="IFbxSkinDeformer"/> on <paramref name="mesh"/> using the canonical
+        /// three-tier priority order:
+        /// (1) first skin with a linked bone cluster carrying at least one weight entry,
+        /// (2) first skin with any linked bone cluster,
+        /// (3) first skin deformer on the mesh, or <c>null</c> when no skin deformers exist.
+        /// </summary>
+        public static IFbxSkinDeformer FindPrimarySkinDeformer(IFbxMeshGeometry mesh)
+        {
+            if (mesh?.SkinDeformers == null || mesh.SkinDeformers.Count == 0)
+            {
+                return null;
+            }
+
+            IFbxSkinDeformer firstSkin = null;
+            IFbxSkinDeformer fallbackWithLinkedCluster = null;
+            for (int i = 0; i < mesh.SkinDeformers.Count; i++)
+            {
+                var skin = mesh.SkinDeformers[i];
+                if (skin == null)
+                {
+                    continue;
+                }
+
+                firstSkin ??= skin;
+                if (skin.Clusters == null)
+                {
+                    continue;
+                }
+
+                for (int c = 0; c < skin.Clusters.Count; c++)
+                {
+                    var cl = skin.Clusters[c];
+                    if (cl == null || (cl.BoneNode == null && string.IsNullOrEmpty(cl.BonePath)))
+                    {
+                        continue;
+                    }
+
+                    fallbackWithLinkedCluster ??= skin;
+                    if (cl.WeightCount > 0)
+                    {
+                        return skin;
+                    }
+                }
+            }
+
+            return fallbackWithLinkedCluster ?? firstSkin;
+        }
     }
 }

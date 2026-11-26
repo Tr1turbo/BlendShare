@@ -4,7 +4,7 @@ using System.Linq;
 using Triturbo.BlendShare.UI;
 using Triturbo.BlendShare.Model.Documents;
 using Triturbo.BlendShare.UI.ValueDrawers;
-using Triturbo.BlendShare.Pipeline.Apply;
+using Triturbo.BlendShare.Pipeline.Skeleton;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -19,14 +19,19 @@ namespace Triturbo.BlendShare.UI.Inspectors
 
         public SkeletonTreeView(SkeletonDocument skeleton, FeatureInspectorContext context)
         {
-            var bones = (skeleton?.Bones ?? new List<SkeletonBoneRecord>()).Where(bone => bone != null).ToArray();
+            var bones = (skeleton?.Nodes ?? new List<SkeletonNodeRecord>()).Where(bone => bone != null).ToArray();
+            int anchorCount = skeleton?.Anchors?.Count(a => a != null) ?? 0;
             m_UnitMeters = context?.SpaceProvenance?.MetersPerUnit ?? 1d;
             EnsureValidExpandedBone(bones);
             Add(CreateBonesHeader(bones.Length));
             Add(CreateBoneTree(bones));
+            if (anchorCount > 0)
+            {
+                Add(BlendShareInspectorUi.Row("Calibration Anchors", anchorCount.ToString()));
+            }
         }
 
-        private void EnsureValidExpandedBone(IReadOnlyList<SkeletonBoneRecord> bones)
+        private void EnsureValidExpandedBone(IReadOnlyList<SkeletonNodeRecord> bones)
         {
             if (bones.Count == 1)
             {
@@ -58,7 +63,7 @@ namespace Triturbo.BlendShare.UI.Inspectors
             return header;
         }
 
-        private VisualElement CreateBoneTree(IReadOnlyList<SkeletonBoneRecord> bones)
+        private VisualElement CreateBoneTree(IReadOnlyList<SkeletonNodeRecord> bones)
         {
             var tree = new VisualElement();
             var boneFoldouts = new Dictionary<string, Foldout>(StringComparer.Ordinal);
@@ -153,7 +158,7 @@ namespace Triturbo.BlendShare.UI.Inspectors
             return container;
         }
 
-        private Foldout CreateBoneFoldout(SkeletonBoneRecord bone)
+        private Foldout CreateBoneFoldout(SkeletonNodeRecord bone)
         {
             var foldout = new Foldout
             {
@@ -174,8 +179,8 @@ namespace Triturbo.BlendShare.UI.Inspectors
             if (toggle != null)
             {
                 var modeBadge = BlendShareInspectorUi.Badge(
-                    bone.CreateIfMissing ? "New" : "Existing",
-                    bone.CreateIfMissing ? StatusKind.Success : StatusKind.Neutral);
+                    bone.Kind == SkeletonNodeKind.Null ? "Null Node" : "Upsert",
+                    StatusKind.Neutral);
                 modeBadge.style.marginLeft = 6;
                 toggle.Add(modeBadge);
             }
@@ -190,38 +195,36 @@ namespace Triturbo.BlendShare.UI.Inspectors
             return foldout;
         }
 
-        private VisualElement CreateBoneDetails(SkeletonBoneRecord bone)
+        private VisualElement CreateBoneDetails(SkeletonNodeRecord bone)
         {
             var details = new VisualElement();
             details.style.marginTop = 3;
             details.style.marginBottom = 4;
             details.style.paddingLeft = 4;
 
-            details.Add(BlendShareInspectorUi.Row("Create If Missing", bone.CreateIfMissing ? "Yes" : "No"));
-
             var transformTitle = new Label(Localization.S("features.skin-weights.armature.status.transform"));
             BlendShareInspectorUi.StyleStrong(transformTitle);
             transformTitle.style.marginBottom = 2;
             details.Add(transformTitle);
 
-            if (bone.HasRawTransformProperties)
+            if (bone.Raw != null)
             {
                 details.Add(CreateTransformRow(
                     Localization.S("features.skin-weights.armature.position"),
-                    new Vector3((float)bone.LclTranslation.x, (float)bone.LclTranslation.y, (float)bone.LclTranslation.z)));
+                    new Vector3((float)bone.Raw.LclTranslation.x, (float)bone.Raw.LclTranslation.y, (float)bone.Raw.LclTranslation.z)));
                 details.Add(CreateTransformRow(
                     Localization.S("features.skin-weights.armature.rotation"),
-                    new Vector3((float)bone.LclRotation.x, (float)bone.LclRotation.y, (float)bone.LclRotation.z)));
+                    new Vector3((float)bone.Raw.LclRotation.x, (float)bone.Raw.LclRotation.y, (float)bone.Raw.LclRotation.z)));
                 details.Add(CreateTransformRow(
                     Localization.S("features.skin-weights.armature.scale"),
-                    new Vector3((float)bone.LclScaling.x, (float)bone.LclScaling.y, (float)bone.LclScaling.z)));
-                details.Add(BlendShareInspectorUi.Row("Rotation Order", bone.RotationOrder.ToString()));
-                details.Add(BlendShareInspectorUi.Row("Inherit Mode", bone.InheritMode.ToString()));
+                    new Vector3((float)bone.Raw.LclScaling.x, (float)bone.Raw.LclScaling.y, (float)bone.Raw.LclScaling.z)));
+                details.Add(BlendShareInspectorUi.Row("Rotation Order", bone.Raw.RotationOrder.ToString()));
+                details.Add(BlendShareInspectorUi.Row("Inherit Mode", bone.Raw.InheritMode.ToString()));
             }
             else
             {
-                var local = bone.LocalBindMatrix.ToUnityColumnMatrix();
-                if (ArmatureBindTransformMath.TryDecomposeUnityLocalTransform(local, out var position, out var rotation, out var scale, out var error))
+                var local = bone.RestLocal.ToUnityColumnMatrix();
+                if (SkeletonTransformMath.TryDecomposeUnityLocalTransform(local, out var position, out var rotation, out var scale, out var error))
                 {
                     details.Add(CreateTransformRow(Localization.S("features.skin-weights.armature.position"), position));
                     details.Add(CreateTransformRow(Localization.S("features.skin-weights.armature.rotation"), rotation.eulerAngles));
@@ -233,8 +236,12 @@ namespace Triturbo.BlendShare.UI.Inspectors
                 }
             }
 
-            details.Add(new BlendShareRecordView(bone.LocalBindMatrix, title: "Local Bind Matrix", startExpanded: false, positionUnitMeters: m_UnitMeters));
-            details.Add(new BlendShareRecordView(bone.GlobalBindMatrix, title: "Global Bind Matrix", startExpanded: false, positionUnitMeters: m_UnitMeters));
+            details.Add(new BlendShareRecordView(bone.RestLocal, title: "Rest Local Matrix", startExpanded: false, positionUnitMeters: m_UnitMeters));
+            details.Add(new BlendShareRecordView(bone.RestGlobal, title: "Rest Global Matrix", startExpanded: false, positionUnitMeters: m_UnitMeters));
+            if (bone.HasBaseRest)
+            {
+                details.Add(new BlendShareRecordView(bone.BaseRestGlobal, title: "Pre-Edit Rest Matrix", startExpanded: false, positionUnitMeters: m_UnitMeters));
+            }
             return details;
         }
 
@@ -291,7 +298,7 @@ namespace Triturbo.BlendShare.UI.Inspectors
             return group;
         }
 
-        private static BoneTreeNode BuildTree(IEnumerable<SkeletonBoneRecord> bones)
+        private static BoneTreeNode BuildTree(IEnumerable<SkeletonNodeRecord> bones)
         {
             var root = new BoneTreeNode(string.Empty, string.Empty);
             foreach (var bone in bones.OrderBy(bone => bone.Path, StringComparer.Ordinal))
@@ -339,7 +346,7 @@ namespace Triturbo.BlendShare.UI.Inspectors
         {
             public string Name { get; }
             public string Path { get; }
-            public SkeletonBoneRecord Bone { get; set; }
+            public SkeletonNodeRecord Bone { get; set; }
             public List<BoneTreeNode> Children { get; } = new();
 
             public BoneTreeNode(string name, string path)

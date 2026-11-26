@@ -3,9 +3,12 @@ using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.Container.Serialization;
 using Triturbo.BlendShare.EditorAssets.Mapping;
+using Triturbo.BlendShare.Model.Documents;
 using Triturbo.BlendShare.Model.Features;
 using Triturbo.BlendShare.Model.Validation;
+using Triturbo.BlendShare.Pipeline.Skeleton;
 using Triturbo.BlendShare.Assets;
+using UnityEditor;
 using UnityEngine;
 
 namespace Triturbo.BlendShare.Pipeline.Apply
@@ -14,9 +17,11 @@ namespace Triturbo.BlendShare.Pipeline.Apply
     {
         public Mesh BaseMesh { get; set; }
         public Transform[] IncomingBones { get; set; }
+        public string[] IncomingBoneSlotPaths { get; set; }
         public Transform IncomingRootBone { get; set; }
         public Transform TargetRootTransform { get; set; }
         public Transform MeshRendererTransform { get; set; }
+        public UnitySkeletonScope SharedSkeletonScope { get; set; }
         public IReadOnlyDictionary<BoneOverrideKey, Transform> BoneTransformOverrides { get; set; }
         public int MaxBonesPerVertex { get; set; } = 4;
         public bool CreateMissingBones { get; set; }
@@ -35,6 +40,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
         public string OutputRootBonePath { get; internal set; } = string.Empty;
         public IReadOnlyList<AppliedBoneBinding> AppliedBoneBindings { get; internal set; } = Array.Empty<AppliedBoneBinding>();
         public IReadOnlyList<GeneratedSkeletonBoneRecord> AppliedSkeletonBones { get; internal set; } = Array.Empty<GeneratedSkeletonBoneRecord>();
+        public IReadOnlyList<Transform> CreatedBoneRoots { get; internal set; } = Array.Empty<Transform>();
         public BlendShareSkinWeightInfluenceSummary SkinWeightInfluenceSummary { get; internal set; }
         public IReadOnlyList<ApplyDiagnostic> Diagnostics { get; internal set; }
         public int AppliedFeatureCount { get; internal set; }
@@ -47,6 +53,8 @@ namespace Triturbo.BlendShare.Pipeline.Apply
             var context = new UnityMeshApplyContext();
             var result = new UnityMeshApplyResult { Diagnostics = context.Diagnostics };
             Mesh clone = null;
+            Mesh inPlaceBackup = null;
+            string origBaseMeshName = null;
             try
             {
                 if (request == null || !request.BaseMesh) throw new ArgumentException("A base mesh is required.");
@@ -57,6 +65,21 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                 foreach (var item in context.Items)
                 {
                     if (item == null) continue;
+                    if (item.Skeleton != null)
+                    {
+                        var skelVal = SkeletonDocumentValidator.Validate(item.Skeleton);
+                        foreach (var issue in skelVal.Issues)
+                        {
+                            context.Diagnostics.Add(new ApplyDiagnostic(
+                                issue.Severity == FeatureValidationSeverity.Error ? ApplyDiagnosticSeverity.Error : ApplyDiagnosticSeverity.Warning,
+                                issue.Code,
+                                issue.Message,
+                                item.PatchId,
+                                item.MeshId,
+                                SkeletonDocument.SectionTypeId));
+                        }
+                    }
+
                     foreach (var feature in item.Features ?? item.MeshHeader?.Features ?? Array.Empty<BlendShareFeatureData>() as IReadOnlyList<BlendShareFeatureData>)
                     {
                         if (feature == null) continue;
@@ -93,19 +116,32 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                             SpaceProvenance = item.SpaceProvenance, MeshHeader = item.MeshHeader,
                             Skeleton = item.Skeleton, CreateMissingBones = item.CreateMissingBones,
                             BindPoseOverrides = item.BindPoseOverrides,
-                            VertexMapping = item.VertexMapping, EffectiveSettings = item.EffectiveSettings, PayloadSource = item.PayloadSource
+                            VertexMapping = item.VertexMapping, VerifiedRawTargetSkin = item.VerifiedRawTargetSkin,
+                            EffectiveSettings = item.EffectiveSettings, PayloadSource = item.PayloadSource
                         });
                     }
                 }
                 if (context.Diagnostics.Any(d => d.Severity == ApplyDiagnosticSeverity.Error)) return result;
-                if (request.CloneBaseMesh) clone = UnityMeshReaderUtility.CloneReadable(request.BaseMesh);
+                if (request.CloneBaseMesh)
+                {
+                    clone = UnityMeshReaderUtility.CloneReadable(request.BaseMesh);
+                }
+                else
+                {
+                    if (!request.BaseMesh.isReadable) throw new InvalidOperationException("Working mesh is unreadable.");
+                    origBaseMeshName = request.BaseMesh.name;
+                    inPlaceBackup = UnityMeshReaderUtility.CloneReadable(request.BaseMesh);
+                }
+
                 context.WorkingMesh = request.CloneBaseMesh ? clone : request.BaseMesh;
                 if (!context.WorkingMesh || !context.WorkingMesh.isReadable) throw new InvalidOperationException("Working mesh is unreadable.");
                 context.WorkingBones = (Transform[])request.IncomingBones?.Clone();
+                context.IncomingBoneSlotPaths = (string[])request.IncomingBoneSlotPaths?.Clone();
                 context.IncomingRootBone = request.IncomingRootBone;
                 context.OutputRootBone = request.IncomingRootBone;
                 context.TargetRootTransform = request.TargetRootTransform;
                 context.MeshRendererTransform = request.MeshRendererTransform;
+                context.SharedSkeletonScope = request.SharedSkeletonScope;
                 context.BoneTransformOverrides = request.BoneTransformOverrides;
                 context.MaxBonesPerVertex = request.MaxBonesPerVertex > 0 ? request.MaxBonesPerVertex : 4;
                 context.CreateMissingBones = request.CreateMissingBones;
@@ -124,6 +160,7 @@ namespace Triturbo.BlendShare.Pipeline.Apply
                 result.OutputRootBonePath = context.OutputRootBonePath;
                 result.AppliedBoneBindings = context.AppliedBoneBindings;
                 result.AppliedSkeletonBones = context.AppliedSkeletonBones;
+                result.CreatedBoneRoots = context.CreatedBoneRoots.ToArray();
                 result.SkinWeightInfluenceSummary = context.SkinWeightInfluenceSummary;
                 result.OutputMesh = context.WorkingMesh;
                 result.Succeeded = true;
@@ -134,7 +171,25 @@ namespace Triturbo.BlendShare.Pipeline.Apply
             }
             finally
             {
-                if (!result.Succeeded && clone) UnityEngine.Object.DestroyImmediate(clone);
+                if (!result.Succeeded)
+                {
+                    if (clone) UnityEngine.Object.DestroyImmediate(clone);
+                    if (inPlaceBackup && request?.BaseMesh)
+                    {
+                        EditorUtility.CopySerialized(inPlaceBackup, request.BaseMesh);
+                        request.BaseMesh.name = origBaseMeshName;
+                    }
+
+                    for (int i = 0; i < context.CreatedBoneRoots.Count; i++)
+                    {
+                        if (context.CreatedBoneRoots[i])
+                        {
+                            UnityEngine.Object.DestroyImmediate(context.CreatedBoneRoots[i].gameObject);
+                        }
+                    }
+                }
+
+                if (inPlaceBackup) UnityEngine.Object.DestroyImmediate(inPlaceBackup);
             }
             return result;
         }

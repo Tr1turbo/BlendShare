@@ -1743,6 +1743,9 @@ msgstr "此變換為已選取的權重或綁定姿勢所必需。"
 msgid "features.skin-weights.group_toggle.tooltip"
 msgstr "啟用或停用此區段中的所有項目。"
 
+msgid "common.status.basis_only"
+msgstr "僅軸向旋轉"
+
 
 msgid "legacy.blendshape_data.upgrade_failed"
 msgstr "無法升級此資產。請確認所選的原始 FBX 與此資產相符（詳情請查看 Console）。"

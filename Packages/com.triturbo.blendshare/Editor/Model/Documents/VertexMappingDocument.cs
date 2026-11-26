@@ -17,6 +17,15 @@ namespace Triturbo.BlendShare.Model.Documents
     {
         [BlendShareField(1)] public string TargetIdentity = string.Empty;
         [BlendShareField(2)] public FbxMatrix4x4 StoredToUnityMeshLocal = FbxMatrix4x4.Identity;
+        [BlendShareField(3)] public bool HasSeparateSceneTransform;
+        [BlendShareField(4)] public FbxMatrix4x4 StoredToUnitySceneLocal = FbxMatrix4x4.Identity;
+
+        /// <summary>
+        /// Scene-level stored-to-Unity transform used for shared skeleton bones and node-space bindposes
+        /// (excludes per-mesh <c>GeometryToNodeMatrix</c> pivots when <see cref="HasSeparateSceneTransform"/> is true).
+        /// </summary>
+        public FbxMatrix4x4 EffectiveStoredToUnitySceneLocal =>
+            HasSeparateSceneTransform ? StoredToUnitySceneLocal : StoredToUnityMeshLocal;
 
         /// <summary>
         /// In-memory reference to the shared stored patch space (never serialized inside per-mesh payloads).

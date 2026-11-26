@@ -28,7 +28,7 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
     internal static class UfbxNative
     {
         private const string LibraryName = "BlendShareUfbx";
-        internal const int ExpectedAbiVersion = 3;
+        internal const int ExpectedAbiVersion = 4;
 
         internal const int StatusOk = 0;
         internal const int StatusInvalidArg = -1;
@@ -221,7 +221,7 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
             public int BoneNodeIndex;
             public int WeightCount;
             public int NameLength;
-            public int Pad0;
+            public int LinkMode;
             public NativeMatrix MeshBindWorld;
             public NativeMatrix BoneBindWorld;
             public NativeMatrix MeshNodeToBone;
@@ -265,7 +265,7 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
         internal static extern int LoadFile(ref byte path, ref LoadOptionsNative opts, out IntPtr scene, ref byte error, int errorSize);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "bs_ufbx_load_memory")]
-        internal static extern int LoadMemory(ref byte data, long dataSize, ref LoadOptionsNative opts, out IntPtr scene, ref byte error, int errorSize);
+        internal static extern int LoadMemory(ref byte data, long dataSize, ref byte filename, ref LoadOptionsNative opts, out IntPtr scene, ref byte error, int errorSize);
 
         [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "bs_ufbx_free")]
         internal static extern void Free(IntPtr scene);

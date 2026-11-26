@@ -24,6 +24,9 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
         public int UnityVertexCount { get; }
         public float MatchedScale { get; }
         public bool MatchedBakeAxisConversion { get; }
+        public bool HasNonStandardRawTransform { get; }
+        public FbxMatrix4x4 MatchedRawToUnityMatrix { get; }
+        public FbxMatrix4x4 MatchedRawToUnitySceneMatrix { get; }
 
         public VertexMappingIndexEntry(
             string resolutionKeyHash,
@@ -31,7 +34,10 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
             int controlPointCount,
             int unityVertexCount,
             float matchedScale,
-            bool matchedBakeAxisConversion)
+            bool matchedBakeAxisConversion,
+            bool hasNonStandardRawTransform = false,
+            FbxMatrix4x4? matchedRawToUnityMatrix = null,
+            FbxMatrix4x4? matchedRawToUnitySceneMatrix = null)
         {
             ResolutionKeyHash = resolutionKeyHash ?? string.Empty;
             CsrBlobId = csrBlobId ?? string.Empty;
@@ -39,6 +45,9 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
             UnityVertexCount = unityVertexCount;
             MatchedScale = matchedScale;
             MatchedBakeAxisConversion = matchedBakeAxisConversion;
+            HasNonStandardRawTransform = hasNonStandardRawTransform;
+            MatchedRawToUnityMatrix = matchedRawToUnityMatrix ?? FbxMatrix4x4.Identity;
+            MatchedRawToUnitySceneMatrix = matchedRawToUnitySceneMatrix ?? MatchedRawToUnityMatrix;
         }
     }
 
@@ -77,13 +86,14 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
         public static readonly TimeSpan DefaultAccessTouchInterval = TimeSpan.FromHours(1);
         public static readonly TimeSpan DefaultStaleTempFileAge = TimeSpan.FromMinutes(10);
 
-        internal const int FbxReaderAlgoRevision = 1;
-        private const int k_MappingSpaceAlgoRevision = 1;
+        /// <summary>Algorithm revision incorporated into FBX file and resolution cache keys.</summary>
+        public const int FbxReaderAlgoRevision = 2;
+        private const int k_MappingSpaceAlgoRevision = 3;
         private const int k_FormatVersion = 1;
         private const double k_LowWatermarkRatio = 0.75d;
 
         private static readonly byte[] s_BlobMagic = Encoding.ASCII.GetBytes("BSCSR001");
-        private static readonly byte[] s_IndexMagic = Encoding.ASCII.GetBytes("BSIDX001");
+        private static readonly byte[] s_IndexMagic = Encoding.ASCII.GetBytes("BSIDX002");
 
         private static readonly object s_RootStatesLock = new object();
         private static readonly Dictionary<string, RootDiskState> s_RootStates =
@@ -617,7 +627,10 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
             float matchedScale,
             bool matchedBakeAxisConversion,
             bool writeToDisk = true,
-            bool writeToMemory = true)
+            bool writeToMemory = true,
+            bool hasNonStandardRawTransform = false,
+            FbxMatrix4x4? matchedRawToUnityMatrix = null,
+            FbxMatrix4x4? matchedRawToUnitySceneMatrix = null)
         {
             if (!IsValidHexKey(resolutionKeyHash))
             {
@@ -636,7 +649,10 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
                 csrMap.TargetCount,
                 csrMap.SourceCount,
                 matchedScale,
-                matchedBakeAxisConversion);
+                matchedBakeAxisConversion,
+                hasNonStandardRawTransform,
+                matchedRawToUnityMatrix,
+                matchedRawToUnitySceneMatrix);
 
             DateTime nowUtc = DateTime.UtcNow;
             bool persistedOnDisk = false;
@@ -1408,6 +1424,12 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
                 bw.Write(entry.UnityVertexCount);
                 bw.Write(entry.MatchedScale);
                 bw.Write(entry.MatchedBakeAxisConversion);
+                bw.Write(entry.HasNonStandardRawTransform);
+                if (entry.HasNonStandardRawTransform)
+                {
+                    WriteMatrix64(bw, entry.MatchedRawToUnityMatrix);
+                    WriteMatrix64(bw, entry.MatchedRawToUnitySceneMatrix);
+                }
                 bw.Flush();
                 payloadBytes = ms.ToArray();
             }
@@ -1771,6 +1793,22 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
                     int vtxCount = br.ReadInt32();
                     float scale = br.ReadSingle();
                     bool bakeAxis = br.ReadBoolean();
+                    bool hasNonStd = br.ReadBoolean();
+                    FbxMatrix4x4? rawMat = null;
+                    FbxMatrix4x4? rawSceneMat = null;
+                    if (hasNonStd)
+                    {
+                        var m1 = ReadMatrix64(br);
+                        var m2 = ReadMatrix64(br);
+                        if (!FbxAffineSpaceTransform.TryCreate(m1, out _) ||
+                            !FbxAffineSpaceTransform.TryCreate(m2, out _))
+                        {
+                            return DiskReadStatus.Corrupt;
+                        }
+
+                        rawMat = m1;
+                        rawSceneMat = m2;
+                    }
 
                     if (ms.Position != ms.Length ||
                         !string.Equals(keyHash, expectedKeyHash, StringComparison.Ordinal) ||
@@ -1784,7 +1822,16 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
                         return DiskReadStatus.Corrupt;
                     }
 
-                    entry = new VertexMappingIndexEntry(keyHash, blobId, cpCount, vtxCount, scale, bakeAxis);
+                    entry = new VertexMappingIndexEntry(
+                        keyHash,
+                        blobId,
+                        cpCount,
+                        vtxCount,
+                        scale,
+                        bakeAxis,
+                        hasNonStd,
+                        rawMat,
+                        rawSceneMat);
                     return DiskReadStatus.Success;
                 }
             }
@@ -1867,12 +1914,61 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
         private static bool IndexEntriesEqual(VertexMappingIndexEntry a, VertexMappingIndexEntry b)
         {
             if (a == null || b == null) return false;
-            return string.Equals(a.ResolutionKeyHash, b.ResolutionKeyHash, StringComparison.Ordinal) &&
-                   string.Equals(a.CsrBlobId, b.CsrBlobId, StringComparison.Ordinal) &&
-                   a.ControlPointCount == b.ControlPointCount &&
-                   a.UnityVertexCount == b.UnityVertexCount &&
-                   BitConverter.SingleToInt32Bits(a.MatchedScale) == BitConverter.SingleToInt32Bits(b.MatchedScale) &&
-                   a.MatchedBakeAxisConversion == b.MatchedBakeAxisConversion;
+            if (!string.Equals(a.ResolutionKeyHash, b.ResolutionKeyHash, StringComparison.Ordinal) ||
+                !string.Equals(a.CsrBlobId, b.CsrBlobId, StringComparison.Ordinal) ||
+                a.ControlPointCount != b.ControlPointCount ||
+                a.UnityVertexCount != b.UnityVertexCount ||
+                BitConverter.SingleToInt32Bits(a.MatchedScale) != BitConverter.SingleToInt32Bits(b.MatchedScale) ||
+                a.MatchedBakeAxisConversion != b.MatchedBakeAxisConversion ||
+                a.HasNonStandardRawTransform != b.HasNonStandardRawTransform)
+            {
+                return false;
+            }
+
+            if (a.HasNonStandardRawTransform)
+            {
+                return MatricesBitwiseEqual(a.MatchedRawToUnityMatrix, b.MatchedRawToUnityMatrix) &&
+                       MatricesBitwiseEqual(a.MatchedRawToUnitySceneMatrix, b.MatchedRawToUnitySceneMatrix);
+            }
+
+            return true;
+        }
+
+        private static void WriteMatrix64(BinaryWriter bw, FbxMatrix4x4 m)
+        {
+            for (int r = 0; r < 4; r++)
+            {
+                for (int c = 0; c < 4; c++)
+                {
+                    bw.Write(m[r, c]);
+                }
+            }
+        }
+
+        private static FbxMatrix4x4 ReadMatrix64(BinaryReader br)
+        {
+            var cells = new double[16];
+            for (int i = 0; i < 16; i++)
+            {
+                cells[i] = br.ReadDouble();
+            }
+
+            return FbxMatrix4x4.FromRowMajor(cells);
+        }
+
+        private static bool MatricesBitwiseEqual(FbxMatrix4x4 a, FbxMatrix4x4 b)
+        {
+            for (int r = 0; r < 4; r++)
+            {
+                for (int c = 0; c < 4; c++)
+                {
+                    long ba = BitConverter.DoubleToInt64Bits(a[r, c] == 0d ? 0d : a[r, c]);
+                    long bb = BitConverter.DoubleToInt64Bits(b[r, c] == 0d ? 0d : b[r, c]);
+                    if (ba != bb) return false;
+                }
+            }
+
+            return true;
         }
 
         private static bool BytesEqual(byte[] a, byte[] b)

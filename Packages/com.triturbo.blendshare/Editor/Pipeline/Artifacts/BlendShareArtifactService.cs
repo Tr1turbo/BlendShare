@@ -7,7 +7,11 @@ using Triturbo.BlendShare.EditorAssets;
 using Triturbo.BlendShare.EditorAssets.Mapping;
 using Triturbo.BlendShare.EditorAssets.Settings;
 using Triturbo.BlendShare.Fbx;
+using Triturbo.BlendShare.Fbx.Ufbx;
+using Triturbo.BlendShare.Fbx.Unity;
+using Triturbo.BlendShare.Model.Features;
 using Triturbo.BlendShare.Pipeline.Apply;
+using Triturbo.BlendShare.Pipeline.Skeleton;
 using Triturbo.BlendShare.Assets;
 using UnityEditor;
 using UnityEngine;
@@ -118,15 +122,46 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
             scratchRoot.hideFlags = HideFlags.HideAndDontSave;
             var buildInputs = new List<ArtifactMeshBuildInput>(orderedNodePaths.Count);
             var allocatedMeshes = new List<Mesh>();
+            IFbxScene targetRawScene = null;
             try
             {
                 var scratchByPath = CollectUnityMeshesByPath(scratchRoot);
+                var meshRequests = new List<UnityMeshApplyRequest>(orderedNodePaths.Count);
+
                 for (int i = 0; i < orderedNodePaths.Count; i++)
                 {
                     string nodePath = orderedNodePaths[i];
                     var items = inputsByNodePath[nodePath];
                     var scratchEntry = scratchByPath[nodePath];
-                    var applyRes = UnityMeshApplicationPipeline.Apply(new UnityMeshApplyRequest
+
+                    bool anySkinFeature = items.Any(it =>
+                        (it.Features ?? it.MeshHeader?.Features)?.OfType<SkinWeightFeature>().Any() == true);
+                    if (anySkinFeature)
+                    {
+                        if (targetRawScene == null)
+                        {
+                            var rawSceneRes = FbxUnityAssetReader.ReadScene(targetFbx, UfbxLoadOptions.Default);
+                            if (rawSceneRes.Success && rawSceneRes.Value != null)
+                            {
+                                targetRawScene = rawSceneRes.Value;
+                            }
+                        }
+
+                        if (targetRawScene != null)
+                        {
+                            for (int k = 0; k < items.Count; k++)
+                            {
+                                items[k].VerifiedRawTargetSkin = VerifiedRawTargetSkinResolver.TryResolve(
+                                    scratchEntry.Mesh,
+                                    targetFbx,
+                                    targetRawScene,
+                                    items[k].MeshHeader,
+                                    items[k].VertexMapping);
+                            }
+                        }
+                    }
+
+                    meshRequests.Add(new UnityMeshApplyRequest
                     {
                         BaseMesh = scratchEntry.Mesh,
                         IncomingBones = scratchEntry.Renderer != null ? scratchEntry.Renderer.bones : Array.Empty<Transform>(),
@@ -138,6 +173,20 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
                         PreserveExistingBlendShapes = true,
                         Items = items
                     });
+                }
+
+                // Solve skeleton transforms & capture rest frames once across all meshes in the artifact before applying any mesh.
+                var sharedArtifactScope = UnitySkeletonScope.BuildForRequests(
+                    scratchRoot.transform,
+                    meshRequests);
+
+                for (int i = 0; i < orderedNodePaths.Count; i++)
+                {
+                    string nodePath = orderedNodePaths[i];
+                    var items = inputsByNodePath[nodePath];
+                    var req = meshRequests[i];
+                    req.SharedSkeletonScope = sharedArtifactScope;
+                    var applyRes = UnityMeshApplicationPipeline.Apply(req);
 
                     if (!applyRes.Succeeded || applyRes.OutputMesh == null)
                     {
@@ -178,6 +227,7 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
             }
             finally
             {
+                targetRawScene?.Dispose();
                 for (int i = 0; i < allocatedMeshes.Count; i++)
                 {
                     if (allocatedMeshes[i] != null) UnityEngine.Object.DestroyImmediate(allocatedMeshes[i]);
@@ -244,11 +294,42 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
             renderer.bones = marker.OriginalBones;
             EditorUtility.SetDirty(renderer);
 
-            var generatedBones = marker.GeneratedBones;
-            for (int i = generatedBones.Length - 1; i >= 0; i--)
+            var hierarchyRoot = renderer.transform.root != null ? renderer.transform.root : renderer.transform;
+            var stillReferencedByOthers = new HashSet<Transform>();
+            foreach (var otherMarker in hierarchyRoot.GetComponentsInChildren<BlendShareAppliedRenderer>(true))
             {
-                var bone = generatedBones[i];
-                if (bone != null && bone.childCount == 0)
+                if (otherMarker == null || otherMarker == marker) continue;
+                foreach (var gb in otherMarker.GeneratedBones)
+                {
+                    if (gb != null) stillReferencedByOthers.Add(gb);
+                }
+            }
+
+            foreach (var otherSmr in hierarchyRoot.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            {
+                if (otherSmr == null || otherSmr == renderer) continue;
+                if (otherSmr.rootBone != null) stillReferencedByOthers.Add(otherSmr.rootBone);
+                var otherBones = otherSmr.bones;
+                if (otherBones != null)
+                {
+                    for (int b = 0; b < otherBones.Length; b++)
+                    {
+                        if (otherBones[b] != null) stillReferencedByOthers.Add(otherBones[b]);
+                    }
+                }
+            }
+
+            // Destroy deepest generated leaves (including unweighted helper bones) before generated parents
+            // once no other applied renderer claims or references them.
+            var orderedGenerated = marker.GeneratedBones
+                .Where(b => b != null)
+                .Distinct()
+                .OrderByDescending(GetTransformDepth)
+                .ToArray();
+            for (int i = 0; i < orderedGenerated.Length; i++)
+            {
+                var bone = orderedGenerated[i];
+                if (bone != null && bone.childCount == 0 && !stillReferencedByOthers.Contains(bone))
                 {
                     Undo.DestroyObjectImmediate(bone.gameObject);
                 }
@@ -258,12 +339,53 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
             return true;
         }
 
+        private static int GetTransformDepth(Transform t)
+        {
+            int depth = 0;
+            for (var cur = t; cur != null; cur = cur.parent)
+            {
+                depth++;
+            }
+
+            return depth;
+        }
+
+        private static void ClaimPreviouslyGeneratedChain(
+            Transform leaf,
+            Transform stopRoot,
+            HashSet<Transform> previouslyGenerated,
+            List<Transform> claimedList,
+            HashSet<Transform> claimedSet)
+        {
+            if (previouslyGenerated == null || previouslyGenerated.Count == 0)
+            {
+                return;
+            }
+
+            for (var cur = leaf; cur != null && cur != stopRoot; cur = cur.parent)
+            {
+                if (previouslyGenerated.Contains(cur) && claimedSet.Add(cur))
+                {
+                    claimedList.Add(cur);
+                }
+            }
+        }
+
         private static bool ApplyArtifactToHierarchy(BlendShareGeneratedArtifact artifact, Transform root, bool recordUndo)
         {
             bool anyApplied = false;
             var skeletonBonesByPath = new Dictionary<string, GeneratedSkeletonBoneRecord>(StringComparer.Ordinal);
             var createdSkeletonBones = new List<Transform>();
             var createdSkeletonSet = new HashSet<Transform>();
+            var previouslyGeneratedInHierarchy = new HashSet<Transform>();
+            foreach (var existingMarker in root.GetComponentsInChildren<BlendShareAppliedRenderer>(true))
+            {
+                if (existingMarker == null) continue;
+                foreach (var gb in existingMarker.GeneratedBones)
+                {
+                    if (gb != null) previouslyGeneratedInHierarchy.Add(gb);
+                }
+            }
 
             if (artifact.SkeletonBones != null && artifact.SkeletonBones.Count > 0)
             {
@@ -283,6 +405,7 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
                     var existing = root.Find(normPath);
                     if (existing != null)
                     {
+                        ClaimPreviouslyGeneratedChain(existing, root, previouslyGeneratedInHierarchy, createdSkeletonBones, createdSkeletonSet);
                         if (recordUndo) Undo.RecordObject(existing, "Apply BlendShare Skeleton Bone Transform");
                         boneRecord.ApplyLocalTransform(existing);
                         EditorUtility.SetDirty(existing);
@@ -290,14 +413,10 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
                         continue;
                     }
 
-                    if (!boneRecord.CreateIfMissing)
-                    {
-                        continue;
-                    }
-
                     var created = CreateMissingBonePath(root, normPath, recordUndo, createdSkeletonBones, createdSkeletonSet);
                     if (created != null)
                     {
+                        ClaimPreviouslyGeneratedChain(created.parent, root, previouslyGeneratedInHierarchy, createdSkeletonBones, createdSkeletonSet);
                         if (recordUndo) Undo.RecordObject(created, "Apply BlendShare Skeleton Bone Transform");
                         boneRecord.ApplyLocalTransform(created);
                         EditorUtility.SetDirty(created);
@@ -335,11 +454,13 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
                     if (recordUndo) Undo.RecordObject(smr, "Apply BlendShare Artifact Mesh");
                     smr.sharedMesh = entry.Mesh;
 
+                    var allGenerated = new List<Transform>();
+                    var allGeneratedSet = new HashSet<Transform>();
                     if (entry.BonePaths != null && entry.BonePaths.Count > 0)
                     {
                         var resolvedBones = new Transform[entry.BonePaths.Count];
-                        var createdBones = new List<Transform>();
-                        var createdSet = new HashSet<Transform>();
+                        var newlyCreatedBones = new List<Transform>();
+                        var newlyCreatedSet = new HashSet<Transform>();
                         var bindPosesByPath = BuildBindPoseLookup(entry);
 
                         for (int b = 0; b < entry.BonePaths.Count; b++)
@@ -350,21 +471,28 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
                             var found = FindTransformByPath(root, normBonePath);
                             if (found == null)
                             {
-                                bool canCreate = !skeletonBonesByPath.TryGetValue(normBonePath, out var skelBone) || skelBone.CreateIfMissing;
-                                if (canCreate)
+                                skeletonBonesByPath.TryGetValue(normBonePath, out var skelBone);
+                                found = CreateMissingBonePath(root, normBonePath, recordUndo, newlyCreatedBones, newlyCreatedSet);
+                                if (found != null)
                                 {
-                                    found = CreateMissingBonePath(root, normBonePath, recordUndo, createdBones, createdSet);
-                                    if (found != null && skelBone != null)
+                                    ClaimPreviouslyGeneratedChain(found.parent, root, previouslyGeneratedInHierarchy, allGenerated, allGeneratedSet);
+                                    if (skelBone != null)
                                     {
                                         skelBone.ApplyLocalTransform(found);
                                     }
                                 }
                             }
+                            else
+                            {
+                                ClaimPreviouslyGeneratedChain(found, root, previouslyGeneratedInHierarchy, allGenerated, allGeneratedSet);
+                            }
 
                             resolvedBones[b] = found;
                         }
 
-                        var fallbackCreated = createdBones
+                        // Only transforms newly allocated during this mesh entry receive fallback bindpose initialization;
+                        // reused shared transforms must NEVER be moved.
+                        var fallbackCreated = newlyCreatedBones
                             .Where(t => t != null && !skeletonBonesByPath.ContainsKey(GetRelativeTransformPath(t, root)))
                             .ToList();
                         if (fallbackCreated.Count > 0)
@@ -382,20 +510,34 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
                             }
                         }
 
-                        var allGenerated = new List<Transform>(createdBones);
-                        for (int k = 0; k < createdSkeletonBones.Count; k++)
+                        for (int k = 0; k < newlyCreatedBones.Count; k++)
                         {
-                            if (createdSkeletonBones[k] != null && resolvedBones.Contains(createdSkeletonBones[k]) && !allGenerated.Contains(createdSkeletonBones[k]))
+                            var createdFallback = newlyCreatedBones[k];
+                            if (createdFallback != null)
                             {
-                                allGenerated.Add(createdSkeletonBones[k]);
+                                previouslyGeneratedInHierarchy.Add(createdFallback);
+                                if (allGeneratedSet.Add(createdFallback))
+                                {
+                                    allGenerated.Add(createdFallback);
+                                }
                             }
                         }
+                    }
 
-                        if (allGenerated.Count > 0)
+                    // Track ownership of EVERY skeleton bone created or claimed during this artifact apply (including unweighted leaves)
+                    // so RevertAppliedRenderer cleans them up once the last owning renderer reverts.
+                    for (int k = 0; k < createdSkeletonBones.Count; k++)
+                    {
+                        if (createdSkeletonBones[k] != null && allGeneratedSet.Add(createdSkeletonBones[k]))
                         {
-                            if (recordUndo) Undo.RecordObject(marker, "Record Generated Bones");
-                            marker.AddGeneratedBones(allGenerated.ToArray());
+                            allGenerated.Add(createdSkeletonBones[k]);
                         }
+                    }
+
+                    if (allGenerated.Count > 0)
+                    {
+                        if (recordUndo) Undo.RecordObject(marker, "Record Generated Bones");
+                        marker.AddGeneratedBones(allGenerated.ToArray());
                     }
 
                     EditorUtility.SetDirty(smr);

@@ -37,8 +37,15 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
                     foreach (var bone in result.AppliedSkeletonBones)
                     {
                         if (bone == null || string.IsNullOrEmpty(bone.Path)) continue;
-                        if (!skeletonBonesByPath.TryGetValue(bone.Path, out var existing) ||
-                            (bone.CreateIfMissing && !existing.CreateIfMissing))
+                        if (skeletonBonesByPath.TryGetValue(bone.Path, out var existing))
+                        {
+                            if (!existing.ApproximatelyMatches(bone))
+                            {
+                                throw new InvalidOperationException(
+                                    $"Conflicting skeleton bone transforms for '{bone.Path}' across meshes.");
+                            }
+                        }
+                        else
                         {
                             skeletonBonesByPath[bone.Path] = bone;
                         }
@@ -82,7 +89,7 @@ namespace Triturbo.BlendShare.Pipeline.Artifacts
                 }
                 var skeletonBones = (inMemoryArtifact.SkeletonBones ?? Array.Empty<GeneratedSkeletonBoneRecord>())
                     .Where(b => b != null)
-                    .Select(b => new GeneratedSkeletonBoneRecord(b.Path, b.LocalPosition, b.LocalRotation, b.LocalScale, b.CreateIfMissing))
+                    .Select(b => new GeneratedSkeletonBoneRecord(b.Path, b.LocalPosition, b.LocalRotation, b.LocalScale))
                     .ToArray();
                 artifact.Initialize(inMemoryArtifact.TargetSource, inMemoryArtifact.AppliedPatchIds.ToArray(), entries.ToArray(), skeletonBones);
                 EditorUtility.SetDirty(artifact);

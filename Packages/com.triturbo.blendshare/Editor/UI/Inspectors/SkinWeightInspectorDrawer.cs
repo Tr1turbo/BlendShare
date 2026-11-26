@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Triturbo.BlendShare.UI;
+using Triturbo.BlendShare.Model.Documents;
 using Triturbo.BlendShare.Model.Features;
 using UnityEngine.UIElements;
 
@@ -33,11 +34,11 @@ namespace Triturbo.BlendShare.UI.Inspectors
                 return box;
             }
 
-            var skeleton = context.Skeleton;
+            var skeleton = context?.Skeleton;
             var clusters = feature.Clusters.Where(c => c != null).ToList();
             int affectedBoneCount = clusters
                 .Select(c => c.BonePath)
-                .Concat((skeleton?.Bones ?? (IEnumerable<Model.Documents.SkeletonBoneRecord>)Array.Empty<Model.Documents.SkeletonBoneRecord>()).Where(b => b != null).Select(b => b.Path))
+                .Concat((skeleton?.Nodes ?? (IEnumerable<SkeletonNodeRecord>)Array.Empty<SkeletonNodeRecord>()).Where(b => b != null).Select(b => b.Path))
                 .Where(p => !string.IsNullOrEmpty(p))
                 .Distinct(StringComparer.Ordinal)
                 .Count();
@@ -71,7 +72,7 @@ namespace Triturbo.BlendShare.UI.Inspectors
             box.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.bindposes"), clusters.Count(c => c.HasClusterMatrices).ToString()));
             box.Add(BlendShareInspectorUi.Row(Localization.S("features.skin-weights.root_bone"), feature.RootBonePath));
 
-            if (skeleton != null && skeleton.Bones != null && skeleton.Bones.Count > 0)
+            if (skeleton != null && skeleton.Nodes != null && skeleton.Nodes.Count > 0)
             {
                 var skeletonFoldout = new Foldout
                 {

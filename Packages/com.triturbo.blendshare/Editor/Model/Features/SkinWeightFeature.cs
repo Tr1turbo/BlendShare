@@ -7,6 +7,18 @@ using Triturbo.BlendShare.Primitives;
 
 namespace Triturbo.BlendShare.Model.Features
 {
+    /// <summary>
+    /// Persisted skin-weight accumulation semantics for <see cref="SkinWeightFeature"/>.
+    /// </summary>
+    public enum SkinWeightLinkMode : byte
+    {
+        /// <summary>Weights on each control point sum to 1.0 (<c>FbxCluster::eNormalize</c>).</summary>
+        Normalize = 0,
+
+        /// <summary>Partial weights (<c>sum &lt;= 1.0</c>) leave <c>1 - sum</c> at the bind shape (<c>FbxCluster::eTotalOne</c>).</summary>
+        TotalOne = 1
+    }
+
     [BlendShareFeature(SkinWeightFeature.FeatureTypeId, SchemaVersion = 1, DefaultRequired = true)]
     public sealed class SkinWeightFeature : BlendShareFeatureData
     {
@@ -14,6 +26,7 @@ namespace Triturbo.BlendShare.Model.Features
 
         [BlendShareField(16)] public string RootBonePath = string.Empty;
         [BlendShareField(17)] public List<SkinWeightClusterEntry> Clusters = new List<SkinWeightClusterEntry>();
+        [BlendShareField(18)] public SkinWeightLinkMode LinkMode = SkinWeightLinkMode.Normalize;
 
         public SkinWeightFeature()
         {
@@ -39,7 +52,7 @@ namespace Triturbo.BlendShare.Model.Features
                     continue;
                 }
 
-                string normalized = SkeletonDocument.NormalizeBonePath(cluster.BonePath);
+                string normalized = FbxNameUtility.NormalizePath(cluster.BonePath);
                 if (!string.IsNullOrEmpty(normalized) && seen.Add(normalized))
                 {
                     result.Add(normalized);
@@ -51,7 +64,7 @@ namespace Triturbo.BlendShare.Model.Features
 
         /// <summary>
         /// Returns all bone paths referenced by weighted or bindpose clusters in skeleton parent-before-child order,
-        /// followed by any cluster bone paths not listed in the skeleton document.
+        /// followed by any cluster bone paths not listed in the patch skeleton document.
         /// </summary>
         public List<string> GetNeededBonePathsInSkeletonOrder(SkeletonDocument skeleton)
         {
@@ -72,7 +85,7 @@ namespace Triturbo.BlendShare.Model.Features
                         continue;
                     }
 
-                    string normalized = SkeletonDocument.NormalizeBonePath(cluster.BonePath);
+                    string normalized = FbxNameUtility.NormalizePath(cluster.BonePath);
                     if (!string.IsNullOrEmpty(normalized))
                     {
                         needed.Add(normalized);
@@ -83,7 +96,7 @@ namespace Triturbo.BlendShare.Model.Features
             var ordered = new List<string>(needed.Count);
             if (skeleton != null)
             {
-                var skeletonPaths = skeleton.GetBonePathsInHierarchyOrder();
+                var skeletonPaths = skeleton.GetNodePathsInHierarchyOrder();
                 for (int i = 0; i < skeletonPaths.Count; i++)
                 {
                     if (needed.Remove(skeletonPaths[i]))
@@ -103,7 +116,7 @@ namespace Triturbo.BlendShare.Model.Features
                         continue;
                     }
 
-                    string normalized = SkeletonDocument.NormalizeBonePath(cluster.BonePath);
+                    string normalized = FbxNameUtility.NormalizePath(cluster.BonePath);
                     if (!string.IsNullOrEmpty(normalized) && needed.Remove(normalized))
                     {
                         ordered.Add(normalized);
@@ -117,7 +130,7 @@ namespace Triturbo.BlendShare.Model.Features
         public bool TryGetCluster(string bonePath, out SkinWeightClusterEntry cluster)
         {
             cluster = null;
-            string normalized = SkeletonDocument.NormalizeBonePath(bonePath);
+            string normalized = FbxNameUtility.NormalizePath(bonePath);
             if (string.IsNullOrEmpty(normalized) || Clusters == null)
             {
                 return false;
@@ -127,7 +140,7 @@ namespace Triturbo.BlendShare.Model.Features
             {
                 var candidate = Clusters[i];
                 if (candidate != null &&
-                    string.Equals(SkeletonDocument.NormalizeBonePath(candidate.BonePath), normalized, StringComparison.Ordinal))
+                    string.Equals(FbxNameUtility.NormalizePath(candidate.BonePath), normalized, StringComparison.Ordinal))
                 {
                     cluster = candidate;
                     return true;

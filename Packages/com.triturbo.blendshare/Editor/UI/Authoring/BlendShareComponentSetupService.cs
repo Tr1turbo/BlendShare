@@ -10,6 +10,7 @@ using Triturbo.BlendShare.EditorAssets;
 using Triturbo.BlendShare.EditorAssets.Mapping;
 using Triturbo.BlendShare.EditorAssets.Settings;
 using Triturbo.BlendShare.Pipeline.Apply;
+using Triturbo.BlendShare.Pipeline.Skeleton;
 using Triturbo.BlendShare.UI.Inspectors;
 using Triturbo.BlendShare.Fbx;
 using System.Runtime.CompilerServices;
@@ -231,8 +232,8 @@ namespace Triturbo.BlendShare.UI.Authoring
 
                 foreach (string bonePath in skin.BonePaths)
                 {
-                    var bone = skin.Skeleton.Bones.Find(item => item.Path == bonePath);
-                    if (bone == null || !bone.CreateIfMissing || !meshApplier.CreateMissingBones || transformsByPath.ContainsKey(bonePath))
+                    var bone = skin.Skeleton.Nodes.Find(item => item != null && item.Path == bonePath);
+                    if (bone == null || !meshApplier.CreateMissingBones || transformsByPath.ContainsKey(bonePath))
                     {
                         continue;
                     }
@@ -246,8 +247,11 @@ namespace Triturbo.BlendShare.UI.Authoring
                         continue;
                     }
 
-                    if (!mapping.TryConvertLocalTransform(
-                            bone.LocalBindMatrix,
+                    if (!mapping.TryConvertSkeletonBoneTransform(
+                            skin.Skeleton,
+                            bone,
+                            targetRoot,
+                            transformsByPath,
                             out var localTransform,
                             out string transformDiagnostic))
                     {
@@ -414,15 +418,18 @@ namespace Triturbo.BlendShare.UI.Authoring
         private static MeshDocument GetMesh(BlendShareMesh mesh) =>
             mesh ? ReadDocument(mesh.ResolvedPatch)?.Meshes.Find(item => item.MeshId == mesh.ResolvedMeshId) : null;
 
-        internal static SkeletonDocument GetSkeleton(BlendShareBoneProxy proxy) =>
-            proxy ? ReadDocument(proxy.Patch)?.Skeleton : null;
+        internal static SkeletonDocument GetSkeleton(BlendShareBoneProxy proxy)
+        {
+            if (!proxy) return null;
+            return ReadDocument(proxy.Patch)?.Skeleton;
+        }
 
         internal static SkinHeaders GetSkin(BlendShareMesh mesh)
         {
             var feature = GetMesh(mesh)?.Features.OfType<SkinWeightFeature>().FirstOrDefault();
             if (feature == null) return null;
             var skeleton = ReadDocument(mesh.ResolvedPatch)?.Skeleton;
-            return skeleton == null ? null : new SkinHeaders(feature, skeleton);
+            return new SkinHeaders(feature, skeleton);
         }
 
         internal static bool SyncActiveBlendShapeWeights(this BlendShareMesh mesh) =>
@@ -510,7 +517,11 @@ namespace Triturbo.BlendShare.UI.Authoring
                 // Passive display can use the FBX mapping path, but must not open embedded mapping payloads.
                 var input = allowPayloadRead ? header : new MeshDocument
                 {
-                    MeshId = header.MeshId, NodePath = header.NodePath, Topology = header.Topology
+                    MeshId = header.MeshId,
+                    NodePath = header.NodePath,
+                    Topology = header.Topology,
+                    Sketch = header.Sketch,
+                    EffectivePositionUnitMeters = header.EffectivePositionUnitMeters
                 };
                 var result = VertexMappingService.Shared.Resolve(new VertexMappingResolveRequest
                 {
@@ -544,18 +555,63 @@ namespace Triturbo.BlendShare.UI.Authoring
             return cache;
         }
 
-        internal static bool TryConvertLocalTransform(this ResolvedVertexMapping mapping, FbxMatrix4x4 local,
-            out UnityLocalTransform transform, out string diagnostic)
+        internal static bool TryConvertLocalTransform(
+            this ResolvedVertexMapping mapping,
+            FbxMatrix4x4 local,
+            out UnityLocalTransform transform,
+            out string diagnostic)
         {
             transform = default;
             diagnostic = null;
-            if (!ArmatureBindTransformMath.ConvertCanonicalMatrixToUnity(local, mapping.SpaceContract.StoredToUnityMeshLocal,
-                    out var matrix) || !ArmatureBindTransformMath.TryDecomposeUnityLocalTransform(matrix,
-                    out var position, out var rotation, out var scale, out diagnostic))
+            if (!SkeletonTransformMath.ConvertCanonicalMatrixToUnity(
+                    local,
+                    mapping.SpaceContract.EffectiveStoredToUnitySceneLocal,
+                    out var matrix) ||
+                !SkeletonTransformMath.TryDecomposeUnityLocalTransform(
+                    matrix,
+                    out var position,
+                    out var rotation,
+                    out var scale,
+                    out diagnostic))
             {
                 diagnostic = "Cannot decompose the source bone transform.";
                 return false;
             }
+            transform = new UnityLocalTransform(position, rotation, scale);
+            return true;
+        }
+
+        internal static bool TryConvertSkeletonBoneTransform(
+            this ResolvedVertexMapping mapping,
+            SkeletonDocument skeleton,
+            SkeletonNodeRecord bone,
+            Transform targetRoot,
+            IReadOnlyDictionary<string, Transform> transformsByPath,
+            out UnityLocalTransform transform,
+            out string diagnostic)
+        {
+            transform = default;
+            diagnostic = null;
+            if (mapping == null || bone == null)
+            {
+                diagnostic = "Missing mapping or skeleton bone record.";
+                return false;
+            }
+
+            if (!UnitySkeletonWriter.TrySolveUnityLocalTransform(
+                    skeleton,
+                    bone,
+                    mapping.SpaceContract.EffectiveStoredToUnitySceneLocal,
+                    targetRoot,
+                    out var position,
+                    out var rotation,
+                    out var scale,
+                    out diagnostic))
+            {
+                diagnostic ??= "Cannot decompose the source bone transform.";
+                return false;
+            }
+
             transform = new UnityLocalTransform(position, rotation, scale);
             return true;
         }
@@ -680,14 +736,14 @@ namespace Triturbo.BlendShare.UI.Authoring
         }
 
         private static Transform ResolveProxyParent(
-            SkeletonBoneRecord bone,
+            SkeletonNodeRecord bone,
             SkeletonDocument skeleton,
             BlendShareAsset patch,
             Transform targetRoot,
             IReadOnlyDictionary<string, Transform> transformsByPath,
             IReadOnlyDictionary<(BlendShareAsset, string), ResolvedBinding> proxiesByBonePath)
         {
-            string parentPath = bone?.ParentPath ?? MeshNodePath.Root;
+            string parentPath = !string.IsNullOrEmpty(bone?.ParentPath) ? bone.ParentPath : MeshNodePath.Root;
             var visited = new HashSet<string>();
             while (!string.IsNullOrEmpty(parentPath) && parentPath != MeshNodePath.Root && visited.Add(parentPath))
             {
@@ -703,7 +759,7 @@ namespace Triturbo.BlendShare.UI.Authoring
                     return parent;
                 }
 
-                var parentBone = skeleton.Bones.Find(item => item.Path == parentPath);
+                var parentBone = skeleton.Nodes.Find(item => item != null && item.Path == parentPath);
                 if (parentBone == null)
                 {
                     break;
@@ -798,18 +854,33 @@ namespace Triturbo.BlendShare.UI.Authoring
         internal SkinHeaders(SkinWeightFeature feature, SkeletonDocument skeleton)
         {
             Skeleton = skeleton;
-            var weighted = feature.Clusters.Select(cluster => cluster.BonePath).Distinct().ToArray();
-            var needed = new HashSet<string>(weighted, StringComparer.Ordinal);
-            foreach (var bone in skeleton.Bones)
+            var weighted = feature.Clusters.Where(c => c != null && !string.IsNullOrEmpty(c.BonePath))
+                .Select(cluster => cluster.BonePath)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            if (skeleton?.Nodes == null || skeleton.Nodes.Count == 0)
             {
-                if (bone != null && bone.CreateIfMissing && !string.IsNullOrEmpty(bone.Path))
+                BonePaths = weighted;
+                return;
+            }
+
+            var needed = new HashSet<string>(weighted, StringComparer.Ordinal);
+            foreach (var bone in skeleton.Nodes)
+            {
+                if (bone != null && !string.IsNullOrEmpty(bone.Path))
                 {
                     needed.Add(bone.Path);
                 }
             }
 
-            BonePaths = skeleton.Bones.OrderBy(bone => bone.Path.Count(character => character == '/'))
-                .Select(bone => bone.Path).Where(needed.Remove).Concat(weighted.Where(needed.Contains)).ToArray();
+            BonePaths = skeleton.Nodes
+                .Where(bone => bone != null && !string.IsNullOrEmpty(bone.Path))
+                .OrderBy(bone => bone.Path.Count(character => character == '/'))
+                .ThenBy(bone => bone.Path, StringComparer.Ordinal)
+                .Select(bone => bone.Path)
+                .Where(needed.Remove)
+                .Concat(weighted.Where(needed.Contains))
+                .ToArray();
         }
     }
 

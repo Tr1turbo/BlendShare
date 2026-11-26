@@ -8,6 +8,7 @@ using Triturbo.BlendShare.Container.Format;
 using Triturbo.BlendShare.Container.Serialization;
 using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Fbx.Ufbx;
+using Triturbo.BlendShare.Mapping;
 using Triturbo.BlendShare.Model.Documents;
 using Triturbo.BlendShare.Model.Features;
 using Triturbo.BlendShare.Model.Serialization;
@@ -93,7 +94,7 @@ namespace Triturbo.BlendShare.FbxExport
                 return new FbxPatchExportPreflightResult(
                     preflightOk,
                     diagnostics,
-                    plan.AffectedNodePaths,
+                    plan.BuildAffectedNodePaths(),
                     token);
             }
             catch (Exception ex)
@@ -158,9 +159,29 @@ namespace Triturbo.BlendShare.FbxExport
                     return new FbxPatchExportResult(false, null, diagnostics, 0, 0);
                 }
 
-                // Execute all writers across all targeted meshes in ExecutionOrder.
+                // Execute transaction-wide skeleton edits first, then mesh feature writers in ExecutionOrder.
                 var modifiedNodePaths = new HashSet<string>(StringComparer.Ordinal);
                 var appliedPatchIds = new HashSet<string>(StringComparer.Ordinal);
+                if (!plan.SkeletonWriter.Write(
+                        sdkManager,
+                        plan.SdkRootNode,
+                        diagnostics,
+                        out var modifiedSkeletonPaths,
+                        out var appliedSkeletonPatchIds))
+                {
+                    return new FbxPatchExportResult(false, null, diagnostics, 0, 0);
+                }
+
+                foreach (string skelPath in modifiedSkeletonPaths)
+                {
+                    modifiedNodePaths.Add(skelPath);
+                }
+
+                foreach (string skelPatchId in appliedSkeletonPatchIds)
+                {
+                    appliedPatchIds.Add(skelPatchId);
+                }
+
                 var writers = m_WriterRegistry.GetAllOrdered();
 
                 for (int m = 0; m < plan.MeshPlans.Count; m++)
@@ -485,6 +506,7 @@ namespace Triturbo.BlendShare.FbxExport
             }
 
             var sessionState = new Dictionary<string, object>(StringComparer.Ordinal);
+            var skeletonWriter = SkeletonFbxWriter.GetOrCreate(sessionState);
             var meshPlanByTargetPath = new Dictionary<string, ExportMeshPlan>(StringComparer.Ordinal);
             var orderedMeshPlans = new List<ExportMeshPlan>();
             var seenSdkMeshes = new List<(FbxMesh Mesh, string TargetPath)>();
@@ -518,19 +540,43 @@ namespace Triturbo.BlendShare.FbxExport
                     diagnostics.Add(new FbxExportDiagnostic(
                         FbxExportDiagnosticSeverity.Error,
                         "FBX_EXPORT_CONTAINER_READ_FAILED",
-                        $"Failed reading skeleton from patch '{patchItem.PatchId}': {skeletonResult.Message}",
-                        patchId: patchItem.PatchId));
+                        $"Failed reading skeleton section from patch '{patchItem.PatchId}': {skeletonResult.Message}",
+                        patchId: patchItem.PatchId,
+                        featureTypeId: SkeletonDocument.SectionTypeId));
                     hasErrors = true;
                     continue;
                 }
 
-                SkeletonDocument skeleton = skeletonResult.Value;
+                SkeletonDocument skeletonDoc = skeletonResult.Value;
+                if (skeletonDoc != null)
+                {
+                    var skelValidation = SkeletonDocumentValidator.Validate(skeletonDoc);
+                    if (!skelValidation.IsValid)
+                    {
+                        string msg = skelValidation.Issues.Count > 0
+                            ? string.Join("; ", skelValidation.Issues.Select(i => i.Message))
+                            : "Skeleton document validation failed.";
+                        diagnostics.Add(new FbxExportDiagnostic(
+                            FbxExportDiagnosticSeverity.Error,
+                            "FBX_EXPORT_SKELETON_VALIDATION_FAILED",
+                            msg,
+                            patchId: patchItem.PatchId,
+                            featureTypeId: SkeletonDocument.SectionTypeId));
+                        hasErrors = true;
+                        continue;
+                    }
+                }
 
                 if (!FbxExportSpace.TryCreate(patchItem.Toc.SpaceProvenance, target, out var patchSpace))
                 {
                     diagnostics.Add(new FbxExportDiagnostic(FbxExportDiagnosticSeverity.Error, "FBX_EXPORT_PATCH_SPACE",
                         $"Invalid stored frame, axes or unit for patch '{patchItem.PatchId}'.", patchId: patchItem.PatchId));
                     return false;
+                }
+
+                if (skeletonDoc != null && skeletonDoc.HasContent)
+                {
+                    skeletonWriter.Register(patchItem.PatchId, patchSpace, skeletonDoc);
                 }
 
                 for (int m = 0; m < patchItem.Toc.Meshes.Count; m++)
@@ -628,6 +674,13 @@ namespace Triturbo.BlendShare.FbxExport
                         hasErrors = true;
                         continue;
                     }
+
+                    FbxExportSpace meshPatchSpace = CalibrateMeshExportSpace(
+                        meshHeader,
+                        readerMesh,
+                        patchSpace,
+                        patchItem.PatchId,
+                        diagnostics);
 
                     if (!meshPlanByTargetPath.TryGetValue(targetNodePath, out var meshPlan))
                     {
@@ -736,11 +789,11 @@ namespace Triturbo.BlendShare.FbxExport
                         var input = new FbxFeatureWriteInput(
                             patchItem,
                             meshHeader,
-                            skeleton,
+                            skeletonDoc,
                             featureData,
                             payloadStore,
                             targetNodePath,
-                            patchSpace);
+                            meshPatchSpace);
                         meshPlan.AddInput(typeId, input);
                     }
                 }
@@ -753,6 +806,9 @@ namespace Triturbo.BlendShare.FbxExport
 
             plan = new ExportTransactionPlan(
                 orderedMeshPlans,
+                rootNode,
+                readerScene,
+                skeletonWriter,
                 canonicalToTargetRaw,
                 targetRawToCanonical,
                 sessionState,
@@ -765,6 +821,32 @@ namespace Triturbo.BlendShare.FbxExport
             var writers = m_WriterRegistry.GetAllOrdered();
             bool ok = true;
 
+            // Phase 1: Register transaction-wide inputs across all mesh plans, then solve & validate shared skeletons once.
+            for (int m = 0; m < plan.MeshPlans.Count; m++)
+            {
+                var meshPlan = plan.MeshPlans[m];
+                for (int w = 0; w < writers.Count; w++)
+                {
+                    var writer = writers[w];
+                    if (meshPlan.InputsByFeatureType.TryGetValue(writer.FeatureTypeId, out var writerInputs) &&
+                        writerInputs.Count > 0)
+                    {
+                        writer.RegisterTransactionInputs(meshPlan.ExportContext, writerInputs);
+                    }
+                }
+            }
+
+            if (!plan.SkeletonWriter.EnsureSolvedAndValidated(
+                    plan.SdkRootNode,
+                    plan.ReaderScene,
+                    plan.TargetedMeshPaths,
+                    plan.NumericVerificationToleranceMeters,
+                    diagnostics))
+            {
+                ok = false;
+            }
+
+            // Phase 2: Validate each mesh plan against the complete transaction state.
             for (int m = 0; m < plan.MeshPlans.Count; m++)
             {
                 var meshPlan = plan.MeshPlans[m];
@@ -825,79 +907,147 @@ namespace Triturbo.BlendShare.FbxExport
                 return false;
             }
             var writers = m_WriterRegistry.GetAllOrdered();
+            FbxManager verifySdkManager = null;
+            FbxScene verifySdkScene = null;
+            bool verifySdkSceneAttempted = false;
 
-            for (int m = 0; m < plan.MeshPlans.Count; m++)
+            FbxScene GetOrOpenVerifiedSdkScene()
             {
-                var meshPlan = plan.MeshPlans[m];
-                IFbxMesh verifiedMesh = FindReaderMeshByNodePath(verifiedScene, meshPlan.TargetNodePath);
-                if (verifiedMesh == null)
+                if (verifySdkSceneAttempted)
                 {
-                    diagnostics.Add(new FbxExportDiagnostic(
-                        FbxExportDiagnosticSeverity.Error,
-                        "FBX_EXPORT_VERIFY_MESH_MISSING",
-                        $"Exported FBX is missing target mesh node '{meshPlan.TargetNodePath}'.",
-                        meshId: meshPlan.TargetNodePath));
-                    return false;
+                    return verifySdkScene;
                 }
 
-                IFbxMesh originalMesh = meshPlan.ExportContext.ReaderMesh;
-                var origDigest = FbxTopologyUtility.ComputeDigest(originalMesh);
-                var verDigest = FbxTopologyUtility.ComputeDigest(verifiedMesh);
-                if (verifiedMesh.ControlPointCount != originalMesh.ControlPointCount ||
-                    verifiedMesh.FaceCount != originalMesh.FaceCount ||
-                    !origDigest.IsValid || !verDigest.IsValid ||
-                    !string.Equals(origDigest.Hash, verDigest.Hash, StringComparison.Ordinal))
+                verifySdkSceneAttempted = true;
+                if (string.IsNullOrEmpty(tempFbxPath))
                 {
-                    diagnostics.Add(new FbxExportDiagnostic(
-                        FbxExportDiagnosticSeverity.Error,
-                        "FBX_EXPORT_VERIFY_TOPOLOGY_CHANGED",
-                        $"Exported mesh '{meshPlan.TargetNodePath}' topology changed (CPs {originalMesh.ControlPointCount}->{verifiedMesh.ControlPointCount}, faces {originalMesh.FaceCount}->{verifiedMesh.FaceCount}, digest {origDigest.Hash}->{verDigest.Hash}).",
-                        meshId: meshPlan.TargetNodePath));
-                    return false;
+                    return null;
                 }
 
-                var verifyContext = new FbxExportVerifyMeshContext(
-                    verifiedScene,
-                    verifiedMesh,
-                    originalReaderScene,
-                    originalMesh,
-                    meshPlan.TargetNodePath,
-                    plan.CanonicalToTargetRaw,
-                    plan.TargetRawToCanonical,
-                    plan.NumericVerificationToleranceMeters,
-                    plan.SessionState,
-                    diagnostics,
-                    verifyNumerics);
-
-                for (int w = 0; w < writers.Count; w++)
+                FbxImporter importer = null;
+                try
                 {
-                    var writer = writers[w];
-                    if (!meshPlan.InputsByFeatureType.TryGetValue(writer.FeatureTypeId, out var writerInputs) ||
-                        writerInputs.Count == 0)
+                    verifySdkManager = FbxManager.Create();
+                    var ioSettings = FbxIOSettings.Create(verifySdkManager, Globals.IOSROOT);
+                    verifySdkManager.SetIOSettings(ioSettings);
+                    importer = FbxImporter.Create(verifySdkManager, string.Empty);
+                    if (!importer.Initialize(tempFbxPath, -1, ioSettings))
                     {
-                        continue;
+                        return null;
                     }
 
-                    var verifyResult = writer.Verify(verifyContext, writerInputs);
-                    AddDiagnostics(diagnostics, verifyResult.Diagnostics);
-                    if (verifyResult.Status == FbxFeatureWriteStatus.Failed)
+                    var imported = FbxScene.Create(verifySdkManager, "verify");
+                    if (!importer.Import(imported))
                     {
-                        if (verifyResult.Diagnostics.Count == 0)
-                        {
-                            diagnostics.Add(new FbxExportDiagnostic(
-                                FbxExportDiagnosticSeverity.Error,
-                                "FBX_EXPORT_VERIFY_FAILED",
-                                $"Round-trip verification failed for feature '{writer.FeatureTypeId}' on mesh '{meshPlan.TargetNodePath}'.",
-                                meshId: meshPlan.TargetNodePath,
-                                featureTypeId: writer.FeatureTypeId));
-                        }
-
-                        return false;
+                        return null;
                     }
+
+                    verifySdkScene = imported;
+                    return verifySdkScene;
+                }
+                catch
+                {
+                    verifySdkScene = null;
+                    return null;
+                }
+                finally
+                {
+                    // Destroy child importer BEFORE outer VerifyTempExportFile finally disposes verifySdkManager.
+                    importer?.Destroy();
                 }
             }
 
-            return true;
+            try
+            {
+                if (!plan.SkeletonWriter.Verify(
+                        verifiedScene,
+                        originalReaderScene,
+                        verifyNumerics,
+                        plan.NumericVerificationToleranceMeters,
+                        diagnostics))
+                {
+                    return false;
+                }
+
+                for (int m = 0; m < plan.MeshPlans.Count; m++)
+                {
+                    var meshPlan = plan.MeshPlans[m];
+                    IFbxMesh verifiedMesh = FindReaderMeshByNodePath(verifiedScene, meshPlan.TargetNodePath);
+                    if (verifiedMesh == null)
+                    {
+                        diagnostics.Add(new FbxExportDiagnostic(
+                            FbxExportDiagnosticSeverity.Error,
+                            "FBX_EXPORT_VERIFY_MESH_MISSING",
+                            $"Exported FBX is missing target mesh node '{meshPlan.TargetNodePath}'.",
+                            meshId: meshPlan.TargetNodePath));
+                        return false;
+                    }
+
+                    IFbxMesh originalMesh = meshPlan.ExportContext.ReaderMesh;
+                    var origDigest = FbxTopologyUtility.ComputeDigest(originalMesh);
+                    var verDigest = FbxTopologyUtility.ComputeDigest(verifiedMesh);
+                    if (verifiedMesh.ControlPointCount != originalMesh.ControlPointCount ||
+                        verifiedMesh.FaceCount != originalMesh.FaceCount ||
+                        !origDigest.IsValid || !verDigest.IsValid ||
+                        !string.Equals(origDigest.Hash, verDigest.Hash, StringComparison.Ordinal))
+                    {
+                        diagnostics.Add(new FbxExportDiagnostic(
+                            FbxExportDiagnosticSeverity.Error,
+                            "FBX_EXPORT_VERIFY_TOPOLOGY_CHANGED",
+                            $"Exported mesh '{meshPlan.TargetNodePath}' topology changed (CPs {originalMesh.ControlPointCount}->{verifiedMesh.ControlPointCount}, faces {originalMesh.FaceCount}->{verifiedMesh.FaceCount}, digest {origDigest.Hash}->{verDigest.Hash}).",
+                            meshId: meshPlan.TargetNodePath));
+                        return false;
+                    }
+
+                    var verifyContext = new FbxExportVerifyMeshContext(
+                        verifiedScene,
+                        verifiedMesh,
+                        originalReaderScene,
+                        originalMesh,
+                        meshPlan.TargetNodePath,
+                        plan.CanonicalToTargetRaw,
+                        plan.TargetRawToCanonical,
+                        plan.NumericVerificationToleranceMeters,
+                        plan.SessionState,
+                        diagnostics,
+                        verifyNumerics,
+                        tempFbxPath,
+                        GetOrOpenVerifiedSdkScene);
+
+                    for (int w = 0; w < writers.Count; w++)
+                    {
+                        var writer = writers[w];
+                        if (!meshPlan.InputsByFeatureType.TryGetValue(writer.FeatureTypeId, out var writerInputs) ||
+                            writerInputs.Count == 0)
+                        {
+                            continue;
+                        }
+
+                        var verifyResult = writer.Verify(verifyContext, writerInputs);
+                        AddDiagnostics(diagnostics, verifyResult.Diagnostics);
+                        if (verifyResult.Status == FbxFeatureWriteStatus.Failed)
+                        {
+                            if (verifyResult.Diagnostics.Count == 0)
+                            {
+                                diagnostics.Add(new FbxExportDiagnostic(
+                                    FbxExportDiagnosticSeverity.Error,
+                                    "FBX_EXPORT_VERIFY_FAILED",
+                                    $"Round-trip verification failed for feature '{writer.FeatureTypeId}' on mesh '{meshPlan.TargetNodePath}'.",
+                                    meshId: meshPlan.TargetNodePath,
+                                    featureTypeId: writer.FeatureTypeId));
+                            }
+
+                            return false;
+                        }
+                    }
+                }
+
+                return true;
+            }
+            finally
+            {
+                verifySdkManager?.Dispose();
+            }
         }
 
         private static bool ExportSdkSceneToFile(
@@ -1006,6 +1156,75 @@ namespace Triturbo.BlendShare.FbxExport
             }
 
             return null;
+        }
+
+        private static FbxExportSpace CalibrateMeshExportSpace(
+            MeshDocument meshHeader,
+            IFbxMesh readerMesh,
+            FbxExportSpace baseSpace,
+            string patchId,
+            List<FbxExportDiagnostic> diagnostics)
+        {
+            var sketch = meshHeader?.Sketch;
+            if (sketch == null || !sketch.HasData || readerMesh == null || baseSpace == null)
+            {
+                return baseSpace;
+            }
+
+            int cpCount = meshHeader.Topology != null && meshHeader.Topology.IsValid
+                ? meshHeader.Topology.ControlPointCount
+                : readerMesh.ControlPointCount;
+            int blockCount = sketch.BlockCount;
+            if (cpCount <= 0 || blockCount <= 0 || !sketch.TryValidate(cpCount, out _))
+            {
+                return baseSpace;
+            }
+
+            var storedBlocks = new StoredSketchBlock[blockCount];
+            for (int b = 0; b < blockCount; b++)
+            {
+                if (!sketch.TryReadBlockContrasts(b, out uint mask, out var c1, out var c2, out var c3))
+                {
+                    return baseSpace;
+                }
+
+                storedBlocks[b] = new StoredSketchBlock(b, mask, c1, c2, c3);
+            }
+
+            var targetCps = readerMesh.GetControlPoints();
+            var observations = GeometrySketchAligner.ExtractTargetContrastsFromFbx(storedBlocks, cpCount, targetCps);
+            if (observations.Length == 0)
+            {
+                return baseSpace;
+            }
+
+            if (!GeometrySketchAligner.TryRefineLinearTransform(
+                    storedBlocks,
+                    observations,
+                    baseSpace.StoredToTargetRaw,
+                    out var refined,
+                    out bool wasRefined,
+                    out string sketchDiag))
+            {
+                return baseSpace;
+            }
+
+            if (wasRefined && baseSpace.TryWithRefinedMeshLinearTransform(refined, out var calibrated))
+            {
+                if (!string.IsNullOrEmpty(sketchDiag))
+                {
+                    diagnostics?.Add(new FbxExportDiagnostic(
+                        FbxExportDiagnosticSeverity.Info,
+                        "FBX_EXPORT_SKETCH_CALIBRATED",
+                        sketchDiag,
+                        patchId: patchId,
+                        meshId: meshHeader.MeshId));
+                }
+
+                return calibrated;
+            }
+
+            return baseSpace;
         }
 
         private static bool ValidateTopologyCompatibility(
@@ -1220,7 +1439,10 @@ namespace Triturbo.BlendShare.FbxExport
         private sealed class ExportTransactionPlan
         {
             public IReadOnlyList<ExportMeshPlan> MeshPlans { get; }
-            public IReadOnlyList<string> AffectedNodePaths { get; }
+            public IReadOnlyList<string> TargetedMeshPaths { get; }
+            public FbxNode SdkRootNode { get; }
+            public IFbxScene ReaderScene { get; }
+            public SkeletonFbxWriter SkeletonWriter { get; }
             public FbxAffineSpaceTransform CanonicalToTargetRaw { get; }
             public FbxAffineSpaceTransform TargetRawToCanonical { get; }
             public IDictionary<string, object> SessionState { get; }
@@ -1228,17 +1450,37 @@ namespace Triturbo.BlendShare.FbxExport
 
             public ExportTransactionPlan(
                 List<ExportMeshPlan> meshPlans,
+                FbxNode sdkRootNode,
+                IFbxScene readerScene,
+                SkeletonFbxWriter skeletonWriter,
                 FbxAffineSpaceTransform canonicalToTargetRaw,
                 FbxAffineSpaceTransform targetRawToCanonical,
                 IDictionary<string, object> sessionState,
                 double numericVerificationToleranceMeters)
             {
                 MeshPlans = meshPlans;
-                AffectedNodePaths = meshPlans.Select(m => m.TargetNodePath).ToArray();
+                TargetedMeshPaths = meshPlans.Select(m => m.TargetNodePath).ToArray();
+                SdkRootNode = sdkRootNode;
+                ReaderScene = readerScene;
+                SkeletonWriter = skeletonWriter;
                 CanonicalToTargetRaw = canonicalToTargetRaw;
                 TargetRawToCanonical = targetRawToCanonical;
                 SessionState = sessionState;
                 NumericVerificationToleranceMeters = numericVerificationToleranceMeters;
+            }
+
+            public IReadOnlyList<string> BuildAffectedNodePaths()
+            {
+                var set = new HashSet<string>(TargetedMeshPaths, StringComparer.Ordinal);
+                if (SkeletonWriter?.OrderedPreparedPaths != null)
+                {
+                    for (int i = 0; i < SkeletonWriter.OrderedPreparedPaths.Count; i++)
+                    {
+                        set.Add(SkeletonWriter.OrderedPreparedPaths[i]);
+                    }
+                }
+
+                return set.OrderBy(p => p, StringComparer.Ordinal).ToArray();
             }
         }
     }

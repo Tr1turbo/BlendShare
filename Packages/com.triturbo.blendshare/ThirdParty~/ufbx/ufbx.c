@@ -5446,6 +5446,9 @@ static const char ufbxi_Materials[] = "Materials";
 static const char ufbxi_Matrix[] = "Matrix";
 static const char ufbxi_Media[] = "Media";
 static const char ufbxi_Mesh[] = "Mesh";
+/* BLENDSHARE_PATCH_BEGIN: preserve skin cluster Mode (link_mode) */
+static const char ufbxi_Mode[] = "Mode";
+/* BLENDSHARE_PATCH_END */
 static const char ufbxi_Model[] = "Model";
 static const char ufbxi_Name[] = "Name";
 static const char ufbxi_NearPlane[] = "NearPlane";
@@ -5750,6 +5753,9 @@ static const ufbx_string ufbxi_strings[] = {
 	{ ufbxi_Matrix, 6 },
 	{ ufbxi_Media, 5 },
 	{ ufbxi_Mesh, 4 },
+	/* BLENDSHARE_PATCH_BEGIN: preserve skin cluster Mode (link_mode) */
+	{ ufbxi_Mode, 4 },
+	/* BLENDSHARE_PATCH_END */
 	{ ufbxi_Model, 5 },
 	{ ufbxi_Name, 4 },
 	{ ufbxi_NearPlane, 9 },
@@ -14054,10 +14060,50 @@ ufbxi_nodiscard ufbxi_noinline static int ufbxi_read_skin(ufbxi_context *uc, ufb
 	return 1;
 }
 
+/* BLENDSHARE_PATCH_BEGIN: preserve skin cluster Mode (link_mode) */
+static int ufbxi_ascii_stricmp(const char *a, const char *b)
+{
+	while (*a && *b) {
+		unsigned char ca = (unsigned char)*a++;
+		unsigned char cb = (unsigned char)*b++;
+		if (ca >= 'A' && ca <= 'Z') ca = (unsigned char)(ca - 'A' + 'a');
+		if (cb >= 'A' && cb <= 'Z') cb = (unsigned char)(cb - 'A' + 'a');
+		if (ca != cb) return (int)ca - (int)cb;
+	}
+	return (int)(unsigned char)*a - (int)(unsigned char)*b;
+}
+
+static ufbx_skin_cluster_link_mode ufbxi_read_skin_cluster_link_mode(ufbxi_node *node)
+{
+	ufbxi_node *mode_node = ufbxi_find_child(node, ufbxi_Mode);
+	if (!mode_node) {
+		return UFBX_SKIN_CLUSTER_LINK_MODE_NORMALIZE;
+	}
+	const char *mode_str = NULL;
+	if (!ufbxi_get_val_at(mode_node, 0, 'C', (char**)&mode_str) || !mode_str || mode_str[0] == '\0') {
+		return UFBX_SKIN_CLUSTER_LINK_MODE_UNKNOWN;
+	}
+	if (!ufbxi_ascii_stricmp(mode_str, "Normalize")) {
+		return UFBX_SKIN_CLUSTER_LINK_MODE_NORMALIZE;
+	}
+	if (!ufbxi_ascii_stricmp(mode_str, "Total1") || !ufbxi_ascii_stricmp(mode_str, "TotalOne")) {
+		return UFBX_SKIN_CLUSTER_LINK_MODE_TOTAL_ONE;
+	}
+	if (!ufbxi_ascii_stricmp(mode_str, "Additive")) {
+		return UFBX_SKIN_CLUSTER_LINK_MODE_ADDITIVE;
+	}
+	return UFBX_SKIN_CLUSTER_LINK_MODE_UNKNOWN;
+}
+/* BLENDSHARE_PATCH_END */
+
 ufbxi_nodiscard ufbxi_noinline static int ufbxi_read_skin_cluster(ufbxi_context *uc, ufbxi_node *node, ufbxi_element_info *info)
 {
 	ufbx_skin_cluster *cluster = ufbxi_push_element(uc, info, ufbx_skin_cluster, UFBX_ELEMENT_SKIN_CLUSTER);
 	ufbxi_check(cluster);
+
+	/* BLENDSHARE_PATCH_BEGIN: preserve skin cluster Mode (link_mode) */
+	cluster->link_mode = ufbxi_read_skin_cluster_link_mode(node);
+	/* BLENDSHARE_PATCH_END */
 
 	ufbxi_value_array *indices = ufbxi_find_array(node, ufbxi_Indexes, 'i');
 	ufbxi_value_array *weights = ufbxi_find_array(node, ufbxi_Weights, 'r');
@@ -16122,6 +16168,10 @@ ufbxi_nodiscard ufbxi_noinline static int ufbxi_read_legacy_link(ufbxi_context *
 {
 	ufbx_skin_cluster *ufbxi_restrict cluster = ufbxi_push_synthetic_element(uc, p_fbx_id, node, name, ufbx_skin_cluster, UFBX_ELEMENT_SKIN_CLUSTER);
 	ufbxi_check(cluster);
+
+	/* BLENDSHARE_PATCH_BEGIN: preserve skin cluster Mode (link_mode) */
+	cluster->link_mode = ufbxi_read_skin_cluster_link_mode(node);
+	/* BLENDSHARE_PATCH_END */
 
 	// TODO: Merge with ufbxi_read_skin_cluster(), at least partially?
 	ufbxi_value_array *indices = ufbxi_find_array(node, ufbxi_Indexes, 'i');

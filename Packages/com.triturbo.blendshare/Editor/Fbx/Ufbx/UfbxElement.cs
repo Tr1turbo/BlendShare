@@ -24,6 +24,9 @@ namespace Triturbo.BlendShare.Fbx.Ufbx
         /// <inheritdoc />
         public FbxElementType ElementType { get; }
 
+        /// <summary>Scene that owns this element.</summary>
+        public IFbxScene OwnerScene => Scene;
+
         internal UfbxScene Scene { get; }
         internal int Index { get; }
 

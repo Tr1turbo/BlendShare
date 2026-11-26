@@ -78,6 +78,8 @@ namespace Triturbo.BlendShare.EditorAssets
                 meshes[m] = new BlendShareMeshToc(mesh.MeshId, displayMeshName, mesh.HeaderEntry.EntryIndex, featIndices);
             }
 
+            int skeletonEntryIndex = toc.SkeletonEntry != null ? toc.SkeletonEntry.EntryIndex : -1;
+
             asset.InitializeToc(
                 toc.FormatVersion,
                 toc.PatchId,
@@ -90,7 +92,7 @@ namespace Triturbo.BlendShare.EditorAssets
                 ToByteRange(toc.ManifestSlice),
                 ToByteRange(toc.IndexTableSlice),
                 ToByteRange(toc.PayloadSectionSlice),
-                toc.SkeletonEntry != null ? toc.SkeletonEntry.EntryIndex : -1,
+                skeletonEntryIndex,
                 meshes,
                 tocEntries);
         }

@@ -8,6 +8,7 @@ using Triturbo.BlendShare.Container.Wire;
 using Triturbo.BlendShare.Fbx;
 using Triturbo.BlendShare.Model.Documents;
 using Triturbo.BlendShare.Model.Features;
+using Triturbo.BlendShare.Model.Validation;
 using Triturbo.BlendShare.Primitives;
 
 namespace Triturbo.BlendShare.Container.Format
@@ -34,7 +35,10 @@ namespace Triturbo.BlendShare.Container.Format
         });
 
         public ContainerReadResult<SkeletonDocument> ReadSkeleton(Stream stream, ContainerToc expectedToc) =>
-            Target(stream, expectedToc, () => Skeleton(stream, expectedToc));
+            Target(stream, expectedToc, () =>
+            {
+                return expectedToc.HasSkeleton ? Skeleton(stream, expectedToc, expectedToc.SkeletonEntry) : null;
+            });
 
         public ContainerReadResult<MeshDocument> ReadMeshHeader(Stream stream, ContainerToc expectedToc, string meshId) =>
             Target(stream, expectedToc, () =>
@@ -68,7 +72,7 @@ namespace Triturbo.BlendShare.Container.Format
                     SpaceProvenance = PatchSpaceProvenance.FromMetadata(
                         expectedToc.SpaceProvenance.Axes,
                         expectedToc.SpaceProvenance.MetersPerUnit),
-                    Skeleton = Skeleton(stream, expectedToc)
+                    Skeleton = expectedToc.HasSkeleton ? Skeleton(stream, expectedToc, expectedToc.SkeletonEntry) : null
                 };
                 foreach (var item in expectedToc.Meshes)
                 {
@@ -79,18 +83,25 @@ namespace Triturbo.BlendShare.Container.Format
                 return doc;
             });
 
-        private SkeletonDocument Skeleton(Stream stream, ContainerToc toc)
+        private SkeletonDocument Skeleton(Stream stream, ContainerToc toc, ContainerIndexEntry e)
         {
-            var value = m_Serializer.DeserializeRecord<SkeletonDocument>(Verified(stream, toc, toc.SkeletonEntry), null);
-            FormatIO.Check(value != null, "Missing skeleton document.");
-            value.Bones ??= new List<SkeletonBoneRecord>();
-            var seenPaths = new HashSet<string>(StringComparer.Ordinal);
-            for (int i = 0; i < value.Bones.Count; i++)
+            if (!string.Equals(e.TypeId, SkeletonDocument.SectionTypeId, StringComparison.Ordinal))
             {
-                string normalized = SkeletonDocument.NormalizeBonePath(value.Bones[i]?.Path);
-                FormatIO.Check(!string.IsNullOrEmpty(normalized) && seenPaths.Add(normalized),
-                    $"Invalid or duplicate skeleton bone path '{value.Bones[i]?.Path}'.");
+                throw new InvalidDataException($"Unexpected skeleton section TypeId '{e.TypeId}'.");
             }
+
+            if (e.SchemaVersion > SkeletonDocument.CurrentSchemaVersion)
+            {
+                throw new ReadFailure(ContainerReadStatus.UnsupportedVersion,
+                    $"Unsupported skeleton section schema version {e.SchemaVersion}.");
+            }
+
+            var value = m_Serializer.DeserializeRecord<SkeletonDocument>(
+                Verified(stream, toc, e),
+                new OwnerResolver(toc, e));
+            FormatIO.Check(value != null, "Deserialized skeleton section is null.");
+            var valResult = SkeletonDocumentValidator.Validate(value);
+            FormatIO.Check(valResult.IsValid, string.Join(", ", valResult.Issues));
             return value;
         }
 
@@ -99,6 +110,14 @@ namespace Triturbo.BlendShare.Container.Format
             var value = m_Serializer.DeserializeRecord<MeshDocument>(Verified(stream, toc, mesh.HeaderEntry),
                 new OwnerResolver(toc, mesh.HeaderEntry));
             FormatIO.Check(value.MeshId == mesh.MeshId && value.Features?.Count == 0, "Invalid mesh header.");
+            FormatIO.Check(!double.IsNaN(value.EffectivePositionUnitMeters) &&
+                !double.IsInfinity(value.EffectivePositionUnitMeters) &&
+                value.EffectivePositionUnitMeters >= 0d, "Invalid mesh EffectivePositionUnitMeters.");
+            if (value.Sketch != null)
+            {
+                int expectedCpCount = value.Topology != null && value.Topology.IsValid ? value.Topology.ControlPointCount : -1;
+                FormatIO.Check(value.Sketch.TryValidate(expectedCpCount, out string sketchError), sketchError);
+            }
             value.Mappings ??= new List<VertexMappingEntry>();
             return value;
         }
@@ -166,8 +185,8 @@ namespace Triturbo.BlendShare.Container.Format
             {
                 FormatIO.Check(h.Manifest.Equals(expected.ManifestSlice) && h.Index.Equals(expected.IndexTableSlice) &&
                     h.Payload.Equals(expected.PayloadSectionSlice), "Section layout changed.");
-                FormatIO.Check(expected.Entries != null && expected.Entries.Count > 0, "Cached TOC has no entries.");
-                long prefixEnd = expected.Entries[0].Slice.Offset;
+                FormatIO.Check(expected.Entries != null, "Cached TOC entries collection is null.");
+                long prefixEnd = expected.Entries.Count > 0 ? expected.Entries[0].Slice.Offset : h.Manifest.End;
                 FormatIO.Check(prefixEnd > h.Manifest.Offset && prefixEnd <= h.Manifest.End, "Invalid cached manifest prefix bounds.");
                 var prefixBytes = FormatIO.Read(stream, new ByteSlice(h.Manifest.Offset, prefixEnd - h.Manifest.Offset));
                 var prefixReader = new WireReader(prefixBytes);
@@ -206,7 +225,7 @@ namespace Triturbo.BlendShare.Container.Format
         {
             var r = new WireReader(bytes);
             int count = r.ReadFixedInt32();
-            FormatIO.Check(count > 0 && count <= WireLimits.MaxPayloadCount && count <= r.Remaining / 74, "Invalid index count.");
+            FormatIO.Check(count >= 0 && count <= WireLimits.MaxPayloadCount && count <= r.Remaining / 74, "Invalid index count.");
             var entries = new List<ContainerIndexEntry>(count);
             long payloadCursor = header.Payload.Offset;
             bool payloadStarted = false;
@@ -236,9 +255,9 @@ namespace Triturbo.BlendShare.Container.Format
                 {
                     FormatIO.Check(!payloadStarted && slice.IsWithin(header.Manifest) && slice.Offset == manifestCursor &&
                         size == slice.Length && codec == "" && version == 0, "Invalid manifest entry.");
-                    bool valid = kind == ContainerSectionKind.Skeleton && mesh == "" && feature == "" ||
-                        kind == ContainerSectionKind.MeshHeader && !string.IsNullOrWhiteSpace(mesh) && feature == "" ||
-                        kind == ContainerSectionKind.Feature && !string.IsNullOrWhiteSpace(feature) && !string.IsNullOrWhiteSpace(type);
+                    bool valid = (kind == ContainerSectionKind.Skeleton && mesh == "" && feature == SkeletonDocument.SectionFeatureId && type == SkeletonDocument.SectionTypeId) ||
+                        (kind == ContainerSectionKind.MeshHeader && !string.IsNullOrWhiteSpace(mesh) && feature == "") ||
+                        (kind == ContainerSectionKind.Feature && !string.IsNullOrWhiteSpace(mesh) && !string.IsNullOrWhiteSpace(feature) && !string.IsNullOrWhiteSpace(type));
                     FormatIO.Check(valid, "Invalid record kind or identity.");
                     manifestCursor = slice.End;
                 }

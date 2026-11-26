@@ -49,18 +49,36 @@ namespace Triturbo.BlendShare.FbxExport
     {
         public FbxMatrix4x4 StoredToTargetRaw { get; }
         public FbxMatrix4x4 TargetRawToStored { get; }
+        public FbxAffineSpaceTransform MeshTransform { get; }
+        public FbxMatrix4x4 StoredWorldToTargetWorld { get; }
+        public FbxMatrix4x4 TargetWorldToStoredWorld { get; }
         public FbxMatrix4x4 StoredToCanonical { get; }
         public bool IsExactIdentity { get; }
-        private readonly FbxMatrix4x4 m_NormalToTargetRaw;
+        public bool IsSceneExactIdentity { get; }
+        private readonly bool m_IsMeshSimilarity;
+        private readonly FbxMatrix4x4 m_MeshOrthogonalNormalToRaw;
 
-        private FbxExportSpace(FbxMatrix4x4 forward, FbxMatrix4x4 inverse, FbxMatrix4x4 canonical,
-            FbxMatrix4x4 normalToTargetRaw, bool identity)
+        private FbxExportSpace(
+            FbxMatrix4x4 meshForward,
+            FbxAffineSpaceTransform meshTransform,
+            FbxMatrix4x4 sceneForward,
+            FbxMatrix4x4 sceneInverse,
+            FbxMatrix4x4 canonical,
+            bool isMeshSimilarity,
+            FbxMatrix4x4 meshOrthogonalNormalToRaw,
+            bool meshIdentity,
+            bool sceneIdentity)
         {
-            StoredToTargetRaw = forward;
-            TargetRawToStored = inverse;
+            StoredToTargetRaw = meshForward;
+            TargetRawToStored = meshTransform.InverseOffset;
+            MeshTransform = meshTransform;
+            StoredWorldToTargetWorld = sceneForward;
+            TargetWorldToStoredWorld = sceneInverse;
             StoredToCanonical = canonical;
-            m_NormalToTargetRaw = normalToTargetRaw;
-            IsExactIdentity = identity;
+            m_IsMeshSimilarity = isMeshSimilarity;
+            m_MeshOrthogonalNormalToRaw = meshOrthogonalNormalToRaw;
+            IsExactIdentity = meshIdentity;
+            IsSceneExactIdentity = sceneIdentity;
         }
 
         public static bool TryCreate(PatchSpaceProvenance stored, FbxSceneMetadata target, out FbxExportSpace space)
@@ -71,23 +89,88 @@ namespace Triturbo.BlendShare.FbxExport
                 !CanonicalMeshSpace.TryBuildSpaceToSpace(stored.Axes, stored.MetersPerUnit, CanonicalMeshSpace.CanonicalAxes, CanonicalMeshSpace.CanonicalUnitMeters, out var canonical, out _) ||
                 !CanonicalMeshSpace.TryBuildSpaceToSpace(stored.Axes, 1d, target.Axes, 1d, out var normal, out _) ||
                 !FbxAffineSpaceTransform.TryCreate(forward, out var transform))
+            {
                 return false;
+            }
 
-            space = new FbxExportSpace(forward, transform.InverseOffset, canonical, normal, identity);
+            space = new FbxExportSpace(
+                forward,
+                transform,
+                forward,
+                transform.InverseOffset,
+                canonical,
+                isMeshSimilarity: true,
+                normal,
+                identity,
+                identity);
+            return true;
+        }
+
+        /// <summary>
+        /// Returns a mesh-calibrated <see cref="FbxExportSpace"/> with updated mesh-local linear transform
+        /// while keeping <see cref="StoredWorldToTargetWorld"/> strictly untouched for scene/skeleton transforms.
+        /// </summary>
+        public bool TryWithRefinedMeshLinearTransform(FbxMatrix4x4 refinedStoredToTargetRaw, out FbxExportSpace refinedSpace)
+        {
+            refinedSpace = this;
+            if (!FbxAffineSpaceTransform.TryCreate(refinedStoredToTargetRaw, out var meshTransform))
+            {
+                return false;
+            }
+
+            bool meshIdentity = FbxAffineSpaceTransform.IsExactIdentity(refinedStoredToTargetRaw);
+            bool isSimilarity = FbxLinearAlgebra3d.TryExtractOrthogonalSimilarity(
+                refinedStoredToTargetRaw,
+                out _,
+                out var orthoQ);
+
+            refinedSpace = new FbxExportSpace(
+                refinedStoredToTargetRaw,
+                meshTransform,
+                StoredWorldToTargetWorld,
+                TargetWorldToStoredWorld,
+                StoredToCanonical,
+                isSimilarity,
+                isSimilarity ? orthoQ : FbxMatrix4x4.Identity,
+                meshIdentity,
+                IsSceneExactIdentity);
             return true;
         }
 
         public Vector3d PositionDeltaToRaw(Vector3d value) =>
             IsExactIdentity ? value : StoredToTargetRaw.TransformVector(value);
 
-        // Signed axis permutations rotate/reflect a normal delta without changing its length.
         public Vector3d NormalDeltaToRaw(Vector3d value) =>
-            IsExactIdentity ? value : m_NormalToTargetRaw.TransformVector(value);
+            IsExactIdentity ? value : TransformNormalDeltaToRaw(Vector3d.zero, value);
 
-        // Mesh binds map stored mesh-local to stored world. Bone binds map bone-local to world.
-        // Both change basis on the input and output sides of the row-vector matrix.
+        /// <summary>
+        /// Transforms a stored blendshape normal delta into Target FBX raw space.
+        /// Uses exact orthogonal rotation/reflection when <see cref="StoredToTargetRaw"/> is a similarity,
+        /// and inverse-transpose unit-normal transport relative to <paramref name="targetRawBaseNormal"/> when non-isotropic.
+        /// </summary>
+        public Vector3d TransformNormalDeltaToRaw(Vector3d targetRawBaseNormal, Vector3d storedNormalDelta)
+        {
+            if (IsExactIdentity)
+            {
+                return storedNormalDelta;
+            }
+
+            if (m_IsMeshSimilarity)
+            {
+                return m_MeshOrthogonalNormalToRaw.TransformVector(storedNormalDelta);
+            }
+
+            Vector3d storedBaseNormal = targetRawBaseNormal.sqrMagnitude > Vector3d.Epsilon
+                ? MeshTransform.Offset.TransformNormalWithInverse(targetRawBaseNormal)
+                : Vector3d.zero;
+            return MeshTransform.TransformNormalDelta(storedBaseNormal, storedNormalDelta);
+        }
+
+        /// <summary>
+        /// Conjugates a scene/world matrix using the unrefined scene/world basis <see cref="StoredWorldToTargetWorld"/>.
+        /// </summary>
         public FbxMatrix4x4 BindMatrixToRaw(FbxMatrix4x4 value) =>
-            IsExactIdentity ? value : TargetRawToStored * value * StoredToTargetRaw;
+            IsSceneExactIdentity ? value : TargetWorldToStoredWorld * value * StoredWorldToTargetWorld;
     }
 
     public sealed class FbxFeatureWriteInput
@@ -179,6 +262,9 @@ namespace Triturbo.BlendShare.FbxExport
         public bool VerifyNumerics { get; }
         public IDictionary<string, object> SessionState { get; }
         public List<FbxExportDiagnostic> Diagnostics { get; }
+        public string VerifiedFbxPath { get; }
+
+        private readonly Func<FbxScene> m_LazyVerifiedSdkScene;
 
         public FbxExportVerifyMeshContext(
             IFbxScene verifiedScene,
@@ -191,7 +277,9 @@ namespace Triturbo.BlendShare.FbxExport
             double numericVerificationToleranceMeters,
             IDictionary<string, object> sessionState,
             List<FbxExportDiagnostic> diagnostics,
-            bool verifyNumerics = true)
+            bool verifyNumerics = true,
+            string verifiedFbxPath = null,
+            Func<FbxScene> lazyVerifiedSdkScene = null)
         {
             VerifiedScene = verifiedScene;
             VerifiedMesh = verifiedMesh;
@@ -204,7 +292,14 @@ namespace Triturbo.BlendShare.FbxExport
             VerifyNumerics = verifyNumerics;
             SessionState = sessionState ?? new Dictionary<string, object>(StringComparer.Ordinal);
             Diagnostics = diagnostics ?? new List<FbxExportDiagnostic>();
+            VerifiedFbxPath = verifiedFbxPath ?? string.Empty;
+            m_LazyVerifiedSdkScene = lazyVerifiedSdkScene;
         }
+
+        /// <summary>
+        /// Returns the transaction-shared reopened Autodesk FBX SDK verification scene (imported at most once per transaction).
+        /// </summary>
+        public FbxScene GetVerifiedSdkScene() => m_LazyVerifiedSdkScene?.Invoke();
     }
 
     /// <summary>
@@ -216,6 +311,7 @@ namespace Triturbo.BlendShare.FbxExport
         string FeatureTypeId { get; }
         int ExecutionOrder { get; }
 
+        void RegisterTransactionInputs(FbxExportMeshContext context, IReadOnlyList<FbxFeatureWriteInput> inputs);
         FbxFeatureWriteResult Preflight(FbxExportMeshContext context, IReadOnlyList<FbxFeatureWriteInput> inputs);
         FbxFeatureWriteResult Write(FbxExportMeshContext context, IReadOnlyList<FbxFeatureWriteInput> inputs);
         FbxFeatureWriteResult Verify(FbxExportVerifyMeshContext context, IReadOnlyList<FbxFeatureWriteInput> inputs);
@@ -337,6 +433,186 @@ namespace Triturbo.BlendShare.FbxExport
 
     public static class FbxSdkNodeUtility
     {
+        private static readonly System.Reflection.MethodInfo s_EmitterGetCPtr =
+            typeof(FbxEmitter).GetMethod(
+                "getCPtr",
+                System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+
+        private static readonly System.Reflection.PropertyInfo s_EmitterSwigCPtrProperty =
+            typeof(FbxEmitter).GetProperty(
+                "swigCPtr",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+
+        private static readonly System.Reflection.ConstructorInfo s_FbxSkinPtrCtor =
+            typeof(FbxSkin).GetConstructor(
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public,
+                null,
+                new[] { typeof(IntPtr), typeof(bool) },
+                null);
+
+        /// <summary>
+        /// Wraps an <see cref="FbxDeformer"/> returned by <c>FbxGeometry.GetDeformer(..., eSkin)</c> as a typed
+        /// <see cref="FbxSkin"/> (Unity's SWIG wrapper returns a base <see cref="FbxDeformer"/> instance even when
+        /// the underlying C++ object is an <c>FbxSkin</c>).
+        /// Transfers ownership of the SWIG <c>WeakPointerHandle</c> from <paramref name="deformer"/> to
+        /// <paramref name="skin"/> so <c>ReleaseWeakPointerHandle</c> is never double-freed by both finalizers.
+        /// </summary>
+        public static bool TryWrapSkinDeformer(FbxDeformer deformer, out FbxSkin skin)
+        {
+            skin = null;
+            if (deformer == null || deformer.GetDeformerType() != FbxDeformer.EDeformerType.eSkin)
+            {
+                return false;
+            }
+
+            if (deformer is FbxSkin directSkin)
+            {
+                skin = directSkin;
+                return true;
+            }
+
+            if (s_EmitterGetCPtr == null || s_EmitterSwigCPtrProperty == null || s_FbxSkinPtrCtor == null)
+            {
+                return false;
+            }
+
+            var handleRef = (System.Runtime.InteropServices.HandleRef)s_EmitterGetCPtr.Invoke(null, new object[] { deformer });
+            if (handleRef.Handle == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            skin = (FbxSkin)s_FbxSkinPtrCtor.Invoke(new object[] { handleRef.Handle, false });
+            if (skin == null)
+            {
+                return false;
+            }
+
+            s_EmitterSwigCPtrProperty.SetValue(deformer, new System.Runtime.InteropServices.HandleRef(null, IntPtr.Zero));
+            GC.SuppressFinalize(deformer);
+            return true;
+        }
+
+        /// <summary>
+        /// Enumerates all <see cref="FbxCluster"/> subdeformers attached to a single <paramref name="skin"/> deformer.
+        /// </summary>
+        public static List<FbxCluster> GetClustersOfSkin(FbxSkin skin)
+        {
+            var clusters = new List<FbxCluster>();
+            if (skin == null)
+            {
+                return clusters;
+            }
+
+            int maxCandidates = Math.Max(0, skin.GetSrcObjectCount());
+            for (int c = 0; c <= maxCandidates; c++)
+            {
+                var cluster = skin.GetCluster(c);
+                if (cluster == null)
+                {
+                    break;
+                }
+
+                clusters.Add(cluster);
+            }
+
+            return clusters;
+        }
+
+        /// <summary>
+        /// Selects the active primary <see cref="FbxSkin"/> deformer on <paramref name="mesh"/> using the same
+        /// three-tier priority rule as <see cref="FbxDeformerUtility.FindPrimarySkinDeformer"/>:
+        /// (1) first skin with a linked cluster carrying control-point weights,
+        /// (2) first skin with a linked cluster,
+        /// (3) first valid skin deformer on the mesh, or <c>null</c> when none exist.
+        /// </summary>
+        public static FbxSkin FindPrimarySkinDeformer(FbxMesh mesh, out int primarySkinIndex)
+        {
+            primarySkinIndex = -1;
+            if (mesh == null)
+            {
+                return null;
+            }
+
+            int skinCount = mesh.GetDeformerCount(FbxDeformer.EDeformerType.eSkin);
+            FbxSkin firstSkin = null;
+            int firstSkinIndex = -1;
+            FbxSkin fallbackWithLinkedCluster = null;
+            int fallbackIndex = -1;
+
+            for (int s = 0; s < skinCount; s++)
+            {
+                var deformer = mesh.GetDeformer(s, FbxDeformer.EDeformerType.eSkin);
+                if (!TryWrapSkinDeformer(deformer, out var skin))
+                {
+                    continue;
+                }
+
+                if (firstSkin == null)
+                {
+                    firstSkin = skin;
+                    firstSkinIndex = s;
+                }
+
+                var skinClusters = GetClustersOfSkin(skin);
+                for (int c = 0; c < skinClusters.Count; c++)
+                {
+                    var cl = skinClusters[c];
+                    if (cl == null || cl.GetLink() == null)
+                    {
+                        continue;
+                    }
+
+                    if (fallbackWithLinkedCluster == null)
+                    {
+                        fallbackWithLinkedCluster = skin;
+                        fallbackIndex = s;
+                    }
+
+                    if (cl.GetControlPointIndicesCount() > 0)
+                    {
+                        primarySkinIndex = s;
+                        return skin;
+                    }
+                }
+            }
+
+            if (fallbackWithLinkedCluster != null)
+            {
+                primarySkinIndex = fallbackIndex;
+                return fallbackWithLinkedCluster;
+            }
+
+            primarySkinIndex = firstSkinIndex;
+            return firstSkin;
+        }
+
+        /// <summary>
+        /// Enumerates all <see cref="FbxCluster"/> subdeformers attached to skin deformers on <paramref name="mesh"/>.
+        /// </summary>
+        public static List<FbxCluster> GetSkinClusters(FbxMesh mesh)
+        {
+            var clusters = new List<FbxCluster>();
+            if (mesh == null)
+            {
+                return clusters;
+            }
+
+            int skinCount = mesh.GetDeformerCount(FbxDeformer.EDeformerType.eSkin);
+            for (int s = 0; s < skinCount; s++)
+            {
+                var deformer = mesh.GetDeformer(s, FbxDeformer.EDeformerType.eSkin);
+                if (!TryWrapSkinDeformer(deformer, out var skin))
+                {
+                    continue;
+                }
+
+                clusters.AddRange(GetClustersOfSkin(skin));
+            }
+
+            return clusters;
+        }
+
         public static FbxNode FindNodeByPath(FbxNode rootNode, string path)
         {
             if (rootNode == null)
@@ -464,21 +740,32 @@ namespace Triturbo.BlendShare.FbxExport
         }
 
         /// <summary>
-        /// Applies a raw local affine matrix to an FBX SDK node via TRS decomposition (clearing pivots/pre/post rotations).
-        /// Returns false if the matrix contains shear/perspective or non-finite entries.
+        /// Decomposes a raw local affine matrix via Autodesk FBX SDK's <see cref="FbxAMatrix"/> into exact
+        /// <c>(LclTranslation, LclRotation XYZ, LclScaling)</c> channels plus the corresponding unscaled local
+        /// rotation-translation matrix and signed scale vector so both node writing and hierarchy evaluation
+        /// use the exact same signed scale and rotation decomposition.
         /// </summary>
-        public static bool TryApplyRawLocalMatrixToNode(FbxNode node, FbxMatrix4x4 rawLocalMatrix, out string error)
+        public static bool TryDecomposeRawLocalTrs(
+            FbxMatrix4x4 rawLocalMatrix,
+            out FbxVector4 translation,
+            out FbxVector4 rotationDegXyz,
+            out FbxVector4 signedScale,
+            out FbxMatrix4x4 unscaledLocalMatrix,
+            out Vector3d signedScaleVector,
+            out string error,
+            string nodeName = null)
         {
+            translation = default;
+            rotationDegXyz = default;
+            signedScale = default;
+            unscaledLocalMatrix = FbxMatrix4x4.Identity;
+            signedScaleVector = Vector3d.one;
             error = null;
-            if (node == null)
-            {
-                error = "Target FBX node is null.";
-                return false;
-            }
 
+            string label = string.IsNullOrEmpty(nodeName) ? "<unknown>" : nodeName;
             if (!FbxAffineSpaceTransform.TryCreate(rawLocalMatrix, out _))
             {
-                error = $"Local matrix for FBX node '{node.GetName()}' is singular, projective, or non-finite.";
+                error = $"Local matrix for FBX node '{label}' is singular, projective, or non-finite.";
                 return false;
             }
 
@@ -491,7 +778,7 @@ namespace Triturbo.BlendShare.FbxExport
             double s2 = r2.magnitude;
             if (s0 <= 1e-10d || s1 <= 1e-10d || s2 <= 1e-10d)
             {
-                error = $"Local matrix for FBX node '{node.GetName()}' has near-zero scale.";
+                error = $"Local matrix for FBX node '{label}' has near-zero scale.";
                 return false;
             }
 
@@ -503,21 +790,55 @@ namespace Triturbo.BlendShare.FbxExport
                 Math.Abs(Vector3d.Dot(u0, u2)) > k_OrthoTol ||
                 Math.Abs(Vector3d.Dot(u1, u2)) > k_OrthoTol)
             {
-                error = $"Local matrix for FBX node '{node.GetName()}' contains shear and cannot be decomposed into FBX TRS.";
+                error = $"Local matrix for FBX node '{label}' contains shear and cannot be decomposed into FBX TRS.";
                 return false;
             }
 
-            var sdkMatrix = ToFbxAMatrix(rawLocalMatrix);
-            FbxVector4 t = sdkMatrix.GetT();
-            FbxVector4 r = sdkMatrix.GetR();
-            FbxVector4 s = sdkMatrix.GetS();
-            if (!IsFinite(t) || !IsFinite(r) || !IsFinite(s))
+            using var sdkMatrix = ToFbxAMatrix(rawLocalMatrix);
+            translation = sdkMatrix.GetT();
+            rotationDegXyz = sdkMatrix.GetR();
+            signedScale = sdkMatrix.GetS();
+            if (!IsFinite(translation) || !IsFinite(rotationDegXyz) || !IsFinite(signedScale) ||
+                Math.Abs(signedScale.X) <= 1e-10d || Math.Abs(signedScale.Y) <= 1e-10d || Math.Abs(signedScale.Z) <= 1e-10d)
             {
-                error = $"Decomposed TRS for FBX node '{node.GetName()}' is non-finite.";
+                error = $"Decomposed TRS for FBX node '{label}' is non-finite or singular.";
+                return false;
+            }
+
+            using var unscaledSdk = new FbxAMatrix(translation, rotationDegXyz, new FbxVector4(1d, 1d, 1d, 0d));
+            unscaledLocalMatrix = FromFbxAMatrix(unscaledSdk);
+            signedScaleVector = new Vector3d(signedScale.X, signedScale.Y, signedScale.Z);
+            return true;
+        }
+
+        /// <summary>
+        /// Applies a raw local affine matrix to an FBX SDK node via TRS decomposition (clearing pivots/pre/post rotations).
+        /// Returns false if the matrix contains shear/perspective or non-finite entries.
+        /// </summary>
+        public static bool TryApplyRawLocalMatrixToNode(FbxNode node, FbxMatrix4x4 rawLocalMatrix, out string error)
+        {
+            error = null;
+            if (node == null)
+            {
+                error = "Target FBX node is null.";
+                return false;
+            }
+
+            if (!TryDecomposeRawLocalTrs(
+                    rawLocalMatrix,
+                    out var t,
+                    out var r,
+                    out var s,
+                    out _,
+                    out _,
+                    out error,
+                    node.GetName()))
+            {
                 return false;
             }
 
             node.SetRotationOrder(FbxNode.EPivotSet.eSourcePivot, FbxEuler.EOrder.eOrderXYZ);
+            node.SetTransformationInheritType(Autodesk.Fbx.FbxTransform.EInheritType.eInheritRSrs);
             node.SetRotationActive(false);
             node.SetPreRotation(FbxNode.EPivotSet.eSourcePivot, new FbxVector4(0d, 0d, 0d, 0d));
             node.SetPostRotation(FbxNode.EPivotSet.eSourcePivot, new FbxVector4(0d, 0d, 0d, 0d));
@@ -535,30 +856,55 @@ namespace Triturbo.BlendShare.FbxExport
         /// Writes exact lossless authored FBX node transform properties (Euler, rotation order, inherit mode,
         /// pre/post rotations, rotation/scaling pivots and offsets) verbatim onto an FBX SDK node.
         /// </summary>
-        public static void ApplyRawTransformPropertiesToNode(FbxNode node, SkeletonBoneRecord bone)
+        public static void ApplyRawTransformPropertiesToNode(FbxNode node, SkeletonRawTransform raw)
         {
             if (node == null)
             {
                 throw new ArgumentNullException(nameof(node));
             }
 
-            if (bone == null || !bone.HasRawTransformProperties)
+            if (raw == null)
             {
-                throw new InvalidOperationException("SkeletonBoneRecord does not contain raw FBX transform properties.");
+                throw new ArgumentNullException(nameof(raw));
             }
 
-            node.LclTranslation.Set(new FbxDouble3(bone.LclTranslation.x, bone.LclTranslation.y, bone.LclTranslation.z));
-            node.LclRotation.Set(new FbxDouble3(bone.LclRotation.x, bone.LclRotation.y, bone.LclRotation.z));
-            node.LclScaling.Set(new FbxDouble3(bone.LclScaling.x, bone.LclScaling.y, bone.LclScaling.z));
-            node.SetRotationOrder(FbxNode.EPivotSet.eSourcePivot, ToSdkRotationOrder(bone.RotationOrder));
-            node.SetTransformationInheritType(ToSdkInheritType(bone.InheritMode));
-            node.SetRotationActive(bone.RotationActive);
-            node.SetPreRotation(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(bone.PreRotation));
-            node.SetPostRotation(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(bone.PostRotation));
-            node.SetRotationPivot(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(bone.RotationPivot));
-            node.SetScalingPivot(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(bone.ScalingPivot));
-            node.SetRotationOffset(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(bone.RotationOffset));
-            node.SetScalingOffset(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(bone.ScalingOffset));
+            node.LclTranslation.Set(new FbxDouble3(raw.LclTranslation.x, raw.LclTranslation.y, raw.LclTranslation.z));
+            node.LclRotation.Set(new FbxDouble3(raw.LclRotation.x, raw.LclRotation.y, raw.LclRotation.z));
+            node.LclScaling.Set(new FbxDouble3(raw.LclScaling.x, raw.LclScaling.y, raw.LclScaling.z));
+            node.SetRotationOrder(FbxNode.EPivotSet.eSourcePivot, ToSdkRotationOrder(raw.RotationOrder));
+            node.SetTransformationInheritType(ToSdkInheritType(raw.InheritMode));
+            node.SetRotationActive(raw.RotationActive);
+            node.SetPreRotation(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(raw.PreRotation));
+            node.SetPostRotation(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(raw.PostRotation));
+            node.SetRotationPivot(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(raw.RotationPivot));
+            node.SetScalingPivot(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(raw.ScalingPivot));
+            node.SetRotationOffset(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(raw.RotationOffset));
+            node.SetScalingOffset(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(raw.ScalingOffset));
+        }
+
+        /// <summary>
+        /// Applies a solved <see cref="FbxNodeRawTransform"/> stack onto an FBX SDK node, preserving its
+        /// <c>PreRotation</c>, <c>PostRotation</c>, <c>RotationOrder</c>, pivots/offsets, and <c>OriginalInheritMode</c>.
+        /// </summary>
+        public static void ApplySolvedRawTransformToNode(FbxNode node, in FbxNodeRawTransform raw)
+        {
+            if (node == null)
+            {
+                throw new ArgumentNullException(nameof(node));
+            }
+
+            node.LclTranslation.Set(new FbxDouble3(raw.LclTranslation.x, raw.LclTranslation.y, raw.LclTranslation.z));
+            node.LclRotation.Set(new FbxDouble3(raw.LclRotation.x, raw.LclRotation.y, raw.LclRotation.z));
+            node.LclScaling.Set(new FbxDouble3(raw.LclScaling.x, raw.LclScaling.y, raw.LclScaling.z));
+            node.SetRotationOrder(FbxNode.EPivotSet.eSourcePivot, ToSdkRotationOrder(raw.RotationOrder));
+            node.SetTransformationInheritType(ToSdkInheritType(raw.OriginalInheritMode));
+            node.SetRotationActive(raw.RotationActive);
+            node.SetPreRotation(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(raw.PreRotation));
+            node.SetPostRotation(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(raw.PostRotation));
+            node.SetRotationPivot(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(raw.RotationPivot));
+            node.SetScalingPivot(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(raw.ScalingPivot));
+            node.SetRotationOffset(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(raw.RotationOffset));
+            node.SetScalingOffset(FbxNode.EPivotSet.eSourcePivot, ToFbxVector4(raw.ScalingOffset));
         }
 
         private static FbxVector4 ToFbxVector4(Vector3d value) => new FbxVector4(value.x, value.y, value.z);

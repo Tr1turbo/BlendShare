@@ -71,10 +71,12 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
                 throw new ArgumentException("A succeeded MeshCornerMappingResult is required.", nameof(inverseMapping));
             }
 
-            if (inverseMapping.IsBlendShapeSensitive || inverseMapping.ExceededLayoutDfsBudget)
+            if (inverseMapping.IsBlendShapeSensitive ||
+                inverseMapping.ExceededLayoutDfsBudget ||
+                inverseMapping.IsApproximateCoordinateMatch)
             {
                 throw new ArgumentException(
-                    "Cannot build a standalone geometry+UV0 embedded vertex mapping from a blendshape-sensitive or DFS-budget-exceeded inverse mapping result.",
+                    "Cannot build a standalone geometry+UV0 embedded vertex mapping from a blendshape-sensitive, DFS-budget-exceeded, or lossy-compressed inverse mapping result.",
                     nameof(inverseMapping));
             }
 
@@ -91,7 +93,13 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
 
             var digests = UnityMeshGeometryDigests.Compute(targetSnapshot);
             var contract = BuildSpaceContract(
-                storedSpace, targetSceneMetadata, inverseMapping.MatchedScale, inverseMapping.MatchedBakeAxisConversion, targetIdentity);
+                storedSpace,
+                targetSceneMetadata,
+                inverseMapping.MatchedScale,
+                inverseMapping.MatchedBakeAxisConversion,
+                targetIdentity,
+                inverseMapping.HasNonStandardRawTransform ? inverseMapping.MatchedRawToUnityMatrix : (FbxMatrix4x4?)null,
+                inverseMapping.HasNonStandardRawTransform ? inverseMapping.MatchedRawToUnitySceneMatrix : (FbxMatrix4x4?)null);
 
             var coincidentClasses = UnityMeshGeometryDigests.FindCoincidentPositionClasses(targetSnapshot);
             var proofs = new List<CoincidentClassProof>(coincidentClasses.Count);
@@ -130,12 +138,17 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
             };
         }
 
-        internal static MappingSpaceContract BuildSpaceContract(
+        /// <summary>
+        /// Builds the coordinate space contract mapping stored patch coordinates into Unity mesh-local and scene-local spaces.
+        /// </summary>
+        public static MappingSpaceContract BuildSpaceContract(
             PatchSpaceProvenance storedSpace,
             FbxSceneMetadata target,
             float scale,
             bool bakeAxes,
-            string targetIdentity)
+            string targetIdentity,
+            FbxMatrix4x4? rawToUnityOverride = null,
+            FbxMatrix4x4? rawToUnitySceneOverride = null)
         {
             var effectiveSpace = storedSpace != null
                 ? PatchSpaceProvenance.FromMetadata(storedSpace.Axes, storedSpace.MetersPerUnit)
@@ -144,14 +157,49 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
             if (!effectiveSpace.IsValid)
                 throw new ArgumentException("Stored patch space requires valid axes and a strictly positive unit scale.");
 
-            if (!UnitySpaceContractMath.TryBuildStoredToUnityMatrix(
-                    effectiveSpace.Axes, effectiveSpace.MetersPerUnit, target, scale, bakeAxes, out var matrix, out _) ||
+            FbxMatrix4x4 matrix;
+            FbxMatrix4x4 sceneMatrix;
+            bool hasSeparateScene = false;
+
+            if (rawToUnityOverride.HasValue)
+            {
+                if (!CanonicalMeshSpace.IsValidAxes(target.Axes) || !CanonicalMeshSpace.IsValidUnitMeters(target.UnitMeters))
+                    throw new ArgumentException("Unsupported or invalid target FBX coordinate axes or unit scale.");
+
+                var storedToTargetRaw = CanonicalMeshSpace.BuildSpaceToSpace(
+                    effectiveSpace.Axes,
+                    effectiveSpace.MetersPerUnit,
+                    target.Axes,
+                    target.UnitMeters,
+                    out _,
+                    out bool isExactIdentity);
+                matrix = isExactIdentity ? rawToUnityOverride.Value : storedToTargetRaw * rawToUnityOverride.Value;
+                if (!FbxAffineSpaceTransform.TryCreate(matrix, out _))
+                    throw new ArgumentException("Unsupported or singular mapping coordinate transform.");
+
+                var sceneRaw = rawToUnitySceneOverride ?? rawToUnityOverride.Value;
+                sceneMatrix = isExactIdentity ? sceneRaw : storedToTargetRaw * sceneRaw;
+                if (!FbxAffineSpaceTransform.TryCreate(sceneMatrix, out _))
+                    throw new ArgumentException("Unsupported or singular mapping scene coordinate transform.");
+
+                hasSeparateScene = !sceneMatrix.Equals(matrix);
+            }
+            else if (!UnitySpaceContractMath.TryBuildStoredToUnityMatrix(
+                    effectiveSpace.Axes, effectiveSpace.MetersPerUnit, target, scale, bakeAxes, out matrix, out _) ||
                 !FbxAffineSpaceTransform.TryCreate(matrix, out _))
+            {
                 throw new ArgumentException("Unsupported or singular mapping coordinate transform.");
+            }
+            else
+            {
+                sceneMatrix = matrix;
+            }
 
             return new MappingSpaceContract
             {
                 StoredToUnityMeshLocal = matrix,
+                HasSeparateSceneTransform = hasSeparateScene,
+                StoredToUnitySceneLocal = hasSeparateScene ? sceneMatrix : FbxMatrix4x4.Identity,
                 StoredSpace = effectiveSpace,
                 TargetIdentity = targetIdentity ?? string.Empty
             };
@@ -314,7 +362,9 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
                 !resolvedSpace.IsValid ||
                 (payload.SpaceContract.StoredSpace != null && expectedSpace != null &&
                  !payload.SpaceContract.StoredSpace.MatchesSpace(expectedSpace)) ||
-                !FbxAffineSpaceTransform.TryCreate(payload.SpaceContract.StoredToUnityMeshLocal, out _))
+                !FbxAffineSpaceTransform.TryCreate(payload.SpaceContract.StoredToUnityMeshLocal, out _) ||
+                (payload.SpaceContract.HasSeparateSceneTransform &&
+                 !FbxAffineSpaceTransform.TryCreate(payload.SpaceContract.StoredToUnitySceneLocal, out _)))
             {
                 return new VertexMappingVerificationResult(
                     VertexMappingVerificationStatus.InvalidSpaceContract,
@@ -327,6 +377,10 @@ namespace Triturbo.BlendShare.EditorAssets.Mapping
             {
                 TargetIdentity = payload.SpaceContract.TargetIdentity ?? string.Empty,
                 StoredToUnityMeshLocal = payload.SpaceContract.StoredToUnityMeshLocal,
+                HasSeparateSceneTransform = payload.SpaceContract.HasSeparateSceneTransform,
+                StoredToUnitySceneLocal = payload.SpaceContract.HasSeparateSceneTransform
+                    ? payload.SpaceContract.StoredToUnitySceneLocal
+                    : FbxMatrix4x4.Identity,
                 StoredSpace = PatchSpaceProvenance.FromMetadata(resolvedSpace.Axes, resolvedSpace.MetersPerUnit)
             };
 

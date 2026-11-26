@@ -36,10 +36,19 @@ namespace Triturbo.BlendShare.Pipeline.Inspection
         public FbxAffineSpaceTransform SourceWorldToOriginRaw { get; }
 
         private FbxInspectionSession(GameObject sourceFbx, GameObject originFbx)
+            : this(
+                 diagnostics => FbxInspectionAsset.Open(sourceFbx, "Source", diagnostics),
+                 diagnostics => FbxInspectionAsset.Open(originFbx, "Original", diagnostics))
+        {
+        }
+
+        private FbxInspectionSession(
+            Func<List<string>, FbxInspectionAsset> sourceFactory,
+            Func<List<string>, FbxInspectionAsset> originFactory)
         {
             var diagnostics = new List<string>();
-            Source = FbxInspectionAsset.Open(sourceFbx, "Source", diagnostics);
-            Origin = FbxInspectionAsset.Open(originFbx, "Original", diagnostics);
+            Source = sourceFactory(diagnostics);
+            Origin = originFactory(diagnostics);
 
             if (Origin.Scene != null)
             {
@@ -100,6 +109,16 @@ namespace Triturbo.BlendShare.Pipeline.Inspection
         public static FbxInspectionSession Open(GameObject sourceFbx, GameObject originFbx)
         {
             return new FbxInspectionSession(sourceFbx, originFbx);
+        }
+
+        /// <summary>
+        /// Creates an inspection session directly from already-loaded Source and Origin <see cref="IFbxScene"/> instances.
+        /// </summary>
+        public static FbxInspectionSession FromScenes(IFbxScene sourceScene, IFbxScene originScene, bool leaveOpen = true)
+        {
+            return new FbxInspectionSession(
+                diagnostics => FbxInspectionAsset.FromScene(sourceScene, "Source", !leaveOpen, diagnostics),
+                diagnostics => FbxInspectionAsset.FromScene(originScene, "Original", !leaveOpen, diagnostics));
         }
 
         /// <summary>
@@ -231,6 +250,20 @@ namespace Triturbo.BlendShare.Pipeline.Inspection
             return Origin?.BoneNodes ?? Array.Empty<IFbxNode>();
         }
 
+        /// <summary>
+        /// Builds a bindpose-seeded <see cref="SkeletonComparison"/> across Source and Original FBX scenes.
+        /// </summary>
+        public SkeletonComparison GetSkeletonComparison(IReadOnlyCollection<string> priorityMeshPaths = null)
+        {
+            ThrowIfDisposed();
+            return SkeletonComparison.Build(
+                Source?.Scene,
+                Origin?.Scene,
+                SourceWorldToOriginRaw,
+                OriginUnitMeters,
+                priorityMeshPaths);
+        }
+
         public void Dispose()
         {
             if (m_Disposed)
@@ -255,6 +288,7 @@ namespace Triturbo.BlendShare.Pipeline.Inspection
     public sealed class FbxInspectionAsset : IDisposable
     {
         private bool m_Disposed;
+        private readonly bool m_OwnsScene;
 
         public string Label { get; }
         public GameObject FbxObject { get; }
@@ -271,18 +305,36 @@ namespace Triturbo.BlendShare.Pipeline.Inspection
             string assetPath,
             ModelImporter importer,
             IFbxScene scene,
-            IReadOnlyList<string> diagnostics)
+            IReadOnlyList<string> diagnostics,
+            bool ownsScene = true)
         {
             Label = label;
             FbxObject = fbxObject;
             AssetPath = assetPath;
             Importer = importer;
             Scene = scene;
+            m_OwnsScene = ownsScene;
             Diagnostics = diagnostics ?? Array.Empty<string>();
             BoneNodes = scene?.Nodes
                 .Where(node => node != null && node.IsBone)
                 .ToArray() ?? Array.Empty<IFbxNode>();
             MeshPaths = CollectMeshPaths(scene);
+        }
+
+        public static FbxInspectionAsset FromScene(
+            IFbxScene scene,
+            string label,
+            bool ownsScene,
+            ICollection<string> sessionDiagnostics = null)
+        {
+            var diagnostics = new List<string>();
+            if (scene == null)
+            {
+                diagnostics.Add($"{label} FBX scene is null.");
+                AddRange(sessionDiagnostics, diagnostics);
+            }
+
+            return new FbxInspectionAsset(label, null, scene?.AssetPath, null, scene, diagnostics, ownsScene);
         }
 
         public static FbxInspectionAsset Open(
@@ -346,8 +398,7 @@ namespace Triturbo.BlendShare.Pipeline.Inspection
 
         public IFbxSkinDeformer GetPrimarySkin(string path)
         {
-            return GetMesh(path)?.SkinDeformers
-                .FirstOrDefault(deformer => deformer != null && deformer.Clusters.Any(cluster => cluster.WeightCount > 0));
+            return Extraction.SkinWeightFeatureExtractor.FindPrimarySkinDeformer(GetMesh(path));
         }
 
         public void Dispose()
@@ -358,7 +409,10 @@ namespace Triturbo.BlendShare.Pipeline.Inspection
             }
 
             m_Disposed = true;
-            Scene?.Dispose();
+            if (m_OwnsScene)
+            {
+                Scene?.Dispose();
+            }
         }
 
         private static IReadOnlyList<string> CollectMeshPaths(IFbxScene scene)

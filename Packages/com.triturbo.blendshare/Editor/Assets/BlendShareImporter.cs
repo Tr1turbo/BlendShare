@@ -16,7 +16,7 @@ namespace Triturbo.BlendShare.EditorAssets
     /// - Accelerator-safe (AllowCaching = true, deterministic artifact contents, zero paths/InstanceIDs/timestamps).
     /// - Stores project-local Unity Settings in .blendshare.meta via m_Settings.
     /// </summary>
-    [ScriptedImporter(2, "blendshare", AllowCaching = true)]
+    [ScriptedImporter(4, "blendshare", AllowCaching = true)]
     public sealed class BlendShareImporter : ScriptedImporter
     {
         private const string k_PatchIconPath = "Packages/com.triturbo.blendshare/Editor/UI/Icons/BlendShapesDataIcon.png";
@@ -73,6 +73,16 @@ namespace Triturbo.BlendShare.EditorAssets
                 }
 
                 toc = tocResult.Value;
+                if (toc.HasSkeleton)
+                {
+                    var skeletonResult = reader.ReadSkeleton(stream, toc);
+                    if (!skeletonResult.Success || skeletonResult.Value == null)
+                    {
+                        ctx.LogImportError($"Failed to validate skeleton section in '{ctx.assetPath}': {skeletonResult.Status} - {skeletonResult.Message}");
+                        return;
+                    }
+                }
+
                 for (int i = 0; i < toc.Meshes.Count; i++)
                 {
                     string meshId = toc.Meshes[i].MeshId;

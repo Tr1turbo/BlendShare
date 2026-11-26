@@ -1953,6 +1953,19 @@ typedef enum ufbx_skinning_method UFBX_ENUM_REPR {
 
 UFBX_ENUM_TYPE(ufbx_skinning_method, UFBX_SKINNING_METHOD, UFBX_SKINNING_METHOD_BLENDED_DQ_LINEAR);
 
+/* BLENDSHARE_PATCH_BEGIN: preserve skin cluster Mode (link_mode) */
+typedef enum ufbx_skin_cluster_link_mode UFBX_ENUM_REPR {
+	UFBX_SKIN_CLUSTER_LINK_MODE_NORMALIZE,
+	UFBX_SKIN_CLUSTER_LINK_MODE_TOTAL_ONE,
+	UFBX_SKIN_CLUSTER_LINK_MODE_ADDITIVE,
+	UFBX_SKIN_CLUSTER_LINK_MODE_UNKNOWN,
+
+	UFBX_ENUM_FORCE_WIDTH(UFBX_SKIN_CLUSTER_LINK_MODE)
+} ufbx_skin_cluster_link_mode;
+
+UFBX_ENUM_TYPE(ufbx_skin_cluster_link_mode, UFBX_SKIN_CLUSTER_LINK_MODE, UFBX_SKIN_CLUSTER_LINK_MODE_UNKNOWN);
+/* BLENDSHARE_PATCH_END */
+
 // Skin weight information for a single mesh vertex
 typedef struct ufbx_skin_vertex {
 
@@ -2046,6 +2059,10 @@ struct ufbx_skin_cluster {
 	size_t num_weights;       // < Number of vertices in the cluster
 	ufbx_uint32_list vertices; // < Vertex indices in `ufbx_mesh.vertices[]`
 	ufbx_real_list weights;   // < Per-vertex weight values
+
+	/* BLENDSHARE_PATCH_BEGIN: preserve skin cluster Mode (link_mode) */
+	ufbx_skin_cluster_link_mode link_mode;
+	/* BLENDSHARE_PATCH_END */
 };
 
 // Blend shape deformer can contain multiple channels (think of sliders between morphs)

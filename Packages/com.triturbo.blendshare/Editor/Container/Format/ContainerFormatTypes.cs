@@ -140,11 +140,12 @@ namespace Triturbo.BlendShare.Container.Format
         public ByteSlice IndexTableSlice { get; }
         public ByteSlice PayloadSectionSlice { get; }
         public ContainerIndexEntry SkeletonEntry { get; }
+        public bool HasSkeleton => SkeletonEntry != null;
         public IReadOnlyList<ContainerMeshToc> Meshes { get; }
         public IReadOnlyList<ContainerIndexEntry> Entries { get; }
 
         private readonly ContainerIndexEntry[] m_Payloads;
-        private readonly Dictionary<(string, string), long> m_FeaturePayloadBytes =
+        private readonly Dictionary<(string, string), long> m_OwnerPayloadBytes =
             new Dictionary<(string, string), long>();
         private readonly Dictionary<string, ContainerMeshToc> m_Meshes;
         private readonly Dictionary<(string, string), ContainerIndexEntry> m_Features;
@@ -160,9 +161,21 @@ namespace Triturbo.BlendShare.Container.Format
             IndexTableSlice = index;
             PayloadSectionSlice = payload;
             Entries = Array.AsReadOnly(entries.ToArray());
-            var skeletons = Entries.Where(e => e.SectionKind == ContainerSectionKind.Skeleton).ToArray();
-            FormatIO.Check(skeletons.Length == 1, "Container must contain exactly one Skeleton entry.");
-            SkeletonEntry = skeletons[0];
+
+            ContainerIndexEntry skeletonEntry = null;
+            foreach (var s in Entries.Where(e => e.SectionKind == ContainerSectionKind.Skeleton))
+            {
+                FormatIO.Check(
+                    skeletonEntry == null &&
+                    string.IsNullOrEmpty(s.OwnerMeshId) &&
+                    string.Equals(s.FeatureId, SkeletonDocument.SectionFeatureId, StringComparison.Ordinal) &&
+                    string.Equals(s.TypeId, SkeletonDocument.SectionTypeId, StringComparison.Ordinal) &&
+                    s.SchemaVersion > 0,
+                    "Invalid or duplicate skeleton section entry.");
+                skeletonEntry = s;
+            }
+            SkeletonEntry = skeletonEntry;
+
             m_Payloads = Entries.Where(e => e.SectionKind == ContainerSectionKind.Payload).ToArray();
             var features = Entries.Where(e => e.SectionKind == ContainerSectionKind.Feature).ToList();
             m_Features = new Dictionary<(string, string), ContainerIndexEntry>();
@@ -172,6 +185,7 @@ namespace Triturbo.BlendShare.Container.Format
                 FormatIO.Check(!m_Features.ContainsKey(key), $"Duplicate feature entry '{f.OwnerMeshId}/{f.FeatureId}'.");
                 m_Features.Add(key, f);
             }
+
             var grouped = features.ToLookup(e => e.OwnerMeshId);
             var meshList = new List<ContainerMeshToc>();
             m_Meshes = new Dictionary<string, ContainerMeshToc>(StringComparer.Ordinal);
@@ -183,15 +197,31 @@ namespace Triturbo.BlendShare.Container.Format
                 m_Meshes.Add(meshToc.MeshId, meshToc);
             }
             Meshes = Array.AsReadOnly(meshList.ToArray());
-            foreach (var e in features.Concat(m_Payloads))
+
+            foreach (var f in features)
             {
-                FormatIO.Check(m_Meshes.ContainsKey(e.OwnerMeshId), "Missing owner mesh.");
-                if (e.SectionKind == ContainerSectionKind.Payload && e.FeatureId.Length != 0)
+                FormatIO.Check(m_Meshes.ContainsKey(f.OwnerMeshId), "Missing owner mesh.");
+            }
+
+            // Enforce the exact two valid payload-owner combinations:
+            //   1) (meshId, "")        -> MeshHeader
+            //   2) (meshId, featureId) -> Feature
+            foreach (var p in m_Payloads)
+            {
+                bool hasMesh = !string.IsNullOrEmpty(p.OwnerMeshId);
+                bool hasFeature = !string.IsNullOrEmpty(p.FeatureId);
+                FormatIO.Check(hasMesh, "Payload entry requires a valid owner mesh.");
+
+                if (!hasFeature)
                 {
-                    var key = (e.OwnerMeshId, e.FeatureId);
-                    FormatIO.Check(m_Features.ContainsKey(key), "Missing owner feature.");
-                    m_FeaturePayloadBytes.TryGetValue(key, out var total);
-                    m_FeaturePayloadBytes[key] = checked(total + e.UncompressedBytes);
+                    FormatIO.Check(m_Meshes.ContainsKey(p.OwnerMeshId), "Missing owner mesh for mesh-header payload.");
+                }
+                else
+                {
+                    var key = (p.OwnerMeshId, p.FeatureId);
+                    FormatIO.Check(m_Features.ContainsKey(key), "Missing owner feature for payload.");
+                    m_OwnerPayloadBytes.TryGetValue(key, out var total);
+                    m_OwnerPayloadBytes[key] = checked(total + p.UncompressedBytes);
                 }
             }
         }
@@ -221,7 +251,7 @@ namespace Triturbo.BlendShare.Container.Format
         }
 
         internal long FeaturePayloadBytes(ContainerIndexEntry entry) =>
-            m_FeaturePayloadBytes.TryGetValue((entry.OwnerMeshId, entry.FeatureId), out var size) ? size : 0L;
+            m_OwnerPayloadBytes.TryGetValue((entry.OwnerMeshId, entry.FeatureId), out var size) ? size : 0L;
 
         public bool TryGetMesh(string meshId, out ContainerMeshToc mesh) => m_Meshes.TryGetValue(meshId ?? "", out mesh);
         public bool TryGetFeature(string meshId, string featureId, out ContainerIndexEntry entry) =>

@@ -553,43 +553,65 @@ namespace Triturbo.BlendShare.Container.Wire
                 double budgetErr = options.EffectiveMaxPositionQuantizationErrorUnits;
                 if (options.MaxPositionQuantizationErrorMeters > 0d)
                 {
-                    // Measure actual maximum per-axis reconstruction error in stored coordinate units
-                    // (scaled from physical meters via PositionUnitMeters so cm/mm/m achieve equal physical precision).
+                    if (!(budgetErr > 0d) || double.IsNaN(budgetErr))
+                    {
+                        return VectorEncodingKind.Float64;
+                    }
+
+                    double invBudget = 1d / budgetErr;
+
+                    // Measure actual maximum per-axis AND 3D Euclidean reconstruction error in stored coordinate units
+                    // (scaled from physical meters via PositionUnitMeters / EffectivePositionUnitMeters).
                     bool quantExceedsBudget = false;
                     for (int i = 0; i < values.Length; i++)
                     {
                         var v = values[i];
+                        double dx = 0d;
                         if (maxAbsX > 0d)
                         {
                             short qx = QuantizeSymmetric(v.x, maxAbsX, maxQ);
                             double rx = DequantizeSymmetric(qx, maxAbsX, maxQ);
-                            if (Math.Abs(v.x - rx) > budgetErr)
+                            dx = v.x - rx;
+                            if (Math.Abs(dx) > budgetErr)
                             {
                                 quantExceedsBudget = true;
                                 break;
                             }
                         }
 
+                        double dy = 0d;
                         if (maxAbsY > 0d)
                         {
                             short qy = QuantizeSymmetric(v.y, maxAbsY, maxQ);
                             double ry = DequantizeSymmetric(qy, maxAbsY, maxQ);
-                            if (Math.Abs(v.y - ry) > budgetErr)
+                            dy = v.y - ry;
+                            if (Math.Abs(dy) > budgetErr)
                             {
                                 quantExceedsBudget = true;
                                 break;
                             }
                         }
 
+                        double dz = 0d;
                         if (maxAbsZ > 0d)
                         {
                             short qz = QuantizeSymmetric(v.z, maxAbsZ, maxQ);
                             double rz = DequantizeSymmetric(qz, maxAbsZ, maxQ);
-                            if (Math.Abs(v.z - rz) > budgetErr)
+                            dz = v.z - rz;
+                            if (Math.Abs(dz) > budgetErr)
                             {
                                 quantExceedsBudget = true;
                                 break;
                             }
+                        }
+
+                        double nx = dx * invBudget;
+                        double ny = dy * invBudget;
+                        double nz = dz * invBudget;
+                        if (!(nx * nx + ny * ny + nz * nz <= 1d))
+                        {
+                            quantExceedsBudget = true;
+                            break;
                         }
                     }
 
@@ -600,13 +622,24 @@ namespace Triturbo.BlendShare.Container.Wire
                             return VectorEncodingKind.Float64;
                         }
 
-                        // Verify Float32 reconstruction also satisfies the hard physical error budget; otherwise promote to Float64.
+                        // Verify Float32 reconstruction also satisfies both per-axis and 3D Euclidean physical error budgets; otherwise promote to Float64.
                         for (int i = 0; i < values.Length; i++)
                         {
                             var v = values[i];
-                            if (Math.Abs(v.x - (float)v.x) > budgetErr ||
-                                Math.Abs(v.y - (float)v.y) > budgetErr ||
-                                Math.Abs(v.z - (float)v.z) > budgetErr)
+                            double fx = v.x - (float)v.x;
+                            double fy = v.y - (float)v.y;
+                            double fz = v.z - (float)v.z;
+                            if (Math.Abs(fx) > budgetErr ||
+                                Math.Abs(fy) > budgetErr ||
+                                Math.Abs(fz) > budgetErr)
+                            {
+                                return VectorEncodingKind.Float64;
+                            }
+
+                            double nfx = fx * invBudget;
+                            double nfy = fy * invBudget;
+                            double nfz = fz * invBudget;
+                            if (!(nfx * nfx + nfy * nfy + nfz * nfz <= 1d))
                             {
                                 return VectorEncodingKind.Float64;
                             }

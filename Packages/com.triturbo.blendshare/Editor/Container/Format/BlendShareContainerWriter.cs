@@ -33,7 +33,6 @@ namespace Triturbo.BlendShare.Container.Format
                 throw new ArgumentException("A seekable writable stream is required.", nameof(stream));
             var effectivePayloadSource = payloadSource ?? (rawCopySource as ILazyPayloadSource);
             Validate(document, effectivePayloadSource);
-            // Only allow byte-preserving Ref-to-Ref raw copy when caller did NOT explicitly request custom transcode options.
             bool effectiveAllowRawCopy = allowRawCopy && !options.HasValue;
             var encoding = options ?? PayloadEncodeOptions.Default;
             var sink = new PayloadSink(m_Serializer, effectiveAllowRawCopy ? rawCopySource : null, effectivePayloadSource);
@@ -48,34 +47,58 @@ namespace Triturbo.BlendShare.Container.Format
             writer.WriteByte((byte)provenance.FrontAxis);
             var entries = new List<ContainerIndexEntry>();
 
-            void AddRecord(ContainerSectionKind kind, byte[] bytes, string mesh = "", BlendShareFeatureData feature = null)
+            void AddRecord(ContainerSectionKind kind, byte[] bytes, string mesh = "", string featureId = "",
+                string typeId = "", int schemaVersion = 1, bool required = true)
             {
                 var slice = new ByteSlice(FixedHeaderSize + manifest.Position, bytes.Length);
-                entries.Add(new ContainerIndexEntry(entries.Count, kind, mesh, feature?.FeatureId ?? "",
-                    feature?.TypeId ?? "", feature?.SchemaVersion ?? 1, feature?.Required ?? true, "", 0,
-                    slice, bytes.Length, FormatIO.Hash(bytes)));
+                entries.Add(new ContainerIndexEntry(entries.Count, kind, mesh, featureId,
+                    typeId, schemaVersion, required, "", 0, slice, bytes.Length, FormatIO.Hash(bytes)));
                 manifest.Write(bytes, 0, bytes.Length);
             }
 
-            AddRecord(ContainerSectionKind.Skeleton, m_Serializer.SerializeRecord(
-                document.Skeleton ?? new SkeletonDocument(), sink, patchEncoding));
+            if (document.Skeleton != null && document.Skeleton.HasContent)
+            {
+                AddRecord(
+                    ContainerSectionKind.Skeleton,
+                    m_Serializer.SerializeRecord(document.Skeleton, sink, patchEncoding, ownerMeshId: "", ownerFeatureId: SkeletonDocument.SectionFeatureId),
+                    mesh: "",
+                    featureId: SkeletonDocument.SectionFeatureId,
+                    typeId: SkeletonDocument.SectionTypeId,
+                    schemaVersion: SkeletonDocument.CurrentSchemaVersion,
+                    required: true);
+            }
+
             foreach (var mesh in document.Meshes)
             {
+                var meshEncoding = ResolveMeshEncodeOptions(encoding, provenance, mesh);
                 var header = new MeshDocument
                 {
-                    MeshId = mesh.MeshId, Name = mesh.Name, NodePath = mesh.NodePath, Topology = mesh.Topology,
-                    Mappings = mesh.Mappings ?? new List<VertexMappingEntry>()
+                    MeshId = mesh.MeshId,
+                    Name = mesh.Name,
+                    NodePath = mesh.NodePath,
+                    Topology = mesh.Topology,
+                    Mappings = mesh.Mappings ?? new List<VertexMappingEntry>(),
+                    Sketch = mesh.Sketch,
+                    EffectivePositionUnitMeters = mesh.EffectivePositionUnitMeters
                 };
-                AddRecord(ContainerSectionKind.MeshHeader, m_Serializer.SerializeRecord(header, sink, patchEncoding, mesh.MeshId), mesh.MeshId);
+                AddRecord(ContainerSectionKind.MeshHeader, m_Serializer.SerializeRecord(header, sink, meshEncoding, mesh.MeshId), mesh.MeshId);
                 foreach (var feature in mesh.Features)
-                    AddRecord(ContainerSectionKind.Feature, m_Serializer.SerializeFeature(feature, sink, patchEncoding, mesh.MeshId), mesh.MeshId, feature);
+                {
+                    AddRecord(
+                        ContainerSectionKind.Feature,
+                        m_Serializer.SerializeFeature(feature, sink, meshEncoding, mesh.MeshId),
+                        mesh.MeshId,
+                        feature.FeatureId,
+                        feature.TypeId,
+                        feature.SchemaVersion,
+                        feature.Required);
+                }
             }
 
             var manifestSlice = new ByteSlice(FixedHeaderSize, manifest.Length);
             var recordCount = entries.Count;
             entries.AddRange(sink.Entries);
             FormatIO.Check(entries.Count <= WireLimits.MaxPayloadCount, "Too many index entries.");
-            // Offsets and entry ordinals are fixed-width, so relocation cannot change the index length.
             using var index = new MemoryStream();
             WriteIndex(index, entries);
             var indexSlice = new ByteSlice(manifestSlice.End, index.Length);
@@ -116,33 +139,60 @@ namespace Triturbo.BlendShare.Container.Format
             return baseOptions.WithPositionUnitMeters(unitMeters);
         }
 
+        private static PayloadEncodeOptions ResolveMeshEncodeOptions(
+            PayloadEncodeOptions baseOptions,
+            PatchSpaceProvenance provenance,
+            MeshDocument mesh)
+        {
+            if (mesh != null && mesh.EffectivePositionUnitMeters > 0d)
+            {
+                FormatIO.Check(!double.IsNaN(mesh.EffectivePositionUnitMeters) && !double.IsInfinity(mesh.EffectivePositionUnitMeters),
+                    "Mesh EffectivePositionUnitMeters must be finite.");
+                return baseOptions.WithPositionUnitMeters(mesh.EffectivePositionUnitMeters);
+            }
+
+            return ResolvePatchEncodeOptions(baseOptions, provenance);
+        }
+
         private void Validate(PatchDocument document, ILazyPayloadSource payloadSource)
         {
             FormatIO.Check(!string.IsNullOrWhiteSpace(document?.PatchId) && document.Meshes != null,
                 "Invalid patch document.");
             FormatIO.Check(document.SpaceProvenance != null && document.SpaceProvenance.IsValid,
                 "Patch document requires a valid shared SpaceProvenance.");
-            if (document.Skeleton?.Bones != null)
+
+            if (document.Skeleton != null)
             {
-                var bonePaths = new HashSet<string>(StringComparer.Ordinal);
-                foreach (var bone in document.Skeleton.Bones)
+                var skelResult = SkeletonDocumentValidator.Validate(document.Skeleton);
+                if (!skelResult.IsValid)
                 {
-                    string normalized = SkeletonDocument.NormalizeBonePath(bone?.Path);
-                    FormatIO.Check(!string.IsNullOrEmpty(normalized) && bonePaths.Add(normalized),
-                        $"Missing or duplicate skeleton bone path '{bone?.Path}'.");
+                    throw new InvalidDataException(string.Join(", ", skelResult.Issues));
                 }
             }
+
             var meshes = new HashSet<string>(StringComparer.Ordinal);
             foreach (var mesh in document.Meshes)
             {
                 FormatIO.Check(!string.IsNullOrWhiteSpace(mesh?.MeshId) && meshes.Add(mesh.MeshId) &&
                     mesh.Features != null, "Missing or duplicate mesh ID or missing features.");
+                FormatIO.Check(!double.IsNaN(mesh.EffectivePositionUnitMeters) &&
+                    !double.IsInfinity(mesh.EffectivePositionUnitMeters) &&
+                    mesh.EffectivePositionUnitMeters >= 0d,
+                    $"Invalid EffectivePositionUnitMeters ({mesh.EffectivePositionUnitMeters}) on mesh '{mesh.MeshId}'.");
+
+                if (mesh.Sketch != null)
+                {
+                    int expectedCpCount = mesh.Topology != null && mesh.Topology.IsValid ? mesh.Topology.ControlPointCount : -1;
+                    FormatIO.Check(mesh.Sketch.TryValidate(expectedCpCount, out string sketchError), sketchError);
+                }
+
                 if (mesh.Mappings != null && mesh.Mappings.Count > 0)
                 {
                     FormatIO.Check(
                         VertexMappingEntry.TryValidateEntries(mesh.Mappings, mesh.Topology, out string mappingError),
                         mappingError);
                 }
+
                 var ids = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var feature in mesh.Features)
                 {
@@ -150,7 +200,6 @@ namespace Triturbo.BlendShare.Container.Format
                         !string.IsNullOrWhiteSpace(feature.TypeId) && feature.SchemaVersion > 0, "Invalid or duplicate feature.");
                     if (feature is UnknownFeatureData unknown)
                     {
-                        // Opaque bytes may contain absolute payload ordinals which cannot be remapped.
                         FormatIO.Check(unknown.EstimatedPayloadBytes == 0, "Cannot rewrite an opaque feature with external payloads.");
                         continue;
                     }
